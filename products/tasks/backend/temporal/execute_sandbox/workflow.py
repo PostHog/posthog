@@ -17,7 +17,6 @@ from enum import StrEnum
 from typing import Any, Optional
 
 import temporalio
-import temporalio.exceptions
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -288,29 +287,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             slack_thread_context=loaded.get("slack_thread_context"),
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
-
-    @staticmethod
-    def _activity_error_properties(error: Exception) -> dict[str, Any]:
-        if not isinstance(error, temporalio.exceptions.ActivityError):
-            return {}
-
-        retry_state = error.retry_state
-        properties: dict[str, Any] = {
-            "temporal_activity_id": error.activity_id,
-            "temporal_activity_type": error.activity_type,
-            "temporal_activity_identity": error.identity,
-            "temporal_activity_retry_state": retry_state.name if retry_state else None,
-            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
-            "temporal_activity_started_event_id": error.started_event_id,
-        }
-        if error.cause:
-            properties.update(
-                {
-                    "cause_error_type": type(error.cause).__name__,
-                    "cause_error_message": str(error.cause)[:500],
-                }
-            )
-        return properties
 
     @staticmethod
     def _should_skip_followup(message: str | None, artifact_ids: list[str]) -> bool:
@@ -727,19 +703,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
                 # task-completion path so it can react immediately.
+                error_properties = self._activity_error_properties(e)
+                cause_message = error_properties.get("cause_error_message")
                 workflow.logger.warning(
                     "execute_sandbox_send_followup_failed",
                     run_id=self.context.run_id,
                     error=str(e),
+                    **error_properties,
                 )
                 self._completion_status = "failed"
-                self._completion_error = f"Follow-up delivery failed: {e}"
+                self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
                 self._task_completed = True
                 self._enqueue_ack(
                     signal_name=SEND_FOLLOWUP_SIGNAL,
                     ack_id=followup.ack_id,
                     accepted=False,
-                    detail=str(e)[:200],
+                    detail=(cause_message or str(e))[:200],
                 )
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
@@ -861,7 +840,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
 
-        if prepared.used_snapshot:
+        used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
+        if used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -872,7 +852,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         else:
             await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
 
-        if prepared.snapshot_external_id:
+        if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
                 inject_fresh_tokens_on_resume,
                 InjectFreshTokensOnResumeInput(
@@ -887,7 +867,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
@@ -921,7 +901,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
-                    used_snapshot=prepared.used_snapshot,
+                    used_snapshot=used_snapshot,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -932,8 +912,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
-            used_snapshot=prepared.used_snapshot,
-            should_create_snapshot=prepared.should_create_snapshot,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -1155,7 +1135,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
         result = await workflow.execute_activity(
             create_resume_snapshot,
-            CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            CreateResumeSnapshotInput(
+                sandbox_id=sandbox_id,
+                run_id=self.context.run_id,
+                use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

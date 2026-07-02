@@ -14,7 +14,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    github_request,
+    raise_if_github_rate_limited,
+)
+from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -57,6 +63,19 @@ class GithubEmptyRepositoryError(Exception):
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
+
+
+@dataclasses.dataclass(frozen=True)
+class GithubEgressIdentity:
+    """Identity threaded to the HTTP chokepoint (``_fetch_page``) so it can gate on the shared
+    per-installation egress budget and label telemetry.
+
+    ``installation_id`` is the GitHub App installation id — the limiter's budget owner and the
+    telemetry key, matching every other consumer of the same installation so the shared budget is
+    genuinely shared. ``None`` on the PAT path (no installation, token-blind), which skips the gate and
+    records request volume only — the pre-limiter behavior."""
+
+    installation_id: str | None = None
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -353,6 +372,8 @@ def _github_retry_wait(state: RetryCallState) -> float:
     retry=retry_if_exception_type(
         (
             GithubRetryableError,
+            # Our egress limiter shed this deferrable page (BATCH); back off and re-acquire next attempt.
+            GitHubEgressBudgetExhausted,
             GitHubRateLimitError,
             requests.ReadTimeout,
             requests.ConnectionError,
@@ -366,8 +387,28 @@ def _github_retry_wait(state: RetryCallState) -> float:
     wait=_github_retry_wait,
     reraise=True,
 )
-def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+def _fetch_page(
+    page_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    egress_identity: GithubEgressIdentity | None = None,
+) -> requests.Response:
+    # One gated + recorded GET through the shared egress client. The App path bills the shared
+    # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
+    # gate and records volume only. On a BATCH denial the client raises GitHubEgressBudgetExhausted, which
+    # this function's @retry backs off on; transport failures are recorded and re-raised for the same
+    # retry. We keep our own tracked session and the GitHub response→exception mapping below.
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    response = github_request(
+        "GET",
+        page_url,
+        source="warehouse",
+        headers=headers,
+        installation_id=installation_id,
+        priority=Priority.BATCH,
+        timeout=60,
+        session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+    )
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:
@@ -398,6 +439,7 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     max_pages: int | None = None,
     page_cap_context: dict[str, Any] | None = None,
+    egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -405,7 +447,7 @@ def _iter_pages(
     envelope body simply ends iteration — there is nothing to truncate."""
     page_count = 0
     while True:
-        response = _fetch_page(url, headers, logger)
+        response = _fetch_page(url, headers, logger, egress_identity)
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
@@ -432,6 +474,7 @@ def _iter_jobs_for_run(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
+    egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[dict[str, Any]]:
     path = config.path.format(repository=repository, run_id=run_id)
     params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
@@ -443,6 +486,7 @@ def _iter_jobs_for_run(
         logger,
         max_pages=config.max_pages_per_parent,
         page_cap_context={"repository": repository, "run_id": run_id},
+        egress_identity=egress_identity,
     ):
         yield from jobs
 
@@ -456,6 +500,7 @@ def _fan_out_get_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
+    egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint newest-first and
     emit every child row for each parent. Incremental bounding happens on the
@@ -498,7 +543,9 @@ def _fan_out_get_rows(
     else:
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
-    for runs, page_url in _iter_pages(parent_url, headers, parent_config.response_data_path, logger):
+    for runs, page_url in _iter_pages(
+        parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
+    ):
         stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
 
         for run in runs:
@@ -508,7 +555,7 @@ def _fan_out_get_rows(
             # Only fan out parents at/above the watermark; older ones were synced before.
             if parent_cutoff is not None and _is_older_than_cutoff(run.get(parent_field), parent_cutoff):
                 continue
-            for job in _iter_jobs_for_run(repository, run_id, headers, logger, child_config):
+            for job in _iter_jobs_for_run(repository, run_id, headers, logger, child_config, egress_identity):
                 batcher.batch(job)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -532,6 +579,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
+    egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -544,6 +592,7 @@ def get_rows(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
+            egress_identity=egress_identity,
         )
         return
 
@@ -576,7 +625,7 @@ def get_rows(
 
     while True:
         try:
-            response = _fetch_page(url, headers, logger)
+            response = _fetch_page(url, headers, logger, egress_identity)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
             break
@@ -675,6 +724,7 @@ def github_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
+    egress_identity: GithubEgressIdentity | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -727,6 +777,7 @@ def github_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
+            egress_identity=egress_identity,
         )
 
     return SourceResponse(

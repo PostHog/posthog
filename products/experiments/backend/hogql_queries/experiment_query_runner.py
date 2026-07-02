@@ -340,14 +340,6 @@ class ExperimentQueryRunner(QueryRunner):
             and not self.is_data_warehouse_query
         )
 
-    def _resolve_funnel_steps_data_disabled(self) -> bool:
-        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
-        parameters = self.experiment.parameters or {}
-        if "funnel_steps_data_disabled" in parameters:
-            return bool(parameters["funnel_steps_data_disabled"])
-
-        return self._team_experiments_config.funnel_steps_data_disabled
-
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -364,10 +356,6 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (
-            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
-        )
-
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -380,7 +368,6 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
-            funnel_steps_data_disabled=funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
@@ -482,8 +469,15 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
             experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_scan_date_from=self.date_range.date_from,
+            experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        experiment_query_debug = get_experiment_query_debug(
+            experiment_query_ast,
+            self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 

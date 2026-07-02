@@ -1,9 +1,9 @@
-import { Client, Connection } from '@temporalio/client'
+import { Client, Connection, WorkflowExecutionAlreadyStartedError } from '@temporalio/client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
-import { TemporalService } from './temporal.service'
+import { DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS, TemporalService, workflowSafeTraceId } from './temporal.service'
 import type { EvaluationWorkflowRuntime, TemporalServiceConfig } from './temporal.service'
 
 jest.mock('@temporalio/client')
@@ -273,6 +273,99 @@ describe('TemporalService', () => {
             await expect(service.startTaggerRunWorkflow('tagger-123', createMockEvent())).rejects.toThrow(
                 'Temporal unavailable'
             )
+        })
+    })
+
+    describe('trace evaluation workflows', () => {
+        it('starts the trace workflow with slim inputs and the passed aggregation window', async () => {
+            const mockEvent = createMockEvent()
+
+            await service.startTraceEvaluationRunWorkflow('eval-123', mockEvent, 'trace-789', 'session-1', 60)
+
+            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-trace-evaluation', {
+                taskQueue: 'llm-analytics-evals-task-queue',
+                workflowId: 'llma-trace-eval-eval-123-trace-789',
+                workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
+                workflowTaskTimeout: '2 minutes',
+                args: [
+                    {
+                        evaluation_id: 'eval-123',
+                        team_id: 1,
+                        trace_id: 'trace-789',
+                        distinct_id: 'test-user',
+                        session_id: 'session-1',
+                        window_seconds: 60,
+                    },
+                ],
+            })
+        })
+
+        it('produces the same workflow id for every event of the same trace', async () => {
+            await service.startTraceEvaluationRunWorkflow(
+                'eval-123',
+                createMockEvent({ uuid: 'event-1' }),
+                'trace-789',
+                null,
+                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+            )
+            await service.startTraceEvaluationRunWorkflow(
+                'eval-123',
+                createMockEvent({ uuid: 'event-2' }),
+                'trace-789',
+                null,
+                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+            )
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
+            expect(calls[0][1].workflowId).not.toContain('event-1')
+        })
+
+        it('returns null when a completed run already exists for the trace', async () => {
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(
+                new WorkflowExecutionAlreadyStartedError('already started', 'wf-id', 'run-trace-evaluation')
+            )
+
+            const handle = await service.startTraceEvaluationRunWorkflow(
+                'eval-123',
+                createMockEvent(),
+                'trace-789',
+                null,
+                DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+            )
+
+            expect(handle).toBeNull()
+        })
+
+        it('rethrows non-dedup start failures', async () => {
+            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
+
+            await expect(
+                service.startTraceEvaluationRunWorkflow(
+                    'eval-123',
+                    createMockEvent(),
+                    'trace-789',
+                    null,
+                    DEFAULT_TRACE_EVALUATION_WINDOW_SECONDS
+                )
+            ).rejects.toThrow('Temporal unavailable')
+        })
+    })
+
+    describe('workflowSafeTraceId', () => {
+        it('keeps short trace ids as-is', () => {
+            expect(workflowSafeTraceId('trace-789')).toBe('trace-789')
+        })
+
+        it('hashes oversized trace ids deterministically', () => {
+            const longTraceId = 'x'.repeat(500)
+
+            const safeId = workflowSafeTraceId(longTraceId)
+
+            expect(safeId).toHaveLength(32)
+            expect(safeId).toBe(workflowSafeTraceId(longTraceId))
+            expect(safeId).not.toBe(workflowSafeTraceId(`${longTraceId}y`))
         })
     })
 })

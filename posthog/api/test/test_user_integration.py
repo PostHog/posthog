@@ -739,7 +739,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
                 user_id=self.user.id,
                 team_id=self.team.pk,
                 installation_id="12345",
-                next_url="/project/{}/settings/project-integrations".format(self.team.pk),
+                next_url="/project/{}/integrations/github".format(self.team.pk),
             ),
         )
 
@@ -756,7 +756,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_integration_from_install.assert_called_once_with("12345", self.team.pk, self.user)
         # Redirected back to the requested ``next`` URL with the install/integration ids appended.
         location = response["Location"]
-        self.assertIn(f"/project/{self.team.pk}/settings/project-integrations", location)
+        self.assertIn(f"/project/{self.team.pk}/integrations/github", location)
         self.assertIn("installation_id=12345", location)
         self.assertIn(f"integration_id={team_integration.id}", location)
 
@@ -1170,7 +1170,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         )
 
     def _enable_flag(self) -> Any:
-        return patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=True)
+        return patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=True)
 
     def _seed_workspace_integration(self) -> Integration:
         return Integration.objects.create(
@@ -1206,7 +1206,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 
     def test_slack_start_403_when_flag_off(self):
         self._seed_workspace_integration()
-        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+        with patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=False):
             response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -1239,7 +1239,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 
     def test_slack_linkable_skips_workspaces_with_flag_off(self):
         self._seed_workspace_integration()
-        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+        with patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=False):
             response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
         self.assertEqual(response.json()["results"], [])
 

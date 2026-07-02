@@ -1291,6 +1291,7 @@ export interface CredentialApi {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1592,6 +1593,12 @@ export interface CredentialApi {
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
  * * `Baserow` - Baserow
+ * * `Plunk` - Plunk
+ * * `Dub` - Dub
+ * * `AirOps` - AirOps
+ * * `Podium` - Podium
+ * * `Loops` - Loops
+ * * `Redis` - Redis
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1945,6 +1952,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
@@ -2246,6 +2254,12 @@ export const ExternalDataSourceTypeEnumApi = {
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
     Baserow: 'Baserow',
+    Plunk: 'Plunk',
+    Dub: 'Dub',
+    AirOps: 'AirOps',
+    Podium: 'Podium',
+    Loops: 'Loops',
+    Redis: 'Redis',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

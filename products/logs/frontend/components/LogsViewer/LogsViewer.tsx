@@ -1,8 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -27,9 +25,7 @@ import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
-import { logsViewerModalLogic } from './LogsViewerModal/logsViewerModalLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
-import { LogsViewerToolbar, LogsViewerToolbarProps } from './LogsViewerToolbar'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -112,13 +108,18 @@ function LogsViewerContent({
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed, setViewMode } =
-        useActions(logsViewerConfigLogic)
-    const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
-        useValues(logsViewerDataLogic)
+    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
+    const {
+        logsLoading,
+        parsedLogs,
+        sparklineData,
+        sparklineLoading,
+        sparklineIncompleteBarIndices,
+        hasMoreLogsToLoad,
+        totalLogsMatchingFilters,
+    } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
@@ -299,18 +300,19 @@ function LogsViewerContent({
                 onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
+                incompleteBarIndices={sparklineIncompleteBarIndices}
             />
             <SceneDivider />
         </>
     )
 
-    const filterBar = showFilterBar ? <LogsFilterBar showSavedViewsButton={showSavedViewsButton} /> : null
+    const filterBar = showFilterBar ? (
+        <LogsFilterBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
+    ) : null
 
-    const toolbarProps: LogsViewerToolbarProps = {
+    const displayBarProps = {
+        id,
         totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
-        orderBy,
-        onChangeOrderBy: (newOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
-        onOpenFullScreen: showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined,
     }
 
     const logList = (
@@ -353,24 +355,12 @@ function LogsViewerContent({
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
     const resultsRegion = inPatternsMode ? <LogsPatterns id={id} /> : logList
 
-    const modeToggle = showPatternsView ? (
-        <LemonSegmentedButton
-            size="small"
-            value={viewMode}
-            onChange={setViewMode}
-            options={[
-                { value: 'logs', label: 'Logs' },
-                { value: 'patterns', label: 'Patterns' },
-            ]}
-        />
-    ) : null
-
-    // Both layouts share the same results column; only the bar above it differs. Keeping the
-    // mode toggle + "patterns hides the bar" rule in one place avoids drift between the branches.
+    // Both layouts share the same results column; only the results bar above it differs (the facet-rail
+    // layout adds the rail toggle). The bar owns the Logs⇄Patterns switch and hides its Logs-only tools
+    // in Patterns mode, so it renders in both modes — keeping the frame (toggle, count) persistent.
     const resultsColumn = (bar: JSX.Element): JSX.Element => (
         <>
-            {modeToggle}
-            {!inPatternsMode && bar}
+            {bar}
             {resultsRegion}
         </>
     )
@@ -380,12 +370,12 @@ function LogsViewerContent({
         // row of [facet rail | display bar (operate on the data) + the log lists].
         return (
             <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} />
+                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
                 {sparklineSection}
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
                     {!facetRailCollapsed && <FacetRail id={id} />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        {resultsColumn(<LogsDisplayBar {...toolbarProps} />)}
+                        {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                     </div>
                 </div>
                 <LogDetailsModal timezone={timezone} />
@@ -397,7 +387,7 @@ function LogsViewerContent({
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
             {sparklineSection}
             {filterBar}
-            {resultsColumn(<LogsViewerToolbar {...toolbarProps} />)}
+            {resultsColumn(<LogsDisplayBar {...displayBarProps} />)}
             <LogDetailsModal timezone={timezone} />
         </div>
     )
