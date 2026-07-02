@@ -4,8 +4,11 @@ import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
-import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
+    type ClassifierScannerConfig,
+    type ScorerScannerConfig,
+    configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
     parseFailureReason,
@@ -66,8 +69,7 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// `uuid` is legacy: timestamp citations only carry `timestamp_ms`, but observations stored under the
-// old event-uuid citations still have it, so it's optional and otherwise ignored.
+// `uuid` is legacy — only old event-uuid citations carry it; timestamp citations use `timestamp_ms` alone.
 type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
 function isSegment(value: unknown): value is Segment {
@@ -125,11 +127,6 @@ export function CitedText({
     )
 }
 
-export function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
-    const config = snapshot?.scanner_config
-    return config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
-}
-
 export function ObservationPrimaryOutput({
     observation,
     compact = false,
@@ -151,8 +148,8 @@ export function ObservationPrimaryOutput({
         return null
     }
     const scannerType = snapshot.scanner_type
-    const config = readConfig(snapshot)
-    const prompt = showPrompt && typeof config.prompt === 'string' ? config.prompt : null
+    const config = configFromSnapshot(snapshot)
+    const prompt = showPrompt ? (config?.prompt ?? null) : null
     const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
     const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
     const promptClass = 'text-xs text-muted'
@@ -198,15 +195,16 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'classifier') {
         const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
         const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
-        const configuredTags = Array.isArray(config.tags) ? (config.tags as string[]) : []
+        const classifierConfig = config as ClassifierScannerConfig | null
+        const configuredTags = Array.isArray(classifierConfig?.tags) ? classifierConfig.tags : []
         const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
         const renderVocab = (): JSX.Element[] =>
-            configuredTags.map((tag) => {
+            configuredTags.map((tag, index) => {
                 const isChosen = chosen.has(tag)
                 return (
                     <LemonTag
-                        key={`fixed-${tag}`}
+                        key={`fixed-${index}-${tag}`}
                         size="medium"
                         type={isChosen ? 'option' : 'default'}
                         className={isChosen ? undefined : 'opacity-50 line-through'}
@@ -216,8 +214,8 @@ export function ObservationPrimaryOutput({
                 )
             })
         const renderFreeform = (): JSX.Element[] =>
-            freeformTags.map((tag) => (
-                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
+            freeformTags.map((tag, index) => (
+                <LemonTag key={`freeform-${index}-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
                     {tag}
                 </LemonTag>
             ))
@@ -229,8 +227,8 @@ export function ObservationPrimaryOutput({
                             <span className="text-muted text-sm">No tags</span>
                         ) : (
                             <>
-                                {fixedTags.map((tag) => (
-                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                {fixedTags.map((tag, index) => (
+                                    <LemonTag key={`fixed-${index}-${tag}`} size="medium" type="option">
                                         {tag}
                                     </LemonTag>
                                 ))}
@@ -264,10 +262,9 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'scorer') {
         const score = typeof result.score === 'number' ? result.score : null
         const resultLabel = typeof result.label === 'string' ? result.label : null
-        const scale =
-            config.scale && typeof config.scale === 'object' ? (config.scale as Record<string, unknown>) : null
-        const scaleMax = scale && typeof scale.max === 'number' ? scale.max : null
-        const scaleLabel = scale && typeof scale.label === 'string' ? scale.label : null
+        const scale = (config as ScorerScannerConfig | null)?.scale ?? null
+        const scaleMax = typeof scale?.max === 'number' ? scale.max : null
+        const scaleLabel = typeof scale?.label === 'string' ? scale.label : null
         // Prefer the per-observation label (specific); fall back to the configured scale label (axis name).
         const displayLabel = resultLabel ?? scaleLabel
         return (
@@ -374,10 +371,6 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
     )
 }
 
-function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
-}
-
 export function ObservationDockCard({
     observation,
     onSeek,
@@ -415,7 +408,7 @@ export function ObservationDockCard({
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgress observation={observation} />
+                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
             )}
         </div>
     )
