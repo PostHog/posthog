@@ -138,6 +138,39 @@ def _get_downstream_lookup(edge_lookup: dict):
     return downstreams
 
 
+def _classify_level_nodes(
+    level: list[str],
+    *,
+    downstreams: dict[str, set[str]],
+    failed_node_set: set[str],
+    suspended_node_ids: set[str],
+    ephemeral_node_set: set[str],
+    engine: str,
+) -> tuple[list[str], list[tuple[str, str]], list[str], set[str]]:
+    execute_nodes = []
+    skip_nodes = []
+    ephemeral_nodes = []
+    blocked_node_ids = set()
+    for node_id in level:
+        should_skip = False
+        skip_reason = None
+        for failed_id in failed_node_set:
+            if node_id in downstreams[failed_id]:
+                should_skip = True
+                skip_reason = f"Upstream node {failed_id} failed"
+                break
+        if node_id in suspended_node_ids:
+            skip_nodes.append((node_id, f"Node is suspended for {engine}"))
+            blocked_node_ids.add(node_id)
+        elif should_skip and skip_reason is not None:
+            skip_nodes.append((node_id, skip_reason))
+        elif node_id in ephemeral_node_set:
+            ephemeral_nodes.append(node_id)
+        else:
+            execute_nodes.append(node_id)
+    return execute_nodes, skip_nodes, ephemeral_nodes, blocked_node_ids
+
+
 def _dag_execution_levels(
     team_id: int,
     dag_id: str,
@@ -294,26 +327,15 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 f"Executing level {i + 1}/{len(levels)}",
                 extra={"nodes": level, **inputs.properties_to_log},
             )
-            execute_nodes = []
-            skip_nodes = []
-            ephemeral_nodes = []
-            for node_id in level:
-                should_skip = False
-                skip_reason = None
-                for failed_id in failed_node_set:
-                    if node_id in downstreams[failed_id]:
-                        should_skip = True
-                        skip_reason = f"Upstream node {failed_id} failed"
-                        break
-                if node_id in suspended_node_ids:
-                    skip_nodes.append((node_id, f"Node is suspended for {engine.value}"))
-                    failed_node_set.add(node_id)
-                elif should_skip:
-                    skip_nodes.append((node_id, skip_reason))
-                elif node_id in ephemeral_node_set:
-                    ephemeral_nodes.append(node_id)
-                else:
-                    execute_nodes.append(node_id)
+            execute_nodes, skip_nodes, ephemeral_nodes, blocked_node_ids = _classify_level_nodes(
+                level,
+                downstreams=downstreams,
+                failed_node_set=failed_node_set,
+                suspended_node_ids=suspended_node_ids,
+                ephemeral_node_set=ephemeral_node_set,
+                engine=engine.value,
+            )
+            failed_node_set.update(blocked_node_ids)
 
             for node_id, skip_reason in skip_nodes:
                 node_results.append(
