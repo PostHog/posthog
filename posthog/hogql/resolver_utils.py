@@ -364,7 +364,12 @@ def _recursively_resolve_column(
     elif isinstance(column, ast.ConstantType):
         fields[name] = _constant_type_to_database_field(name, column)
     elif isinstance(column, ast.SelectQueryType):
-        first_col = next(iter(column.columns.values()))
+        # A bare next() on an empty columns dict raises StopIteration, which mutates into an opaque
+        # RuntimeError when it escapes the ThreadPoolExecutor that drives HogQL resolution. Surface a
+        # scoped QueryError instead so the empty-subquery case fails cleanly.
+        first_col = next(iter(column.columns.values()), None)
+        if first_col is None:
+            raise QueryError(f"Column '{name}' resolves to a subquery with no columns in CTETableType")
         return _recursively_resolve_column(name, first_col, fields, context)
     else:
         raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")

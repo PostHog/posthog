@@ -894,6 +894,16 @@ class TestResolver(BaseTest):
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
         self.assertIn("Cannot use table CTE", str(e.exception))
 
+    def test_recursively_resolve_empty_subquery_column_raises_query_error(self):
+        # A SelectQueryType column that resolves to no columns must surface a scoped QueryError,
+        # not a bare StopIteration that mutates into an opaque RuntimeError across the
+        # ThreadPoolExecutor boundary that drives HogQL resolution.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        fields: dict[str, Any] = {}
+        with self.assertRaises(QueryError) as e:
+            resolver_utils._recursively_resolve_column("col", ast.SelectQueryType(), fields, context)
+        self.assertIn("no columns", str(e.exception))
+
     def test_ctes_in_subquery_for_clickhouse(self):
         # Test that CTEs defined in a subquery remain with that subquery for ClickHouse
         # This is necessary because CTEs get resolved with context-specific JOINs
