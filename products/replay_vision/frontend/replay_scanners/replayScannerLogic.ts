@@ -25,8 +25,9 @@ import type {
     ReplayObservationApi,
     TagSuggestionApi,
 } from '../generated/api.schemas'
-import { scheduleObservationPoll } from '../logics/observationPolling'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -58,8 +59,6 @@ const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = 
 const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
 
 export const OBSERVATIONS_PAGE_SIZE = 50
-
-const OBSERVE_POLL_GRACE_MS = 30_000
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -146,10 +145,9 @@ interface ObservationListParams {
     order_by?: string
 }
 
-export interface ObservationsSorting {
-    columnKey: string
-    order: 1 | -1
-}
+export type ObservationsSorting = UrlSorting
+
+export { parseCsvParam, parseSortParam }
 
 const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
@@ -684,6 +682,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     listeners(({ actions, props, values, cache }) => {
+        const reschedulePoll = (): void => {
+            scheduleObservationPoll(
+                cache.disposables,
+                shouldPollObservations(values.hasObservationsInFlight, values.pollUntil),
+                () => reloadObservationsAndStats(true)
+            )
+        }
         const reloadObservationsAndStats = (background = false): void => {
             actions.loadObservations(background)
             actions.loadObservationStats()
@@ -976,21 +981,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            loadObservationStatsSuccess: () => {
-                scheduleObservationPoll(
-                    cache.disposables,
-                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    () => reloadObservationsAndStats(true)
-                )
-            },
-            // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
-            loadObservationStatsFailure: () => {
-                scheduleObservationPoll(
-                    cache.disposables,
-                    values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    () => reloadObservationsAndStats(true)
-                )
-            },
+            // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+            loadObservationStatsSuccess: reschedulePoll,
+            loadObservationStatsFailure: reschedulePoll,
         }
     }),
 
@@ -1004,9 +997,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 next.page = String(values.observationsPage)
             }
             const sort = values.observationsSort
-            if (sort && !(sort.columnKey === 'created_at' && sort.order === -1)) {
-                next.sort = `${sort.order === -1 ? '-' : ''}${sort.columnKey}`
-            }
+            next.sort = serializeSortParam(sort, { columnKey: 'created_at', order: -1 })
             Object.assign(next, observationFilterParams(values))
             return next
         }
@@ -1128,30 +1119,4 @@ export function shouldGuardScannerNavigation(params: {
         return false
     }
     return true
-}
-
-export function parseSortParam(value: string | undefined): ObservationsSorting | null {
-    if (typeof value !== 'string' || value.length === 0) {
-        return null
-    }
-    const descending = value.startsWith('-')
-    const columnKey = descending ? value.slice(1) : value
-    if (!columnKey) {
-        return null
-    }
-    return { columnKey, order: descending ? -1 : 1 }
-}
-
-export function parseCsvParam<T extends string>(value: unknown, validValues?: readonly T[]): T[] {
-    // The router coerces a single numeric param to a number, so `?tags=2024` must not be dropped.
-    const raw = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : ''
-    if (raw.length === 0) {
-        return []
-    }
-    const parsed = raw
-        .split(',')
-        .map((v) => v.trim())
-        .filter((v) => v.length > 0) as T[]
-    // Enum params drop unknown values at parse time instead of round-tripping garbage to the server.
-    return validValues ? parsed.filter((v) => validValues.includes(v)) : parsed
 }

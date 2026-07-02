@@ -16,6 +16,7 @@ import {
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -70,18 +71,6 @@ export const DEFAULT_FILTERS: ScannersFilters = {
     sort: DEFAULT_SORT,
 }
 
-const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
-const splitCsv = (value: unknown): string[] =>
-    // The router coerces a single numeric param to a number, so coerce back to a string before splitting.
-    value === null || value === undefined || value === ''
-        ? []
-        : String(value)
-              .split(',')
-              .map((v) => v.trim())
-              .filter(Boolean)
-const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] =>
-    splitCsv(value).filter((v): v is T => (allowed as readonly string[]).includes(v))
-
 export function resolveScannerOrderByKey(columnKey: string): ScannerOrderKey | null {
     return (SORTABLE_COLUMN_KEYS as readonly string[]).includes(columnKey) ? (columnKey as ScannerOrderKey) : null
 }
@@ -124,18 +113,6 @@ export function buildScannerListParams(
         }
     }
     return params
-}
-
-function parseSortParam(value: unknown): ScannersSorting | null {
-    if (typeof value !== 'string' || value.length === 0) {
-        return null
-    }
-    const descending = value.startsWith('-')
-    const key = resolveScannerOrderByKey(descending ? value.slice(1) : value)
-    if (!key) {
-        return null
-    }
-    return { columnKey: key, order: descending ? -1 : 1 }
 }
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
@@ -432,19 +409,15 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     trackedActionToUrl(({ values }) => {
         const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
             const { filters } = values
-            const sortParam =
-                filters.sort &&
-                !(filters.sort.columnKey === DEFAULT_SORT.columnKey && filters.sort.order === DEFAULT_SORT.order)
-                    ? `${filters.sort.order === -1 ? '-' : ''}${filters.sort.columnKey}`
-                    : undefined
+            const sortParam = serializeSortParam(filters.sort, DEFAULT_SORT)
             return [
                 urls.replayVision(),
                 {
                     ...router.values.searchParams,
                     search: filters.search || undefined,
-                    enabled: csv(filters.enabledFilter),
-                    type: csv(filters.scannerTypeFilter),
-                    created_by: csv(filters.createdByFilter),
+                    enabled: csvParam(filters.enabledFilter),
+                    type: csvParam(filters.scannerTypeFilter),
+                    created_by: csvParam(filters.createdByFilter),
                     page: filters.page > 1 ? String(filters.page) : undefined,
                     sort: sortParam,
                 },
@@ -463,11 +436,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
                 search: typeof searchParams.search === 'string' ? searchParams.search : '',
-                enabledFilter: fromCsv<EnabledFilter>(searchParams.enabled, ALL_ENABLED),
-                scannerTypeFilter: fromCsv<ScannerType>(searchParams.type, ALL_SCANNER_TYPES),
-                createdByFilter: splitCsv(searchParams.created_by),
+                enabledFilter: parseCsvParam<EnabledFilter>(searchParams.enabled, ALL_ENABLED),
+                scannerTypeFilter: parseCsvParam<ScannerType>(searchParams.type, ALL_SCANNER_TYPES),
+                createdByFilter: parseCsvParam(searchParams.created_by),
                 page: Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1,
-                sort: parseSortParam(searchParams.sort) ?? DEFAULT_SORT,
+                sort: parseSortParam(searchParams.sort, resolveScannerOrderByKey) ?? DEFAULT_SORT,
             }
             const changed = !objectsEqual(parsed, values.filters)
             if (changed) {

@@ -24,3 +24,11 @@ export function scheduleObservationPoll(
         disposables.dispose(POLL_KEY)
     }
 }
+
+// The observe endpoint only starts the workflow; its row lands a moment later. Poll through this grace
+// window after an observe so the new card appears even before anything reports in flight.
+export const OBSERVE_POLL_GRACE_MS = 30_000
+
+export function shouldPollObservations(hasInFlight: boolean, pollUntil: number): boolean {
+    return hasInFlight || Date.now() < pollUntil
+}
