@@ -249,7 +249,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2026-06-07',
+        mockDate: '2026-06-07T12:00:00Z',
         pageUrl: combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: mcpQuery }).url,
         testOptions: { waitForSelector: '.DataTable td' },
     },

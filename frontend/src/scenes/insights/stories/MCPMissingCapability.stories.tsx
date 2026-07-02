@@ -21,7 +21,7 @@ const meta: Meta = {
             },
         },
         viewMode: 'story',
-        mockDate: '2026-06-07',
+        mockDate: '2026-06-07T12:00:00Z',
     },
     decorators: [
         mswDecorator({
