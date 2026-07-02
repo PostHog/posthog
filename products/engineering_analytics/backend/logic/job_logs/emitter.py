@@ -79,7 +79,13 @@ class JobLogsEmitter:
     def __init__(
         self, *, endpoint: str | None = None, token: str | None = None, exporter: LogExporter | None = None
     ) -> None:
-        self._provider = LoggerProvider(resource=Resource.create({"service.name": _SERVICE_NAME}))
+        # This resource must ALSO be passed to every hand-built LogRecord below: Logger.emit(record)
+        # attaches only the instrumentation scope, and a record constructed without resource= defaults
+        # to Resource.create({}) — i.e. the pod's OTEL_SERVICE_NAME/OTEL_RESOURCE_ATTRIBUTES env, which
+        # on the worker is the k8s workload name. Records then land under that service.name and the
+        # failure-logs read filter (service.name = github-ci-logs) never matches them.
+        self._resource = Resource.create({"service.name": _SERVICE_NAME})
+        self._provider = LoggerProvider(resource=self._resource)
         if exporter is None and endpoint and token:
             # capture-logs is in-cluster (a private ClusterIP). The worker's HTTP_PROXY/HTTPS_PROXY
             # point at the Smokescreen egress proxy, which denies private-range hosts (407) — so the
@@ -148,6 +154,7 @@ class JobLogsEmitter:
                     severity_number=severity_number,
                     body=body,
                     attributes=attrs,
+                    resource=self._resource,
                 )
             )
             emitted += 1
