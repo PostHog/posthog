@@ -803,7 +803,6 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
-@extend_schema(extensions={"x-product": "integrations"})
 def github_rate_limited_response(exc: Exception) -> Response | None:
     """A 429 + Retry-After response when ``exc`` is a GitHub rate limit, else ``None``.
 
@@ -821,6 +820,7 @@ def github_rate_limited_response(exc: Exception) -> Response | None:
     return response
 
 
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

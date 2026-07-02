@@ -62,6 +62,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'insight:read',
     'insight:write',
     'insight_variable:write',
+    'integration:read',
+    'integration:write',
     'llm_analytics:read',
     'llm_analytics:write',
     'llm_prompt:read',
