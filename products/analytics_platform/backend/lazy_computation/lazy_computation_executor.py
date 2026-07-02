@@ -1286,9 +1286,11 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL. Materialization is a system, team-scoped process with no request user — access to
-    # the source warehouse tables is enforced when the user reads the dashboard. Bypass warehouse access
-    # control so building the printer's database doesn't fail closed in this userless context.
+    # Print to SQL. Materialization is a system, team-scoped process with no request user, so bypass
+    # warehouse access control to avoid failing closed in this userless context. Caveat: the native
+    # pre-agg table this writes is later read WITHOUT warehouse RBAC, so materialization does not enforce
+    # per-source access on reads — a user with dashboard access can see aggregates from warehouse sources
+    # they can't query directly. Whether the pre-agg read should re-check source access is an open question.
     context = HogQLContext(
         team_id=team.id,
         team=team,
