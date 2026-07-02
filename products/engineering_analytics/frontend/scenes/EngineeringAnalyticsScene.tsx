@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { MockUxPreview } from '../mock/MockUxPreview'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -24,34 +25,47 @@ export const scene: SceneExport = {
     logic: engineeringAnalyticsSceneLogic,
 }
 
+// Mock-only: the UX-overhaul preview rides a search param instead of a scene key so the
+// throwaway tab needs no manifest/route changes. Remove together with ../mock/.
+type PreviewableTab = EngineeringAnalyticsTab | 'ux-preview'
+
 export function EngineeringAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(engineeringAnalyticsSceneLogic)
     const logic = engineeringAnalyticsLogic()
     const { anyLoading, hasMultipleSources, sourceOptions, sourceId } = useValues(logic)
     const { refresh, setSourceId } = useActions(logic)
+    const { tab: _previewParam, ...linkParams } = searchParams
+    const previewActive = _previewParam === 'ux-preview'
 
-    const tabs: LemonTab<EngineeringAnalyticsTab>[] = [
+    const tabs: LemonTab<PreviewableTab>[] = [
         {
             key: 'pull-requests',
             label: 'Pull requests',
             content: <EngineeringAnalyticsPullRequests />,
-            link: combineUrl(urls.engineeringAnalytics(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalytics(), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
         },
         {
             key: 'workflows',
             label: 'Workflows',
             content: <EngineeringAnalyticsWorkflows />,
-            link: combineUrl(urls.engineeringAnalyticsWorkflows(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
             key: 'test-health',
             label: 'Test health',
             content: <EngineeringAnalyticsTestHealth />,
-            link: combineUrl(urls.engineeringAnalyticsTestHealth(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
             'data-attr': 'engineering-analytics-test-health-tab',
+        },
+        {
+            key: 'ux-preview',
+            label: 'UX preview',
+            content: <MockUxPreview />,
+            link: combineUrl(urls.engineeringAnalytics(), { ...linkParams, tab: 'ux-preview' }).url,
+            'data-attr': 'engineering-analytics-ux-preview-tab',
         },
     ]
 
@@ -60,7 +74,11 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Engineering analytics"
-                    description={TAB_DESCRIPTIONS[activeTab]}
+                    description={
+                        previewActive
+                            ? 'UX overhaul preview — faked data, one lens stack from repo to author.'
+                            : TAB_DESCRIPTIONS[activeTab as EngineeringAnalyticsTab]
+                    }
                     resourceType={{ type: 'health' }}
                     actions={
                         <div className="flex items-center gap-2">
@@ -91,7 +109,12 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
-                <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
+                <LemonTabs
+                    activeKey={previewActive ? 'ux-preview' : activeTab}
+                    data-attr="engineering-analytics-tabs"
+                    tabs={tabs}
+                    sceneInset
+                />
             </SceneContent>
         </BindLogic>
     )
