@@ -1221,7 +1221,7 @@ class FlexportSourceConfig(config.Config):
 
 @config.config
 class FloatAppSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
