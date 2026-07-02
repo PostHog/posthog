@@ -264,12 +264,12 @@ tools:
             `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created,
             issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability
             evaluation report findings in the inbox, create `source_product=llm_analytics`,
-            `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout
-            findings reach the inbox with no config row needed. The only reason to create a
-            `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with
-            `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at
-            most one config per (source_product, source_type) per project; if one already exists, update it instead.
-            Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.
+            `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox
+            with no config row needed. The only reason to create a `source_product=signals_scout`,
+            `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit`
+            flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product,
+            source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster
+            source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
