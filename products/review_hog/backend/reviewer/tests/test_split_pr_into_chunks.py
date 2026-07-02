@@ -5,7 +5,11 @@ from pytest import MonkeyPatch
 
 from jinja2 import Environment
 
-from products.review_hog.backend.reviewer.constants import CHUNK_SOFT_MAX_ADDITIONS, CHUNK_TARGET_ADDITIONS
+from products.review_hog.backend.reviewer.constants import (
+    CHUNK_SOFT_MAX_ADDITIONS,
+    CHUNK_TARGET_ADDITIONS,
+    SINGLE_CHUNK_GATE_ADDITIONS,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
@@ -46,13 +50,13 @@ class TestPlanDeterministicChunks:
     @pytest.mark.parametrize(
         "additions,defers_to_llm",
         [
-            (CHUNK_TARGET_ADDITIONS - 1, False),
-            (CHUNK_TARGET_ADDITIONS, False),
-            (CHUNK_TARGET_ADDITIONS + 1, True),
+            (SINGLE_CHUNK_GATE_ADDITIONS - 1, False),
+            (SINGLE_CHUNK_GATE_ADDITIONS, False),
+            (SINGLE_CHUNK_GATE_ADDITIONS + 1, True),
         ],
     )
     def test_threshold_decides_single_chunk_vs_llm(self, additions: int, defers_to_llm: bool) -> None:
-        # The cost fix: a PR within the target stays one chunk (LLM skipped); only a larger PR defers
+        # The cost fix: a PR within the gate stays one chunk (LLM skipped); only a larger PR defers
         # to the semantic chunker. The boundary is inclusive.
         planned = plan_deterministic_chunks([_file("a.py", additions)])
 

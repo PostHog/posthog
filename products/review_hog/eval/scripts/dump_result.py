@@ -137,14 +137,9 @@ w("## Config snapshot\n")
 w(
     f"- runtime / model / effort: `{constants.REVIEW_RUNTIME_ADAPTER}` / `{constants.REVIEW_MODEL}` / `{constants.REVIEW_REASONING_EFFORT}`"
 )
-w(f"- `EXPERIMENT_FORCE_CHUNKING` = {constants.EXPERIMENT_FORCE_CHUNKING}")
 w(
-    f"- effective chunk target / soft-max additions = {constants.effective_chunk_target_additions()} / {constants.effective_chunk_soft_max_additions()}"
+    f"- single-chunk gate / chunk target / soft-max additions = {constants.SINGLE_CHUNK_GATE_ADDITIONS} / {constants.CHUNK_TARGET_ADDITIONS} / {constants.CHUNK_SOFT_MAX_ADDITIONS}"
 )
-w(f"- `EXPERIMENT_SEQUENTIAL_PERSPECTIVES` = {constants.EXPERIMENT_SEQUENTIAL_PERSPECTIVES}")
-w(f"- `EXPERIMENT_COMPLETENESS_PASS` = {constants.EXPERIMENT_COMPLETENESS_PASS}")
-w(f"- `EXPERIMENT_WARM_REVIEW_SESSION` = {constants.EXPERIMENT_WARM_REVIEW_SESSION}")
-w(f"- `EXPERIMENT_PINNED_CHUNKS` = {constants.EXPERIMENT_PINNED_CHUNKS}")
 w("")
 
 w("## Funnel & cost\n")

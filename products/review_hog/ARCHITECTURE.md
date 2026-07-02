@@ -51,15 +51,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   items below convert the winners into prod code and delete the losers. Decisions locked with the user
   2026-07-02:
 
-1. **Chunking numbers — split the dual-duty constant.** `CHUNK_TARGET_ADDITIONS=1000` currently serves as
-   BOTH the single-chunk gate and the chunker's size guidance. Replace with
+1. **✅ DONE 2026-07-02 — chunking numbers: dual-duty constant split.** `CHUNK_TARGET_ADDITIONS=1000`
+   served as BOTH the single-chunk gate and the chunker's size guidance. Now split (as planned):
    `SINGLE_CHUNK_GATE_ADDITIONS = 400` (≤400 reviewable additions → one chunk, no chunking LLM) and
    `CHUNK_TARGET_ADDITIONS = 300` / `CHUNK_SOFT_MAX_ADDITIONS = 600` (chunker guidance; the prompt already
    forbids single-file fragments and refuses to split atomic concerns — that's the anti-micro-chunk guard).
-   Then delete `EXPERIMENT_FORCE_CHUNKING`, `EXPERIMENT_CHUNK_TARGET/SOFT_MAX_ADDITIONS`, and the
-   `effective_*()` helpers (obsolete). **Keep `EXPERIMENT_PINNED_CHUNKS`** + `plan_pinned_chunks()` — it's
-   the eval instrument (holds chunk structure constant across runs), default `None`, and its precedence
-   over the persisted-chunk-set resume is deliberate (a stale set must not silently void a pin).
+   `EXPERIMENT_FORCE_CHUNKING`, `EXPERIMENT_CHUNK_TARGET/SOFT_MAX_ADDITIONS`, and the `effective_*()`
+   helpers are deleted; `plan_deterministic_chunks` reads the gate constant and the prompt renders the two
+   guidance constants directly (`eval/scripts/dump_result.py` config snapshot updated to match). The C6
+   pinned-chunks instrument (`EXPERIMENT_PINNED_CHUNKS` + `plan_pinned_chunks()` + the pre-resume
+   short-circuit in `split_chunks_activity`) was **removed too** — the earlier "keep as eval instrument"
+   call was reversed (nothing experimental ships; only the winners land). A future eval round that needs
+   chunk structure held constant re-derives it from the eval archive — and must re-learn its one gotcha:
+   the pin has to be checked BEFORE the persisted-chunk-set resume, or a stale set silently voids it.
+   Net behavior change: PRs at 401–1000 reviewable additions now reach the semantic chunker (previously
+   one chunk), aiming at ~300-line chunks.
 2. **Blind-spot check → prod, always-on** (every review, incl. single-chunk PRs). Naming: this is the
    eval's **"gap pass"** — renamed 2026-07-02 because "blind spots" pairs with "perspectives" in the same
    seeing metaphor (perspectives see; the blind-spot check hunts what every perspective misses). The
@@ -89,12 +95,14 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    - **Dedup nudge:** blind-spot-check output overlaps the wave more than perspectives overlap each other
      — 3 duplicate pairs slipped through dedup in the C7 runs. Tighten the dedup prompt for that round
      (same-problem anchor already exists; emphasize wave-vs-blind-spot-check comparison).
-3. **Delete the losing experiment paths (no dead code).** Warm-session removal list:
-   `EXPERIMENT_WARM_REVIEW_SESSION` + its workflow branch, `review_perspective_session_activity` +
+3. **✅ DONE 2026-07-02 — losing experiment paths deleted (no dead code).** Executed the full warm-session
+   removal list: `EXPERIMENT_WARM_REVIEW_SESSION` + its workflow branch, `review_perspective_session_activity` +
    `ReviewPerspectiveSessionInput` + the `temporal/__init__.py` registration, `build_review_followup_prompt`,
-   the three C5 tests, and **revert `start_sandbox_session`'s model-pin kwargs** (the warm session was
-   their only consumer; validate sessions run the default model). Also delete
-   `EXPERIMENT_SEQUENTIAL_PERSPECTIVES` + its workflow branch (2× wall-clock, no coverage gain).
+   the three C5 tests, and reverted `start_sandbox_session`'s model-pin kwargs (the warm session was
+   their only consumer; validate sessions run the default model). Also deleted
+   `EXPERIMENT_SEQUENTIAL_PERSPECTIVES` + its workflow branch (2× wall-clock, no coverage gain); the
+   gap unit's `same_turn_findings`/`dig_deeper` plumbing stays (the completeness-gap unit is now its
+   only trigger, pending item 2).
    **Decision note (keep this):** warm per-perspective review sessions (chunks as turns) were built and
    evaluated 2026-07-02 — mechanics work (P×C sandboxes → P sessions), but anchoring replicated in both
    runs (later chunk-turns near-silent: 2–3 valid vs 4–6 for isolated sandboxes at equal tokens).
@@ -205,7 +213,8 @@ context, model=Shape)` then `await session.end()`. A **single-turn** session is 
 
 1. **Fetch PR data** (GitHub API) — unchanged.
 2. **Chunk gate → chunk only if needed.** _(Superseded — now BUILT, see "✅ BUILT 2026-06-29 — size-aware
-   chunk gate" below: the final gate is additions-only ≤ `CHUNK_TARGET_ADDITIONS` (1000), no file-count gate,
+   chunk gate" below: the final gate is additions-only (1000 as built; split into
+   `SINGLE_CHUNK_GATE_ADDITIONS=400` on 2026-07-02 — see that section's note), no file-count gate,
    and the chunker prompt was rewritten for semantic, uncapped-count, size-targeted chunks. The original
    ~8-files / ~400-lines `MAX_\*`sketch never landed.)_ Chunk when`changed_files > MAX_FILES_BEFORE_CHUNKING`**OR**`changed_lines > MAX_LINES_BEFORE_CHUNKING`. Below the gate, treat the whole PR as a single chunk and
    **skip the chunker agent entirely**. Above it, run the existing meaning/area chunker (sandbox).
@@ -2013,6 +2022,11 @@ perspective validates against `IssuesReview`/`Issue`, the validator against `Iss
 pipeline (combine → dedup → validate → publish) stays schema-uniform.
 
 ##### ✅ BUILT 2026-06-29 — size-aware chunk gate + semantic chunker rewrite (uncommitted; 9 chunking tests + downstream green, ruff+ty+tach clean)
+
+> **Numbers superseded 2026-07-02** (see 🎯 NEXT item 1): the dual-duty `CHUNK_TARGET_ADDITIONS=1000` was
+> split into `SINGLE_CHUNK_GATE_ADDITIONS=400` (the gate) + `CHUNK_TARGET_ADDITIONS=300` /
+> `CHUNK_SOFT_MAX_ADDITIONS=600` (chunker guidance), per the reviewer-topology eval. The gate mechanics
+> below are unchanged.
 
 The long-planned "chunk gate" (Stage 2 sketched it at lines ~117/143 as `MAX_FILES_BEFORE_CHUNKING` / `MAX_LINES_BEFORE_CHUNKING` ~8 files / ~400 lines — **never actually landed**; `split_chunks_activity` always called the LLM) is now built, but **refined to the final decisions** below. The motivating bug: a 155-line PR was being split into 2 chunks, **doubling** the dominant cost (analyze fans out 1 sandbox turn per chunk; review fans out 1 per `perspective × chunk`), because the chunker was **size-blind** and its prompt was biased toward _more, smaller_ chunks. As built:
 

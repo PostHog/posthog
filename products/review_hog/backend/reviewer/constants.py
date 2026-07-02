@@ -35,10 +35,14 @@ def effective_priority(base: IssuePriority, adjusted: IssuePriority | None) -> I
 
 
 # CHUNKING
-# Comfortable size of one review chunk in ADDED lines (deletions don't count). Also the single-chunk
-# threshold: a PR within this many additions skips the chunking LLM and is reviewed as one chunk.
-CHUNK_TARGET_ADDITIONS = 1000
+# Single-chunk gate: a PR within this many reviewable ADDED lines (deletions don't count) skips the
+# chunking LLM and is reviewed as one chunk. Above it, the semantic chunker splits at concern seams.
+SINGLE_CHUNK_GATE_ADDITIONS = 400
+
+# Per-chunk size (added lines) the LLM chunker aims for. Guidance, not enforced — the prompt forbids
+# single-file fragments and refuses to split atomic concerns, so small PRs don't shatter.
+CHUNK_TARGET_ADDITIONS = 300
 
 # Soft cap the LLM chunker is told to stay under — guidance, not enforced: split large concerns at
 # natural seams rather than emit one mega-chunk, but keep a truly atomic concern whole if it runs over.
-CHUNK_SOFT_MAX_ADDITIONS = 1500
+CHUNK_SOFT_MAX_ADDITIONS = 600

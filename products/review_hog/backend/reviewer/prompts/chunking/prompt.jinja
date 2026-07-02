@@ -49,7 +49,7 @@ Order chunks by review priority via `chunk_id` (ascending): core data models and
 </analyze_pr_instructions>
 
 <output_format>
-Return a JSON array of chunks conforming to the schema.
+Return a single JSON object conforming to the schema below — a top-level object, NOT a bare array.
 - Preserve the `{"filename": ...}` structure for every file.
 - Set `chunk_type` and `key_changes` to give the reviewer context for what changed and why.
 - Order chunks by review priority via `chunk_id`.
@@ -58,7 +58,7 @@ Return a JSON array of chunks conforming to the schema.
 
 <output_instructions>
 After completing your analysis:
-1. Generate the final JSON array that conforms to the schema
+1. Generate the final JSON object that conforms to the schema (a top-level object, not a bare array)
 2. Return ONLY the JSON content (no markdown code blocks, no explanations)
 </output_instructions>
 
