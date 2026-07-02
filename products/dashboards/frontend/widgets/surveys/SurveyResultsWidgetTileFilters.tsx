@@ -1,6 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -10,12 +10,10 @@ import { SurveyPickerSelect } from './SurveyPickerSelect'
 import { parseSurveyResultsWidgetConfig, patchSurveyResultsWidgetConfig } from './surveysWidgetConfigValidation'
 
 function SurveyResultsReadOnlyValue({ tileId, surveyId }: { tileId: number; surveyId: string }): JSX.Element {
-    const logic = surveyPickerLogic({ pickerKey: `results-tile-${tileId}` })
-    const { selectedSurvey } = useValues(logic)
-    const { ensureSelectedLoaded } = useActions(logic)
-    useEffect(() => {
-        ensureSelectedLoaded(surveyId)
-    }, [surveyId, ensureSelectedLoaded])
+    // The logic resolves the survey name itself via its ensureSurveyId prop, so no component effect is needed.
+    const { selectedSurvey } = useValues(
+        surveyPickerLogic({ pickerKey: `results-tile-${tileId}`, ensureSurveyId: surveyId })
+    )
     return (
         <WidgetTileFilterReadOnlyValue>
             <span className="text-secondary">Survey:</span>{' '}

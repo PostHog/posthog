@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,7 +12,11 @@ import type { surveyPickerLogicType } from './surveyPickerLogicType'
 const SURVEY_OPTIONS_LIMIT = 50
 const SEARCH_DEBOUNCE_MS = 300
 
-export type SurveyPickerLogicProps = { pickerKey: string }
+export type SurveyPickerLogicProps = {
+    pickerKey: string
+    /** When set, the logic resolves this survey's name on mount/change — lets read-only callers show it without a component effect. */
+    ensureSurveyId?: string | null
+}
 
 export const surveyPickerLogic = kea<surveyPickerLogicType>([
     path((key) => ['products', 'dashboards', 'widgets', 'surveys', 'surveyPickerLogic', key]),
@@ -80,4 +84,16 @@ export const surveyPickerLogic = kea<surveyPickerLogicType>([
             actions.loadSelectedSurvey({ surveyId })
         },
     })),
+
+    afterMount(({ props, actions }) => {
+        if (props.ensureSurveyId) {
+            actions.ensureSelectedLoaded(props.ensureSurveyId)
+        }
+    }),
+
+    propsChanged(({ props, actions }, oldProps) => {
+        if (props.ensureSurveyId && props.ensureSurveyId !== oldProps.ensureSurveyId) {
+            actions.ensureSelectedLoaded(props.ensureSurveyId)
+        }
+    }),
 ])
