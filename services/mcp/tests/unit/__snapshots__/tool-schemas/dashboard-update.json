@@ -107,9 +107,82 @@
             "description": "Dashboard tiles to update. Widget tiles accept nested widget.config patches.",
             "items": {
                 "properties": {
+                    "color": {
+                        "anyOf": [
+                            {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional accent color for the tile. Requires the tile id."
+                    },
                     "id": {
                         "description": "Dashboard tile ID to update.",
                         "type": "number"
+                    },
+                    "layouts": {
+                        "description": "React-grid-layout position and size for this tile, keyed by breakpoint (sm, xs). Works for any existing tile type — insight, text, widget, or button — so agents can build KPI rows and grid layouts without manual drag-resizing. Requires the tile id.",
+                        "properties": {
+                            "sm": {
+                                "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                "properties": {
+                                    "h": {
+                                        "description": "Height in grid rows.",
+                                        "type": "number"
+                                    },
+                                    "w": {
+                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                        "type": "number"
+                                    },
+                                    "x": {
+                                        "description": "Column position in the dashboard grid (0-indexed).",
+                                        "type": "number"
+                                    },
+                                    "y": {
+                                        "description": "Row position in the dashboard grid (0-indexed).",
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "xs": {
+                                "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                "properties": {
+                                    "h": {
+                                        "description": "Height in grid rows.",
+                                        "type": "number"
+                                    },
+                                    "w": {
+                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                        "type": "number"
+                                    },
+                                    "x": {
+                                        "description": "Column position in the dashboard grid (0-indexed).",
+                                        "type": "number"
+                                    },
+                                    "y": {
+                                        "description": "Row position in the dashboard grid (0-indexed).",
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "show_description": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Whether to show the tile's description on the dashboard. Requires the tile id."
                     },
                     "widget": {
                         "description": "Nested widget row updates.",
