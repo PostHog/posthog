@@ -27,13 +27,13 @@ real engine behavior. Only the fields the engine reads are documented here; unkn
 The auth **type** lives in the manifest; the secret value travels in a separate payload key and is injected at run
 time. Never put the secret in the manifest.
 
-| `client.auth` block                                                | Secret payload key(s)                                    | Sends                                         |
-| ------------------------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------- |
-| `{ "type": "bearer" }`                                             | `auth_token`                                             | `Authorization: Bearer <token>`               |
-| `{ "type": "api_key", "name": "X-Api-Key", "location": "header" }` | `auth_api_key`                                           | the key in header / query param `name`        |
-| `{ "type": "api_key", "name": "api_key", "location": "query" }`    | `auth_api_key`                                           | `?api_key=<key>`                              |
-| `{ "type": "http_basic", "username": "user" }`                     | `auth_password`                                          | HTTP Basic with the given username + password |
-| `{ "type": "oauth2", ... }` (see below)                            | `auth_oauth2_client_secret`, `auth_oauth2_refresh_token` | `Authorization: Bearer <minted access token>` |
+| `client.auth` block                                                | Secret payload key(s)                                                                          | Sends                                         |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `{ "type": "bearer" }`                                             | `auth_token`                                                                                   | `Authorization: Bearer <token>`               |
+| `{ "type": "api_key", "name": "X-Api-Key", "location": "header" }` | `auth_api_key`                                                                                 | the key in header / query param `name`        |
+| `{ "type": "api_key", "name": "api_key", "location": "query" }`    | `auth_api_key`                                                                                 | `?api_key=<key>`                              |
+| `{ "type": "http_basic", "username": "user" }`                     | `auth_password`                                                                                | HTTP Basic with the given username + password |
+| `{ "type": "oauth2", ... }` (see below)                            | `auth_oauth2_client_secret` (+ `auth_oauth2_refresh_token` for the `refresh_token` grant only) | `Authorization: Bearer <minted access token>` |
 
 `location` is one of `header`, `query`, `param`, `cookie`. `query` and `param` are **synonyms** — both append
 `name=<key>` to the URL query string, so use either (prefer `query`); they differ only in spelling, not behavior. For
@@ -68,10 +68,12 @@ PostHog **adopts the OAuth2 secrets into a server-managed credential store** on 
 create call — they are never kept in the source's stored config, and any rotated single-use refresh token the provider
 returns is persisted server-side. Two practical consequences:
 
-- **Keep `client_id`, `token_url`, and `grant_type` identical across the db-schema → preview → create calls of one
-  setup.** Retries and the final create reuse the same stored credential (with its rotated refresh token) only when
-  those three match; changing them mid-setup strands the rotation and providers with single-use refresh tokens will
-  reject the next mint until the user fetches a fresh token.
+- **Keep the entire `client.auth` block identical across the db-schema → preview → create calls of one setup.**
+  The stored credential is found again by matching `client_id` + `token_url` + `grant_type`, but changing _any_
+  auth-block field (`scopes`, token-request knobs, `client_auth_method`, …) makes PostHog treat the re-submitted
+  refresh token as a deliberately new credential and discard the stored rotation — with a single-use-rotating
+  provider the next mint then fails with `invalid_grant`. Only change the auth block mid-setup together with a
+  freshly issued refresh token.
 - **`auth_oauth2_integration_id`** may appear in a stored source's config — it is the server-owned pointer to the
   credential store. Never set or copy it yourself; on create it is ignored, and to reconnect a broken credential you
   update the source with re-entered `auth_oauth2_client_secret` / `auth_oauth2_refresh_token` instead.

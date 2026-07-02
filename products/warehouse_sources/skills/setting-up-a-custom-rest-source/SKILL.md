@@ -65,7 +65,8 @@ The skeleton:
 
 **Secrets never go inline in the manifest.** `manifest_json` holds only the non-secret structure. The credential
 travels in a separate payload key chosen by the manifest's `client.auth.type`: `auth_token` (bearer), `auth_api_key`
-(api_key), `auth_password` (http_basic), or `auth_oauth2_client_secret` + `auth_oauth2_refresh_token` (oauth2). The
+(api_key), `auth_password` (http_basic), or `auth_oauth2_client_secret` for oauth2 (plus
+`auth_oauth2_refresh_token` for the refresh-token grant only). The
 engine injects it at run time, and PostHog redacts it from every response. Putting a token inline is rejected at
 validation.
 
@@ -167,9 +168,9 @@ After creation, call `external-data-schemas-list` to show the user the initial s
 - **Pick the cursor carefully.** Prefer an `updated_at`-style field over `created_at` (it catches edits), and set
   `cursor_type` when the cursor isn't a datetime (e.g. an integer id) so it's compared with the right type.
 - **OAuth2 secrets are adopted into a server-managed credential store** on the first db-schema / preview / create
-  call, and any rotated single-use refresh token is persisted server-side — so keep `client_id`, `token_url`, and
-  `grant_type` identical across those calls within one setup, and re-submit the same secrets each time. Changing them
-  mid-setup strands the stored rotation, and providers that rotate single-use refresh tokens will then reject the next
-  mint until the user fetches a fresh token. Never set `auth_oauth2_integration_id` yourself (it is server-owned); to
+  call, and any rotated single-use refresh token is persisted server-side — so keep the entire `client.auth` block
+  identical across those calls within one setup, and re-submit the same secrets each time. Changing any auth-block
+  field mid-setup discards the stored rotation, and providers that rotate single-use refresh tokens will then reject
+  the next mint until the user fetches a fresh token. Never set `auth_oauth2_integration_id` yourself (it is server-owned); to
   reconnect a source whose token broke, update it with re-entered `auth_oauth2_client_secret` /
   `auth_oauth2_refresh_token`. See the OAuth2 section of the manifest reference for the auth block fields.
