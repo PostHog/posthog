@@ -211,12 +211,13 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
-# are the primary advisory trigger (a mere behind-count fires on every branch at
-# master's velocity and trains readers to ignore it); these only nudge a branch so
-# old that generic drift is likely. Advisory only (never auto-merged). Env-tunable.
+# are the primary advisory trigger; these are a secondary net for branches old
+# enough that generic (undetected) drift is likely. Deliberately aggressive to
+# start — master moves fast and we'd rather over-warn and tune down from
+# telemetry than under-warn. Advisory only (never auto-merged). Env-tunable.
 _MASTER_REF = "origin/master"
-_STALE_COMMITS_DEFAULT = 250
-_STALE_DAYS_DEFAULT = 7
+_STALE_COMMITS_DEFAULT = 5
+_STALE_DAYS_DEFAULT = 2
 _FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this recently
 
 
@@ -320,8 +321,8 @@ def _staleness_risks(branch_files: list[str], master_files: list[str], conflicts
 
 def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
     """Whether merging master *now* would break this branch. Risk signals are the
-    advisory trigger; a raw behind-count only kicks in past the generous backstop
-    thresholds. On squash-merge master, commits behind ≈ PRs merged.
+    primary advisory trigger; a raw behind-count backstop also fires, aggressively
+    by default. On squash-merge master, commits behind ≈ PRs merged.
     Returns (status, detail, telemetry props)."""
     merge_base = _git("merge-base", "HEAD", _MASTER_REF)
     if not merge_base:
