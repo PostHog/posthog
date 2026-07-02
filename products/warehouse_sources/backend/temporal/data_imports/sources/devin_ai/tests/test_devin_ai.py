@@ -175,7 +175,7 @@ class TestFetchPageRetries:
         forbidden = MagicMock()
         forbidden.status_code = 403
         forbidden.ok = False
-        forbidden.raise_for_status.side_effect = requests.HTTPError("403 Client Error")
+        forbidden.raise_for_status.side_effect = requests.HTTPError("403 Client Error", response=forbidden)
 
         session = MagicMock()
         session.get.return_value = forbidden

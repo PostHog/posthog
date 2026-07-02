@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
@@ -28,7 +30,9 @@ class TestSourceConfig:
         names = {f.name for f in fields}
         assert names == {"api_key", "org_id"}
         api_key_field = next(f for f in fields if f.name == "api_key")
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.secret is True
+        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
