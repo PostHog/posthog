@@ -28,6 +28,7 @@ class _FakeEmitter:
 
     def __init__(self, *_args, **_kwargs):
         self.archive = None
+        _FakeEmitter.last_kwargs = {}
 
     def __enter__(self):
         return self
