@@ -40,7 +40,8 @@ class MissingSourceMapsCheck(HealthCheck):
             or follow the docs at {SOURCE_MAPS_DOCS_URL}.
         """,
         agent=f"""
-            Run `{WIZARD_COMMAND}` in the user's project, or set up uploads
+            Tell the user to run `{WIZARD_COMMAND}` in their project — the wizard is
+            interactive, so don't run it yourself. Alternatively, set up uploads
             manually following {SOURCE_MAPS_DOCS_URL}.
         """,
     )
