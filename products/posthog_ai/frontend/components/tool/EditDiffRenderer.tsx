@@ -1,74 +1,12 @@
-import { useValues } from 'kea'
-import type { editor } from 'monaco-editor'
-import { useInView } from 'react-intersection-observer'
-
 import { IconPencil } from '@posthog/icons'
 
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
-import { EditorSkeleton } from './EditorSkeleton'
+import { DiffFileContent } from './DiffFileContent'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { ReadFileContent } from './ReadFileContent'
 import { ToolActivity } from './ToolActivity'
-import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from './toolDiffContent'
+import { findAllDiffContent, getDiffStats } from './toolDiffContent'
 import type { ToolRendererProps } from './toolRegistry'
-
-// A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
-// sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level
-// so the object identity is stable across renders: MonacoDiffEditor calls `updateOptions` whenever this
-// prop changes, and a fresh literal each render would thrash it during streaming.
-const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
-    readOnly: true,
-    renderSideBySide: false,
-    hideUnchangedRegions: { enabled: true },
-    diffAlgorithm: 'advanced',
-    wordWrap: 'on',
-    diffWordWrap: 'inherit',
-    fontSize: 12,
-    lineNumbers: 'on',
-    minimap: { enabled: false },
-    renderOverviewRuler: false,
-    overviewRulerLanes: 0,
-    overviewRulerBorder: false,
-    hideCursorInOverviewRuler: true,
-    scrollBeyondLastLine: false,
-    folding: false,
-    glyphMargin: false,
-    renderLineHighlight: 'none',
-    renderGutterMenu: false,
-    guides: { indentation: false },
-    padding: { top: 4, bottom: 4 },
-    // Don't trap the thread's scroll when the cursor is over the diff.
-    scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
-}
-
-function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }): JSX.Element {
-    // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
-    const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
-    // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    return (
-        <div ref={ref} className="w-full min-w-0">
-            {inView ? (
-                <MonacoDiffEditor
-                    original={diff.oldText ?? ''}
-                    value={diff.newText ?? ''}
-                    modified={diff.newText ?? ''}
-                    language={languageFromPath(path)}
-                    theme={isDarkModeOn ? 'vs-dark' : 'vs'}
-                    options={DIFF_EDITOR_OPTIONS}
-                    loading={<EditorSkeleton />}
-                />
-            ) : (
-                <div className="h-24 rounded border border-border-secondary" />
-            )}
-        </div>
-    )
-}
 
 /** +added / -removed mono stat chip for a diff. */
 function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
@@ -111,7 +49,7 @@ export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
                         {diff.oldText == null ? (
                             <ReadFileContent text={diff.newText ?? ''} path={path} />
                         ) : (
-                            <DiffEditor diff={diff} path={path} />
+                            <DiffFileContent oldText={diff.oldText} newText={diff.newText ?? ''} path={path} />
                         )}
                     </div>
                 )

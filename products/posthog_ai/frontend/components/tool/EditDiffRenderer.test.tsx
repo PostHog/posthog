@@ -5,32 +5,17 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ToolCallMessage } from '../../types/toolTypes'
 import { EditDiffRenderer } from './EditDiffRenderer'
 
-// Monaco can't render in jsdom — stand it in for a marker that echoes the diff props we care about.
-jest.mock('lib/components/MonacoDiffEditor', () => ({
+// @pierre/diffs is ESM-only and can't be resolved by Jest/jsdom — stand the diff renderer in for a
+// marker that echoes the props we care about so jsdom never has to import the real thing.
+jest.mock('./DiffFileContent', () => ({
     __esModule: true,
-    default: ({
-        original,
-        modified,
-        language,
-        theme,
-    }: {
-        original?: string
-        modified?: string
-        language?: string
-        theme?: string
-    }) => (
-        <div
-            data-attr="monaco-diff"
-            data-original={original}
-            data-modified={modified}
-            data-language={language}
-            data-theme={theme}
-        />
+    DiffFileContent: ({ oldText, newText, path }: { oldText?: string; newText?: string; path?: string }) => (
+        <div data-attr="diff-file" data-old-text={oldText} data-new-text={newText} data-path={path} />
     ),
 }))
 
 // A newly created file renders the single-pane read view, not a diff — stand it in for a marker that
-// echoes the content + path so jsdom never instantiates real Monaco (and never pulls monaco-editor).
+// echoes the content + path so jsdom never instantiates the real (also @pierre/diffs-backed) component.
 jest.mock('./ReadFileContent', () => ({
     __esModule: true,
     ReadFileContent: ({ text, path }: { text: string; path?: string }) => (
@@ -41,14 +26,6 @@ jest.mock('./ReadFileContent', () => ({
 // Force the lazy-mount gate open so the editor instantiates.
 jest.mock('react-intersection-observer', () => ({
     useInView: () => ({ ref: () => {}, inView: true }),
-}))
-
-// Drive the app theme without mounting themeLogic (and its scene/user deps). The arrow reads
-// `mockDarkMode` lazily at render time, so flipping it per test works.
-let mockDarkMode = false
-jest.mock('kea', () => ({
-    ...jest.requireActual('kea'),
-    useValues: () => ({ isDarkModeOn: mockDarkMode }),
 }))
 
 function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
@@ -74,7 +51,6 @@ function renderExpanded(message: ToolCallMessage): void {
 describe('EditDiffRenderer', () => {
     afterEach(() => {
         cleanup()
-        mockDarkMode = false
     })
 
     it('renders an inline diff with +/- stats for an Edit with a diff block', () => {
@@ -85,12 +61,11 @@ describe('EditDiffRenderer', () => {
             })
         )
 
-        const editor = screen.getByTestId('monaco-diff')
-        expect(editor).toBeInTheDocument()
-        expect(editor).toHaveAttribute('data-original', 'a\nb')
-        expect(editor).toHaveAttribute('data-modified', 'a\nb\nc')
-        expect(editor).toHaveAttribute('data-language', 'typescript')
-        expect(editor).toHaveAttribute('data-theme', 'vs')
+        const diffContent = screen.getByTestId('diff-file')
+        expect(diffContent).toBeInTheDocument()
+        expect(diffContent).toHaveAttribute('data-old-text', 'a\nb')
+        expect(diffContent).toHaveAttribute('data-new-text', 'a\nb\nc')
+        expect(diffContent).toHaveAttribute('data-path', 'foo.ts')
         expect(screen.getByText('foo.ts')).toBeInTheDocument()
         expect(screen.getByText('+1')).toBeInTheDocument()
         expect(screen.getByText('-0')).toBeInTheDocument()
@@ -118,7 +93,7 @@ describe('EditDiffRenderer', () => {
             })
         )
 
-        expect(screen.getAllByTestId('monaco-diff')).toHaveLength(2)
+        expect(screen.getAllByTestId('diff-file')).toHaveLength(2)
     })
 
     it('renders a single-pane read view (not a diff) with all-added stats for a new file (Write)', () => {
@@ -130,7 +105,7 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByText('Created a file')).toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button'))
-        expect(screen.queryByTestId('monaco-diff')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('diff-file')).not.toBeInTheDocument()
         const readView = screen.getByTestId('read-file')
         expect(readView).toHaveAttribute('data-text', 'print(1)\nprint(2)')
         expect(readView).toHaveAttribute('data-path', 'new.py')
@@ -138,7 +113,7 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByText('+2')).toBeInTheDocument()
     })
 
-    it('resolves filename and language from rawInput.file_path when the diff block has no path', () => {
+    it('resolves the path from rawInput.file_path when the diff block has no path', () => {
         renderExpanded(
             makeMessage({
                 content: [{ type: 'diff', oldText: 'a', newText: 'b' }],
@@ -147,7 +122,7 @@ describe('EditDiffRenderer', () => {
         )
 
         expect(screen.getByText('main.go')).toBeInTheDocument()
-        expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-language', 'go')
+        expect(screen.getByTestId('diff-file')).toHaveAttribute('data-path', 'main.go')
     })
 
     it('falls back to the generic tool card (no editor) when there is no diff block', () => {
@@ -160,15 +135,8 @@ describe('EditDiffRenderer', () => {
         })
         render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
 
-        expect(screen.queryByTestId('monaco-diff')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('diff-file')).not.toBeInTheDocument()
         // The generic card still renders the rich tool title as its header.
         expect(screen.getByText('Edit `foo.ts`')).toBeInTheDocument()
-    })
-
-    it('uses the dark Monaco theme when the app is in dark mode', () => {
-        mockDarkMode = true
-        renderExpanded(makeMessage({ content: [{ type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' }] }))
-
-        expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-theme', 'vs-dark')
     })
 })

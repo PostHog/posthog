@@ -3,7 +3,7 @@ import { memo } from 'react'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 interface EditorSkeletonProps {
-    /** Match the editor's computed height so the card keeps its shape when Monaco mounts. */
+    /** Match the content's expected height so the card keeps its shape when the real view mounts. */
     height?: number | string
     /** Number of code-line rows to render. */
     lines?: number
@@ -14,8 +14,8 @@ const DEFAULT_LINES = 5
 const LINE_WIDTHS = ['w-3/4', 'w-1/2', 'w-5/6', 'w-2/3', 'w-11/12', 'w-1/3']
 
 /**
- * Editor-shaped loading skeleton for the Monaco-backed tool cards (read view + diff view). A
- * `LemonSkeleton`-only leaf — no Monaco, no lazy renderers — so it's safe both as a `Suspense`
+ * Editor-shaped loading skeleton for the code-rendering tool cards (read view + diff view). A
+ * `LemonSkeleton`-only leaf — no diff renderer, no lazy chunks — so it's safe both as a `Suspense`
  * fallback and inside the always-loaded built-in chunk. Renders a line-number gutter column next to
  * varied-width code-line bars to read as "content loading" rather than an empty/spinning box.
  */

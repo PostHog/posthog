@@ -28,7 +28,7 @@ import {
 import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
 
-// Monaco-backed read-only file view, lazy so monaco stays out of the always-loaded built-in chunk.
+// Pierre-diffs-backed read-only file view, lazy so it (and its ESM-only dep) stay out of the always-loaded built-in chunk.
 const ReadFileContent = lazy(() => import('./ReadFileContent').then((m) => ({ default: m.ReadFileContent })))
 
 function asString(value: unknown): string {
