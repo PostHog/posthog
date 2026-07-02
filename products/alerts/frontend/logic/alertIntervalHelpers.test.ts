@@ -19,6 +19,7 @@ describe('alertIntervalHelpers', () => {
 
     describe('getDefaultSimulationRange', () => {
         it.each([
+            [AlertCalculationInterval.REAL_TIME, '-2h'],
             [AlertCalculationInterval.EVERY_15_MINUTES, '-12h'],
             [AlertCalculationInterval.HOURLY, '-48h'],
             [AlertCalculationInterval.DAILY, '-30d'],
@@ -42,11 +43,27 @@ describe('alertIntervalHelpers', () => {
                 guardAvailableFeature: upgradeModalLogic.values.guardAvailableFeature,
                 onSelect,
                 hasHighFrequencyAlertsEntitlement: false,
+                hasRealTimeAlertsEntitlement: false,
             })
 
             expect(applied).toBe(false)
             expect(onSelect).not.toHaveBeenCalled()
             expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+        })
+
+        it('opens upgrade modal and does not update interval when real time is selected without entitlement', () => {
+            const onSelect = jest.fn()
+
+            const applied = selectAlertCalculationInterval(AlertCalculationInterval.REAL_TIME, {
+                guardAvailableFeature: upgradeModalLogic.values.guardAvailableFeature,
+                onSelect,
+                hasHighFrequencyAlertsEntitlement: false,
+                hasRealTimeAlertsEntitlement: false,
+            })
+
+            expect(applied).toBe(false)
+            expect(onSelect).not.toHaveBeenCalled()
+            expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.REAL_TIME_ALERTS)
         })
 
         it('updates interval when 15-minute is selected with entitlement', () => {
@@ -60,6 +77,7 @@ describe('alertIntervalHelpers', () => {
                 guardAvailableFeature,
                 onSelect,
                 hasHighFrequencyAlertsEntitlement: true,
+                hasRealTimeAlertsEntitlement: false,
             })
 
             expect(applied).toBe(true)
@@ -77,6 +95,7 @@ describe('alertIntervalHelpers', () => {
                 guardAvailableFeature,
                 onSelect,
                 hasHighFrequencyAlertsEntitlement: false,
+                hasRealTimeAlertsEntitlement: false,
             })
 
             expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.HOURLY)
@@ -86,6 +105,7 @@ describe('alertIntervalHelpers', () => {
 
     describe('isHighFrequencyAlertInterval', () => {
         it.each([
+            [AlertCalculationInterval.REAL_TIME, true],
             [AlertCalculationInterval.EVERY_15_MINUTES, true],
             [AlertCalculationInterval.HOURLY, true],
             [AlertCalculationInterval.DAILY, false],

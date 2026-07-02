@@ -140,6 +140,8 @@ export function EditAlertModal({
     const { hasAvailableFeature } = useValues(userLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+    const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
+    const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -306,6 +308,8 @@ export function EditAlertModal({
                                         alert={alert}
                                         trendInterval={trendInterval}
                                         hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
+                                        hasRealTimeAlertsEntitlement={hasRealTimeAlertsEntitlement}
+                                        realTimeAlertsEnabled={realTimeAlertsEnabled}
                                         guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
                                     />

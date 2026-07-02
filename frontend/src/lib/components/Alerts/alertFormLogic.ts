@@ -23,9 +23,11 @@ import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightMod
 
 import {
     blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    blockSubmitWithoutRealTimeAlertsEntitlement,
     getDefaultSimulationRange,
     HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
     isHighFrequencyAlertInterval,
+    REAL_TIME_ALERTS_REQUIRED_MESSAGE,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -332,6 +334,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 ) {
                     lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
                     throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                }
+
+                if (
+                    blockSubmitWithoutRealTimeAlertsEntitlement(
+                        alert.calculation_interval,
+                        userLogic.values.hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
+                    )
+                ) {
+                    lemonToast.error(REAL_TIME_ALERTS_REQUIRED_MESSAGE)
+                    throw new Error(REAL_TIME_ALERTS_REQUIRED_MESSAGE)
                 }
 
                 const payload: AlertTypeWrite = {

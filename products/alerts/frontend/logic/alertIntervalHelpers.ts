@@ -23,11 +23,21 @@ export function getDefaultSimulationRange(interval: AlertCalculationInterval): s
 }
 
 export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval): boolean {
-    return interval === AlertCalculationInterval.HOURLY || interval === AlertCalculationInterval.EVERY_15_MINUTES
+    return (
+        interval === AlertCalculationInterval.HOURLY ||
+        interval === AlertCalculationInterval.EVERY_15_MINUTES ||
+        interval === AlertCalculationInterval.REAL_TIME
+    )
+}
+
+export function isRealTimeAlertInterval(interval: AlertCalculationInterval): boolean {
+    return interval === AlertCalculationInterval.REAL_TIME
 }
 
 export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
     '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+
+export const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
 
 export function blockSubmitWithoutHighFrequencyAlertsEntitlement(
     interval: AlertCalculationInterval,
@@ -36,18 +46,35 @@ export function blockSubmitWithoutHighFrequencyAlertsEntitlement(
     return interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement
 }
 
+export function blockSubmitWithoutRealTimeAlertsEntitlement(
+    interval: AlertCalculationInterval,
+    hasRealTimeAlertsEntitlement: boolean
+): boolean {
+    return interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement
+}
+
 export function selectAlertCalculationInterval(
     value: AlertCalculationInterval,
     {
         guardAvailableFeature,
         onSelect,
         hasHighFrequencyAlertsEntitlement,
+        hasRealTimeAlertsEntitlement,
     }: {
         guardAvailableFeature: GuardAvailableFeatureFn
         onSelect: (interval: AlertCalculationInterval) => void
         hasHighFrequencyAlertsEntitlement: boolean
+        hasRealTimeAlertsEntitlement: boolean
     }
 ): boolean {
+    if (value === AlertCalculationInterval.REAL_TIME) {
+        posthog.capture('alert real time interval selected', {
+            has_entitlement: hasRealTimeAlertsEntitlement,
+        })
+        return guardAvailableFeature(AvailableFeature.REAL_TIME_ALERTS, () => {
+            onSelect(value)
+        })
+    }
     if (value === AlertCalculationInterval.EVERY_15_MINUTES) {
         posthog.capture('alert 15 min interval selected', {
             has_entitlement: hasHighFrequencyAlertsEntitlement,

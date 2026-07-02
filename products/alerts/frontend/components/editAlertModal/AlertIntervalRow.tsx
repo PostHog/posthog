@@ -7,6 +7,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+
 import { selectAlertCalculationInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { getAlertIntervalOptions } from './editAlertModalUtils'
@@ -17,6 +19,8 @@ export interface AlertIntervalRowProps {
     alert: AlertType | null | undefined
     trendInterval: string | null | undefined
     hasHighFrequencyAlertsEntitlement: boolean
+    hasRealTimeAlertsEntitlement: boolean
+    realTimeAlertsEnabled: boolean
     guardAvailableFeature: GuardAvailableFeatureFn
     nextPlannedEvaluationStale: boolean
 }
@@ -27,6 +31,8 @@ export function AlertIntervalRow({
     alert,
     trendInterval,
     hasHighFrequencyAlertsEntitlement,
+    hasRealTimeAlertsEntitlement,
+    realTimeAlertsEnabled,
     guardAvailableFeature,
     nextPlannedEvaluationStale,
 }: AlertIntervalRowProps): JSX.Element {
@@ -48,12 +54,18 @@ export function AlertIntervalRow({
                             className="w-36 shrink-0 whitespace-nowrap"
                             data-attr="alertForm-calculation-interval"
                             value={value}
-                            options={getAlertIntervalOptions(hasHighFrequencyAlertsEntitlement)}
+                            options={getAlertIntervalOptions(
+                                hasHighFrequencyAlertsEntitlement,
+                                hasRealTimeAlertsEntitlement,
+                                // Keep the option visible for alerts that already use it, even if the rollout flag is off
+                                realTimeAlertsEnabled || value === AlertCalculationInterval.REAL_TIME
+                            )}
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {
                                     guardAvailableFeature,
                                     onSelect: onChange,
                                     hasHighFrequencyAlertsEntitlement,
+                                    hasRealTimeAlertsEntitlement,
                                 })
                             }}
                         />
