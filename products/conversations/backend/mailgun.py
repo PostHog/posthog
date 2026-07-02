@@ -126,6 +126,19 @@ def add_domain(domain: str) -> dict[str, Any]:
     return {}
 
 
+def get_domain(domain: str) -> dict[str, Any] | None:
+    """Fetch a domain's info from our Mailgun account. Returns None if it isn't registered here."""
+    resp = requests.get(
+        f"{MAILGUN_API_BASE}/domains/{domain}",
+        auth=("api", _get_api_key()),
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json().get("domain", {})
+
+
 def get_domain_dns_records(domain: str) -> dict[str, Any]:
     """Fetch DNS records for an existing Mailgun domain."""
     resp = requests.get(

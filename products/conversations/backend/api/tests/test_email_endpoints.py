@@ -357,20 +357,22 @@ class TestEmailMultiConfig(BaseTest):
         # Domain NOT deleted from Mailgun since billing@ still uses it
         mock_delete.assert_not_called()
 
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+        side_effect=MailgunDomainConflict("Domain example.com is already registered by another Mailgun account"),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_connect_rejects_preexisting_mailgun_domain(
+    def test_connect_rejects_domain_claimed_by_another_mailgun_account(
         self,
         _mock_setting: MagicMock,
         mock_mailgun_delete: MagicMock,
         _mock_mailgun_add: MagicMock,
+        _mock_get_domain: MagicMock,
     ):
         response = self.client.post(
             "/api/conversations/v1/email/connect",
@@ -385,6 +387,83 @@ class TestEmailMultiConfig(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings.get("email_enabled") is not True
+
+    @parameterized.expand(
+        [
+            ("already_unverified", "unverified", "unverified", 200),
+            ("stale_active_reverifies_unverified", "active", "unverified", 200),
+            ("still_active_after_reverify", "active", "active", 400),
+            ("disabled", "disabled", "disabled", 400),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_verify_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_reclaims_stranded_mailgun_domain(
+        self,
+        _name,
+        mailgun_state,
+        reverified_state,
+        expected_status,
+        _mock_setting: MagicMock,
+        mock_add: MagicMock,
+        mock_get_domain: MagicMock,
+        mock_delete: MagicMock,
+        mock_verify: MagicMock,
+    ):
+        fresh_records = {"sending_dns_records": [{"record_type": "TXT", "name": "example.com", "value": "v=spf1"}]}
+        mock_add.side_effect = [MailgunDomainConflict("Domain example.com already exists"), fresh_records]
+        mock_get_domain.return_value = {"name": "example.com", "state": mailgun_state}
+        mock_verify.return_value = {"state": reverified_state}
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            config = EmailChannel.objects.get(team=self.team)
+            assert config.dns_records == fresh_records
+            mock_delete.assert_called_once_with("example.com")
+        else:
+            assert "cannot be registered" in response.json()["error"]
+            assert not EmailChannel.objects.filter(team=self.team).exists()
+            mock_delete.assert_not_called()
+
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_get_domain",
+        side_effect=RuntimeError("mailgun unavailable"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.mailgun_add_domain",
+        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_conflict_stands_when_reclaim_lookup_fails(
+        self,
+        _mock_setting: MagicMock,
+        _mock_mailgun_add: MagicMock,
+        _mock_get_domain: MagicMock,
+    ):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "cannot be registered" in response.json()["error"]
+        assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -410,12 +489,13 @@ class TestEmailMultiConfig(BaseTest):
         emails = {c["from_email"] for c in data["configs"]}
         assert emails == {"support@example.com", "billing@example.com"}
 
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_config_limit_enforced(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    def test_config_limit_enforced(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock, mock_delete: MagicMock):
         from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
 
         for i in range(MAX_EMAIL_CONFIGS_PER_TEAM):
@@ -426,6 +506,8 @@ class TestEmailMultiConfig(BaseTest):
             )
             assert r.status_code == 200, f"Failed to connect config {i}: {r.json()}"
 
+        # A failed Mailgun release must not mask the limit error
+        mock_delete.side_effect = RuntimeError("mailgun unavailable")
         r = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "overflow@overflow.com", "from_name": "Overflow"},
@@ -433,6 +515,8 @@ class TestEmailMultiConfig(BaseTest):
         )
         assert r.status_code == 400
         assert "Maximum" in r.json()["error"]
+        # The rejected connect releases its Mailgun registration instead of stranding the domain
+        mock_delete.assert_called_once_with("overflow.com")
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(

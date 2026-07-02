@@ -26,6 +26,7 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
+    get_domain as mailgun_get_domain,
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
@@ -89,6 +90,61 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
     }
+
+
+def _release_domain_if_unused(team: Team, domain: str) -> None:
+    """Best-effort removal of a Mailgun registration that no config ended up using.
+
+    Left in place, the registration would make every future connect for this
+    domain fail with a domain conflict.
+    """
+    if EmailChannel.objects.filter(domain=domain).exists():
+        return
+    try:
+        mailgun_delete_domain(domain)
+    except Exception:
+        logger.exception("email_connect_release_domain_failed", team_id=team.id, domain=domain)
+
+
+def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
+    """Recover a domain stranded in our Mailgun account with no config referencing it.
+
+    A connect that registered the domain but failed to persist a config, or a
+    disconnect whose Mailgun delete failed, leaves such a registration behind —
+    and every reconnect then fails with a domain conflict. Reclaiming is only
+    safe while Mailgun cannot verify the domain: in that state it cannot send,
+    and re-registering issues fresh DNS records, so whoever reclaims it still
+    has to prove DNS control. Verified (or disabled) domains are left for
+    operators to reconcile.
+
+    Returns fresh DNS records when the domain was reclaimed, None when the
+    conflict stands.
+    """
+    if EmailChannel.objects.filter(domain=domain).exists():
+        return None
+
+    try:
+        mg_domain = mailgun_get_domain(domain)
+        if mg_domain is None:
+            # Not in our account — the domain is claimed by another Mailgun account.
+            return None
+
+        state = mg_domain.get("state")
+        if state != "unverified":
+            # A stranded domain can sit "active" long after its DNS records were
+            # removed — re-verify before treating it as genuinely in use.
+            state = mailgun_verify_domain(domain).get("state")
+        if state != "unverified":
+            return None
+
+        mailgun_delete_domain(domain)
+        dns_records = mailgun_add_domain(domain)
+    except Exception:
+        logger.exception("email_connect_reclaim_domain_failed", team_id=team.id, domain=domain)
+        return None
+
+    logger.info("email_connect_reclaimed_stranded_domain", team_id=team.id, domain=domain)
+    return dns_records
 
 
 class EmailConnectSerializer(serializers.Serializer):
@@ -166,14 +222,17 @@ class EmailConnectView(APIView):
                 logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
                 return Response({"error": "Mailgun API key not configured"}, status=400)
             except MailgunDomainConflict as e:
-                logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
-                return Response(
-                    {
-                        "error": "This domain cannot be registered for sending. "
-                        "It may already be claimed by another account."
-                    },
-                    status=400,
-                )
+                reclaimed = _try_reclaim_stranded_domain(team, domain)
+                if reclaimed is None:
+                    logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
+                    return Response(
+                        {
+                            "error": "This domain cannot be registered for sending. "
+                            "It may already be claimed by another account."
+                        },
+                        status=400,
+                    )
+                dns_records = reclaimed
             except Exception:
                 logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
                 return Response(
@@ -181,6 +240,8 @@ class EmailConnectView(APIView):
                     status=502,
                 )
 
+        config: EmailChannel | None = None
+        failure: Response | None = None
         try:
             with transaction.atomic():
                 # Lock team row to serialize concurrent connects and enforce the config limit
@@ -188,23 +249,31 @@ class EmailConnectView(APIView):
 
                 current_count = EmailChannel.objects.filter(team=team).count()
                 if current_count >= MAX_EMAIL_CONFIGS_PER_TEAM:
-                    return Response(
+                    failure = Response(
                         {"error": f"Maximum of {MAX_EMAIL_CONFIGS_PER_TEAM} email addresses per team."},
                         status=400,
                     )
-
-                config = EmailChannel.objects.create(
-                    team=team,
-                    inbound_token=secrets.token_hex(16),
-                    from_email=from_email,
-                    from_name=from_name,
-                    domain=domain,
-                    dns_records=dns_records,
-                    domain_verified=sibling.domain_verified if sibling else False,
-                )
-                _set_email_enabled(team, enabled=True)
+                else:
+                    config = EmailChannel.objects.create(
+                        team=team,
+                        inbound_token=secrets.token_hex(16),
+                        from_email=from_email,
+                        from_name=from_name,
+                        domain=domain,
+                        dns_records=dns_records,
+                        domain_verified=sibling.domain_verified if sibling else False,
+                    )
+                    _set_email_enabled(team, enabled=True)
         except IntegrityError:
-            return Response({"error": "This email address is already connected."}, status=409)
+            failure = Response({"error": "This email address is already connected."}, status=409)
+
+        if config is None:
+            # Failure responses are deferred to here so the Mailgun cleanup call
+            # doesn't run inside the atomic block while the team row is locked.
+            if not sibling:
+                _release_domain_if_unused(team, domain)
+            assert failure is not None
+            return failure
 
         logger.info(
             "email_channel_connected",
