@@ -74,7 +74,10 @@ def _filter_group_has_empty_group(node: Any) -> bool:
     matchFilterGroup treats empty groups as no-match (dropping is irreversible, so
     vacuous filters fail closed), which makes a rule carrying one silently inert —
     worst on rate_limit, where `{"type": "AND", "values": []}` reads like "cap
-    everything" but caps nothing."""
+    everything" but caps nothing.
+
+    Recurses without a depth short-circuit of its own — callers must run the
+    MAX_FILTER_GROUP_DEPTH check first so the tree is already bounded."""
     if not isinstance(node, dict):
         return False
     values = node.get("values")
@@ -260,20 +263,6 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             PropertyGroupFilter.model_validate(filter_group)
         except PydanticValidationError as e:
             raise ValidationError({"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}})
-        # Well-formed but empty groups pass Pydantic, yet the worker treats them as
-        # no-match — the rule would be silently inert (see _filter_group_has_empty_group).
-        if reject_vacuous and _filter_group_has_empty_group(filter_group):
-            raise ValidationError(
-                {
-                    "config": {
-                        "filter_group": (
-                            "Every group in filter_group must contain at least one filter — an empty group "
-                            "never matches, so the rule would never apply. For rate_limit rules, omit "
-                            "filter_group entirely to cap all matching logs."
-                        )
-                    }
-                }
-            )
         # Bound nesting depth — the Node ingestion worker recurses per
         # record over this tree, so an adversarially deep group is a
         # stack-overflow + CPU footgun on every log line. Matches
@@ -293,6 +282,22 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 {
                     "config": {
                         "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+                    }
+                }
+            )
+        # Well-formed but empty groups pass Pydantic, yet the worker treats them as
+        # no-match — the rule would be silently inert (see _filter_group_has_empty_group).
+        # Ordering constraint: this walk recurses without its own depth short-circuit,
+        # so it must run only after the depth check above has bounded the tree.
+        if reject_vacuous and _filter_group_has_empty_group(filter_group):
+            raise ValidationError(
+                {
+                    "config": {
+                        "filter_group": (
+                            "Every group in filter_group must contain at least one filter — an empty group "
+                            "never matches, so the rule would never apply. For rate_limit rules, omit "
+                            "filter_group entirely to cap all matching logs."
+                        )
                     }
                 }
             )
