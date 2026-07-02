@@ -24,21 +24,9 @@ function targetDims(width: unknown, height: unknown): [number, number] {
     return [Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale))]
 }
 
-/** Downsample a base64 image data URI to a fraction of its size + a blur, as a PNG; null if it can't. */
-export async function blurImageDataUri(s: string): Promise<string | null> {
-    if (!s.startsWith('data:')) {
-        return null
-    }
-    const comma = s.indexOf(',')
-    if (comma === -1) {
-        return null
-    }
-    const meta = s.slice('data:'.length, comma)
-    if (!meta.includes('base64') || !meta.startsWith('image/')) {
-        return null
-    }
-    const bytes = Buffer.from(s.slice(comma + 1), 'base64')
-
+/** Downsample raw image bytes to a fraction of their size + a blur, returned as a PNG data URI; null
+ *  if it can't. Callers that already hold the decoded bytes should use this to avoid re-decoding. */
+export async function blurImageBytes(bytes: Buffer): Promise<string | null> {
     let tw: number, th: number
     try {
         const info = await sharp(bytes).metadata()
@@ -59,6 +47,22 @@ export async function blurImageDataUri(s: string): Promise<string | null> {
     } catch {
         return null
     }
+}
+
+/** Downsample a base64 image data URI to a fraction of its size + a blur, as a PNG; null if it can't. */
+export async function blurImageDataUri(s: string): Promise<string | null> {
+    if (!s.startsWith('data:')) {
+        return null
+    }
+    const comma = s.indexOf(',')
+    if (comma === -1) {
+        return null
+    }
+    const meta = s.slice('data:'.length, comma)
+    if (!meta.includes('base64') || !meta.startsWith('image/')) {
+        return null
+    }
+    return blurImageBytes(Buffer.from(s.slice(comma + 1), 'base64'))
 }
 
 /**

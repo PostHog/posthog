@@ -2,6 +2,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -31,12 +32,40 @@ import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sess
 import { CleartextRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto/cleartext-encryptor'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { CleartextKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cleartext-keystore'
-import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import {
+    INGESTION_SESSIONREPLAY_PRODUCER,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { RedisPool } from '../types'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import { IngestionSessionReplayServerConfig, buildSessionReplayRedisPools } from './ingestion-session-replay-server'
+import {
+    IngestionSessionReplayServerConfig,
+    buildSessionReplayRedisPools,
+    buildSessionReplayRedisV2,
+} from './ingestion-session-replay-server'
+
+// The image-scrub emit runs inline in the anonymize path, so a stalled Redis or broker would block the
+// message indefinitely. A rejection instead fails the message closed (dropped) via the pipeline's catch.
+const IMAGE_SCRUB_REDIS_TIMEOUT_MS = 2_000
+const IMAGE_SCRUB_PRODUCE_TIMEOUT_MS = 10_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (error) => {
+                clearTimeout(timer)
+                reject(error)
+            }
+        )
+    })
+}
 
 /** Full config for an ML mirror deployment: the primary replay config plus ML knobs. */
 export type IngestionSessionReplayMlMirrorServerConfig = IngestionSessionReplayServerConfig & MlMirrorConfig
@@ -112,6 +141,61 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const scrubContext: ScrubContext = {
             allow: await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket)),
+        }
+        // Advanced-route inline images are hashed, referenced, and emitted to the scrub topic, where a
+        // separate consumer worker scrubs them to S3. Off by default (kill-switch) so the producer path
+        // stays inert until the consumer is live; when off, those images fall back to the in-process blur.
+        if (this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_ENABLED) {
+            const redis = buildSessionReplayRedisV2(this.config)
+            const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_PRODUCER)
+            scrubContext.imageScrub = {
+                // SET NX EX every key in one pipelined round-trip; 'OK' = fresh (post it), nil = duplicate.
+                setBatchContentKeysRedis: async (keys, ttlSeconds) => {
+                    const raw = await withTimeout(
+                        redis.usePipeline({ name: 'image_scrub_reserve' }, (pipeline) => {
+                            for (const key of keys) {
+                                pipeline.set(key, '1', 'EX', ttlSeconds, 'NX')
+                            }
+                        }),
+                        IMAGE_SCRUB_REDIS_TIMEOUT_MS,
+                        'image_scrub_reserve'
+                    )
+                    return (raw ?? []).map(([err, res]) => {
+                        // A per-key failure is not a duplicate: reading it as one would write a reference for an image we never posted. Throw so the emit fails closed and the message is dropped.
+                        if (err) {
+                            throw err
+                        }
+                        return res === 'OK'
+                    })
+                },
+                deleteBatchContentKeysRedis: async (keys) => {
+                    await withTimeout(
+                        redis.usePipeline({ name: 'image_scrub_release' }, (pipeline) => {
+                            for (const key of keys) {
+                                pipeline.del(key)
+                            }
+                        }),
+                        IMAGE_SCRUB_REDIS_TIMEOUT_MS,
+                        'image_scrub_release'
+                    )
+                },
+                // One produce per fresh image; resolves once the broker acks them all.
+                produceBatchImagesKafka: async (messages) => {
+                    await withTimeout(
+                        Promise.all(
+                            messages.map((m) =>
+                                producer.produce({
+                                    topic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+                                    key: Buffer.from(m.key),
+                                    value: m.value,
+                                })
+                            )
+                        ),
+                        IMAGE_SCRUB_PRODUCE_TIMEOUT_MS,
+                        'image_scrub_produce'
+                    )
+                },
+            }
         }
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.

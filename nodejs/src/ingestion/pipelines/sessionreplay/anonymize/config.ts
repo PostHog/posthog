@@ -1,3 +1,5 @@
+import { ImageScrubEmitDeps } from '~/ingestion/pipelines/sessionreplay/ml-mirror/image-scrub/producer'
+
 import { AllowLists } from './allow-lists'
 
 /** Replacement char for redacted (non-allow-listed) word characters. */
@@ -17,6 +19,13 @@ export interface ScrubTiming {
     recompressMs: number
 }
 
+/** An advanced-route image to hand off to the scrub topic: raw bytes to emit, plus a callback that
+ *  writes the resolved `image:{team}:{hash}` reference back over the inline image. */
+export interface ImageScrubJob {
+    bytes: Buffer
+    apply: (ref: string) => void
+}
+
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {
     allow: AllowLists
@@ -26,6 +35,14 @@ export interface ScrubContext {
     blurCache?: BlurCache
     /** Optional diagnostic timing accumulator (see {@link ScrubTiming}). */
     timing?: ScrubTiming
+    /** Team id of the message being scrubbed — needed to build team-scoped image references. */
+    teamId?: number
+    /** Image-scrub emit dependencies (Redis dedup + Kafka produce); present only in the ml-mirror
+     *  pipeline. When set, advanced-route images are hashed, referenced, and emitted to the scrub
+     *  topic; when absent, they fall back to the in-process blur so other pipelines are unaffected. */
+    imageScrub?: ImageScrubEmitDeps
+    /** Collector for advanced-route images awaiting a batched emit (see {@link ImageScrubJob}). */
+    imageScrubJobs?: ImageScrubJob[]
 }
 
 /** Shared non-null-object type guard used across the scrubbers. */

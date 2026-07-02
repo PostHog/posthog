@@ -21,6 +21,9 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: number
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
+    /** Kill-switch for the image-scrub topic path. When false, advanced-route images fall back to the
+     *  in-process blur (no emit) — the safe default while the consumer worker isn't live yet. */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_ENABLED: boolean
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -34,5 +37,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_ENABLED: false,
     }
 }

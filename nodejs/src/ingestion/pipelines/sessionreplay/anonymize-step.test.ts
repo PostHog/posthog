@@ -26,10 +26,10 @@ describe('anonymize-step', () => {
     })
 
     it('blurs a data-image media source via the deferred job pass', async () => {
-        // Small patterned PNG (portable across libvips/libpng builds; a solid color would blur to
-        // identical bytes, so we use a checkerboard the blur visibly changes).
-        const onePxPng =
-            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
+        // A 40x40 PNG — above the 16px passthrough floor so it actually scrubs, and blurOnly
+        // downsamples it (to ~5x5) before blurring, so the output differs from the original bytes.
+        const imgPng =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAR0lEQVR4nO3YsQkAIAxEUeu//1A3ljvY2DywD0iSR+6svryjcL56mivjlAUyKzNIhMWwGBaHxbAYFodF12IO80QRE770HDddvGtfTNaUfqIAAAAASUVORK5CYII='
         const parsedMessage = parsedMessageWith({
             win1: [
                 {
@@ -40,7 +40,7 @@ describe('anonymize-step', () => {
                             type: 0,
                             id: 1,
                             childNodes: [
-                                { type: 2, id: 2, tagName: 'img', attributes: { src: onePxPng }, childNodes: [] },
+                                { type: 2, id: 2, tagName: 'img', attributes: { src: imgPng }, childNodes: [] },
                             ],
                         },
                         initialOffset: { top: 0, left: 0 },
@@ -54,7 +54,7 @@ describe('anonymize-step', () => {
         const src = (parsedMessage.eventsByWindowId.win1[0] as any).data.node.childNodes[0].attributes.src
         // Blurred into a fresh PNG, not left as the placeholder or the original.
         expect(src.startsWith('data:image/png;base64,')).toBe(true)
-        expect(src).not.toBe(onePxPng)
+        expect(src).not.toBe(imgPng)
     })
 
     it('passes through events with no scrubbable content', async () => {

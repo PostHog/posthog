@@ -1,4 +1,7 @@
-import { anonymizeEvent } from './anonymize-event'
+import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { ImageScrubEmitDeps, TopicMessage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/image-scrub/producer'
+
+import { anonymizeEvent, anonymizeParsedMessage } from './anonymize-event'
 import { defaultAllowLists } from './default-dict'
 
 describe('anonymize/event router', () => {
@@ -120,5 +123,87 @@ describe('anonymize/event router', () => {
             },
         }
         expect(() => anonymizeEvent(ctx, event)).toThrow('boom')
+    })
+
+    describe('image-scrub drain', () => {
+        // A real 1x1 PNG, so it passes the magic-byte check and routes as an advanced image.
+        const DATA_URI =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAR0lEQVR4nO3YsQkAIAxEUeu//1A3ljvY2DywD0iSR+6svryjcL56mivjlAUyKzNIhMWwGBaHxbAYFodF12IO80QRE770HDddvGtfTNaUfqIAAAAASUVORK5CYII='
+
+        // A FullSnapshot carrying one <img> with an inline rr_dataURL (advanced-route).
+        function messageWithInlineImage(): { message: ParsedMessageData; img: Record<string, any> } {
+            const img = {
+                type: 2,
+                id: 2,
+                tagName: 'img',
+                attributes: { rr_dataURL: DATA_URI, width: 300, height: 300 },
+                childNodes: [],
+            }
+            const message = {
+                eventsByWindowId: {
+                    w1: [
+                        {
+                            type: 2,
+                            timestamp: 1,
+                            data: { node: { type: 0, id: 1, childNodes: [img] }, initialOffset: { top: 0, left: 0 } },
+                        },
+                    ],
+                },
+            } as unknown as ParsedMessageData
+            return { message, img }
+        }
+
+        it('emits an advanced <img> to the topic and writes the reference in place', async () => {
+            const produced: TopicMessage[] = []
+            const imageScrub: ImageScrubEmitDeps = {
+                setBatchContentKeysRedis: (keys) => Promise.resolve(keys.map(() => true)),
+                deleteBatchContentKeysRedis: () => Promise.resolve(),
+                produceBatchImagesKafka: (messages) => {
+                    produced.push(...messages)
+                    return Promise.resolve()
+                },
+            }
+            const { message, img } = messageWithInlineImage()
+
+            const { failed } = await anonymizeParsedMessage({ allow: defaultAllowLists(), imageScrub }, message, 42)
+
+            expect(failed).toBe(false)
+            expect(produced).toHaveLength(1)
+            expect(img.attributes.rr_dataURL).toMatch(/^image:42:[A-Za-z0-9_-]{22}$/) // reference written in place
+            expect(produced[0].key).toBe(img.attributes.rr_dataURL) // topic key == the substituted reference
+        })
+
+        it('fails closed (drops the message) when the emit throws', async () => {
+            const imageScrub: ImageScrubEmitDeps = {
+                setBatchContentKeysRedis: (keys) => Promise.resolve(keys.map(() => true)),
+                deleteBatchContentKeysRedis: () => Promise.resolve(),
+                produceBatchImagesKafka: () => Promise.reject(new Error('broker down')),
+            }
+            const { message } = messageWithInlineImage()
+
+            const { failed } = await anonymizeParsedMessage({ allow: defaultAllowLists(), imageScrub }, message, 42)
+
+            expect(failed).toBe(true)
+        })
+
+        it('falls back to blur (no emit) when no team id is present', async () => {
+            const produced: TopicMessage[] = []
+            const imageScrub: ImageScrubEmitDeps = {
+                setBatchContentKeysRedis: (keys) => Promise.resolve(keys.map(() => true)),
+                deleteBatchContentKeysRedis: () => Promise.resolve(),
+                produceBatchImagesKafka: (messages) => {
+                    produced.push(...messages)
+                    return Promise.resolve()
+                },
+            }
+            const { message, img } = messageWithInlineImage()
+
+            // teamId omitted -> advanced route can't build a reference, so nothing is emitted.
+            const { failed } = await anonymizeParsedMessage({ allow: defaultAllowLists(), imageScrub }, message)
+
+            expect(failed).toBe(false)
+            expect(produced).toHaveLength(0)
+            expect(img.attributes.rr_dataURL).not.toMatch(/^image:/) // blanked/blurred, not referenced
+        })
     })
 })

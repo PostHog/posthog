@@ -1,7 +1,18 @@
 /** Media detection + placeholder/blur dispatch. */
-import { BLANK_IMAGE_DATA_URI, blurImageDataUri, isImageDataUri, memoizedBlur } from './blur'
+import { imageSize } from 'image-size'
+
+import {
+    ImageSource,
+    getScrubMethodForImage,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/image-scrub/scrub-method'
+
+import { BLANK_IMAGE_DATA_URI, blurImageBytes, isImageDataUri, memoizedBlur } from './blur'
 import { ScrubContext } from './config'
 import { scrubUrl } from './url'
+
+// Bound per-message hand-off to the topic so an outlier session with many large images can't pin unbounded memory across the emit; overflow falls back to cheap blur.
+const MAX_ADVANCED_IMAGES_PER_MESSAGE = 64
+const MAX_ADVANCED_BYTES_PER_MESSAGE = 32 * 1024 * 1024 // 32 MB
 
 // rrweb inlines rendered pixels (a `toDataURL()` snapshot) into this attribute — for `<canvas>`
 // in a FullSnapshot/adds, and for `<img>` when image inlining is on. It holds raw drawn content.
@@ -36,19 +47,88 @@ export function hasMediaSrcAttr(attrs: Record<string, unknown>): boolean {
     return MEDIA_SRC_ATTRS.some((name) => Object.prototype.hasOwnProperty.call(attrs, name))
 }
 
-/**
- * Blur an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
- * Blanks it synchronously (fail-safe) and defers the real blur. Returns whether it acted.
- */
-export function blurInlineImageAttr(ctx: ScrubContext, attrs: Record<string, unknown>, name: string): boolean {
+/** Raw bytes of an image data URI's base64 payload, or null if not a base64 image data URI. Format is
+ *  NOT validated here on purpose: magic-byte filtering would risk false-rejecting a real but unlisted
+ *  format (e.g. AVIF), which leaves the raw image inline (a PII leak); the consumer's sharp decode is
+ *  the authority on "real image" instead. */
+function imageDataUriBytes(dataUri: string): Buffer | null {
+    const comma = dataUri.indexOf(',')
+    if (comma < 0) {
+        return null
+    }
+    const meta = dataUri.slice('data:'.length, comma)
+    if (!meta.includes('base64') || !meta.startsWith('image/')) {
+        return null
+    }
+    return Buffer.from(dataUri.slice(comma + 1), 'base64')
+}
+
+/** Intrinsic pixel dimensions from the image header (sync, header-only), or undefined if unreadable,
+ *  which routes to scrubbing (fail-closed) so a crafted/undecodable image is never passed through. NOT
+ *  the rrweb width/height attrs: those are display size (spoofable; a large image can be shown at 16px). */
+function imageDimensions(bytes: Buffer): { width: number; height: number } | undefined {
+    try {
+        const { width, height } = imageSize(bytes)
+        return typeof width === 'number' && typeof height === 'number' ? { width, height } : undefined
+    } catch {
+        return undefined
+    }
+}
+
+/** Route one inlined image in `attrs[name]` per getScrubMethodForImage: advancedScrub collects the
+ *  bytes for the topic (placeholder now, reference written in place after the emit), cheapBlur defers an
+ *  in-process blur, passthrough leaves it. Returns whether it acted. */
+function scrubInlineImage(
+    ctx: ScrubContext,
+    attrs: Record<string, unknown>,
+    name: string,
+    source: ImageSource,
+    placeholder: string
+): boolean {
     const value = attrs[name]
     if (typeof value !== 'string' || !isImageDataUri(value)) {
         return false
     }
-    const original = value
-    attrs[name] = BLANK_IMAGE_DATA_URI
+    // SVGs always pass through untouched: they're vector UI assets (icons, logos, chrome), not the
+    // photographic raster the face/blur scrubbers target, and rasterizing one to blur it would destroy
+    // high-signal vector training data while protecting nothing those scrubbers are for.
+    if (/^data:image\/svg/i.test(value)) {
+        return false
+    }
+    const bytes = imageDataUriBytes(value)
+    if (bytes === null) {
+        return false
+    }
+    const dims = imageDimensions(bytes)
+    const scrubMethod = getScrubMethodForImage({
+        source,
+        width: dims?.width,
+        height: dims?.height,
+        byteLength: bytes.length,
+    })
+    if (scrubMethod === 'passthrough') {
+        return false
+    }
+    const jobs = ctx.imageScrubJobs
+    const underCap =
+        jobs != null &&
+        jobs.length < MAX_ADVANCED_IMAGES_PER_MESSAGE &&
+        jobs.reduce((n, j) => n + j.bytes.length, bytes.length) <= MAX_ADVANCED_BYTES_PER_MESSAGE
+    if (scrubMethod === 'advancedScrub' && ctx.imageScrub && ctx.teamId != null && jobs != null && underCap) {
+        attrs[name] = placeholder // fail-safe until the reference is written in place after the emit
+        jobs.push({
+            bytes,
+            apply: (ref) => {
+                attrs[name] = ref
+            },
+        })
+        return true
+    }
+    // cheapBlur: canvas/oversize, ports/team absent, or over the per-message cap. Reuses the decoded bytes (no second base64 decode).
+    attrs[name] = placeholder
     ctx.blurJobs?.push(async () => {
-        const blurred = await memoizedBlur(ctx.blurCache, original, () => blurImageDataUri(original))
+        // Memoize by the data-URI string so an image recurring across the message's rrweb events blurs once; reuses the already-decoded bytes.
+        const blurred = await memoizedBlur(ctx.blurCache, value, () => blurImageBytes(bytes))
         if (blurred !== null) {
             attrs[name] = blurred
         }
@@ -56,7 +136,22 @@ export function blurInlineImageAttr(ctx: ScrubContext, attrs: Record<string, unk
     return true
 }
 
-/** Replace a media element's source attrs with the placeholder (queuing a blur job for data-images). */
+/**
+ * Scrub an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`). Canvas is
+ * dynamic (routed cheap); a static <img>'s inline pixels take the advanced topic path when wired.
+ * Returns whether it acted.
+ */
+export function blurInlineImageAttr(
+    ctx: ScrubContext,
+    attrs: Record<string, unknown>,
+    name: string,
+    source: ImageSource = 'canvas'
+): boolean {
+    return scrubInlineImage(ctx, attrs, name, source, BLANK_IMAGE_DATA_URI)
+}
+
+/** Replace a media element's source attrs with the placeholder (routing inline data-images to the
+ *  scrub topic or the in-process blur; remote srcs are host+path scrubbed and stashed). */
 export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): void {
     for (const key of MEDIA_SRC_ATTRS) {
         const existing = attrs[key]
@@ -64,13 +159,7 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
             continue
         }
         if (isImageDataUri(existing)) {
-            attrs[key] = PLACEHOLDER_SRC
-            ctx.blurJobs?.push(async () => {
-                const blurred = await memoizedBlur(ctx.blurCache, existing, () => blurImageDataUri(existing))
-                if (blurred !== null) {
-                    attrs[key] = blurred
-                }
-            })
+            scrubInlineImage(ctx, attrs, key, 'media', PLACEHOLDER_SRC)
         } else {
             // Stash the scrubbed original under a namespaced attr (won't collide with app
             // `data-original-*`), host-scrubbed too so the CDN host can't leak.

@@ -107,6 +107,7 @@
         "generic-pool": "^3.7.1",
         "https-proxy-agent": "^7.0.6",
         "husky": "catalog:",
+        "image-size": "^1.2.1",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "js-big-decimal": "^2.2.0",

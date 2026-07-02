@@ -155,9 +155,10 @@ function scrubAttrs(ctx: ScrubContext, attrs: Record<string, unknown>, kind: Tag
         if (kind === 'media' && isMediaSrcAttr(name)) {
             continue
         }
-        // Inlined rendered pixels (canvas/img `rr_dataURL`): blur the image, on any tag.
+        // Inlined rendered pixels (canvas/img `rr_dataURL`): a media tag carrying rr_dataURL is an
+        // <img> (static raster → advanced topic path); anything else is a <canvas> (dynamic → cheap).
         if (name === INLINE_IMAGE_ATTR) {
-            changed = blurInlineImageAttr(ctx, attrs, name) || changed
+            changed = blurInlineImageAttr(ctx, attrs, name, kind === 'media' ? 'img' : 'canvas') || changed
             continue
         }
         const value = attrs[name]

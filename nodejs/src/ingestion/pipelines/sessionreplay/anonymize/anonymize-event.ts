@@ -1,11 +1,13 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
 import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { ImageScrubMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/image-scrub/metrics'
+import { emitImagesForScrub } from '~/ingestion/pipelines/sessionreplay/ml-mirror/image-scrub/producer'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
-import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
+import { BlurCache, BlurJob, ImageScrubJob, ScrubContext, ScrubTiming, isObject } from './config'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -27,13 +29,15 @@ const ANON_SLOW_LOG_THRESHOLD_MS = 5000
  */
 export async function anonymizeParsedMessage(
     scrubContext: ScrubContext,
-    parsedMessage: ParsedMessageData
+    parsedMessage: ParsedMessageData,
+    teamId?: number
 ): Promise<{ failed: boolean }> {
     const blurJobs: BlurJob[] = []
+    const imageScrubJobs: ImageScrubJob[] = []
     // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
     const blurCache: BlurCache = new Map()
     const timing: ScrubTiming = { decompressMs: 0, recompressMs: 0 }
-    const ctx: ScrubContext = { ...scrubContext, blurJobs, blurCache, timing }
+    const ctx: ScrubContext = { ...scrubContext, teamId, blurJobs, imageScrubJobs, blurCache, timing }
 
     const scrubStart = performance.now()
     let eventCount = 0
@@ -53,6 +57,23 @@ export async function anonymizeParsedMessage(
     }
     // scrubMs is synchronous (on the event loop); blurMs is the off-thread sharp work we await.
     const scrubMs = performance.now() - scrubStart
+
+    // Advanced-route images: one batched emit (one Redis round-trip + one send), then write each resolved reference back in place. Fail closed: a produce failure drops the whole message rather than record references whose images never reached the topic.
+    if (ctx.imageScrub && teamId != null && imageScrubJobs.length > 0) {
+        try {
+            const results = await emitImagesForScrub(
+                imageScrubJobs.map((job) => ({ teamId, bytes: job.bytes })),
+                ctx.imageScrub
+            )
+            imageScrubJobs.forEach((job, i) => job.apply(results[i].ref))
+            const posted = results.filter((r) => r.posted).length
+            ImageScrubMetrics.observeEmit(posted, results.length - posted)
+        } catch (error) {
+            ImageScrubMetrics.incrementEmitFailure()
+            logger.warn('🙈', 'image_scrub_emit_failed', { error: String(error) })
+            return { failed: true }
+        }
+    }
 
     const blurStart = performance.now()
     await runBlurJobs(blurJobs)

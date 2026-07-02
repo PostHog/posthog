@@ -234,9 +234,10 @@ describe('anonymize/dom', () => {
 
     it('blurs canvas pixels inlined as rr_dataURL in a FullSnapshot', () => {
         const blurCtx = { allow: defaultAllowLists(), blurJobs: [] as any[] }
-        const onePxPng =
-            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
-        const canvasAttrs: Record<string, unknown> = { rr_dataURL: onePxPng, width: '300', height: '150' }
+        // 40x40 (above the 16px passthrough floor) so canvas pixels are actually scrubbed.
+        const canvasPng =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAR0lEQVR4nO3YsQkAIAxEUeu//1A3ljvY2DywD0iSR+6svryjcL56mivjlAUyKzNIhMWwGBaHxbAYFodF12IO80QRE770HDddvGtfTNaUfqIAAAAASUVORK5CYII='
+        const canvasAttrs: Record<string, unknown> = { rr_dataURL: canvasPng, width: '300', height: '150' }
         const event = {
             type: 2,
             timestamp: 1,
@@ -251,7 +252,7 @@ describe('anonymize/dom', () => {
         }
         expect(scrubFullSnapshot(blurCtx, event.data)).toBe(true)
         // Raw pixels gone immediately (fail-safe), blur deferred; dimensions untouched.
-        expect(canvasAttrs.rr_dataURL).not.toBe(onePxPng)
+        expect(canvasAttrs.rr_dataURL).not.toBe(canvasPng)
         expect(canvasAttrs.rr_dataURL).toMatch(/^data:image\/png;base64,/)
         expect(canvasAttrs.width).toBe('300')
         expect(blurCtx.blurJobs).toHaveLength(1)

@@ -38,6 +38,8 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_ses
 
 // anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
 export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
+// raw inlined images from the ml-mirror producer, blurred by the image-scrub consumer worker to S3
+export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
 
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`

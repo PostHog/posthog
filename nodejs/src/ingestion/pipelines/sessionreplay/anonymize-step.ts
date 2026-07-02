@@ -7,6 +7,8 @@ import { ParsedMessageData } from './kafka/types'
 
 export interface AnonymizeStepInput {
     parsedMessage: ParsedMessageData
+    /** Present in the team-aware ml-mirror pipeline; used to build team-scoped image references. */
+    team?: { teamId: number }
 }
 
 export interface AnonymizeStepConfig {
@@ -22,7 +24,7 @@ export function createAnonymizeStep<T extends AnonymizeStepInput>(config: Anonym
     const { scrubContext } = config
 
     return async function anonymizeStep(input) {
-        const { failed } = await anonymizeParsedMessage(scrubContext, input.parsedMessage)
+        const { failed } = await anonymizeParsedMessage(scrubContext, input.parsedMessage, input.team?.teamId)
         if (failed) {
             return drop('anonymize_failed')
         }

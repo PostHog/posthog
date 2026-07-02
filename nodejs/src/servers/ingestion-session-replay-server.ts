@@ -1,8 +1,9 @@
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { RedisConnectionConfig, createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import {
     KafkaDownstreamProducerEnvConfig,
@@ -54,19 +55,34 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'
     >
 
+/** Connection config for the session-recording Redis, shared by the raw pool and the RedisV2 wrapper. */
+function sessionRecordingRedisConnection(config: IngestionSessionReplayServerConfig): RedisConnectionConfig {
+    return config.POSTHOG_SESSION_RECORDING_REDIS_HOST
+        ? {
+              url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+              options: { port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+              name: 'session-recording-redis',
+          }
+        : { url: config.REDIS_URL, name: 'session-recording-redis-fallback' }
+}
+
+/** A RedisV2 wrapper (the general redis abstraction, as used across CDP) over the session-recording
+ *  Redis — used for the image-scrub dedup's pipelined SET NX / DEL via usePipeline. */
+export function buildSessionReplayRedisV2(config: IngestionSessionReplayServerConfig): RedisV2 {
+    return createRedisV2PoolFromConfig({
+        connection: sessionRecordingRedisConnection(config),
+        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+    })
+}
+
 /** Builds the session-recording and restriction Redis pools a replay deployment needs. */
 export function buildSessionReplayRedisPools(config: IngestionSessionReplayServerConfig): {
     redisPool: RedisPool
     restrictionRedisPool: RedisPool
 } {
     const redisPool = createRedisPoolFromConfig({
-        connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
-            ? {
-                  url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                  options: { port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
-                  name: 'session-recording-redis',
-              }
-            : { url: config.REDIS_URL, name: 'session-recording-redis-fallback' },
+        connection: sessionRecordingRedisConnection(config),
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
