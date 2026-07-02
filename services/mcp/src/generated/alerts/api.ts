@@ -1226,7 +1226,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'How often the alert is checked: real time (every 2 minutes, Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -2537,7 +2537,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'How often the alert is checked: real time (every 2 minutes, Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
