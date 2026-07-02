@@ -1,6 +1,7 @@
 use anyhow::Error;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
+use std::panic::AssertUnwindSafe;
 use std::{io::Read, path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
 use zip::ZipArchive;
@@ -82,7 +83,18 @@ impl StreamingReader {
         let (tx, rx) = mpsc::channel(PRODUCER_CHANNEL_CAPACITY);
         // A dedicated OS thread (not the tokio blocking pool) owns the decoder for
         // the lifetime of the read. It exits when the receiver is dropped.
-        std::thread::spawn(move || producer(tx));
+        //
+        // Guard against a producer panic (e.g. an internal flate2/zip panic): without
+        // this, a panic would drop `tx`, and `read_at` would read the closed channel as
+        // a clean EOF and record a truncated part as complete (silent data loss). Convert
+        // the panic into a channel error so `read_at` surfaces it instead.
+        std::thread::spawn(move || {
+            let err_tx = tx.clone();
+            if std::panic::catch_unwind(AssertUnwindSafe(move || producer(tx))).is_err() {
+                let _unused =
+                    err_tx.blocking_send(Err("decompression producer thread panicked".to_string()));
+            }
+        });
         Self {
             rx,
             carry: Vec::new(),
@@ -301,6 +313,13 @@ fn run_verbatim_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     }
 }
 
+/// Producer that emits one block then panics, to simulate an internal decoder panic.
+#[cfg(test)]
+fn run_panicking_producer(tx: mpsc::Sender<Block>) {
+    let _unused = tx.blocking_send(Ok(b"partial".to_vec()));
+    panic!("simulated producer panic");
+}
+
 #[cfg(test)]
 impl StreamingReader {
     /// Stream the file at `raw_file_path` verbatim (no decompression, no newline
@@ -308,6 +327,12 @@ impl StreamingReader {
     /// already-plaintext bodies.
     pub(crate) fn open_verbatim(raw_file_path: PathBuf) -> StreamingReader {
         StreamingReader::spawn(move |tx| run_verbatim_producer(raw_file_path, tx))
+    }
+
+    /// A reader whose producer panics mid-stream. Used to prove a panic surfaces as an
+    /// error rather than a silently truncated EOF.
+    pub(crate) fn open_panicking() -> StreamingReader {
+        StreamingReader::spawn(run_panicking_producer)
     }
 
     /// Drive the reader forward to EOF in `chunk`-sized reads, returning the full
@@ -603,5 +628,33 @@ mod tests {
         // Seeking back before the (now-trimmed) retained window is rejected.
         let result = reader.read_at(0, 1024).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_producer_panic_surfaces_as_error_not_truncated_eof() {
+        // A producer panic must not be mistaken for a clean end-of-stream, which would
+        // record a truncated part as complete (silent data loss). Drive the reader past
+        // the one block the producer emits before panicking, and require an error.
+        let mut reader = StreamingReader::open_panicking();
+
+        let mut offset = 0u64;
+        loop {
+            match reader.read_at(offset, 4).await {
+                // Expected: the panic is surfaced as a read error.
+                Err(_) => return,
+                Ok(chunk) => {
+                    assert!(
+                        chunk.total.is_none(),
+                        "panic was swallowed as a clean EOF (total={:?})",
+                        chunk.total
+                    );
+                    assert!(
+                        !chunk.bytes.is_empty(),
+                        "no error and no progress: panic was not surfaced"
+                    );
+                    offset += chunk.bytes.len() as u64;
+                }
+            }
+        }
     }
 }
