@@ -58,18 +58,18 @@
             background: var(--brand-blue);
         }
 
-        // Usage above the billing limit — not charged, so shown striped and desaturated.
+        // Actual usage above the billing limit — real, but not charged. Desaturated grey, and
+        // angled the opposite way (135deg) to the projected/forecast stripes (-45deg) so the two
+        // striped bars never read as the same thing where they overlap.
         &--over-limit {
-            background:
-                repeating-linear-gradient(
-                    -45deg,
-                    var(--brand-blue),
-                    var(--brand-blue) 4px,
-                    transparent 4px,
-                    transparent 8px
-                ),
-                var(--color-border-primary-opaque);
-            opacity: 0.5;
+            background: repeating-linear-gradient(
+                135deg,
+                var(--muted),
+                var(--muted) 3px,
+                var(--color-border-primary-opaque) 3px,
+                var(--color-border-primary-opaque) 7px
+            );
+            opacity: 0.7;
         }
     }
 

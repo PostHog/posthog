@@ -78,6 +78,13 @@ const BillingGaugeItem = ({
             ? `What you'll pay for ${product?.name ?? 'this'}: ${humanFriendlyCurrency(paidAmountUsd)}`
             : 'Usage you pay for'
 
+    // The projected/forecast bar spans 0..projected and paints over the current-usage bar. We only
+    // want its explanatory hover on the *incremental* part beyond current usage — the rest must stay
+    // transparent to pointer events so the paid/over-limit tooltips underneath remain reachable.
+    const isProjected = item.type === BillingGaugeItemKind.ProjectedUsage
+    const currentUsage = product?.current_usage ?? 0
+    const projectedForecastFraction = isProjected && item.value > 0 ? Math.min(currentUsage / item.value, 1) : 0
+
     return (
         <div
             className={clsx(
@@ -108,6 +115,14 @@ const BillingGaugeItem = ({
                         />
                     </Tooltip>
                 </>
+            ) : isProjected ? (
+                <Tooltip title="Projected usage by the end of your billing period">
+                    <div
+                        className="BillingGaugeItem__section absolute top-0 bottom-0 right-0"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ left: `${projectedForecastFraction * 100}%` }}
+                    />
+                </Tooltip>
             ) : (
                 hasLimit &&
                 paidAmountUsd !== null && (

@@ -38,6 +38,23 @@ describe('BillingGauge', () => {
         expect(overLimit?.style.left).toBe('37.5%')
     })
 
+    it('confines the projected forecast hover to the span beyond current usage', () => {
+        // projected 16 over current 8 -> forecast section starts at 8/16 = 50%, leaving the paid/
+        // over-limit sections (0..current) reachable underneath instead of occluded by a full overlay.
+        const items: BillingGaugeItemType[] = [
+            ...usageItems(8, 3),
+            { type: BillingGaugeItemKind.ProjectedUsage, text: 'Projected', value: 16 },
+        ]
+        const { container } = render(
+            <BillingGauge items={items} product={makeProduct({ current_usage: 8, percentage_usage: 8 / 3 })} />
+        )
+
+        const forecast = container.querySelector<HTMLElement>(
+            '.BillingGaugeItem--projected_usage .BillingGaugeItem__section'
+        )
+        expect(forecast?.style.left).toBe('50%')
+    })
+
     it('does not split the bar when usage is below the billing limit', () => {
         const { container } = render(
             <BillingGauge items={usageItems(2, 3)} product={makeProduct({ percentage_usage: 2 / 3 })} />
