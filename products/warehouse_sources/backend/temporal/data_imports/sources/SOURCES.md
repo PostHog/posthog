@@ -55,6 +55,7 @@ the row lists both.
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
 | appfigures              | HTTP                        | requests                                                        | ✅                          |
+| appfollow               | HTTP                        | requests                                                        | ✅                          |
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
@@ -330,7 +331,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
-- appfollow
 - apple_search_ads
 - appstack
 - apptivo

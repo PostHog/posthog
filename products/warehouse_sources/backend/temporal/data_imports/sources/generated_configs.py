@@ -300,7 +300,7 @@ class AppfiguresSourceConfig(config.Config):
 
 @config.config
 class AppfollowSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
