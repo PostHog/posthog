@@ -18,7 +18,10 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
 )
-from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    ESTIMATE_WINDOW_DAYS,
+    estimate_scanner_session_volume,
+)
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -393,6 +396,40 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_window_is_exactly_30_days(self, team) -> None:
+        # A relative "-30d" date_from truncates to start-of-day, counting up to 31 days against the /30 divisor.
+        bound = _NOW - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
+        self._produce(
+            team.id,
+            "same-day-but-outside",
+            bound - dt.timedelta(hours=6, seconds=60),
+            bound - dt.timedelta(hours=6),
+            active_milliseconds=30_000,
+        )
+        self._produce(
+            team.id,
+            "inside",
+            _NOW - dt.timedelta(days=2),
+            _NOW - dt.timedelta(days=2) + dt.timedelta(seconds=60),
+            active_milliseconds=30_000,
+        )
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_divisor_stays_full_for_old_but_quiet_teams(self, team) -> None:
+        # The bounded earliest-recording probe must not shrink the divisor for teams older than the window.
+        old = _NOW - dt.timedelta(days=40)
+        self._produce(team.id, "old-session", old, old + dt.timedelta(seconds=60), active_milliseconds=30_000)
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 0
+        assert estimate.effective_window_days == ESTIMATE_WINDOW_DAYS
 
     @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
