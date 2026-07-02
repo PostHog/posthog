@@ -28,7 +28,11 @@ interface ValueCandidate {
 
 const LABEL_HEIGHT = 16
 
-/** Keep labels in one column top-to-bottom, dropping any that would crowd the one above it. */
+/** Keep labels in one column top-to-bottom, dropping any that would crowd the one above it.
+ *  Unlike `nonCollidingKeys` (series/slice labels), this drops by vertical position, not by a
+ *  significance score: value labels share a single fixed-x column where the only sensible reading
+ *  order is top-to-bottom, and — being the point's own value — carry no cross-label priority that
+ *  would justify keeping a lower label over the one above it. */
 function columnSweep(candidates: ValueCandidate[], minGap: number): ValueCandidate[] {
     const sorted = [...candidates].sort((a, b) => a.y - b.y)
     const kept: ValueCandidate[] = []

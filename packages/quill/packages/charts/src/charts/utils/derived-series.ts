@@ -1,10 +1,9 @@
 import type { Series } from '../../core/types'
-import { dimHex } from '../../utils/comparison-dimming'
+import { DIM_OPACITY, dimHex } from '../../utils/comparison-dimming'
 import { linearRegression, movingAverage, trendLine } from '../../utils/statistics'
 
 export type { TrendLineConfig } from './use-derived-series'
 
-const TREND_LINE_DIM_OPACITY = 0.5
 const CI_FILL_OPACITY = 0.2
 const MA_DASH_PATTERN = [10, 3]
 const TREND_LINE_DASH_PATTERN = [1, 3]
@@ -86,7 +85,7 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
         key: `${sourceSeries.key}__trendline`,
         label: input.label ?? sourceSeries.label,
         data,
-        color: dimHex(baseColor, TREND_LINE_DIM_OPACITY),
+        color: dimHex(baseColor, DIM_OPACITY),
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: TREND_LINE_DASH_PATTERN },

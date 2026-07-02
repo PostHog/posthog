@@ -1,7 +1,9 @@
 import type { Series } from '../core/types'
 import { hexToRGBA } from './format'
 
-const COMPARISON_DIM_OPACITY = 0.5
+/** Alpha applied to subordinate series (comparison periods and trend-line overlays) so they read
+ *  as secondary to their primary. Shared with `buildTrendLineSeries` via {@link dimHex}. */
+export const DIM_OPACITY = 0.5
 
 /** Re-render comparison series at reduced opacity so they read as subordinate to their
  *  primary. Series whose colour is missing or already an `rgba(...)` string are left as-is
@@ -17,7 +19,7 @@ export function applyComparisonDimming<Meta = unknown>(
         if (!(s.key in comparisonOf)) {
             return s
         }
-        const dimmed = dimHex(s.color, COMPARISON_DIM_OPACITY)
+        const dimmed = dimHex(s.color, DIM_OPACITY)
         return dimmed === s.color ? s : { ...s, color: dimmed }
     })
 }
