@@ -64,7 +64,13 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
 }
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
+def to_printed_hogql(
+    query: ast.Expr,
+    team: Team,
+    modifiers: "HogQLQueryModifiers | None" = None,
+    *,
+    bypass_warehouse_access_control: bool = False,
+) -> str:
     """Prints the HogQL query without mutating the node"""
     return prepare_and_print_ast(
         clone_expr(query),
@@ -73,6 +79,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifier
             team_id=team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         ),
         pretty=True,
     )[0]
