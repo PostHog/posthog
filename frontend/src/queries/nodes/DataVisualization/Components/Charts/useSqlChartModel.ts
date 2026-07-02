@@ -3,10 +3,8 @@ import { useEffect, useMemo } from 'react'
 
 import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { LineGraphProps } from './LineGraph'
 import {
@@ -30,7 +28,6 @@ export function useSqlChartModel<TConfig>(
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
@@ -45,8 +42,7 @@ export function useSqlChartModel<TConfig>(
         [ySeriesData, visualizationType]
     )
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const config = useMemo(
         () =>
