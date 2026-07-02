@@ -32,7 +32,6 @@ from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 
@@ -152,13 +151,15 @@ HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
 HOG_FLOW_NAME_HEADER = "X-PostHog-Hog-Flow-Name"
 
 
-def _workflow_trigger_from_request(request: Request, team: Team) -> Trigger | None:
+def _workflow_trigger_from_request(request: Request) -> Trigger | None:
     """Build an activity-log Trigger when the request originates from a HogFlow workflow step.
 
-    The workflow id comes from a caller-supplied header, so we only trust it once we've
-    confirmed a workflow with that id actually belongs to this team. That keeps the stored
-    attribution truthful (the rendered link always resolves) and stops a token holder from
-    fabricating attribution to an arbitrary or foreign workflow id.
+    The id and name come from headers set by the trusted CDP builtin that runs the workflow
+    step. We can't cross-check the id against the workflows product from here — module
+    boundaries keep conversations independent of workflows — so we only sanity-check that the
+    id is a well-formed UUID. The endpoint is team-token authenticated, so the worst a token
+    holder can do is misattribute a change within its own team's audit log; there is no
+    cross-team or privilege impact.
     """
     hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
     if not hog_flow_id:
@@ -166,8 +167,6 @@ def _workflow_trigger_from_request(request: Request, team: Team) -> Trigger | No
     try:
         uuid.UUID(hog_flow_id)
     except (ValueError, TypeError):
-        return None
-    if not HogFlow.objects.filter(id=hog_flow_id, team_id=team.id).exists():
         return None
     hog_flow_name = request.headers.get(HOG_FLOW_NAME_HEADER)
     return Trigger(
@@ -291,7 +290,7 @@ class ExternalTicketView(APIView):
 
         # When a HogFlow workflow step makes the change, it forwards its identity via
         # headers so the activity log can attribute (and link to) the workflow.
-        workflow_trigger = _workflow_trigger_from_request(request, team)
+        workflow_trigger = _workflow_trigger_from_request(request)
 
         if error := _validate_ticket_id(ticket_id):
             return error
