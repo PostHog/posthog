@@ -42,6 +42,15 @@ LEASE_TTL_SECONDS = 300
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
+# Lock-takeover staleness windows (see get_run_activity_summary). A run whose
+# started batches last wrote a status row longer ago than this is considered
+# abandoned mid-processing.
+STALE_THRESHOLD_SECONDS = 30 * 60
+# Batches the consumer never picked up carry no status row, so status recency
+# can't judge them — a deep queue backlog legitimately holds them unstarted for
+# hours. They only count as abandoned after this much longer grace period.
+QUEUED_GRACE_SECONDS = 24 * 60 * 60
+
 
 def pending_batch_select_columns(status_alias: str) -> str:
     return f"""
@@ -633,12 +642,12 @@ class BatchQueue:
         the status view must be LEFT JOINed and a missing status counts as
         non-terminal. Status recency can't judge those batches either — a deep
         queue backlog holds them unstarted for hours while the run is perfectly
-        healthy — so queued batches get a much longer grace period before the
-        run is considered stale.
+        healthy — so queued batches get a much longer grace period
+        (QUEUED_GRACE_SECONDS) before the run is considered stale. The grace
+        only protects runs with no started work gone silent: a batch stuck
+        executing past STALE_THRESHOLD_SECONDS means the consumer died mid-run,
+        and a queued sibling must not mask that.
         """
-        STALE_THRESHOLD_SECONDS = 30 * 60  # 30 minutes
-        QUEUED_GRACE_SECONDS = 24 * 60 * 60  # 24 hours
-
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
@@ -647,6 +656,9 @@ class BatchQueue:
                     COUNT(*) FILTER (
                         WHERE s.batch_id IS NULL OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
+                    COUNT(*) FILTER (
+                        WHERE s.batch_id IS NOT NULL AND s.job_state NOT IN ('succeeded', 'failed')
+                    ) AS started_non_terminal_count,
                     MAX(s.created_at) AS latest_status_at,
                     MAX(b.created_at) FILTER (WHERE s.batch_id IS NULL) AS latest_queued_at
                 FROM {BATCH_TABLE} b
@@ -670,7 +682,11 @@ class BatchQueue:
         latest_queued_at: datetime | None = row["latest_queued_at"]
 
         consumer_active = latest_status_at is not None and _age_seconds(latest_status_at) <= STALE_THRESHOLD_SECONDS
-        queued_waiting = latest_queued_at is not None and _age_seconds(latest_queued_at) <= QUEUED_GRACE_SECONDS
+        queued_waiting = (
+            row["started_non_terminal_count"] == 0
+            and latest_queued_at is not None
+            and _age_seconds(latest_queued_at) <= QUEUED_GRACE_SECONDS
+        )
 
         return RunActivitySummary(
             has_batches=True,

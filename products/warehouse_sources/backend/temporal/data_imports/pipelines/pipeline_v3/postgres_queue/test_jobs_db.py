@@ -637,8 +637,7 @@ def _summary(db_url: str, *, job_id: str = "job-1", workflow_run_id: str = "wf-1
 
 @pytest.mark.django_db(transaction=True)
 class TestGetRunActivitySummary:
-    @pytest.mark.asyncio
-    async def test_no_batches_reports_stale(self, conn, _db_url):
+    def test_no_batches_reports_stale(self, _db_url):
         assert _summary(_db_url) == RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
     @pytest.mark.asyncio
@@ -658,18 +657,28 @@ class TestGetRunActivitySummary:
         assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=expected_stale)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("status_age,expected_stale", [("5 minutes", False), ("2 hours", True)])
-    async def test_started_batch_staleness_follows_latest_status(self, conn, _db_url, status_age, expected_stale):
+    @pytest.mark.parametrize("status_age_seconds,expected_stale", [(300, False), (7200, True)])
+    async def test_started_batch_staleness_follows_latest_status(
+        self, conn, _db_url, status_age_seconds, expected_stale
+    ):
         bid = await _insert_batch(conn, metadata={"workflow_run_id": "wf-1"})
-        await conn.execute(
-            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
-            f"VALUES (%s, 'executing', 1, now() - interval '{status_age}')",
-            [bid],
-        )
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=status_age_seconds)
 
         summary = _summary(_db_url)
 
         assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=expected_stale)
+
+    @pytest.mark.asyncio
+    async def test_stalled_started_batch_not_masked_by_queued_sibling(self, conn, _db_url):
+        # Consumer died mid-run: batch 0 stuck executing past the stale threshold.
+        # The still-queued batch 1 must not shield the run from takeover.
+        stuck = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": "wf-1"})
+        await _insert_backdated_executing(conn, batch_id=stuck, age_seconds=7200)
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": "wf-1"})
+
+        summary = _summary(_db_url)
+
+        assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=True)
 
     @pytest.mark.asyncio
     async def test_mixed_processed_and_queued_batches_still_waiting(self, conn, _db_url):
@@ -688,11 +697,15 @@ class TestGetRunActivitySummary:
         assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=False)
 
     @pytest.mark.asyncio
-    async def test_all_terminal_batches_report_no_non_terminal(self, conn, _db_url):
+    @pytest.mark.parametrize("status_age,expected_stale", [("5 seconds", False), ("2 hours", True)])
+    async def test_all_terminal_batches_report_no_non_terminal(self, conn, _db_url, status_age, expected_stale):
         bid = await _insert_batch(conn, metadata={"workflow_run_id": "wf-1"})
-        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+        await conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+            f"VALUES (%s, 'succeeded', 1, now() - interval '{status_age}')",
+            [bid],
+        )
 
         summary = _summary(_db_url)
 
-        assert summary.has_batches is True
-        assert summary.has_non_terminal is False
+        assert summary == RunActivitySummary(has_batches=True, has_non_terminal=False, is_stale=expected_stale)
