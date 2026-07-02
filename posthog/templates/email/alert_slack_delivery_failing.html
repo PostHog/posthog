@@ -1,0 +1,13 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert for insight <a
+            href="{% absolute_uri insight_url %}">{{ insight_name }}</a> fired, but its <strong>Slack notification could not be delivered</strong>:
+    </p>
+    <p><i>{{ slack_error_reason }}</i></p>
+    <p>
+        Any other notification channels on this alert (such as email) were unaffected. Fix the issue above and the next Slack notification will go through.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+    </div>
+{% endblock %}{% load posthog_filters %}
