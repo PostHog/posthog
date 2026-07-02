@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Optional
 
 import requests
@@ -44,8 +44,7 @@ class MarketstackResumeConfig:
 
 def _format_date(value: Any) -> str:
     """Format an incremental cursor for the `date_from` filter (Marketstack expects YYYY-MM-DD)."""
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d")
+    # datetime is a subclass of date, so this covers both.
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
     # A stored string cursor is already an ISO timestamp/date — keep just the date portion.
@@ -157,7 +156,7 @@ def get_rows(
                 if has_more:
                     resumable_source_manager.save_state(MarketstackResumeConfig(next_offset=next_offset))
 
-        if not has_more or len(items) == 0:
+        if not has_more:
             break
         offset = next_offset
 
