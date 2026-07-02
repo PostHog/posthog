@@ -150,9 +150,13 @@ export function resolveFunnelBarHorizontalHover(
     if (hoveredSeriesKey === FUNNEL_BAR_HORIZONTAL_FILLER_KEY) {
         // Drop-off region. A lone visible segment (compare bar, plain funnel) shares the filler's
         // variant, so resolve from it; multiple segments (breakdown) means the whole step's drop-off.
+        // The aggregate step inherits `breakdown_value` from its first variant (aggregateBreakdownResult
+        // spreads it), so clear it — the whole step's drop-off is not one breakdown's.
         const entry = seriesData.length === 1 ? seriesData[0] : undefined
         return {
-            series: entry ? variantAt(entry.series.meta?.breakdownIndex) : step,
+            series: entry
+                ? variantAt(entry.series.meta?.breakdownIndex)
+                : { ...step, breakdown: undefined, breakdown_value: undefined },
             isDropOffHover: stepIndex > 0,
             color: entry?.color,
         }
