@@ -13,8 +13,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
+    GetSuspendedNodeIDsInputs,
     PreemptDAGRunInputs,
     get_dag_structure_activity,
+    get_suspended_node_ids_activity,
     preempt_dag_run_activity,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
@@ -28,6 +30,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 MAX_CONCURRENT_CHILDREN = 10
 
@@ -249,6 +252,22 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
+        engine = DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+        suspended_node_ids = set(
+            await temporalio.workflow.execute_activity(
+                get_suspended_node_ids_activity,
+                GetSuspendedNodeIDsInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=engine.value,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+        )
+
         edge_lookup = _get_edge_lookup(dag_structure.edges)
         levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_nodes, edge_lookup)
 
@@ -286,7 +305,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         should_skip = True
                         skip_reason = f"Upstream node {failed_id} failed"
                         break
-                if should_skip:
+                if node_id in suspended_node_ids:
+                    skip_nodes.append((node_id, f"Node is suspended for {engine.value}"))
+                    failed_node_set.add(node_id)
+                elif should_skip:
                     skip_nodes.append((node_id, skip_reason))
                 elif node_id in ephemeral_node_set:
                     ephemeral_nodes.append(node_id)

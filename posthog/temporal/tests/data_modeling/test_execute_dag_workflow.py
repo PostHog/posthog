@@ -15,8 +15,10 @@ from temporalio.testing import WorkflowEnvironment
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
+    GetSuspendedNodeIDsInputs,
     PreemptDAGRunInputs,
     get_dag_structure_activity,
+    get_suspended_node_ids_activity,
 )
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
@@ -34,7 +36,14 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowResult,
 )
 
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -209,6 +218,46 @@ class TestGetDagStructureActivity:
         await database_sync_to_async(dag.delete)()
         await database_sync_to_async(mat_query.delete)()
         await database_sync_to_async(ephemeral_query.delete)()
+
+    async def test_retrieves_suspended_node_ids(self, activity_environment, ateam, saved_queries, adag):
+        suspended_node = await database_sync_to_async(Node.objects.create)(
+            team=ateam,
+            dag=adag,
+            name="suspended-model",
+            type=NodeType.MAT_VIEW,
+            saved_query=saved_queries[0],
+            properties={
+                "system": {
+                    "suspended": {
+                        DataModelingJobEngine.CLICKHOUSE.value: {
+                            "reason": "boom",
+                            "job_id": "failed-job",
+                        }
+                    }
+                }
+            },
+        )
+        active_node = await database_sync_to_async(Node.objects.create)(
+            team=ateam,
+            dag=adag,
+            name="active-model",
+            type=NodeType.MAT_VIEW,
+            saved_query=saved_queries[1],
+        )
+
+        result = await activity_environment.run(
+            get_suspended_node_ids_activity,
+            GetSuspendedNodeIDsInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                engine=DataModelingJobEngine.CLICKHOUSE.value,
+            ),
+        )
+
+        assert result == [str(suspended_node.id)]
+
+        await database_sync_to_async(suspended_node.delete)()
+        await database_sync_to_async(active_node.delete)()
 
 
 class TestDagExecutionLevels:
@@ -410,6 +459,11 @@ async def stub_preempt_dag_run(_: PreemptDAGRunInputs) -> None:
     pass
 
 
+@temporal_activity.defn(name="get_suspended_node_ids_activity")
+async def stub_get_suspended_node_ids(_: GetSuspendedNodeIDsInputs) -> list[str]:
+    return []
+
+
 class TestExecuteDAGWorkflow:
     async def test_handles_empty_dag(self, ateam):
         """Test that the workflow returns early with empty result when no executable nodes exist."""
@@ -423,7 +477,7 @@ class TestExecuteDAGWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -493,7 +547,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -511,6 +565,50 @@ class TestExecuteDAGWorkflowWithMocks:
         assert node_a_id in _mock_workflow_calls
         assert node_b_id not in _mock_workflow_calls
         assert node_c_id not in _mock_workflow_calls
+
+    async def test_skips_suspended_nodes_and_downstream(self):
+        dag_id = "test-dag"
+        node_a_id = str(uuid.uuid4())
+        node_b_id = str(uuid.uuid4())
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
+                nodes=[node_a_id, node_b_id],
+                executable_nodes=[node_a_id, node_b_id],
+                edges=[(node_a_id, node_b_id)],
+            )
+
+        @temporal_activity.defn(name="get_suspended_node_ids_activity")
+        async def stub_get_suspended_nodes(_: GetSuspendedNodeIDsInputs) -> list[str]:
+            return [node_a_id]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_nodes],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id),
+                    id=f"test-skip-suspended-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+        assert result.successful_nodes == 0
+        assert result.failed_nodes == 0
+        assert result.skipped_nodes == 2
+        assert _mock_workflow_calls == []
+
+        suspended_result = next(r for r in result.node_results if r.node_id == node_a_id)
+        downstream_result = next(r for r in result.node_results if r.node_id == node_b_id)
+        assert suspended_result.skipped is True
+        assert suspended_result.skip_reason == "Node is suspended for clickhouse"
+        assert downstream_result.skipped is True
 
     async def test_filters_by_node_ids(self):
         """Test that specifying node_ids filters which nodes are executed."""
@@ -532,7 +630,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -571,7 +669,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -613,7 +711,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -657,7 +755,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_node_ids],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(

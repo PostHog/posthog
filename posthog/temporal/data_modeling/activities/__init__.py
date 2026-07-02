@@ -1,6 +1,7 @@
 from .create_data_modeling_job import CreateDataModelingJobInputs, create_data_modeling_job_activity
 from .fail_materialization import FailMaterializationInputs, fail_materialization_activity
 from .get_dag_structure import GetDAGStructureInputs, get_dag_structure_activity
+from .get_suspended_node_ids import GetSuspendedNodeIDsInputs, get_suspended_node_ids_activity
 from .materialize_view import MaterializeViewInputs, MaterializeViewResult, materialize_view_activity
 from .materialize_view_duckgres import (
     DuckgresShadowInputs,
@@ -21,6 +22,7 @@ __all__ = [
     "DuckgresShadowInputs",
     "DuckgresShadowResult",
     "GetDAGStructureInputs",
+    "GetSuspendedNodeIDsInputs",
     "FailMaterializationInputs",
     "MaterializeViewInputs",
     "MaterializeViewResult",
@@ -34,6 +36,7 @@ __all__ = [
     "materialize_view_activity",
     "materialize_view_duckgres_activity",
     "get_dag_structure_activity",
+    "get_suspended_node_ids_activity",
     "preempt_dag_run_activity",
     "prepare_queryable_table_activity",
     "succeed_materialization_activity",
