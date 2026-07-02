@@ -756,9 +756,9 @@ Update SOURCES.md whenever you:
 
 Two semgrep rules enforce the tracked transports inside `sources/`:
 
-- [`data-imports-http-transport`](/.semgrep/rules/data-imports-http-transport.yaml) bans direct
+- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml) bans direct
   `requests.<verb>` / `requests.Session()` / `httpx.*` — route through `make_tracked_session()`.
-- [`data-imports-grpc-transport`](/.semgrep/rules/data-imports-grpc-transport.yaml) bans raw
+- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml) bans raw
   `grpc.*_channel(...)` and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction —
   route through `make_tracked_channel(...)` (for `channel=`/`transport=` SDKs) or
   `tracked_interceptors(host)` (for `interceptors=` SDKs).
