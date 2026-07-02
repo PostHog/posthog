@@ -343,14 +343,18 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         node_id = req.query_params.get("node_id")
         saved_query_id = req.query_params.get("saved_query_id")
-        if node_id:
-            node = Node.objects.filter(id=node_id, team_id=self.team_id).first()
-        elif saved_query_id:
-            node = Node.objects.filter(saved_query_id=saved_query_id, team_id=self.team_id).first()
-        else:
+        if not node_id and not saved_query_id:
             return response.Response(
                 {"error": "node_id or saved_query_id is required"}, status=status.HTTP_400_BAD_REQUEST
             )
+        # Parse UUIDs up front: unlike the detail route, query params aren't validated by URL
+        # routing, so an invalid string would surface as a 500 from the ORM instead of a 400.
+        try:
+            lookup = {"id": UUID(node_id)} if node_id else {"saved_query_id": UUID(cast(str, saved_query_id))}
+        except ValueError:
+            return response.Response({"error": "Invalid UUID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        node = Node.objects.filter(team_id=self.team_id, **lookup).first()
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 

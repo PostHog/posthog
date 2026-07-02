@@ -291,6 +291,14 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(["node_id", "saved_query_id"])
+    def test_lineage_invalid_uuid_returns_400(self, lookup_param):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}=not-a-uuid"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(["node_id", "saved_query_id"])
     def test_lineage_does_not_leak_other_teams_nodes(self, lookup_param):
         other_team = Team.objects.create(organization=self.organization)
         other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")

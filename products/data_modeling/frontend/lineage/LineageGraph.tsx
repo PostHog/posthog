@@ -137,6 +137,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         props.currentNodeId,
         props.nodeState,
         props.nodeCallbacks,
+        props.onNodeClick,
     ])
 
     if (!layout) {
