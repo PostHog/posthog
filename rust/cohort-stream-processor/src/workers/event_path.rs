@@ -142,7 +142,7 @@ struct PendingWrite {
     variant: StateVariant,
 }
 
-/// One apply's stored state as read by the event's single snapshot read.
+/// One apply's stored state as read by the event's single batched pre-event read.
 enum PriorState {
     /// No row: this apply is the leaf's first write.
     Absent,
@@ -166,57 +166,6 @@ impl PriorState {
                 }
             },
         }
-    }
-}
-
-/// An [`Apply`] joined with its [`Stage1Key`] and pre-event state. Constructed only by
-/// [`EventSnapshot::read`], so holding one proves the state came from the event's single batched
-/// pre-event read — never a mid-event re-read.
-struct PreparedApply {
-    apply: Apply,
-    key: Stage1Key,
-    prior: PriorState,
-}
-
-/// The event's whole Stage-1 read set, fetched in one `multi_get_stage1`. A snapshot spans exactly
-/// one event: the next event in the sub-batch must see this event's committed writes (argMax
-/// tiebreaker, replay dedup), so never batch across events.
-struct EventSnapshot(Vec<PreparedApply>);
-
-impl EventSnapshot {
-    /// All writes are deferred to the post-loop `write_batch`, so every apply sees the pre-event
-    /// image whether the reads are batched or sequential — batching is observably identical.
-    fn read(
-        store: &CohortStore,
-        partition_id: u16,
-        team_id: u64,
-        person_id: Uuid,
-        applies: Vec<Apply>,
-    ) -> Result<Self, StoreError> {
-        let keys: Vec<Stage1Key> = applies
-            .iter()
-            .map(|apply| Stage1Key {
-                partition_id,
-                team_id,
-                leaf_state_key: apply.lsk(),
-                person_id,
-            })
-            .collect();
-        histogram!(STAGE1_SNAPSHOT_KEYS).record(keys.len() as f64);
-        let values = store.multi_get_stage1(&keys)?;
-        // Alignment-safe zip: `multi_get_stage1` preserves input order, `None` for absent keys.
-        Ok(Self(
-            applies
-                .into_iter()
-                .zip(keys)
-                .zip(values)
-                .map(|((apply, key), bytes)| PreparedApply {
-                    apply,
-                    key,
-                    prior: PriorState::decode(bytes),
-                })
-                .collect(),
-        ))
     }
 }
 
@@ -309,14 +258,28 @@ pub fn process_event_with_memo(
     };
 
     let team_id = event.team_id as u64;
-    let snapshot = EventSnapshot::read(store, partition_id, team_id, person_id, applies)?;
+    // One batched pre-event read; all writes defer to the post-loop `write_batch`, so every apply
+    // sees the pre-event image. The batch spans exactly one event: the next event in the sub-batch
+    // must see this event's committed writes (argMax tiebreaker, replay dedup).
+    let keys: Vec<Stage1Key> = applies
+        .iter()
+        .map(|apply| Stage1Key {
+            partition_id,
+            team_id,
+            leaf_state_key: apply.lsk(),
+            person_id,
+        })
+        .collect();
+    histogram!(STAGE1_SNAPSHOT_KEYS).record(keys.len() as f64);
+    let values = store.multi_get_stage1(&keys)?;
 
     let mut transitions = Vec::new();
     let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
     let mut pending = Vec::new();
 
-    for PreparedApply { apply, key, prior } in snapshot.0 {
-        let (prev, first_write) = match prior {
+    // Alignment-safe zip: `multi_get_stage1` preserves input order, `None` for absent keys.
+    for ((apply, key), bytes) in applies.into_iter().zip(keys).zip(values) {
+        let (prev, first_write) = match PriorState::decode(bytes) {
             PriorState::Absent => (None, true),
             PriorState::Present(record) => (Some(record), false),
             PriorState::Corrupt => continue,
