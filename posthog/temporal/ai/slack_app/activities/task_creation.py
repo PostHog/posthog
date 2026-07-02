@@ -25,6 +25,16 @@ _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead."""
 
+# Variant used while the slack-app-canvas-file-artifacts flag is off for the workspace: the
+# slack_canvas / slack_file adapters need Slack scopes that are still in review, so the agent
+# must not be offered them (the adapters reject the request server-side regardless).
+_SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY = """Slack delivery constraints:
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- Canvas and file uploads to Slack are not available in this workspace: do not use the `slack_canvas` or `slack_file` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.
+- For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY` using adapter `slack_message`. To update a prior deliverable, GET the returned artifact id or POST new `content` to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
+- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."""
+
 # Cap on how many messages a single follow-up update block can carry. Threads with
 # hundreds of intervening messages between interactions are an edge case (a chatty
 # channel that mostly ignored the bot); we surface the most recent slice so the
@@ -154,8 +164,11 @@ def _indent_body(text: str, indent: str = "  ") -> str:
     return textwrap.indent(text, indent)
 
 
-def _with_slack_delivery_constraints(prompt: str) -> str:
-    return f"{_SLACK_DELIVERY_CONSTRAINTS}\n{prompt}"
+def _with_slack_delivery_constraints(prompt: str, *, canvas_file_artifacts_enabled: bool) -> str:
+    constraints = (
+        _SLACK_DELIVERY_CONSTRAINTS if canvas_file_artifacts_enabled else _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY
+    )
+    return f"{constraints}\n{prompt}"
 
 
 def _build_posthog_code_task_description(
@@ -164,6 +177,8 @@ def _build_posthog_code_task_description(
     initiator_ts: str | None,
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
+    *,
+    canvas_file_artifacts_enabled: bool,
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
     context up front and the initiator's @mention is the actionable prompt at the end.
@@ -221,7 +236,7 @@ def _build_posthog_code_task_description(
         context_entries.pop()
 
     if not context_entries:
-        return _with_slack_delivery_constraints(prompt)
+        return _with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled)
 
     # Fall back to deriving the mentioner from `mentioner_slack_user_id` when the
     # initiator's message isn't part of the thread fetch (rare, but defensive). The
@@ -267,7 +282,7 @@ def _build_posthog_code_task_description(
     context_block = "\n".join(context_entries)
     return (
         f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
-        f"\n\n{_with_slack_delivery_constraints(prompt)}"
+        f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled)}"
     )
 
 
@@ -464,12 +479,15 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
 
+    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
+
     description = _build_posthog_code_task_description(
         user_text,
         thread_messages,
         user_message_ts,
         mentioner_slack_user_id=slack_user_id,
         mentioner_display_name=mentioner_display_name,
+        canvas_file_artifacts_enabled=is_slack_app_canvas_file_artifacts_enabled(integration),
     )
 
     slack_thread_context = SlackThreadContext(

@@ -4500,8 +4500,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(self, mock_integration_for_mapping):
+    def test_living_artifact_create_open_and_edit(self, mock_integration_for_mapping, _mock_flag):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -4584,10 +4585,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("s3", json.dumps(response.json()))
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_slack_file_from_base64(self, mock_integration_for_mapping, mock_write, _mock_tag):
+    def test_living_artifact_create_slack_file_from_base64(
+        self, mock_integration_for_mapping, mock_write, _mock_tag, _mock_flag
+    ):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(

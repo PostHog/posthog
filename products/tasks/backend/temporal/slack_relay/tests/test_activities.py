@@ -212,6 +212,7 @@ class TestRelaySlackMessage(TestCase):
         assert "<https://example.com/report.pdf|user_activity_report.pdf>" in posted
         mock_presign.assert_called_once_with("tasks/artifacts/report.pdf")
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -226,6 +227,7 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         mock_requests_post,
+        _mock_flag,
     ):
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
         location = {

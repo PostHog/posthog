@@ -24,6 +24,10 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
+# Both scopes are still in Slack app review (see posthog/helpers/slack_scopes.py), so the canvas
+# and file adapters are additionally gated behind the slack-app-canvas-file-artifacts flag: scope
+# checks alone would force the feature on for any install whose manifest grants the scopes (DEV
+# today, every prod workspace the moment Slack approves them) with no rollout control.
 SLACK_CANVAS_SCOPE = "canvases:write"
 SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"
@@ -628,6 +632,8 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         source_artifact: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
+        if not _canvas_file_artifacts_enabled(mapping):
+            raise ValueError("Slack canvas delivery is not enabled for this workspace")
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_CANVAS_SCOPE}))
         if missing_scopes:
@@ -716,6 +722,8 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         source_artifact: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
+        if not _canvas_file_artifacts_enabled(mapping):
+            raise ValueError("Slack file delivery is not enabled for this workspace")
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
         if missing_scopes:
@@ -773,6 +781,10 @@ def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
 def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) -> int:
     mapping = _get_slack_mapping(run, raise_if_missing=False)
     if mapping is None:
+        return 0
+
+    if not _canvas_file_artifacts_enabled(mapping):
+        logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
         return 0
 
     slack_integration = _slack_integration_for_mapping(mapping)
@@ -976,6 +988,12 @@ def _get_slack_mapping(run: TaskRun, *, raise_if_missing: bool = True):
             return None
         raise ValueError("Task run is not mapped to a Slack thread")
     return mapping
+
+
+def _canvas_file_artifacts_enabled(mapping: Any) -> bool:
+    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
+
+    return is_slack_app_canvas_file_artifacts_enabled(mapping.integration)
 
 
 def _slack_client_for_mapping(mapping: Any):

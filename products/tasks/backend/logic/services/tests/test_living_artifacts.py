@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -17,6 +19,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     ArtifactCommit,
     DocumentConnectorUnavailable,
     create_living_artifact,
+    deliver_pending_slack_file_artifacts,
     edit_living_artifact,
     get_task_artifact_for_run,
     get_task_artifacts_for_run,
@@ -133,8 +136,9 @@ class TestLivingArtifacts(TestCase):
         self.assertEqual(updated.versions[-1]["content"], "# Updated report")
         self.assertEqual(updated.location["document_id"], artifact.location["document_id"])
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_mapped_slack_document_defaults_to_canvas_external_pointer(self, mock_integration_for_mapping):
+    def test_mapped_slack_document_defaults_to_canvas_external_pointer(self, mock_integration_for_mapping, _mock_flag):
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -188,8 +192,9 @@ class TestLivingArtifacts(TestCase):
         )
         slack_integration.missing_scopes.assert_called()
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_follow_up_run_sees_and_edits_prior_run_artifacts(self, mock_integration_for_mapping):
+    def test_follow_up_run_sees_and_edits_prior_run_artifacts(self, mock_integration_for_mapping, _mock_flag):
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -240,8 +245,9 @@ class TestLivingArtifacts(TestCase):
         self.assertEqual(updated.current_version, 2)
         self.assertEqual(slack.api_call.call_args_list[-1].args[0], "canvases.edit")
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_slack_canvas_adapter_requires_canvas_scope(self, mock_integration_for_mapping):
+    def test_slack_canvas_adapter_requires_canvas_scope(self, mock_integration_for_mapping, _mock_flag):
         integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -265,11 +271,12 @@ class TestLivingArtifacts(TestCase):
                 content="# Report",
             )
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_stores_binary_versions_until_relay(
-        self, mock_integration_for_mapping, mock_write, mock_tag
+        self, mock_integration_for_mapping, mock_write, mock_tag, _mock_flag
     ):
         integration = Integration.objects.create(
             team=self.team,
@@ -324,11 +331,12 @@ class TestLivingArtifacts(TestCase):
         slack.api_call.assert_not_called()
         slack_integration.missing_scopes.assert_called_with(frozenset({"files:write"}))
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_presents_xlsx_payload_with_xlsx_filename(
-        self, mock_integration_for_mapping, mock_write, _mock_tag
+        self, mock_integration_for_mapping, mock_write, _mock_tag, _mock_flag
     ):
         integration = Integration.objects.create(
             team=self.team,
@@ -376,12 +384,13 @@ class TestLivingArtifacts(TestCase):
         self.assertEqual(mock_write.call_args.args[2]["ContentType"], artifact.location["content_type"])
         slack.api_call.assert_not_called()
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_stores_source_artifact_until_relay(
-        self, mock_integration_for_mapping, mock_read_bytes, mock_write, _mock_tag
+        self, mock_integration_for_mapping, mock_read_bytes, mock_write, _mock_tag, _mock_flag
     ):
         workbook_bytes = _xlsx_bytes()
         mock_read_bytes.return_value = workbook_bytes
@@ -444,8 +453,9 @@ class TestLivingArtifacts(TestCase):
         )
         slack.api_call.assert_not_called()
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_slack_file_adapter_requires_file_scope(self, mock_integration_for_mapping):
+    def test_slack_file_adapter_requires_file_scope(self, mock_integration_for_mapping, _mock_flag):
         integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -470,3 +480,86 @@ class TestLivingArtifacts(TestCase):
                 content_bytes=b"workbook",
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
+    def _create_mapping_with_full_scopes(self) -> None:
+        # Scopes granted (the DEV-install shape) so these tests prove the feature flag
+        # gates canvas/file delivery even where the in-review scopes are available.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,canvases:write,files:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "canvas",
+                {"artifact_type": TaskArtifact.ArtifactType.SLACK_CANVAS, "content": "# Report"},
+                "Slack canvas delivery is not enabled",
+            ),
+            (
+                "file",
+                {
+                    "artifact_type": TaskArtifact.ArtifactType.SPREADSHEET,
+                    "adapter": TaskArtifact.Adapter.SLACK_FILE,
+                    "content_bytes": b"col_a,col_b",
+                    "content_type": "text/csv",
+                },
+                "Slack file delivery is not enabled",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=False)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_canvas_and_file_adapters_reject_when_flag_off(
+        self, _name, create_kwargs, expected_error, mock_integration_for_mapping, _mock_flag
+    ):
+        self._create_mapping_with_full_scopes()
+
+        with self.assertRaisesRegex(ValueError, expected_error):
+            create_living_artifact(run=self.task_run, name="report", **create_kwargs)
+
+        mock_integration_for_mapping.assert_not_called()
+        self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=False)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_pending_file_delivery_skipped_when_flag_off(self, mock_integration_for_mapping, _mock_flag):
+        self._create_mapping_with_full_scopes()
+        storage_path = f"{self.task_run.get_artifact_s3_prefix()}/living/abc/report.v1.csv"
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            name="report.csv",
+            artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+            location={"kind": "slack_file", "storage_path": storage_path, "delivery_status": "pending"},
+            versions=[
+                {
+                    "version": 1,
+                    "delivery_status": "pending",
+                    "location": {"storage_path": storage_path},
+                }
+            ],
+            current_version=1,
+        )
+
+        delivered = deliver_pending_slack_file_artifacts(self.task_run, initial_comment="done")
+
+        self.assertEqual(delivered, 0)
+        mock_integration_for_mapping.assert_not_called()
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.versions[0]["delivery_status"], "pending")

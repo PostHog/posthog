@@ -13,8 +13,9 @@ logger = structlog.get_logger(__name__)
 # installs degrade gracefully — they skip the welcome message rather than tripping a missing-scopes warning.
 # canvases:write/files:write are also excluded: they are still in Slack review
 # (SlackIntegrationScopeInReview), so OAuth never grants them on US/EU Cloud — gating mentions on
-# them would hard-block every prod install. The artifact delivery path checks them at point of use
-# instead (products/tasks/backend/logic/services/living_artifacts.py).
+# them would hard-block every prod install. The artifact delivery path
+# (products/tasks/backend/logic/services/living_artifacts.py) checks them at point of use instead,
+# behind the slack-app-canvas-file-artifacts feature flag.
 REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
     {
         "app_mentions:read",
