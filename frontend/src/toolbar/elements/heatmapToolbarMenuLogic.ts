@@ -291,6 +291,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   paginate_response: true,
                                   sampling_factor: values.samplingFactor,
                                   limit: ELEMENT_STATS_PAGE_LIMIT,
+                                  // the matchers only read the configured data attributes from each
+                                  // element's attributes map, so let the server drop the rest
+                                  data_attributes: values.wantedDataAttributes.join(','),
                               },
                               options
                           )
@@ -331,6 +334,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
         loadedElementStatsCount: [(s) => [s.elementStats], (elementStats) => elementStats?.results?.length ?? 0],
+        // isTooSimple always reads attr__data-attr, so request it alongside the configured data
+        // attributes — first, so it survives the server's entry cap however many are configured
+        wantedDataAttributes: [
+            () => [toolbarConfigLogic.selectors.dataAttributes],
+            (dataAttributes: string[]): string[] => Array.from(new Set(['data-attr', ...dataAttributes])),
+        ],
         clickCount: [
             (s) => [s.countedElements],
             (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
@@ -661,9 +670,10 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
     const seen = new Set<string>()
     const deduped: ElementsEventType[] = []
     for (const event of events) {
-        // /api/element/stats returns hash as null for every row, so the chain content is the
-        // only usable row identity
-        const identity = `${event.type}:${JSON.stringify(event.elements)}`
+        // the server hashes the raw chain before attribute filtering, so distinct chains that
+        // serialize identically after trimming stay distinct; the serialized-content fallback is
+        // transitional for servers that still return hash as null — delete once that's none of them
+        const identity = `${event.type}:${event.hash ?? JSON.stringify(event.elements)}`
         if (seen.has(identity)) {
             continue
         }

@@ -176,6 +176,35 @@ export interface PatchedElementApi {
     order?: number | null
 }
 
+export interface ElementStatsApi {
+    /** Number of events matching this element chain */
+    count: number
+    /**
+     * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+     * @nullable
+     */
+    hash: string | null
+    /** Event type: $autocapture, $rageclick, or $dead_click */
+    type: string
+    /** Parsed elements of the chain, clicked element first */
+    elements: ElementApi[]
+}
+
+export interface ElementStatsResponseApi {
+    /** Element chains with event counts, ordered by count */
+    results: ElementStatsApi[]
+    /**
+     * URL for the next page of results, if any
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, if any
+     * @nullable
+     */
+    previous: string | null
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -7802,6 +7831,37 @@ export type ElementsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string
+    /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     */
+    include?: string[]
+    /**
+     * Maximum rows per page
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number
 }
 
 export type InsightsListParams = {

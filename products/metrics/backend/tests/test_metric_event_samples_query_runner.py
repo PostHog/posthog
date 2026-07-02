@@ -97,6 +97,9 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             span_id="s1",
             attributes={"route": "/x"},
             resource_attributes={"service.version": "1.2"},
+            count=40,
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
         )
         seed_metric_event(
             team_id=self.team.id,
@@ -117,10 +120,38 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         oldest = samples[1]
         self.assertEqual(oldest.metric_type, "histogram")
         self.assertEqual(oldest.unit, "ms")
+        self.assertEqual(oldest.count, 40)
+        self.assertEqual(oldest.aggregation_temporality, "cumulative")
+        self.assertTrue(oldest.is_monotonic)
         self.assertEqual(oldest.service_name, "api")
         self.assertEqual(oldest.trace_id, "t1")
         self.assertEqual(oldest.attributes, {"route": "/x"})
         self.assertEqual(oldest.resource_attributes, {"service.version": "1.2"})
+
+    def test_orphan_sample_keeps_metric_name(self):
+        # A sample can outrun its series row (series-MV lag, or the rollout
+        # window where NULL-fingerprint series rows are dropped). It must still
+        # render under its own metric name, with series-side fields empty —
+        # regression guard for selecting metric_name from the LEFT JOIN side.
+        anchor = timezone.now().replace(microsecond=0)
+        sync_execute(
+            "INSERT INTO metric_samples1 (team_id, metric_name, series_fingerprint, timestamp, value) "
+            "VALUES (%(team_id)s, 'orphaned.metric', 42, %(ts)s, 7.0)",
+            {"team_id": self.team.id, "ts": anchor.strftime("%Y-%m-%d %H:%M:%S.%f")},
+        )
+
+        samples = list_metric_event_samples(
+            team=self.team,
+            metric_name="orphaned.metric",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor + dt.timedelta(hours=1),
+        )
+
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0].metric_name, "orphaned.metric")
+        self.assertEqual(samples[0].value, 7.0)
+        self.assertEqual(samples[0].count, 1)  # column default
+        self.assertEqual(samples[0].metric_type, "")  # series side absent
 
     def test_samples_api_requires_authentication(self):
         self.client.logout()
