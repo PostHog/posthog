@@ -12,12 +12,6 @@ from collections.abc import Callable
 
 from posthog.schema import AggregationAxisFormat, TrendsFilter
 
-from posthog.hogql_queries.insights.utils.breakdowns import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
 from posthog.utils import compact_number
 
 DEFAULT_DECIMAL_PLACES = 2
@@ -55,15 +49,6 @@ _CURRENCY_SYMBOLS: dict[str, str] = {
     "AED": "AED ",
     "SAR": "SAR ",
 }
-
-
-def humanize_breakdown_label(label: str) -> str:
-    """Swap the internal breakdown sentinels for their display strings. The sentinels are globally
-    unique tokens, so a substring replace covers every label shape — standalone, action-prefixed
-    ("signed_up - <sentinel>"), and "::"-joined multi-breakdown values — without fragile splitting."""
-    return label.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
-        BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
-    )
 
 
 def make_trends_value_formatter(trends_filter: TrendsFilter | None, currency: str | None) -> Callable[[float], str]:

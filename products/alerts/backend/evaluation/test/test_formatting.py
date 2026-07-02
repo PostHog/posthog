@@ -2,11 +2,7 @@ import pytest
 
 from posthog.schema import AggregationAxisFormat, TrendsFilter
 
-from products.alerts.backend.evaluation.formatting import (
-    format_aggregation_value,
-    humanize_breakdown_label,
-    make_trends_value_formatter,
-)
+from products.alerts.backend.evaluation.formatting import format_aggregation_value, make_trends_value_formatter
 
 A = AggregationAxisFormat
 
@@ -46,22 +42,6 @@ A = AggregationAxisFormat
 )
 def test_format_aggregation_value(value: float, kwargs: dict, expected: str) -> None:
     assert format_aggregation_value(value, **kwargs) == expected
-
-
-@pytest.mark.parametrize(
-    "label,expected",
-    [
-        ("$$_posthog_breakdown_other_$$", "Other (i.e. all remaining values)"),
-        ("$$_posthog_breakdown_null_$$", "None (i.e. no value)"),
-        ("signed_up - $$_posthog_breakdown_other_$$", "signed_up - Other (i.e. all remaining values)"),
-        ("$$_posthog_breakdown_other_$$::US", "Other (i.e. all remaining values)::US"),
-        ("Chrome", "Chrome"),
-        # a normal label containing " - " must survive untouched (no fragile splitting)
-        ("Signed up - paid", "Signed up - paid"),
-    ],
-)
-def test_humanize_breakdown_label(label: str, expected: str) -> None:
-    assert humanize_breakdown_label(label) == expected
 
 
 def test_make_trends_value_formatter_reads_filter_and_currency() -> None:

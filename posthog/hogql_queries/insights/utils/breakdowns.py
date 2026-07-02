@@ -14,6 +14,15 @@ ALL_USERS_COHORT_ID = 0
 NOT_IN_COHORT_ID = 2**52
 
 
+def humanize_breakdown_label(label: str) -> str:
+    """Swap the internal breakdown sentinels for their display strings. The sentinels are globally
+    unique tokens, so a substring replace covers every label shape — standalone, action-prefixed
+    ("signed_up - <sentinel>"), and "::"-joined multi-breakdown values — without fragile splitting."""
+    return label.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
+        BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
+    )
+
+
 class _AliasStripper(CloningVisitor):
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
         return self.visit(node.expr)
