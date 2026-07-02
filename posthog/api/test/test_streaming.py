@@ -1,11 +1,13 @@
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from http import HTTPStatus
 
 from unittest import mock
 
 from django.http import StreamingHttpResponse
 
-from posthog.api.streaming import sse_streaming_response, streaming_response
+from prometheus_client import REGISTRY
+
+from posthog.api.streaming import _instrument_stream, sse_streaming_response, streaming_response
 
 
 def _gen() -> Iterator[bytes]:
@@ -46,6 +48,81 @@ class TestSSEStreamingResponse:
         assert response.headers["Cache-Control"] == "no-cache"
         assert response.headers["X-Accel-Buffering"] == "no"
         assert response.headers["X-Custom"] == "1"
+
+
+def _open_connections(endpoint: str) -> float:
+    return REGISTRY.get_sample_value("posthog_open_sse_connections", {"endpoint": endpoint}) or 0.0
+
+
+def _closed_total(endpoint: str, outcome: str) -> float:
+    return (
+        REGISTRY.get_sample_value("posthog_sse_stream_closed_total", {"endpoint": endpoint, "outcome": outcome}) or 0.0
+    )
+
+
+class TestSSEStreamMetrics:
+    # If the gauge ever fails to decrement on an exit path, it reads permanently
+    # inflated — and anything keyed on it (dashboards, connection-based
+    # autoscaling) sees phantom load. These tests pin every exit path.
+
+    def test_sync_stream_counts_open_and_completed(self):
+        response = sse_streaming_response(_gen(), endpoint="test_sync_complete")
+        assert b"".join(response.streaming_content) == b"data: hello\n\n"
+        assert _open_connections("test_sync_complete") == 0.0
+        assert _closed_total("test_sync_complete", "completed") == 1.0
+
+    def test_sync_stream_error_decrements_gauge_and_counts_error(self):
+        def boom() -> Iterator[bytes]:
+            yield b"data: one\n\n"
+            raise RuntimeError("stream died")
+
+        response = sse_streaming_response(boom(), endpoint="test_sync_error")
+        it = iter(response.streaming_content)
+        next(it)
+        try:
+            next(it)
+        except RuntimeError:
+            pass
+        assert _open_connections("test_sync_error") == 0.0
+        assert _closed_total("test_sync_error", "error") == 1.0
+
+    def test_sync_stream_early_close_counts_client_disconnect(self):
+        def endless() -> Iterator[bytes]:
+            while True:
+                yield b": ping\n\n"
+
+        response = sse_streaming_response(endless(), endpoint="test_sync_disconnect")
+        it = iter(response.streaming_content)
+        next(it)
+        assert _open_connections("test_sync_disconnect") == 1.0
+        response.close()  # what Django does when the client goes away
+        assert _open_connections("test_sync_disconnect") == 0.0
+        assert _closed_total("test_sync_disconnect", "client_disconnect") == 1.0
+
+    async def test_async_stream_counts_open_and_completed(self):
+        async def agen():
+            yield b"data: hello\n\n"
+
+        response = sse_streaming_response(agen(), endpoint="test_async_complete")
+        assert [chunk async for chunk in response.streaming_content] == [b"data: hello\n\n"]
+        assert _open_connections("test_async_complete") == 0.0
+        assert _closed_total("test_async_complete", "completed") == 1.0
+
+    async def test_async_stream_early_close_counts_client_disconnect(self):
+        async def endless():
+            while True:
+                yield b": ping\n\n"
+
+        # Django registers the instrumented iterator itself as the response's
+        # resource closer, so closing it directly is the disconnect path — the
+        # outer streaming_content wrapper does not propagate aclose() eagerly.
+        stream = _instrument_stream(endless(), "test_async_disconnect")
+        assert isinstance(stream, AsyncIterator)
+        await stream.__anext__()
+        assert _open_connections("test_async_disconnect") == 1.0
+        await stream.aclose()  # type: ignore[attr-defined]
+        assert _open_connections("test_async_disconnect") == 0.0
+        assert _closed_total("test_async_disconnect", "client_disconnect") == 1.0
 
 
 class TestStreamingResponse:
