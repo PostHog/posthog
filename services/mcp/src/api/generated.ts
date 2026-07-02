@@ -17328,7 +17328,7 @@ export namespace Schemas {
        * * `AirOps` - AirOps
        * * `Podium` - Podium
        * * `Loops` - Loops
-       * * `Redis` - Redis */
+       * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
        * * `Teachable` - Teachable */
@@ -23165,7 +23165,7 @@ export namespace Schemas {
        * * `AirOps` - AirOps
        * * `Podium` - Podium
        * * `Loops` - Loops
-       * * `Redis` - Redis */
+       * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
        * * `Teachable` - Teachable */
@@ -49486,7 +49486,7 @@ export namespace Schemas {
        * * `AirOps` - AirOps
        * * `Podium` - Podium
        * * `Loops` - Loops
-       * * `Redis` - Redis */
+       * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
        * * `Teachable` - Teachable */
@@ -50190,7 +50190,7 @@ export namespace Schemas {
        * * `AirOps` - AirOps
        * * `Podium` - Podium
        * * `Loops` - Loops
-       * * `Redis` - Redis */
+       * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
        * * `Teachable` - Teachable */
@@ -50886,7 +50886,7 @@ export namespace Schemas {
        * * `AirOps` - AirOps
        * * `Podium` - Podium
        * * `Loops` - Loops
-       * * `Redis` - Redis */
+       * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
        * * `Teachable` - Teachable */

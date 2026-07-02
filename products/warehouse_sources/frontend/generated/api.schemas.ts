@@ -2459,7 +2459,7 @@ export interface ExternalDataSourceCreateApi {
      * * `AirOps` - AirOps
      * * `Podium` - Podium
      * * `Loops` - Loops
-     * * `Redis` - Redis */
+     * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable */
@@ -3334,7 +3334,7 @@ export interface DatabaseSchemaRequestApi {
      * * `AirOps` - AirOps
      * * `Podium` - Podium
      * * `Loops` - Loops
-     * * `Redis` - Redis */
+     * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable */
@@ -4049,7 +4049,7 @@ export interface SourcePreviewRequestApi {
      * * `AirOps` - AirOps
      * * `Podium` - Podium
      * * `Loops` - Loops
-     * * `Redis` - Redis */
+     * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable */
@@ -4752,7 +4752,7 @@ export interface SourceSetupApi {
      * * `AirOps` - AirOps
      * * `Podium` - Podium
      * * `Loops` - Loops
-     * * `Redis` - Redis */
+     * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable */
@@ -5462,7 +5462,7 @@ export interface SourceCredentialCreateApi {
      * * `AirOps` - AirOps
      * * `Podium` - Podium
      * * `Loops` - Loops
-     * * `Redis` - Redis */
+     * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable */
