@@ -2,6 +2,8 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.database.models import StringDatabaseField, Table
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 
@@ -17,7 +19,9 @@ from products.warehouse_sources.backend.models.column_annotation import Warehous
 
 
 class TestTableDescriptions(APIBaseTest):
-    def _warehouse_table(self, *, name: str = "orders", team: Team | None = None) -> DataWarehouseTable:
+    def _warehouse_table(
+        self, *, name: str = "orders", team: Team | None = None, columns: tuple[str, ...] = ("id",)
+    ) -> DataWarehouseTable:
         team = team or self.team
         credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=team)
         return DataWarehouseTable.objects.create(
@@ -26,7 +30,9 @@ class TestTableDescriptions(APIBaseTest):
             team=team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
+            columns={
+                c: {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True} for c in columns
+            },
         )
 
     def _view(self, *, name: str = "orders_view", team: Team | None = None) -> DataWarehouseSavedQuery:
@@ -85,10 +91,36 @@ class TestTableDescriptions(APIBaseTest):
         assert resolver.for_table(hogql_view) == "Revenue per order."
         assert resolver.for_column(hogql_view, "amount", hogql_view.fields["amount"]) == "Order revenue in cents."
 
+    def test_resolves_materialized_view_descriptions_via_backing_table(self):
+        # A materialized view queried in materialized mode resolves to its single backing (output)
+        # table, so `hogql_definition` returns a warehouse table keyed by the backing table's id, not
+        # the SavedQuery. The view's own annotations must still resolve via the backing->view mapping.
+        backing = self._warehouse_table(name="revenue_view_backing", columns=("amount",))
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"query": "SELECT 1 AS amount"},
+            columns={"amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
+            table=backing,
+            is_materialized=True,
+        )
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=self.team,
+                saved_query=view,
+                column_name="amount",
+                description="Order revenue in cents.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+        # Materialized mode swaps the view for its backing warehouse table object.
+        backing_hogql = view.hogql_definition(HogQLQueryModifiers(useMaterializedViews=True))
+        resolver = TableDescriptions.load(self.team.id)
+        assert resolver.for_column(backing_hogql, "amount", backing_hogql.fields["amount"]) == "Order revenue in cents."
+
     def test_resolves_static_field_description_for_native_tables(self):
         # Native tables carry their descriptions on the field objects, not in an annotation model.
         # Both consumers (information_schema and read_data) rely on the resolver surfacing them.
-        resolver = TableDescriptions({}, {})
+        resolver = TableDescriptions({}, {}, {})
         field = StringDatabaseField(name="ts", description="When the event occurred.")
         table = Table(fields={"ts": field}, name="events", description="Every analytics event.")
 
