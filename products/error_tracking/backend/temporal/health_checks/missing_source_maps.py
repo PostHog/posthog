@@ -64,8 +64,6 @@ class MissingSourceMapsCheck(HealthCheck):
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         recommendation = SourceMapsRecommendation()
-        # A dismissed recommendation means the user opted out of this nudge — don't
-        # resurface it as a health issue; the issue auto-resolves on the next run.
         rows = ErrorTrackingRecommendation.objects.filter(
             team_id__in=team_ids,
             type=SourceMapsRecommendation.type,
