@@ -125,6 +125,12 @@ def _comment_body(comment: dict[str, Any]) -> str:
     return strip_tags(html_body).strip()
 
 
+def _comment_is_private(comment: Comment) -> bool:
+    """True for internal notes, which must never surface in customer-facing denormalized stats."""
+    ctx = comment.item_context
+    return isinstance(ctx, dict) and ctx.get("is_private") is True
+
+
 def _process_attachments(
     client: ZendeskImportClient,
     team: Team,
@@ -335,7 +341,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
 
             comments_to_create: list[Comment] = []
             customer_message_count = 0
-            team_message_count = 0
+            agent_reply_count = 0
 
             # Customer-side participants: the requester plus any CCs/collaborators. Used only as a
             # fallback when an author's role can't be resolved (hard-deleted users) so a deleted
@@ -362,12 +368,16 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 if not body and not rich_content:
                     continue
 
+                # Mirror signals.update_ticket_on_message: private/internal notes are dropped from
+                # every denormalized widget stat (message_count, last_message_*, unread counts).
+                # Counting them here would leak note text into last_message_text and inflate the
+                # customer's unread badge on the verified widget.
                 if is_private:
-                    team_message_count += 1
+                    pass
                 elif author_type == "customer":
                     customer_message_count += 1
                 else:
-                    team_message_count += 1
+                    agent_reply_count += 1
 
                 # Persist each comment's own author identity so the thread shows the actual
                 # commenter (a second requester, an agent, etc.) instead of every message
@@ -406,7 +416,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 comment_obj._zendesk_created_at = comment_created_at  # type: ignore[attr-defined]
                 comments_to_create.append(comment_obj)
 
-            ticket_comments_map.append((create_idx, comments_to_create, customer_message_count, team_message_count))
+            ticket_comments_map.append((create_idx, comments_to_create, customer_message_count, agent_reply_count))
         except Exception as exc:
             failed += 1
             logger.exception(
@@ -453,8 +463,10 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
 
         # Set item_id on comments now that tickets have IDs, then bulk_create
         all_comments: list[Comment] = []
-        ticket_counter_updates: list[tuple[Ticket, int, int, int]] = []
-        for idx, comments_list, cust_count, team_count in ticket_comments_map:
+        # (ticket, public customer messages, public agent replies) — private notes are excluded
+        # from every denormalized counter to match the live signal path.
+        ticket_counter_updates: list[tuple[Ticket, int, int]] = []
+        for idx, comments_list, cust_count, agent_count in ticket_comments_map:
             if idx >= len(created_tickets):
                 continue
             ticket_obj = created_tickets[idx]
@@ -462,7 +474,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 c.item_id = str(ticket_obj.id)
             all_comments.extend(comments_list)
             if comments_list:
-                ticket_counter_updates.append((ticket_obj, len(comments_list), cust_count, team_count))
+                ticket_counter_updates.append((ticket_obj, cust_count, agent_count))
 
         if all_comments:
             created_comments = Comment.objects.bulk_create(all_comments)
@@ -477,21 +489,25 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             if comment_ts_updates:
                 Comment.objects.bulk_update(comment_ts_updates, ["created_at"])
 
-        # Update denormalized counters per ticket
-        for ticket_obj, msg_count, cust_count, team_count in ticket_counter_updates:
+        # Update denormalized counters per ticket. All of these back the customer-facing widget
+        # (message_count, last_message_*, unread badge), so they must exclude private notes — see
+        # the counting loop above and signals.update_ticket_on_message.
+        for ticket_obj, cust_count, agent_count in ticket_counter_updates:
             update_fields_dict: dict[str, Any] = {
-                "message_count": F("message_count") + msg_count,
+                "message_count": F("message_count") + cust_count + agent_count,
             }
-            # Find the last comment for this ticket
+            # last_message_* is shown to the customer, so use the latest non-private comment.
+            # Comments are appended in Zendesk chronological order, so reverse-scan for the
+            # newest visible one.
             ticket_comments = [c for c in all_comments if c.item_id == str(ticket_obj.id)]
-            if ticket_comments:
-                last = ticket_comments[-1]
-                update_fields_dict["last_message_at"] = last.created_at
-                update_fields_dict["last_message_text"] = (last.content or "")[:500]
+            last_visible = next((c for c in reversed(ticket_comments) if not _comment_is_private(c)), None)
+            if last_visible is not None:
+                update_fields_dict["last_message_at"] = last_visible.created_at
+                update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
             if cust_count:
                 update_fields_dict["unread_team_count"] = F("unread_team_count") + cust_count
-            if team_count:
-                update_fields_dict["unread_customer_count"] = F("unread_customer_count") + team_count
+            if agent_count:
+                update_fields_dict["unread_customer_count"] = F("unread_customer_count") + agent_count
             Ticket.objects.filter(team_id=team.id, id=ticket_obj.id).update(**update_fields_dict)
 
         imported = len(created_tickets)
