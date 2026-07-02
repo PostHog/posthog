@@ -125,7 +125,7 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     * wildcards (e.g. data-*). Entries beyond the first 50 are ignored to bound per-key cost.
     Returns None when there is nothing to filter by.
     """
-    entries = [attribute.strip() for attribute in wanted_data_attributes[:_MAX_DATA_ATTRIBUTES] if attribute.strip()]
+    entries = [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
     if not entries:
         return None
 

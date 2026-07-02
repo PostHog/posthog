@@ -99,6 +99,16 @@ class TestElement(ClickhouseTestMixin, BaseTest):
                 ["data-*-id", "data-attr"],
                 {"attr__data-attr": "x", "attr__data-tracking-id": "y"},
             ),
+            (
+                "lone wildcard matches every attribute, like the toolbar's regex",
+                ["*"],
+                {
+                    "attr__class": "small",
+                    "attr__data-attr": "x",
+                    "attr__data-tracking-id": "y",
+                    "attr__style": "color: red",
+                },
+            ),
         ]
     )
     def test_chain_to_element_dicts_filters_attributes(
@@ -116,6 +126,11 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         assert matcher is not None
         assert matcher("attr__data-attr-0")
         assert not matcher("attr__data-attr-99")
+
+    def test_build_attributes_filter_normalizes_entries_before_capping(self) -> None:
+        matcher = build_attributes_filter([" ", ""] * 10 + [f"data-{i}" for i in range(50)])
+        assert matcher is not None
+        assert matcher("attr__data-49")
 
     @parameterized.expand([("empty list", []), ("blank entries only", ["  ", ""])])
     def test_build_attributes_filter_returns_none_when_nothing_to_filter(self, _name: str, wanted: list[str]) -> None:

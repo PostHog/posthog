@@ -334,10 +334,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
         loadedElementStatsCount: [(s) => [s.elementStats], (elementStats) => elementStats?.results?.length ?? 0],
-        // isTooSimple always reads attr__data-attr, so request it alongside the configured data attributes
+        // isTooSimple always reads attr__data-attr, so request it alongside the configured data
+        // attributes — first, so it survives the server's entry cap however many are configured
         wantedDataAttributes: [
             () => [toolbarConfigLogic.selectors.dataAttributes],
-            (dataAttributes: string[]): string[] => Array.from(new Set([...dataAttributes, 'data-attr'])),
+            (dataAttributes: string[]): string[] => Array.from(new Set(['data-attr', ...dataAttributes])),
         ],
         clickCount: [
             (s) => [s.countedElements],
@@ -670,8 +671,8 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
     const deduped: ElementsEventType[] = []
     for (const event of events) {
         // the server hashes the raw chain before attribute filtering, so distinct chains that
-        // serialize identically after trimming stay distinct; serialized content is only the
-        // fallback for older servers that still return hash as null
+        // serialize identically after trimming stay distinct; the serialized-content fallback is
+        // transitional for servers that still return hash as null — delete once that's none of them
         const identity = `${event.type}:${event.hash ?? JSON.stringify(event.elements)}`
         if (seen.has(identity)) {
             continue

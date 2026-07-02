@@ -192,12 +192,12 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # ElementStatsSerializer output, which stays as the declared schema)
                 serialized_elements = [
                     {
-                        "count": int(row[1]),
-                        "hash": f"{row[3]:x}",
-                        "type": row[2],
-                        "elements": chain_to_element_dicts(row[0], attributes_filter),
+                        "count": int(count),
+                        "hash": f"{chain_hash:x}",
+                        "type": event_type,
+                        "elements": chain_to_element_dicts(chain, attributes_filter),
                     }
-                    for row in result[:limit]
+                    for chain, count, event_type, chain_hash in result[:limit]
                 ]
 
             span.set_attribute("result_count", len(serialized_elements))
