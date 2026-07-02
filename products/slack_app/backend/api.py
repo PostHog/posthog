@@ -51,7 +51,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend import inbox_channel, onboarding, persona_onboarding
 from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
@@ -1634,6 +1634,17 @@ def _route_assistant_event(
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
+        if persona_onboarding.maybe_intercept_assistant_surface(
+            probe,
+            posthog_user_id=posthog_user.id,
+            workspace_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            accessible_integration_ids=[integration.id for integration in resolution.candidates],
+            entry_point="thread_started",
+        ):
+            return ROUTE_HANDLED_LOCALLY
         return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
     if event_type == "assistant_thread_context_changed":
         _store_assistant_channel_context(probe.id, channel_id, thread_ts, ctx_channel)
@@ -1644,6 +1655,17 @@ def _route_assistant_event(
     mention_target = resolution.integration or (accessible[0] if len(accessible) == 1 else None)
     if mention_target is None:
         _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
+        return ROUTE_HANDLED_LOCALLY
+    if persona_onboarding.maybe_intercept_assistant_surface(
+        mention_target,
+        posthog_user_id=posthog_user.id,
+        workspace_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        accessible_integration_ids=[integration.id for integration in accessible],
+        entry_point="first_dm",
+    ):
         return ROUTE_HANDLED_LOCALLY
     return _handle_assistant_dm_message(
         event, mention_target, slack_team_id, event_id, channel_id, thread_ts, posthog_user=posthog_user
@@ -2575,6 +2597,18 @@ _AI_PREFERENCES_ACTION_IDS = frozenset(
     }
 )
 _AI_PREFERENCES_CALLBACK_IDS = frozenset({EDIT_MODAL_PERSONAL_CALLBACK_ID, EDIT_MODAL_WORKSPACE_CALLBACK_ID})
+
+
+def _is_persona_onboarding_interactivity(payload: dict, payload_type: str) -> bool:
+    """True when the payload is a persona-onboarding interaction (home card or DM steps).
+    Like the AI-settings actions, these are workspace-scoped and carry no per-row hint, so
+    the cross-region router claims locality on the workspace integration alone."""
+    if payload_type != "block_actions":
+        return False
+    for action in payload.get("actions", []) or ():
+        if str(action.get("action_id") or "").startswith(persona_onboarding.ACTION_PREFIX):
+            return True
+    return False
 
 
 def _is_ai_preferences_interactivity(payload: dict, payload_type: str) -> bool:
@@ -3623,6 +3657,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
+    elif slack_team_id and _is_persona_onboarding_interactivity(payload, payload_type):
+        # Persona-onboarding buttons (home card + DM steps) are workspace-scoped like the
+        # AI-settings actions above — claim locality on the workspace integration alone.
+        local = Integration.objects.filter(
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
@@ -3726,6 +3767,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return inbox_interactivity.handle_inbox_sources(payload)
             if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
+            if action_id and action_id.startswith(persona_onboarding.ACTION_PREFIX):
+                return persona_onboarding.handle_block_action(payload, action)
             if action_id in _AI_PREFERENCES_ACTION_IDS:
                 return _handle_ai_preferences_block_action(payload, action)
 

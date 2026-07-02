@@ -30,6 +30,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend import persona_onboarding
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_settings import (
@@ -349,6 +350,7 @@ def render_home_view(
     account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
+    onboarding_status: str = "hidden",
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -356,6 +358,12 @@ def render_home_view(
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
+
+    # Persona onboarding card — shown only while the user is un-onboarded (flag-gated by the
+    # caller). Once onboarding completes, the card disappears and home reverts to settings.
+    if onboarding_status != "hidden":
+        blocks.append({"type": "divider"})
+        blocks.extend(_onboarding_card_blocks(onboarding_status))
 
     # Section 1 — project routing. Personal pick on top; admins get an
     # editable workspace default below, others see it as read-only context.
@@ -408,6 +416,33 @@ def _header_blocks() -> list[dict]:
             "Welcome to PostHog! 👋",
             "Tune how @PostHog mentions get routed and answered from this Slack workspace.",
         ),
+    ]
+
+
+def _onboarding_card_blocks(status: str) -> list[dict]:
+    if status == "in_progress":
+        return [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "✨ *Onboarding in progress* — check your DMs from me."},
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Restart"},
+                    "action_id": persona_onboarding.START_ACTION_ID,
+                },
+            }
+        ]
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "✨ *New here?* Let me set things up for you — takes under a minute."},
+            "accessory": {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Start onboarding"},
+                "action_id": persona_onboarding.START_ACTION_ID,
+                "style": "primary",
+            },
+        }
     ]
 
 
@@ -1037,6 +1072,12 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not is_slack_app_home_enabled(integration):
         return
 
+    republish_home_for_user(integration, slack_user_id)
+
+
+def republish_home_for_user(integration: Integration, slack_user_id: str) -> None:
+    """Recompute and publish the Home tab for one user — the shared publish path for
+    `app_home_opened` and for flows (persona onboarding) that change what home shows."""
     effective = resolve_ai_preferences(integration, slack_user_id)
     user_row, workspace_row = _load_rows(integration, slack_user_id)
 
@@ -1045,6 +1086,9 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
     tasks_state = _resolve_tasks_state(integration, slack_user_id)
+    onboarding_status = persona_onboarding.compute_home_onboarding_status(
+        integration, integration.integration_id, slack_user_id
+    )
 
     view = render_home_view(
         effective=effective,
@@ -1054,6 +1098,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
         account_state=account_state,
         project_state=project_state,
         tasks_state=tasks_state,
+        onboarding_status=onboarding_status,
     )
     try:
         slack.client.views_publish(user_id=slack_user_id, view=view)
@@ -1061,7 +1106,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
         logger.exception(
             "slack_app_home_publish_failed",
             slack_user_id=slack_user_id,
-            slack_team_id=slack_team_id,
+            slack_team_id=integration.integration_id,
         )
 
 

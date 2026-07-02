@@ -153,3 +153,26 @@ def is_slack_app_assistant_enabled(team: Team) -> bool:
     except Exception:
         logger.exception("assistant_feature_flag_eval_failed")
         return False
+
+
+SLACK_APP_PERSONA_ONBOARDING_FLAG = "slack-app-persona-onboarding"
+
+
+def is_persona_onboarding_enabled(team: Team) -> bool:
+    """Gate for the persona onboarding flow: the DM conversation, the DM/thread
+    intercepts, and the App Home "Start onboarding" card. Evaluated on the
+    workspace's team so the whole surface stays dark when off."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_PERSONA_ONBOARDING_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("persona_onboarding_feature_flag_eval_failed")
+        return False
