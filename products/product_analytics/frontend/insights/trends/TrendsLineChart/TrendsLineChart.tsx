@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ciRanges } from 'lib/statistics'
@@ -240,7 +240,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    const config = useMemo(
+    const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
                 results: indexedResults ?? [],

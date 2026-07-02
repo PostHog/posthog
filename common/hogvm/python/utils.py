@@ -46,7 +46,35 @@ class HogVMMemoryExceededException(HogVMException):
         super().__init__(f"Memory limit of {memory_limit} bytes exceeded. Attempted to use {attempted_memory} bytes")
 
 
-def like(string, pattern, case_insensitive: bool = False):
+def _require_string(value: Any, name: str, function_name: str) -> str:
+    if not isinstance(value, str):
+        raise HogVMException(f"Function {function_name} requires {name} to be a string, got {type(value).__name__}")
+    return value
+
+
+def _format_regex_error(error: Exception) -> str:
+    if error.args and isinstance(error.args[0], bytes):
+        return error.args[0].decode("utf-8", errors="replace")
+    return str(error)
+
+
+def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
+    try:
+        return re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
+    except re2.error as e:
+        raise HogVMException(f"Invalid regex pattern: {_format_regex_error(e)}") from e
+
+
+def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
+    if not string or not pattern:
+        return False
+
+    string = _require_string(string, "input", "match")
+    pattern = _require_string(pattern, "pattern", "match")
+    return _compile_regex(pattern, case_insensitive).search(string) is not None
+
+
+def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
@@ -90,6 +118,8 @@ def set_nested_value(obj, chain, value) -> Any:
             raise HogVMException(f"Invalid index: {chain[-1]}")
         if chain[-1] <= 0:
             raise HogVMException(f"Hog arrays start from index 1")
+        if chain[-1] > len(obj):
+            raise HogVMException(f"Index {chain[-1]} out of range for array of length {len(obj)}")
         obj[chain[-1] - 1] = value
     else:
         raise HogVMException(f'Can not set property "{chain[-1]}" on object of type "{type(obj).__name__}"')
