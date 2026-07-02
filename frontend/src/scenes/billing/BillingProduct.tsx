@@ -16,6 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
@@ -32,11 +33,25 @@ import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { PRODUCT_MANAGEMENT_LINKS, REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
+import { CODE_PRODUCT_KEY, REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+/**
+ * In-app management surfaces for products whose bill is driven by configurable behavior.
+ * Surfaced as a "Manage" deep link on the billing product card so users can reach the
+ * settings that actually influence their spend (e.g. pausing self-driving agents) without
+ * hunting through the app. Keyed by billing product `type`.
+ */
+const PRODUCT_MANAGEMENT_LINKS: Record<string, { to: string; label: string; tooltip: string }> = {
+    [CODE_PRODUCT_KEY]: {
+        to: urls.inbox('config'),
+        label: 'Manage agents',
+        tooltip: 'Configure scouts and how autonomously agents open PRs – the settings that drive this spend.',
+    },
+}
 
 export const getTierDescription = (
     tiers: BillingTierType[],
