@@ -185,7 +185,7 @@ class TestMixmaxSource:
             ("sequences", ["_id"]),
             ("messages", ["_id"]),
             ("live_feed", ["uid"]),
-            ("appointment_links", ["userId"]),
+            ("appointment_links", ["_id"]),
         ]
     )
     def test_source_response_carries_endpoint_primary_keys(self, endpoint: str, expected_pks: list[str]) -> None:

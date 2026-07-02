@@ -71,8 +71,9 @@ def _build_url(path: str, single_object: bool, next_cursor: str | None = None) -
 def validate_credentials(api_key: str) -> bool:
     """Probe the cheapest always-available endpoint (`/users/me`) to confirm the token is genuine."""
     try:
-        response = make_tracked_session().get(f"{MIXMAX_BASE_URL}/users/me", headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
+        with make_tracked_session() as session:
+            response = session.get(f"{MIXMAX_BASE_URL}/users/me", headers=_get_headers(api_key), timeout=10)
+            return response.status_code == 200
     except Exception:
         return False
 

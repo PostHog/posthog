@@ -80,8 +80,10 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
     "appointment_links": MixmaxEndpointConfig(
         name="appointment_links",
         path="/appointmentlinks/me",
-        primary_keys=["userId"],
-        single_object=True,
+        # `/…/me` but the name/description imply a collection of individual links. Without live-API
+        # verification, key on `_id` (unique per document for either shape) rather than `userId`,
+        # which would collapse a per-user collection to a single row. Left as a normal collection so
+        # the paginator handles both a wrapped list and a single object defensively.
         description="The authenticated user's appointment (scheduling) links.",
     ),
     "users": MixmaxEndpointConfig(

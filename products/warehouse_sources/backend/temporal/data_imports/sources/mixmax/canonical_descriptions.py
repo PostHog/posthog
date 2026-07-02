@@ -79,7 +79,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "appointment_links": {
         "description": "The authenticated user's appointment (scheduling) links.",
         "docs_url": f"{_DOCS}/appointment-links",
-        "columns": {"userId": "Identifier of the user the appointment links belong to."},
+        "columns": {
+            "_id": "Unique identifier for the appointment link.",
+            "userId": "Identifier of the user the appointment links belong to.",
+        },
     },
     "users": {
         "description": "The authenticated Mixmax user's profile.",
