@@ -35,7 +35,9 @@ jobs:
               || needs.decide-delta.result == 'failure'
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        # Budget for the in-flight-bot-review wait (up to 5 min) plus the LLM
+        # review itself — see BOT_REVIEW_WAIT_BUDGET_SECONDS in review_pr.py.
+        timeout-minutes: 15
 
         steps:
             - name: Get app token
@@ -126,7 +128,10 @@ jobs:
                   # (auth/credit/outage) — that's not a verdict on the PR, so
                   # keep the label and let it retry rather than silently
                   # dropping it across every queued PR during an outage.
-                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ]; then
+                  # WAIT means a reviewer bot still had a review in flight
+                  # after the polling budget — also not a verdict on the PR,
+                  # so the label stays and the next push retries.
+                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ] && [ "$VERDICT" != "WAIT" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi

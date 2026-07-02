@@ -176,3 +176,71 @@ def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatc
     assert output["final_verdict"] == "REFUSED"
     assert output["classification"]["tier"] == ""
     assert output["classification"]["breadth"] == ""
+
+
+# ── In-flight bot review handling ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "reactions",
+    [
+        pytest.param([], id="no-reactions"),
+        pytest.param([{"user": "greptile-apps[bot]", "emoji": "👍"}], id="bot-verdict-reaction"),
+        pytest.param([{"user": "alice", "emoji": "👀"}], id="human-eyes-not-waited-on"),
+    ],
+)
+def test_no_wait_without_in_flight_bot_review(monkeypatch: pytest.MonkeyPatch, reactions: list[dict]) -> None:
+    # Waiting on a human 👀 would block for longer than any polling budget —
+    # the LLM refuses over those instead — and waiting with nothing in flight
+    # would slow every review down.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("must not poll"))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = reactions
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_waits_out_bot_eyes_race_then_proceeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reviewer bots swap 👀 for a verdict reaction within minutes; refusing
+    # during that window was ~26% of all denials in the week this landed.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+    pipeline.pr = pr
+
+    def fake_refetch() -> None:
+        pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👍"}]
+
+    monkeypatch.setattr(pipeline, "_fetch", fake_refetch)
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WAIT keeps the stamphog label (workflow skips the label-strip for it),
+    # so a slow bot review retries on the next push instead of demanding a
+    # human re-label — a REFUSE here would reintroduce the race friction.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "BOT_REVIEW_WAIT_BUDGET_SECONDS", 0)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = [{"user": "hex-security-app[bot]", "emoji": "👀"}]
+
+    assert pipeline._handle_in_flight_bot_reviews() == "WAIT"
+    assert pipeline.final_verdict == "WAIT"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["verdict"] == "WAIT"
+    assert "hex-security-app[bot]" in pipeline.reviewer_output["reasoning"]
+
+    output = pipeline.to_dict()
+    assert output["final_verdict"] == "WAIT"

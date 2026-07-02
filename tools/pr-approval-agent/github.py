@@ -64,7 +64,7 @@ _BOT_MACHINE_USERS = {"posthog-bot"}
 # 👀 = review in flight). Other installed apps react for unrelated reasons
 # (e.g. inkeep's 👎 is docs feedback), so bot reactions are allowlisted rather
 # than trusted wholesale. GraphQL returns bot logins with the "[bot]" suffix.
-_TRUSTED_REACTOR_BOTS = {
+TRUSTED_REACTOR_BOTS = {
     "chatgpt-codex-connector[bot]",
     "copilot-pull-request-reviewer[bot]",
     "greptile-apps[bot]",
@@ -188,7 +188,7 @@ def _trusted_reactor_predicate(repo: str, author: str) -> Callable[[str], bool]:
         if login not in cache:
             low = login.lower()
             if low.endswith("[bot]"):
-                cache[login] = low in _TRUSTED_REACTOR_BOTS
+                cache[login] = low in TRUSTED_REACTOR_BOTS
             else:
                 cache[login] = _is_org_member(org, login)
         return cache[login]
@@ -317,6 +317,11 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                     f"has >50 comments — pagination not implemented, escalate to human review"
                 )
             for c in comment_page["nodes"]:
+                # Same exclusion as _normalize_reviews_for_prompt: stamphog's
+                # own inline comments describe an earlier snapshot, and feeding
+                # them back makes the next run read them as impersonation.
+                if (c.get("author") or {}).get("login") in _SELF_REVIEW_LOGINS:
+                    continue
                 assoc = c.get("authorAssociation", "")
                 is_bot = (c.get("author") or {}).get("__typename") == "Bot"
                 if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:

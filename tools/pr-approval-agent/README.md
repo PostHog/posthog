@@ -13,7 +13,10 @@ can be re-applied once the feedback is addressed.
 If the review agent can't reach its LLM backend (credentials, credit, or
 outage) it returns `ERROR` and **keeps** the label — a transient infra failure
 must not silently drop labels across every queued PR. The review retries on the
-next push, or re-apply the label once the backend recovers. When the whole
+next push, or re-apply the label once the backend recovers.
+`WAIT` also keeps the label: it means an allowlisted reviewer bot still had a
+review in flight (👀 reaction) after the polling budget — not a verdict on the
+PR, so the next push retries automatically. When the whole
 fleet of stamphog reviews suddenly returns `ERROR`, suspect the
 `STAMPHOG_ANTHROPIC_API_KEY` org secret first (stamphog uses its own dedicated
 Anthropic key, separate from the shared `ANTHROPIC_API_KEY`).
@@ -43,6 +46,16 @@ Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 "stamphog" label added to PR
   │
   ▼
+Wait for in-flight bot reviews
+  - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
+    reviewing and swap it for a verdict reaction minutes later; stamphog is
+    triggered at the same moment, so an 👀 at fetch time is a race, not a
+    lasting state
+  - Polls until allowlisted-bot 👀 reactions clear (up to 5 min); if one
+    remains, verdict is WAIT — label kept, next push retries
+  - Human 👀 reactions are not waited on — the LLM refuses over them instead
+  │
+  ▼
 Prerequisites (hard gate)
   - Not draft, no merge conflicts
   - No outstanding "changes requested" reviews
@@ -54,7 +67,11 @@ Deny-list (hard gate)
   │
   ▼
 Size ceiling (hard gate)
-  - >500 lines or >20 files → too large for auto-review
+  - >500 substantive lines or >20 substantive files → too large for auto-review
+  - Docs (.md/.txt/.rst), snapshots (.snap/.ambr, __snapshots__/), images,
+    lockfiles, and generated/ artifacts don't count toward the ceiling —
+    they inflate diffs without adding review surface. They still count toward
+    tier classification and still appear in the diff the LLM reads.
   │
   ▼
 Tier classification
@@ -73,14 +90,19 @@ LLM Review
     filtered to org members and an allowlist of reviewer bots (installed
     apps like inkeep react for non-review reasons), never the PR author
   - An 👀 reaction signals an in-flight review — the LLM refuses rather than
-    approving over someone who is mid-review
+    approving over someone who is mid-review (bot 👀 races are waited out
+    before the LLM runs; see above)
   - Stamphog's own prior reviews (stamphog[bot] refusals, github-actions[bot]
-    approvals) are excluded from the prompt — they describe an earlier snapshot
-    of the PR and are never independent review signal
+    approvals) and its own inline comments are excluded from the prompt — they
+    describe an earlier snapshot of the PR and are never independent review
+    signal. Quoted stamphog verdicts in other reviewers' comments are treated
+    as history, not tampering
   - For non-trivial changes, expects at least one independent reviewer (an
     agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
-    over the current head; escalates otherwise. Trivial changes (docs, tests,
-    config/lockfile, typo/comment fixes) don't need one
+    over the current head; escalates otherwise. No independent review needed
+    for trivial changes (docs, tests, config/lockfile, typo/comment fixes) or
+    for small single-area changes (T1a/T1b) with tests by owning-team authors
+    with no outstanding reviewer concerns — humans approve those unchanged
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
@@ -131,7 +153,9 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 ### Ownership
 
 Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
-Cross-team typo/test/comment fixes are fine; behavioral changes to business logic get escalated.
+Cross-team typo/test/comment fixes are fine, as are small well-tested behavioral
+fixes (T1a/T1b) with no outstanding reviewer concerns; API contract, data model,
+and larger behavioral changes get escalated.
 
 ## Evidence bundle
 

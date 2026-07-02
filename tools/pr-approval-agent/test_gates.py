@@ -2,7 +2,7 @@
 
 import pytest
 
-from gates import detect_deny_categories
+from gates import detect_deny_categories, is_size_exempt, substantive_size
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -252,3 +252,47 @@ def test_dwh_source_still_denies_non_auth_categories() -> None:
 def test_dwh_source_mixed_still_denies(files: list[str], subject: str) -> None:
     # Auth gate must still fire when any non-source file is in the change set.
     assert "auth" in detect_deny_categories(files, subject)
+
+
+# ── Size-ceiling exemptions ──────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "path, exempt",
+    [
+        pytest.param("docs/internal/monorepo-layout.md", True, id="markdown"),
+        pytest.param(".agents/skills/foo/SKILL.md", True, id="skill-markdown"),
+        pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
+        pytest.param("frontend/__snapshots__/scene.storyshot", True, id="snapshots-dir"),
+        pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
+        pytest.param("products/tasks/frontend/generated/api.ts", True, id="product-generated-dir"),
+        pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
+        pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
+        pytest.param("uv.lock", True, id="lockfile-lock-ext"),
+        pytest.param("posthog/api/insight.py", False, id="python-code"),
+        pytest.param("frontend/src/scenes/insights/Insight.tsx", False, id="frontend-code"),
+        pytest.param("posthog/settings/web.py", False, id="settings-code"),
+        pytest.param("docker-compose.dev.yml", False, id="yaml-config"),
+        pytest.param("package.json", False, id="json-config"),
+        pytest.param("regenerated_totals.py", False, id="generated-substring-not-dir"),
+    ],
+)
+def test_is_size_exempt(path: str, exempt: bool) -> None:
+    assert is_size_exempt(path) is exempt
+
+
+def test_substantive_size_counts_only_non_exempt_files() -> None:
+    # A docs-heavy PR must not be size-denied for its prose, and a code-heavy
+    # PR must not slip under the ceiling by padding with docs.
+    files = [
+        {"filename": "docs/big-rewrite.md", "additions": 2000, "deletions": 500},
+        {"filename": "frontend/src/generated/core/api.ts", "additions": 900, "deletions": 900},
+        {"filename": "posthog/api/insight.py", "additions": 30, "deletions": 10},
+        {"filename": "posthog/api/test/test_insight.py", "additions": 50, "deletions": 0},
+    ]
+
+    lines, file_count = substantive_size(files)
+
+    assert lines == 90
+    assert file_count == 2
