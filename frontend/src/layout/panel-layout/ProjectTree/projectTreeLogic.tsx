@@ -7,6 +7,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -1064,6 +1065,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
+            // Mirror the guard on the sibling loaders (loadUnfiledItems / loadShortcuts): without a
+            // resolvable team the project-scoped lookup below 404s, so bail before it can fire.
+            if (!getCurrentTeamIdOrNone()) {
+                return
+            }
             if (projectTreeRef) {
                 if (projectTreeRef.type === 'folder' && projectTreeRef.ref) {
                     actions.expandProjectFolder(projectTreeRef.ref)
@@ -1087,11 +1093,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (treeItem) {
                     path = treeItem.path
                 } else if (projectTreeRef.ref !== null) {
-                    const resp = await api.fileSystem.list(
-                        projectTreeRef.type.endsWith('/')
-                            ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
-                            : { ref: projectTreeRef.ref, type: projectTreeRef.type }
-                    )
+                    let resp: Awaited<ReturnType<typeof api.fileSystem.list>>
+                    try {
+                        resp = await api.fileSystem.list(
+                            projectTreeRef.type.endsWith('/')
+                                ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
+                                : { ref: projectTreeRef.ref, type: projectTreeRef.type }
+                        )
+                    } catch {
+                        // The project context can stop resolving mid-flight (stale/switched/deleted),
+                        // making this project-scoped lookup 404. Degrade quietly rather than surfacing
+                        // an uncaught rejection — the item just isn't revealed this once.
+                        return
+                    }
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.users?.length > 0) {
                         actions.addLoadedUsers(resp.users)
