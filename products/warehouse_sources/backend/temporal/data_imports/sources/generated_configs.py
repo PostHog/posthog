@@ -1508,7 +1508,8 @@ class HeightSourceConfig(config.Config):
 
 @config.config
 class HellobatonSourceConfig(config.Config):
-    pass
+    company: str
+    api_key: str
 
 
 @config.config
