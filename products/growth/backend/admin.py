@@ -99,7 +99,7 @@ class ProductPushCampaignAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request: HttpRequest, obj: ProductPushCampaign | None = None) -> tuple[str, ...]:
         # Lifecycle fields are only ever written by the campaign service / dag.
-        readonly = (
+        readonly: tuple[str, ...] = (
             "id",
             "status",
             "started_at",
