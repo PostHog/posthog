@@ -44,6 +44,8 @@ export interface PullRequestTableProps {
     /** Show the pushes / re-runs / CI cost columns. */
     costLensEnabled: boolean
     defaultSorting?: { columnKey: string; order: 1 | -1 }
+    /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
+    pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
 }
@@ -54,6 +56,7 @@ export function PullRequestTable({
     sourceId,
     costLensEnabled,
     defaultSorting,
+    pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
 }: PullRequestTableProps): JSX.Element {
@@ -209,7 +212,7 @@ export function PullRequestTable({
                 }
             }}
             useURLForSorting={false}
-            pagination={{ pageSize: 50 }}
+            pagination={{ pageSize }}
             emptyState={emptyState ?? 'No pull requests yet — they show up as soon as CI events arrive.'}
             nouns={['pull request', 'pull requests']}
         />

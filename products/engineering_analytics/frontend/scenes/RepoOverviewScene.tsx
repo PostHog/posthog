@@ -5,13 +5,15 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconBox } from '@posthog/icons'
-import { LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBox, IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import type { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
@@ -29,6 +31,10 @@ import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
 const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', 'var(--purple)', 'var(--danger)']
+
+// The hub is a summary, not the list surface — short pages keep every section above the fold-ish;
+// the dedicated list pages keep the full 50-per-page tables.
+const HUB_TABLE_PAGE_SIZE = 8
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
@@ -75,6 +81,39 @@ function RepoEntityHeader({
                 )
             }
         />
+    )
+}
+
+/** One master-health insight embed: a real HogQL query the user can lift out into a saved insight. */
+function MasterHealthCard({
+    title,
+    query,
+    uniqueKey,
+    footnote,
+}: {
+    title: string
+    query: DataVisualizationNode
+    uniqueKey: string
+    footnote?: string
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-secondary">{title}</h3>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconOpenSidebar />}
+                    to={urls.insightNew({ query })}
+                    tooltip="Open this query in the SQL editor to tweak it, save it as an insight, or add it to a dashboard"
+                >
+                    Open as insight
+                </LemonButton>
+            </div>
+            <div className="h-64">
+                <Query uniqueKey={uniqueKey} query={query} readOnly />
+            </div>
+            {footnote && <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">{footnote}</div>}
+        </LemonCard>
     )
 }
 
@@ -216,8 +255,8 @@ function MasterFailuresSection(): JSX.Element {
 export function RepoOverviewScene(): JSX.Element {
     const {
         overview,
-        overviewLoading,
-        masterHealth,
+        masterSuccessRateQuery,
+        masterFailedRunsQuery,
         attentionPrs,
         draftCount,
         costByWorkflow,
@@ -354,45 +393,23 @@ export function RepoOverviewScene(): JSX.Element {
                 title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}
                 note="the default branch gets its own trend — not buried in a filter"
             >
-                {masterHealth ? (
+                {masterSuccessRateQuery && masterFailedRunsQuery ? (
                     <div className="grid gap-2.5 lg:grid-cols-2">
-                        <LemonCard hoverEffect={false} className="p-4">
-                            <h3 className="mb-2 text-xs font-semibold text-secondary">
-                                Success rate on {defaultBranch}
-                            </h3>
-                            <Sparkline
-                                type="line"
-                                className="h-32 w-full"
-                                data={[
-                                    {
-                                        name: 'Success rate (%)',
-                                        values: masterHealth.successRate.map((v) => Math.round(v)),
-                                        color: 'brand-blue',
-                                    },
-                                ]}
-                                labels={masterHealth.labels}
-                                maximumIndicator={false}
-                            />
-                        </LemonCard>
-                        <LemonCard hoverEffect={false} className="p-4">
-                            <h3 className="mb-2 text-xs font-semibold text-secondary">
-                                Failed runs on {defaultBranch}
-                            </h3>
-                            <Sparkline
-                                type="bar"
-                                className="h-32 w-full"
-                                data={[{ name: 'Failed runs', values: masterHealth.failures, color: 'danger' }]}
-                                labels={masterHealth.labels}
-                                maximumIndicator={false}
-                            />
-                            <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                                Completed runs on {defaultBranch} whose conclusion wasn't success.
-                            </div>
-                        </LemonCard>
+                        <MasterHealthCard
+                            title={`Success rate on ${defaultBranch}`}
+                            query={masterSuccessRateQuery}
+                            uniqueKey="engineering-analytics-master-success-rate"
+                        />
+                        <MasterHealthCard
+                            title={`Failed runs on ${defaultBranch}`}
+                            query={masterFailedRunsQuery}
+                            uniqueKey="engineering-analytics-master-failed-runs"
+                            footnote={`Completed runs on ${defaultBranch} whose conclusion wasn't success.`}
+                        />
                     </div>
                 ) : (
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                        {overviewLoading ? 'Loading…' : `No completed runs on ${defaultBranch} in the window.`}
+                        Loading…
                     </LemonCard>
                 )}
             </Section>
@@ -428,6 +445,7 @@ export function RepoOverviewScene(): JSX.Element {
                         loading={pullRequestsLoading}
                         sourceId={sourceId}
                         costLensEnabled={costLensEnabled}
+                        pageSize={HUB_TABLE_PAGE_SIZE}
                         emptyState="Nothing failing or stuck in the open backlog."
                         dataAttr="engineering-analytics-attention-prs"
                     />
@@ -450,6 +468,7 @@ export function RepoOverviewScene(): JSX.Element {
                     sourceId={sourceId}
                     showCost={jobsAvailable}
                     defaultSorting={{ columnKey: 'runCount', order: -1 }}
+                    pageSize={HUB_TABLE_PAGE_SIZE}
                     emptyState="No workflow runs in the window."
                 />
             </Section>

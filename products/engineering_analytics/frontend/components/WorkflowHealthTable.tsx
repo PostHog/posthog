@@ -94,6 +94,8 @@ export interface WorkflowHealthTableProps {
     defaultSorting?: { columnKey: string; order: 1 | -1 }
     /** Show the billable cost column (needs per-workflow cost on the rows; PR page only for now). */
     showCost?: boolean
+    /** Rows per page — 50 by default; the hub passes a small page to stay scannable. */
+    pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
 }
@@ -105,6 +107,7 @@ export function WorkflowHealthTable({
     expandable,
     defaultSorting = { columnKey: 'workflowName', order: 1 },
     showCost = false,
+    pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
@@ -299,7 +302,7 @@ export function WorkflowHealthTable({
             useURLForSorting={false}
             defaultSorting={defaultSorting}
             expandable={expandable}
-            pagination={{ pageSize: 50 }}
+            pagination={{ pageSize }}
             emptyState={emptyState ?? 'No workflow runs.'}
             nouns={['workflow', 'workflows']}
         />

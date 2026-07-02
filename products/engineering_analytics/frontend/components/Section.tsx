@@ -1,10 +1,10 @@
 // The section rhythm every entity page shares: an anchored <section> with a compact title row, and a
-// sticky segmented jumper that scrolls between them. Facets (failures / cost / activity / …) are
-// sections on one page, never separate places.
+// sticky jumper that scrolls between them. Facets (failures / cost / activity / …) are sections on
+// one page, never separate places.
 
-import { ReactNode, useState } from 'react'
+import { ReactNode } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 function sectionDomId(id: string): string {
     return `ea-section-${id}`
@@ -36,20 +36,24 @@ export function Section({
     )
 }
 
+/** Quiet in-page jump links — deliberately not a tab bar: sections stack on one page, nothing switches. */
 export function SectionNav({ items }: { items: { id: string; label: string }[] }): JSX.Element {
-    // Which section was last jumped to — pure view state, no reason to survive the page.
-    const [active, setActive] = useState(items[0]?.id)
     return (
-        <div className="sticky top-0 z-10 -mx-1 bg-primary px-1 py-2">
-            <LemonSegmentedButton
-                size="small"
-                value={active}
-                onChange={(value) => {
-                    setActive(value)
-                    document.getElementById(sectionDomId(value))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-                options={items.map((item) => ({ value: item.id, label: item.label }))}
-            />
+        <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-0.5 bg-primary px-1 py-1.5">
+            <span className="mr-1.5 text-xs text-tertiary">Jump to</span>
+            {items.map((item) => (
+                <LemonButton
+                    key={item.id}
+                    size="xsmall"
+                    onClick={() =>
+                        document
+                            .getElementById(sectionDomId(item.id))
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                >
+                    {item.label}
+                </LemonButton>
+            ))}
         </div>
     )
 }

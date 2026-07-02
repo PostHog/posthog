@@ -2,16 +2,25 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import {
     engineeringAnalyticsMasterFailures,
     engineeringAnalyticsRepoOverview,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
-import type { MasterFailureGroupApi, RepoOverviewApi, RunFailureLogsApi } from '../generated/api.schemas'
+import type {
+    GitHubSourceApi,
+    MasterFailureGroupApi,
+    RepoOverviewApi,
+    RunFailureLogsApi,
+} from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
 
@@ -24,30 +33,73 @@ const MASTER_FAILURES_WINDOW = '-24h'
 // Leaderboard cards stay readable at this depth; the full lists live on the list pages.
 const TOP_COST_WORKFLOWS = 5
 
-export interface MasterHealthSeries {
-    /** Success-rate percentages per bucket (0–100); null-free — bucket without completions maps to null-safe 100. */
-    successRate: number[]
-    /** Decisive failures (completed − successes) per bucket. */
-    failures: number[]
-    completed: number[]
-    labels: string[]
-}
-
 export interface CostShareRow {
     workflowName: string | null
     costUsd: number
     share: number
 }
 
-function bucketLabel(bucketStart: string, granularity: string): string {
-    const at = dayjs(bucketStart)
-    if (granularity === 'hour') {
-        return at.format('MMM D, HH:mm')
+// The master-health cards are real HogQL insights over the physical warehouse table, so "Open as
+// insight" hands the user the exact same query. The SQL mirrors the backend bucket query
+// (repo_overview._BUCKET_SELECT): raw warehouse columns are strings, so every timestamp goes
+// through parseDateTimeBestEffort exactly like the curated builder does.
+const RUN_STARTED_AT = 'parseDateTimeBestEffort(run_started_at)'
+
+// Warehouse table names are plain identifiers (prefix validated at connect time); refuse to
+// interpolate anything else into SQL.
+const TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+// Backend granularity ladder (workflow_health._pick_granularity): hour ≤48h, day ≤90d, else week.
+function bucketExpr(from: Dayjs, to: Dayjs): string {
+    const spanHours = to.diff(from, 'hour')
+    if (spanHours <= 48) {
+        return `toStartOfHour(${RUN_STARTED_AT})`
     }
-    if (granularity === 'week') {
-        return `Week of ${at.format('MMM D')}`
+    if (spanHours <= 90 * 24) {
+        return `toStartOfDay(${RUN_STARTED_AT})`
     }
-    return at.format('MMM D')
+    return `toStartOfWeek(${RUN_STARTED_AT}, 1)`
+}
+
+function masterHealthSql(
+    metricSelect: string,
+    table: string,
+    branch: string,
+    dateFrom: string | null,
+    dateTo: string | null
+): string | null {
+    const from = dateStringToDayJs(dateFrom ?? SHARED_DEFAULT_DATE_FROM)
+    if (!from) {
+        return null
+    }
+    const to = dateTo ? dateStringToDayJs(dateTo) : null
+    const where = [
+        `status = 'completed'`,
+        `head_branch = '${branch}'`,
+        `${RUN_STARTED_AT} >= toDateTime('${from.format('YYYY-MM-DD HH:mm:ss')}')`,
+    ]
+    if (to) {
+        where.push(`${RUN_STARTED_AT} <= toDateTime('${to.format('YYYY-MM-DD HH:mm:ss')}')`)
+    }
+    return [
+        'SELECT',
+        `    ${bucketExpr(from, to ?? dayjs())} AS bucket_start,`,
+        `    ${metricSelect}`,
+        `FROM ${table}`,
+        `WHERE ${where.join('\n    AND ')}`,
+        'GROUP BY bucket_start',
+        'ORDER BY bucket_start',
+        'LIMIT 400',
+    ].join('\n')
+}
+
+function masterHealthNode(sql: string, display: ChartDisplayType, yColumn: string): DataVisualizationNode {
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: sql },
+        display,
+        chartSettings: { xAxis: { column: 'bucket_start' }, yAxis: [{ column: yColumn }] },
+    }
 }
 
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
@@ -60,6 +112,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             engineeringAnalyticsLogic,
             [
                 'sourceId',
+                'githubSources',
                 'pullRequests',
                 'pullRequestsLoading',
                 'cards',
@@ -142,19 +195,52 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             (s) => [s.masterFailures],
             (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
         ],
-        masterHealth: [
-            (s) => [s.overview],
-            (overview): MasterHealthSeries | null => {
-                if (!overview || overview.default_branch_buckets.length < 2) {
+        // The physical warehouse table behind the master-health embeds. The backend resolves this
+        // per-team from the source's synced schemas (logic/sources.py); the embeds mirror the
+        // `prefix + github_workflow_runs` naming from the same sources list the picker shows.
+        runsTableName: [
+            (s) => [s.githubSources, s.sourceId],
+            (githubSources, sourceId): string | null => {
+                const source: GitHubSourceApi | undefined = sourceId
+                    ? githubSources.find((candidate: GitHubSourceApi) => candidate.id === sourceId)
+                    : githubSources[0]
+                if (!source) {
                     return null
                 }
-                const buckets = overview.default_branch_buckets
-                return {
-                    successRate: buckets.map((b) => (b.completed > 0 ? (b.successes / b.completed) * 100 : 100)),
-                    failures: buckets.map((b) => Math.max(0, b.completed - b.successes)),
-                    completed: buckets.map((b) => b.completed),
-                    labels: buckets.map((b) => bucketLabel(b.bucket_start, overview.granularity)),
+                const table = `${source.prefix}github_workflow_runs`
+                return TABLE_IDENTIFIER.test(table) ? table : null
+            },
+        ],
+        masterSuccessRateQuery: [
+            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
+            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
+                if (!runsTableName) {
+                    return null
                 }
+                const sql = masterHealthSql(
+                    `round(100 * countIf(conclusion = 'success') / count(), 1) AS success_rate`,
+                    runsTableName,
+                    defaultBranch,
+                    dateFrom,
+                    dateTo
+                )
+                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsLineGraph, 'success_rate') : null
+            },
+        ],
+        masterFailedRunsQuery: [
+            (s) => [s.runsTableName, s.defaultBranch, s.dateFrom, s.dateTo],
+            (runsTableName, defaultBranch, dateFrom, dateTo): DataVisualizationNode | null => {
+                if (!runsTableName) {
+                    return null
+                }
+                const sql = masterHealthSql(
+                    `countIf(conclusion != 'success') AS failed_runs`,
+                    runsTableName,
+                    defaultBranch,
+                    dateFrom,
+                    dateTo
+                )
+                return sql ? masterHealthNode(sql, ChartDisplayType.ActionsBar, 'failed_runs') : null
             },
         ],
         // The attention slice of the open backlog: failing CI or stuck (open >7d, non-draft, non-bot).
