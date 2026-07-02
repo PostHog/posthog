@@ -12,6 +12,7 @@ Content-tree helpers live in ``facade.content``; collaborative-edit publishing
 lives in ``facade.collab``.
 """
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -268,3 +269,27 @@ def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.Acc
 
 def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
     return logic.delete_account_notebook(account_id, short_id)
+
+
+def list_team_account_notes(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[contracts.TeamAccountNote], int]:
+    links, count = logic.list_team_account_notes(
+        team_id, account_ids=account_ids, search=search, offset=offset, limit=limit
+    )
+    return [
+        contracts.TeamAccountNote(
+            short_id=link.notebook.short_id,
+            title=link.notebook.title,
+            created_at=link.notebook.created_at,
+            last_modified_at=link.notebook.last_modified_at,
+            account_id=link.account_id,
+            account_name=link.account.name,
+        )
+        for link in links
+    ], count
