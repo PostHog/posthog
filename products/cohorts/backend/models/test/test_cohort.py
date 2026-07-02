@@ -58,6 +58,13 @@ class TestCohortDefinitionVersion(BaseTest):
                 {"last_calculation": timezone.now(), "errors_calculating": 0},
                 ["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"],
             ),
+            (
+                # A definition field changed in memory but excluded from update_fields is
+                # not persisted, so it must not bump the version either.
+                "update_fields_ignores_unpersisted_definition_changes",
+                {"filters": FILTERS_B},
+                ["groups"],
+            ),
             ("unchanged_definition_full_save", {}, None),
         ]
     )

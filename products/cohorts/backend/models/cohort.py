@@ -1,5 +1,6 @@
 import re
 import time
+from copy import deepcopy
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
@@ -253,8 +254,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         update_fields = kwargs.get("update_fields")
-        may_change_definition = update_fields is None or COHORT_DEFINITION_FIELDS.intersection(update_fields)
-        if self.pk is None or not may_change_definition:
+        # Only compare fields this save will persist: a definition field changed
+        # in memory but excluded from update_fields is not written, so it must
+        # not bump the version either.
+        fields_to_check = (
+            COHORT_DEFINITION_FIELDS if update_fields is None else COHORT_DEFINITION_FIELDS.intersection(update_fields)
+        )
+        if self.pk is None or not fields_to_check:
             super().save(*args, **kwargs)
             return
 
@@ -265,12 +271,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             current = (
                 Cohort.objects.select_for_update()
                 .filter(pk=self.pk)
-                .values("definition_version", *COHORT_DEFINITION_FIELDS)
+                .values("definition_version", *fields_to_check)
                 .first()
             )
-            if current is not None and any(
-                getattr(self, field) != current[field] for field in COHORT_DEFINITION_FIELDS
-            ):
+            if current is not None and any(getattr(self, field) != current[field] for field in fields_to_check):
                 self.definition_version = (current["definition_version"] or 0) + 1
                 if update_fields is not None:
                     kwargs["update_fields"] = [*update_fields, "definition_version"]
@@ -398,6 +402,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         start_time = time.monotonic()
 
         cohort_type_cleared = False
+        # The properties getter can normalize legacy groups in place during
+        # recalculation; snapshot to detect whether they actually changed.
+        original_groups = deepcopy(self.groups)
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
@@ -433,10 +440,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            # Save fields modified during calculation, but exclude is_calculating to prevent race condition
-            self.save(
-                update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
-            )
+            # Save fields modified during calculation, but exclude is_calculating to prevent race condition.
+            # Include groups only when the getter actually rewrote them, so the common
+            # unchanged case skips the definition-version check in save() entirely.
+            save_fields = ["last_calculation", "errors_calculating", "last_error_at", "cohort_type"]
+            if self.groups != original_groups:
+                save_fields.append("groups")
+            self.save(update_fields=save_fields)
             # Only set is_calculating = False if this is the highest pending version
             # This prevents the flag from being reset while other higher-version calculations are still running
             self._safe_reset_calculating_state(completed_version=pending_version)
