@@ -274,8 +274,15 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
         }
 
         try {
+            // Success means this section is durable in the primary (oldest) comment —
+            // every racing writer converges on the same primary, so that is where a
+            // re-read must find it. Healing duplicates is best-effort: a duplicate whose
+            // DELETE keeps failing must not burn retries against a write that landed.
             const after = (await listPrComments(context)).filter(isReportComment)
-            if (after.length === 1 && sectionEquals(parseSections(after[0].body).get(id), expected)) {
+            if (after.length > 0 && sectionEquals(parseSections(after[0].body).get(id), expected)) {
+                if (after.length > 1) {
+                    console.warn(`CI report still has ${after.length - 1} duplicate comment(s) on PR #${prNumber}.`)
+                }
                 console.info(`Wrote CI report section "${id}" on PR #${prNumber} (attempt ${attempt}).`)
                 return
             }

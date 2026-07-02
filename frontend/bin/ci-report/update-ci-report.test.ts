@@ -165,6 +165,7 @@ describe('ci-report section helper', () => {
             comments: StoredComment[]
             afterNextWrite: FireOnceHook
             afterNextRead: FireOnceHook
+            state: { patches: number; denyDeletes: boolean }
         } {
             let nextId = 100
             const comments: StoredComment[] = initial.map(({ body, author }) => ({
@@ -174,6 +175,7 @@ describe('ci-report section helper', () => {
             }))
             const afterNextWrite: FireOnceHook = { fn: null }
             const afterNextRead: FireOnceHook = { fn: null }
+            const state = { patches: 0, denyDeletes: false }
             const fireOnce = (hook: FireOnceHook): void => {
                 const fn = hook.fn
                 hook.fn = null
@@ -211,11 +213,20 @@ describe('ci-report section helper', () => {
                     if (!target) {
                         return notFound()
                     }
+                    state.patches += 1
                     target.body = JSON.parse(String(options.body)).body
                     fireOnce(afterNextWrite)
                     return json({})
                 }
                 if (method === 'DELETE') {
+                    if (state.denyDeletes) {
+                        return {
+                            ok: false,
+                            status: 403,
+                            json: async () => ({}),
+                            text: async () => 'forbidden',
+                        } as unknown as Response
+                    }
                     const index = comments.findIndex((c) => c.id === id)
                     if (index === -1) {
                         return notFound()
@@ -230,7 +241,7 @@ describe('ci-report section helper', () => {
                 }
                 return notFound()
             }
-            return { comments, afterNextWrite, afterNextRead }
+            return { comments, afterNextWrite, afterNextRead, state }
         }
 
         const realFetch = globalThis.fetch
@@ -353,6 +364,25 @@ describe('ci-report section helper', () => {
             expect(github.comments).toHaveLength(1)
             const sections = parseSections(github.comments[0].body)
             expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
+        })
+
+        it('succeeds without burning retries when a duplicate cannot be deleted', async () => {
+            // Healing is best-effort: the section landed in the primary, which is what
+            // success means. Requiring the duplicate count to reach one would re-PATCH
+            // identical content on every attempt and log a lying give-up.
+            const github = fakeGitHub([
+                { body: renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])) },
+                { body: renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])) },
+            ])
+            github.state.denyDeletes = true
+            await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
+            expect(github.comments).toHaveLength(2)
+            expect([...parseSections(github.comments[0].body).keys()]).toEqual([
+                'bundle-size',
+                'eager-graph',
+                'dist-size',
+            ])
+            expect(github.state.patches).toBe(1)
         })
 
         it('gives up cleanly when a concurrent writer keeps clobbering', async () => {
