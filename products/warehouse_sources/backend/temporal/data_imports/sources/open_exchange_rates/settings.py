@@ -67,10 +67,11 @@ OPEN_EXCHANGE_RATES_ENDPOINTS: dict[str, OpenExchangeRatesEndpointConfig] = {
         description="Daily historical rates per currency, one request per day (walked from the start date). Supports incremental sync on the value date.",
     ),
     # /usage.json — the account's plan and current-period request usage as a single flattened row.
-    # Free and does not count toward the monthly request quota.
+    # Free and does not count toward the monthly request quota. Keyed on a constant synthetic id
+    # (`id`) rather than the account's app_id, which is the API credential and must not be persisted.
     "usage": OpenExchangeRatesEndpointConfig(
         name="usage",
-        primary_keys=["app_id"],
+        primary_keys=["id"],
         description="Your Open Exchange Rates plan and current request usage, as a single row. Full refresh only.",
     ),
 }

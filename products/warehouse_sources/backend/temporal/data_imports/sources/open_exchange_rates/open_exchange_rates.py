@@ -121,11 +121,12 @@ def _iter_usage(data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = data.get("data") or {}
     plan = payload.get("plan") or {}
     usage = payload.get("usage") or {}
-    # app_id is the primary key — index it directly so a response missing it fails loudly rather than
-    # silently writing zero rows (matches `_iter_rates` reading `data["base"]`).
+    # Deliberately do NOT store the upstream `app_id`: it is the API credential (a secret field), so
+    # writing it here would echo it into a queryable warehouse column. This is a single snapshot row
+    # per source, so key it on a constant synthetic id instead.
     return [
         {
-            "app_id": payload["app_id"],
+            "id": "usage",
             "status": payload.get("status"),
             "plan_name": plan.get("name"),
             "plan_quota": plan.get("quota"),

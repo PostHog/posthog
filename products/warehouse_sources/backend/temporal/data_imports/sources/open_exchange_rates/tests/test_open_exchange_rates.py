@@ -171,7 +171,7 @@ class TestNormalization:
         rows = _iter_usage(data)
         assert rows == [
             {
-                "app_id": "abc123",
+                "id": "usage",
                 "status": "active",
                 "plan_name": "Free",
                 "plan_quota": "1000 requests / month",
@@ -185,10 +185,25 @@ class TestNormalization:
             }
         ]
 
-    def test_iter_usage_without_app_id_raises(self) -> None:
-        # app_id is the primary key; a response missing it must fail loudly, not write zero rows.
-        with pytest.raises(KeyError):
-            _iter_usage({"data": {}})
+    def test_iter_usage_never_stores_the_credential(self) -> None:
+        # app_id is the API credential (a secret) — it must never be written into the synced row.
+        rows = _iter_usage({"data": {"app_id": "SECRET_APP_ID", "plan": {}, "usage": {}}})
+        assert rows == [
+            {
+                "id": "usage",
+                "status": None,
+                "plan_name": None,
+                "plan_quota": None,
+                "plan_update_frequency": None,
+                "requests": None,
+                "requests_quota": None,
+                "requests_remaining": None,
+                "days_elapsed": None,
+                "days_remaining": None,
+                "daily_average": None,
+            }
+        ]
+        assert "SECRET_APP_ID" not in str(rows)
 
 
 class TestToDate:
@@ -273,7 +288,10 @@ class TestGetRows:
     def test_usage_yields_once(self) -> None:
         body = {"data": {"app_id": "abc", "plan": {}, "usage": {"requests": 1}}}
         batches, session = self._run("usage", [_FakeResponse(json_data=body)], _manager())
-        assert batches[0][0]["app_id"] == "abc"
+        assert batches[0][0]["id"] == "usage"
+        assert batches[0][0]["requests"] == 1
+        # The credential must not be echoed into the synced row.
+        assert "app_id" not in batches[0][0]
         assert session.requested_urls == [f"{BASE_URL}/usage.json"]
 
     def test_latest_sends_base_and_derives_date_from_timestamp(self) -> None:
@@ -351,7 +369,7 @@ class TestOpenExchangeRatesSourceResponse:
             ("currencies", ["code"]),
             ("latest", ["base", "currency", "date"]),
             ("historical", ["base", "currency", "date"]),
-            ("usage", ["app_id"]),
+            ("usage", ["id"]),
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:

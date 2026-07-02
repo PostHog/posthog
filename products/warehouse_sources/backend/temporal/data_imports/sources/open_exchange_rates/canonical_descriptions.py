@@ -39,7 +39,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Your Open Exchange Rates account plan and current-period request usage, as a single row.",
         "docs_url": "https://docs.openexchangerates.org/reference/usage-json",
         "columns": {
-            "app_id": "The App ID the usage figures belong to.",
+            "id": 'Constant synthetic key for this single-row snapshot (always "usage"). The account\'s App ID is deliberately not stored, as it is the API credential.',
             "status": "Account status (e.g. active).",
             "plan_name": "Name of the subscription plan (e.g. Free, Developer).",
             "plan_quota": "Human-readable monthly request quota for the plan.",
