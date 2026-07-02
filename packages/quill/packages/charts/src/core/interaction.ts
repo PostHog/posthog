@@ -99,9 +99,9 @@ export function buildTooltipContext<Meta = unknown>(
      *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
      *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue: ResolveValueFn = resolveValue,
-    /** Resolves the stacked *bottom* value for each series — used to compute the segment midpoint
-     *  for tooltip row highlighting. When provided, yPixel is set to the segment midpoint so
-     *  findClosestSeriesKey transitions at the visual boundary between segments. */
+    /** Resolves the stacked *bottom* value for each series. When provided, yPixelBottom is
+     *  stored alongside yPixel so findClosestSeriesKey can use range containment rather than
+     *  distance — cursor inside [yPixel, yPixelBottom] wins exactly at the segment boundary. */
     resolveBottomValue?: ResolveValueFn,
     /** Optional horizontal data-extent centered on the categorical axis position — bar charts
      *  pass band width so the tooltip can anchor at the band edge instead of its center. */
@@ -142,20 +142,22 @@ export function buildTooltipContext<Meta = unknown>(
             const bar = s.bars?.[dataIndex]
             const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
             const segmentValue = resolveValue(s, dataIndex)
-            // When resolveBottomValue is provided (stacked bar charts), use the segment midpoint
-            // so findClosestSeriesKey transitions exactly at the visual boundary between segments.
-            let yPx = px
-            if (isFinite(px) && resolveBottomValue) {
-                const bottomPx = seriesValueScale(resolveBottomValue(s, dataIndex))
-                if (isFinite(bottomPx)) {
-                    yPx = (px + bottomPx) / 2
-                }
-            }
+            // Expose the segment bottom pixel so findClosestSeriesKey can do range containment
+            // testing (is cursor between top and bottom?) instead of distance-to-midpoint, which
+            // breaks when adjacent segments differ greatly in size.
+            const yPixelBottom =
+                resolveBottomValue && isFinite(px)
+                    ? (() => {
+                          const b = seriesValueScale(resolveBottomValue(s, dataIndex))
+                          return isFinite(b) ? b : undefined
+                      })()
+                    : undefined
             seriesData.push({
                 series: entrySeries,
                 value: segmentValue,
                 color: barColorAt(s, dataIndex),
-                yPixel: isFinite(yPx) ? yPx : undefined,
+                yPixel: isFinite(px) ? px : undefined,
+                yPixelBottom,
             })
         }
     }

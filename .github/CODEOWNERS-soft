@@ -290,9 +290,11 @@ posthog/hogql_queries/property_values_query_runner.py @PostHog/team-product-anal
 ee/clickhouse/views/groups.py @PostHog/team-product-analytics
 ee/clickhouse/queries/related_actors_query.py @PostHog/team-product-analytics
 posthog/temporal/product_analytics/ @PostHog/team-product-analytics
-posthog/temporal/mcp_analytics/ @PostHog/team-product-analytics
 frontend/src/scenes/themes/ @PostHog/team-product-analytics
 posthog/taxonomy/ @PostHog/team-product-analytics
+
+# MCP Analytics - owned by @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/ @PostHog/team-mcp-analytics
 
 # Experiments - owned by @PostHog/team-experiments
 frontend/src/scenes/experiments/ @PostHog/team-experiments

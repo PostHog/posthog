@@ -1,6 +1,9 @@
 //! Column-family registry.
 
-use rocksdb::{BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBCompressionType, Options};
+use rocksdb::{
+    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBCompressionType,
+    Options,
+};
 
 use super::rocks::StoreConfig;
 use super::secondary_index::{full_merge, partial_merge, PERSON_INDEX_MERGE_OPERATOR_NAME};
@@ -21,6 +24,10 @@ pub const CF_MERGE_APPLIED: &str = "cf_merge_applied";
 pub const CF_MERGE_TOMBSTONES: &str = "cf_merge_tombstones";
 
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
+
+/// Per-CF memtable count, pinned so the memtable-memory multiplier (CF × write_buffer_bytes × this)
+/// can't silently double if the write-buffer size is raised.
+const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
 
 /// Column family enum.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -92,10 +99,35 @@ fn cf_options(cf: Cf, config: &StoreConfig, cache: &Cache) -> Options {
     block_opts.set_block_cache(cache);
     block_opts.set_bloom_filter(BLOOM_FILTER_BITS_PER_KEY, false);
 
+    if config.tuned_block_options {
+        // Cache index/filter blocks and partition them behind a two-level index (required by
+        // partitioned filters) so point lookups short-circuit on the bloom. Whole-key filtering
+        // matches the point-lookup pattern; there is no prefix extractor.
+        block_opts.set_cache_index_and_filter_blocks(true);
+        block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+        block_opts.set_pin_top_level_index_and_filter(true);
+        block_opts.set_partition_filters(true);
+        block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+        block_opts.set_whole_key_filtering(true);
+    }
+
     let mut opts = Options::default();
     opts.set_block_based_table_factory(&block_opts);
     opts.set_compression_type(DBCompressionType::Lz4);
     opts.set_write_buffer_size(config.write_buffer_bytes);
+    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
+
+    // CF options don't inherit from the DB options, so compaction controls must be set per-CF.
+    if config.compact_on_deletion {
+        opts.add_compact_on_deletion_collector_factory(
+            config.compact_on_deletion_window,
+            config.compact_on_deletion_num_dels_trigger,
+            config.compact_on_deletion_ratio,
+        );
+    }
+    if config.periodic_compaction_seconds != 0 {
+        opts.set_periodic_compaction_seconds(config.periodic_compaction_seconds);
+    }
 
     match cf {
         Cf::PersonIndex => {

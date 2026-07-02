@@ -1926,8 +1926,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
-        from posthog.tasks.tasks import delete_project_data_and_notify_task
-
         # Check if bulk deletion operations are disabled via environment variable
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
@@ -1941,27 +1939,15 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_project_data_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_project_data_workflow(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
-        else:
-            delete_project_data_and_notify_task.delay(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
+        start_delete_project_data_workflow(
+            team_ids=[team_id],
+            project_id=None,  # Only deleting a team, not the whole project
+            user_id=user.id,
+            project_name=team_name,
+        )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),
