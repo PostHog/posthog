@@ -404,14 +404,14 @@ describe('aiObservabilitySessionsViewLogic', () => {
     })
 
     it.each([
-        ['no-session-ids', 7],
-        ['no-data', 0],
-    ])('classifies an empty list as %s when the probe finds %d AI events', async (expectedReason, eventCount) => {
-        // First call is the empty sessions query; the follow-up probe counts AI events in the
-        // window regardless of session id, so it tells the two empty cases apart.
+        ['no-session-ids', [[1]]],
+        ['no-data', []],
+    ])('classifies an empty list as %s when the probe returns %j', async (expectedReason, probeResults) => {
+        // First call is the empty sessions query; the follow-up LIMIT 1 probe checks for AI
+        // events in the window regardless of session id, so it tells the two empty cases apart.
         querySpy
             .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
-            .mockResolvedValueOnce({ results: [[eventCount]] })
+            .mockResolvedValueOnce({ results: probeResults })
 
         logic.actions.loadSessions()
         await settleListeners()
@@ -419,6 +419,27 @@ describe('aiObservabilitySessionsViewLogic', () => {
 
         expect(logic.values.sessions).toHaveLength(0)
         expect(logic.values.sessionsEmptyReason).toBe(expectedReason)
+    })
+
+    it('holds the loading state until the empty-reason probe settles', async () => {
+        const probe = deferredResponse()
+        querySpy
+            .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
+            .mockImplementationOnce(() => probe.promise)
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        // The sessions query resolved empty, but the reason is still unknown — the UI must
+        // keep showing skeletons rather than flashing the generic empty state.
+        expect(logic.values.sessionsLoading).toBe(true)
+        expect(logic.values.sessions).toHaveLength(0)
+
+        probe.resolve({ columns: [], results: [[1]] })
+        await settleListeners()
+
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsEmptyReason).toBe('no-session-ids')
     })
 })
 
