@@ -1314,15 +1314,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => {
                             const name = featureFlag.key || featureFlag.name
-                            const isInactive = !featureFlag.active
+                            const isInactive = featureFlag.active === false
                             return isInactive ? `${name} (disabled)` : name
                         },
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
                         getIcon: (featureFlag: FeatureFlagType) => (
-                            <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                            <IconFlag
+                                className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')}
+                            />
                         ),
-                        getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+                        // Recently-used entries are stored stripped of `active`, so treat only an explicit
+                        // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+                        // Keep in sync with the Feature Flags group in utils/buildTaxonomicGroups.tsx.
+                        getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
                         localItemsSearch: (items, query) => {
                             if (!query) {
                                 return items
