@@ -208,6 +208,15 @@ class JanitorClient:
         (the gateway catalog is global), so no params."""
         return self._call("GET", "/models")
 
+    def get_spec_schema(self, *, section: str | None = None) -> dict:
+        """The agent-spec JSON Schema, emitted from the canonical zod
+        `AgentSpecSchema` (no Python mirror). Optional `section` returns one
+        top-level slice (e.g. `models`, `triggers`, `limits`)."""
+        params: dict[str, Any] = {}
+        if section:
+            params["section"] = section
+        return self._call("GET", "/spec-schema", params=params)
+
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
         if since:

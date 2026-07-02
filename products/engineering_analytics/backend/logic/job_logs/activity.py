@@ -24,7 +24,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
-from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log
+from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log_lines
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +76,8 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "repo": inputs.repo,
         "branch": inputs.branch or "",
         "conclusion": inputs.conclusion or "",
+        # Total lines in the full log before thinning — the denominator for each line's orig_line.
+        "orig_total": len(archive.splitlines()),
     }
 
     # CI failure logs are team-level operational data: they ride the owning team's project Logs
@@ -83,9 +85,12 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     # source's resource-level access control. Don't emit anything a logs:read holder shouldn't see.
     def _thin_and_emit() -> int:
         # Failures-only today; pass a different ThinningConfig once all-jobs ingestion lands.
-        thinned = thin_log(archive)
+        thinned = thin_log_lines(archive)
         with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
-            return emitter.emit_log_archive(thinned, attributes=attributes)
+            # run_id→trace, job_id→span so the Logs UI can group a whole run and isolate one job.
+            return emitter.emit_log_archive(
+                thinned, attributes=attributes, trace_id=inputs.run_id, span_id=inputs.job_id
+            )
 
     lines = await asyncio.to_thread(_thin_and_emit)
     log.info("github_job_log_emitted", lines=lines)

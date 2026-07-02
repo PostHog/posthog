@@ -87,6 +87,13 @@ describe('markdownNotebookV2', () => {
                     },
                 },
                 {
+                    type: NotebookNodeType.Recording,
+                    attrs: {
+                        id: '018b4205-f670-7fa8-928a-040abaaf596d',
+                        title: 'Session replay',
+                    },
+                },
+                {
                     type: NotebookNodeType.Image,
                     attrs: {
                         src: 'https://res.cloudinary.com/demo/image/upload/posthog.png',
@@ -100,9 +107,33 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+
+<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
+    })
+
+    it('preserves explicitly open legacy widget filters', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: 'SavedInsightNode',
+                            shortId: 'open',
+                        },
+                        edit: true,
+                    },
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(
+            '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />'
+        )
     })
 
     it('converts raw legacy content arrays without dropping top-level text nodes', () => {
@@ -152,9 +183,9 @@ Wrapped paragraph`)
         }
 
         expect(convertNotebookContentToMarkdown(content))
-            .toEqual(`<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Query query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
     })
 
     it('converts remaining legacy production node shapes without unknown nodes', () => {
@@ -179,7 +210,7 @@ Wrapped paragraph`)
 
 Dashboard 123
 
-<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -213,7 +244,7 @@ Dashboard 123
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -386,6 +417,85 @@ after`)
         expect(convertNotebookContentToMarkdown(content)).toEqual(`| H1 |
 | --- |
 | line1 line2 |`)
+    })
+
+    it('converts legacy markdown ast alias nodes without losing structure', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'bullet_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'ordered_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'step' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'code_block',
+                    attrs: { language: 'sql' },
+                    content: [
+                        { type: 'text', text: 'select 1' },
+                        { type: 'hardBreak' },
+                        { type: 'text', text: 'select 2' },
+                    ],
+                },
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'table_row',
+                            content: [
+                                {
+                                    type: 'table_header',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Metric' }] }],
+                                },
+                                {
+                                    type: 'table_cell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                { type: 'text', text: 'Heads', marks: [{ type: 'strong' }] },
+                                { type: 'text', text: ' and ' },
+                                { type: 'text', text: 'note', marks: [{ type: 'em' }] },
+                            ],
+                        },
+                    ],
+                },
+                { type: 'ph-link', attrs: { href: 'https://app.posthog.com/cohorts/37958' } },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('- first')
+        expect(markdown).toContain('1. step')
+        expect(markdown).toContain('```sql\nselect 1\nselect 2\n```')
+        expect(markdown).toContain('| Metric | Value |')
+        expect(markdown).toContain('| --- | --- |')
+        expect(markdown).toContain('> ! **Heads** and *note*')
+        expect(markdown).toContain('[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
     })
 
     it('produces markdown that parses without errors in the markdown notebook model', () => {

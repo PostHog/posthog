@@ -16,8 +16,10 @@
     "tools": [],
     "mcps": [
         {
+            "kind": "principal",
             "id": "posthog",
             "url": "http://localhost:8787/mcp",
+            "default_tool_approval": "allow",
             "auth": { "provider": "posthog" }
         }
     ],

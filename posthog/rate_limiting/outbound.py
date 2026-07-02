@@ -10,34 +10,54 @@ backing library, so the algorithm/backend stays swappable.
 import threading
 
 from posthog.rate_limiting.backends import LimitsBackend
-from posthog.rate_limiting.policies import RatePolicy, resolve_policy
+from posthog.rate_limiting.observability import record_outbound_decision
+from posthog.rate_limiting.policies import Priority, RatePolicy, resolve_policy
 
 
-def _validate(n: int, policy: RatePolicy) -> None:
+def _domain_of(key: str) -> str:
+    # resolve_policy already validated the key shape, so the first segment is the domain.
+    return key.partition(":")[0]
+
+
+def _validate(n: int, policy: RatePolicy, priority: Priority) -> None:
     if n < 1:
         raise ValueError(f"rate limiter weight must be >= 1, got {n}")
-    smallest = min(count for count, _ in policy.limits)
-    if n > smallest:
-        # limits treats a weight larger than the limit as permanently unsatisfiable, so the caller
-        # would back off forever rather than ever be granted. Fail loudly instead of silently.
-        raise ValueError(f"weight {n} exceeds the tightest configured limit ({smallest}); it can never be granted")
+    for count, _ in policy.limits:
+        reserve = policy.reserve_amount(priority, count)
+        if n + reserve > count:
+            # limits treats a weight larger than the limit as permanently unsatisfiable, so the
+            # caller would back off forever rather than ever be granted. The priority's reserved floor
+            # eats into that headroom, so check the inflated weight, not just n. Fail loudly.
+            raise ValueError(
+                f"weight {n} plus reserved floor {reserve} for priority {priority.name} exceeds the "
+                f"limit {count}; it can never be granted"
+            )
 
 
 class OutboundRateLimiter:
     def __init__(self, backend: LimitsBackend | None = None) -> None:
         self._backend = backend or LimitsBackend()
 
-    async def acquire(self, key: str, n: int = 1) -> bool:
-        """Reserve ``n`` units against ``key``'s budget. Returns False if it would exceed it."""
+    async def acquire(
+        self, key: str, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown"
+    ) -> bool:
+        """Reserve ``n`` units against ``key``'s budget. Returns False if it would exceed it (or, for a
+        lower ``priority``, would dip into the reserve owed to higher-priority traffic)."""
         policy = resolve_policy(key)
-        _validate(n, policy)
-        return await self._backend.acquire(key, policy, n)
+        _validate(n, policy, priority)
+        granted = await self._backend.acquire(key, policy, n, priority)
+        record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
+        return granted
 
-    def consume_sync(self, key: str, n: int = 1) -> bool:
+    def consume_sync(
+        self, key: str, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown"
+    ) -> bool:
         """Non-blocking sync variant for callers outside an event loop."""
         policy = resolve_policy(key)
-        _validate(n, policy)
-        return self._backend.consume_sync(key, policy, n)
+        _validate(n, policy, priority)
+        granted = self._backend.consume_sync(key, policy, n, priority)
+        record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
+        return granted
 
 
 _limiter: OutboundRateLimiter | None = None

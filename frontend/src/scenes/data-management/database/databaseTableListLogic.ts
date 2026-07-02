@@ -173,6 +173,15 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             },
             { resultEqualityCheck: objectsEqual },
         ],
+        // Tables synced from an external data source (Stripe, Postgres, etc). Excludes views/saved
+        // queries and self-managed S3 tables — only these can trigger CDP from a warehouse sync.
+        externalDataSourceTables: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): DatabaseSchemaDataWarehouseTable[] => {
+                return dataWarehouseTables.filter((table) => table.source != null)
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
         dataWarehouseTablesMap: [
             (s) => [s.dataWarehouseTables, s.views],
             (

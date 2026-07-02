@@ -7,13 +7,15 @@ import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RunJobsTable } from '../components/runTables'
+import { RunJobsTable, formatCost, formatMinutes } from '../components/runTables'
+import { StatTile } from '../components/StatTile'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { verdictTag } from '../lib/runStatus'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
@@ -39,7 +41,8 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
-    const { run, runLoading, loadFailed, sourceId, jobs, jobsLoading, isValidRunId } = useValues(workflowRunDetailLogic)
+    const { run, runLoading, loadFailed, sourceId, jobs, jobsLoading, runCost, isValidRunId } =
+        useValues(workflowRunDetailLogic)
     const { loadRun } = useActions(workflowRunDetailLogic)
 
     if (!isValidRunId) {
@@ -106,6 +109,25 @@ export function WorkflowRunDetailScene(): JSX.Element {
                             {run.repo.owner}/{run.repo.name} · run #{run.id}
                         </span>
                     </div>
+
+                    {runCost && (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
+                                {runCost.unsettledJobs > 0 && (
+                                    <LemonTag type="muted">
+                                        {pluralize(runCost.unsettledJobs, 'unsettled job')} excluded
+                                    </LemonTag>
+                                )}
+                            </div>
+                            <StatTile
+                                label="Billable CI minutes"
+                                value={formatMinutes(runCost.billableMinutes)}
+                                sub={<>≈ {formatCost(runCost.estimatedCostUsd)} estimated</>}
+                                className="max-w-72"
+                            />
+                        </div>
+                    )}
 
                     <LemonCard hoverEffect={false} className="divide-y p-0">
                         <DetailRow label="Status">
