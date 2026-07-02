@@ -7,7 +7,7 @@ interface TestItem {
     searchKeywords?: string[]
 }
 
-const makeItem = (name: string, category = 'apps', extra: Partial<TestItem> = {}): TestItem => ({
+const makeItem = (name: string, category = 'tools', extra: Partial<TestItem> = {}): TestItem => ({
     name,
     category,
     ...extra,
@@ -16,16 +16,16 @@ const makeItem = (name: string, category = 'apps', extra: Partial<TestItem> = {}
 const items: TestItem[] = [
     makeItem('Event definitions', 'data-management'),
     makeItem('Property definitions', 'data-management'),
-    makeItem('Feature flags', 'apps'),
-    makeItem('Cohorts', 'apps'),
-    makeItem('Dashboards', 'apps'),
-    makeItem('Session recordings', 'apps'),
-    makeItem('Web analytics', 'apps'),
-    makeItem('Experiments', 'apps'),
-    makeItem('Surveys', 'apps'),
-    makeItem('Product analytics', 'apps'),
-    makeItem('Error tracking', 'apps'),
-    makeItem('Data warehouse', 'apps', { searchKeywords: ['sql', 'query', 'database'] }),
+    makeItem('Feature flags', 'tools'),
+    makeItem('Cohorts', 'tools'),
+    makeItem('Dashboards', 'tools'),
+    makeItem('Session recordings', 'tools'),
+    makeItem('Web analytics', 'tools'),
+    makeItem('Experiments', 'tools'),
+    makeItem('Surveys', 'tools'),
+    makeItem('Product analytics', 'tools'),
+    makeItem('Error tracking', 'tools'),
+    makeItem('Data warehouse', 'tools', { searchKeywords: ['sql', 'query', 'database'] }),
 ]
 
 const names = (results: TestItem[]): string[] => results.map((r) => r.name)

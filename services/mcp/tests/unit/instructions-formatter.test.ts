@@ -24,7 +24,7 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const realisticMetadata =
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 
@@ -85,11 +85,11 @@ describe('InstructionsFormatter', () => {
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
             const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+            expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
             for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
                 const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on this MCP server')
+                expect(result).not.toContain('### Sharing feedback on PostHog')
             }
         })
     })
@@ -194,13 +194,13 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+                expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
                 const withoutFeedback = formatter.buildExecCommandReference(
                     { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
                     { stripEnvContext }
                 )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
             }
         })
 

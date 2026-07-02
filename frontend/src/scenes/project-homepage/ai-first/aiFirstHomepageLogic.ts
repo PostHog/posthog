@@ -348,8 +348,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                         hash: '',
                         title: 'Default dashboard',
                         iconType: 'dashboard',
-                        active: false,
-                        pinned: true,
                         sceneId: Scene.Dashboard,
                         sceneKey: `dashboard-${dashboardId}`,
                         sceneParams: emptySceneParams,

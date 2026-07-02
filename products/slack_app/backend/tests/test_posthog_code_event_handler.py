@@ -105,7 +105,7 @@ class TestPostHogCodeEventHandler(TestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -120,7 +120,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Seed the Slack-user → email cache so routing can resolve U123 → self.user
@@ -918,7 +918,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -933,7 +933,7 @@ class TestChannelApprovalGate(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Routing now resolves the Slack user to a PostHog user before any
@@ -1073,7 +1073,7 @@ class TestChannelApprovalGate(TestCase):
 
 class TestAssistantEvents(TestCase):
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -1084,7 +1084,7 @@ class TestAssistantEvents(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
 
@@ -1115,7 +1115,7 @@ class TestAssistantEvents(TestCase):
             else UserAndIntegrationsResolution(failure_reason="user_not_found")
         )
         resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
         usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         return load, resolve, enabled_p, usp, slack
@@ -1225,7 +1225,7 @@ class TestAssistantInstallWelcome(TestCase):
     def _run(self, *, enabled: bool):
         from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
 
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         with enabled_p, slack as slack_cls:
             send_assistant_install_welcome(self.integration)
@@ -1248,7 +1248,7 @@ class TestAssistantInstallWelcome(TestCase):
     def test_slack_error_is_swallowed(self):
         from products.slack_app.backend.api import send_assistant_install_welcome
 
-        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=True)
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
         slack = patch("products.slack_app.backend.api.SlackIntegration")
         with enabled_p, slack as slack_cls:
             slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")

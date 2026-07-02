@@ -1,7 +1,13 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -42,7 +48,7 @@ export class StateManager {
             // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
             // normalize at the boundary — downstream code treats these as arrays.
             return {
-                scopes,
+                scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
             }
@@ -153,9 +159,23 @@ export class StateManager {
                 return { organizationId, projectId: Number(projectsResult.data[0]!) }
             }
             if (!projectsResult.success) {
-                this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
-                    organization_id: organizationId,
-                })
+                // A 404 here means the API key/OAuth token points at an org the
+                // requesting user can no longer access (or a deleted org): the
+                // org-nested projects endpoint is scoped to the user's
+                // memberships. That's a recoverable user-config state — the
+                // agent recovers via switch-project/switch-organization — so
+                // warn instead of capturing, mirroring the 403 permission_denied
+                // path in client.ts. Only genuine 5xx/unexpected failures reach
+                // error tracking.
+                if (this._isRecoverableNotFound(projectsResult.error)) {
+                    console.warn(
+                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                    )
+                } else {
+                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                        organization_id: organizationId,
+                    })
+                }
             }
         } catch (error) {
             this._reportException(error, 'default_org_project_projects_list_threw', {
@@ -164,6 +184,15 @@ export class StateManager {
         }
 
         return { organizationId }
+    }
+
+    /**
+     * A 404 from the scoped-org projects lookup is an expected missing-context
+     * state (org deleted, or the user lost access to a still-scoped org), not a
+     * service bug. Treat it as recoverable so it stays out of error tracking.
+     */
+    private _isRecoverableNotFound(error: unknown): boolean {
+        return error instanceof PostHogApiError && error.status === 404
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {

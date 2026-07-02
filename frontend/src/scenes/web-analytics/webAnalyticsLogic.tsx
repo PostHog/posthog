@@ -18,16 +18,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import {
-    UnexpectedNeverError,
-    getDefaultInterval,
-    isNotNil,
-    isValidRelativeOrAbsoluteDate,
-    objectsEqual,
-} from 'lib/utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -222,7 +218,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
-        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean) => ({ useWebAnalyticsPrecompute }),
+        setUseWebAnalyticsPrecompute: (useWebAnalyticsPrecompute: boolean | null) => ({ useWebAnalyticsPrecompute }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -300,6 +296,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     })),
     reducers(() => {
         const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        // The precompute toggle changed from opt-in (default `false`) to a tri-state where
+        // `null` means "use the team default". Legacy users persisted the old `false`, which
+        // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
+        // they rehydrate `null` and the backend's per-team default applies.
+        const precomputePersistConfig = { persist: true, prefix: `${getCurrentTeamId()}__precompute_optout_v2__` }
         return {
             surveyModalPath: [
                 null as string | null,
@@ -453,8 +454,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
             useWebAnalyticsPrecompute: [
-                false as boolean,
-                persistConfig,
+                // Tri-state: `null` means the user never touched the toggle, so the
+                // backend's per-team default decides (opt-out for unrestricted teams,
+                // opt-in for everyone else). An explicit `true`/`false` overrides it.
+                null as boolean | null,
+                precomputePersistConfig,
                 {
                     setUseWebAnalyticsPrecompute: (_, { useWebAnalyticsPrecompute }) => useWebAnalyticsPrecompute,
                 },
@@ -832,17 +836,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 shouldStripQueryParams: boolean,
                 includeHostPath: boolean,
-                useWebAnalyticsPrecompute: boolean,
+                useWebAnalyticsPrecompute: boolean | null,
                 featureFlags: Record<string, boolean>
             ) => ({
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                // Gate the persisted opt-in on the flag so killing the flag can never send a stale `true`
-                // to the backend for a team that had it enabled — belt-and-suspenders, not a backend guard.
+                // `null` (untouched) → omitted, so the backend's per-team default decides.
+                // Explicit `false` (opt-out) → always sent, even if the flag is later killed.
+                // Explicit `true` (opt-in) → only sent while the flag is on; with the flag off we
+                // omit it (fall back to the default) rather than flipping it to `false`, which on an
+                // unrestricted team would wrongly opt the user out instead of leaving them default-on.
                 useWebAnalyticsPrecompute:
-                    useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
+                    useWebAnalyticsPrecompute == null
+                        ? undefined
+                        : useWebAnalyticsPrecompute === false
+                          ? false
+                          : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]
+                            ? true
+                            : undefined,
             }),
         ],
         filters: [
@@ -1410,8 +1423,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-full' : 'md:col-span-2',
                             orderWhenLargeClassName: '2xl:order-1',
+                            className: useTileHeaderV2 ? 'WebTile--short-chart' : undefined,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1484,7 +1498,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-full' : 'md:col-span-2',
                             orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,
@@ -2466,8 +2480,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    trackedActionToUrl(({ values }) => {
-        const stateToUrl = (): string => {
+    trackedActionToUrl(({ values, cache }) => {
+        const buildStateUrl = (): string => {
             const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
@@ -2590,6 +2604,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
+        // Exposed so `urlToAction` can reconcile the URL against the restored state in a single write once
+        // restoration finishes (see `reconcileUrlAfterRestore`), without re-implementing this serialization.
+        cache.buildStateUrl = buildStateUrl
+
+        const stateToUrl = (): string | undefined => {
+            // While `urlToAction` is applying state from the URL, the actions it dispatches would each
+            // re-enter `actionToUrl` and recompute the (already-current) URL. Returning `undefined` here
+            // tells kea-router to skip the write, breaking the actionToUrl <-> urlToAction cascade that
+            // otherwise fires a burst of redundant evaluations and trips the rapid-URL-change detector.
+            // A single corrective write is emitted afterwards by `reconcileUrlAfterRestore`.
+            if (cache.applyUrlStateDepth > 0) {
+                return undefined
+            }
+            return buildStateUrl()
+        }
+
         return {
             setWebAnalyticsFilters: stateToUrl,
             togglePropertyFilter: stateToUrl,
@@ -2613,8 +2643,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
-        const toAction = (
+    urlToAction(({ actions, values, cache }) => {
+        const applyUrlState = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
                 filters,
@@ -2753,6 +2783,52 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (parsed !== values.includeHostPath) {
                     actions.setIncludeHostPath(parsed)
                 }
+            }
+        }
+
+        // Reconcile the URL with the restored state in a single write. Restoring can normalise state that
+        // the incoming URL contradicts — e.g. a conversion goal coerces an incompatible `graphs_tab` onto a
+        // conversion-compatible tab. The per-action `actionToUrl` writes are suppressed during restore (see
+        // `stateToUrl`), so without this the visible chart state and the shareable/reload URL would diverge.
+        // Only fire when a param the URL actually carried no longer matches the restored state, so a plain
+        // restore doesn't rewrite the URL with canonical-only defaults.
+        const reconcileUrlAfterRestore = (): void => {
+            const canonicalUrl = cache.buildStateUrl?.()
+            if (!canonicalUrl) {
+                return
+            }
+            const queryStart = canonicalUrl.indexOf('?')
+            const canonicalParams = new URLSearchParams(queryStart === -1 ? '' : canonicalUrl.slice(queryStart + 1))
+            const currentParams = new URLSearchParams(router.values.location.search)
+            let diverged = false
+            currentParams.forEach((value, key) => {
+                // Only a param that restoration re-serialized to a *different* value is a genuine
+                // correction (e.g. `graphs_tab`). A param the current tab simply doesn't serialize back
+                // (e.g. `percentile` outside web vitals) is left untouched, so a plain restore is a no-op.
+                const canonicalValue = canonicalParams.get(key)
+                if (canonicalValue !== null && canonicalValue !== value) {
+                    diverged = true
+                }
+            })
+            if (diverged) {
+                router.actions.replace(canonicalUrl)
+            }
+        }
+
+        // Guard the state-restoration so the actions it dispatches don't write back to the URL via
+        // `actionToUrl` (see `stateToUrl`). Restoring a URL with several params would otherwise fan out
+        // into a burst of redundant URL evaluations and trip the rapid-URL-change detector. The depth
+        // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
+        const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
+            cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
+            try {
+                applyUrlState(params, searchParams)
+            } finally {
+                cache.applyUrlStateDepth -= 1
+            }
+            // Only reconcile once unwound to the outermost restore, so a nested restore doesn't fire its own.
+            if (cache.applyUrlStateDepth === 0) {
+                reconcileUrlAfterRestore()
             }
         }
 

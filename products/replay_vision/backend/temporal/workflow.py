@@ -23,6 +23,7 @@ from products.replay_vision.backend.temporal.activities import (
     embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     mark_observation_failed_activity,
@@ -51,6 +52,7 @@ from products.replay_vision.backend.temporal.types import (
     EmbedObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
+    EmitObservationSignalInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
@@ -79,14 +81,19 @@ _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     non_retryable_error_types=["ValueError"],
 )
 
+# Generous because fetch's deterministic errors are non_retryable; this budget only covers transient infra (e.g. ClickHouse at capacity).
 _FETCH_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=2),
-    maximum_interval=dt.timedelta(seconds=30),
-    maximum_attempts=3,
+    maximum_interval=dt.timedelta(seconds=60),
+    maximum_attempts=6,
 )
 
-# Asset get-or-create has no transient failure modes worth retrying.
-_ENSURE_ASSET_RETRY = common.RetryPolicy(maximum_attempts=1)
+# A transient shared-DB slowdown can time this out; retry like the other state activities (the get-or-create makes sequential retries dedup-safe).
+_ENSURE_ASSET_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
 
 # Deterministic failures opt out via ScannerFailureError's non_retryable flag; only transient kinds re-run.
 _UPLOAD_RETRY = common.RetryPolicy(
@@ -223,11 +230,31 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single call.
+                start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
             self._advance_phase("finalizing")
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
+            signals_count = 0
+            if call_output.signals:
+                # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
+                # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
+                # must never demote an otherwise-successful observation to FAILED.
+                try:
+                    signals_count = await wf.execute_activity(
+                        emit_observation_signal_activity,
+                        EmitObservationSignalInputs(
+                            team_id=inputs.team_id,
+                            observation_id=observation_id,
+                            exported_asset_id=asset_result.asset_id,
+                            signals=call_output.signals,
+                        ),
+                        start_to_close_timeout=dt.timedelta(seconds=30),
+                        retry_policy=common.RetryPolicy(maximum_attempts=1),
+                    )
+                except Exception:
+                    wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
@@ -239,7 +266,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(model_output=call_output.model_output),
+                    scanner_result=ScannerResult(model_output=call_output.model_output, signals_count=signals_count),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,
@@ -291,7 +318,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         try:
             await wf.execute_child_workflow(
                 "rasterize-recording",
-                RasterizeRecordingInputs(exported_asset_id=asset_id),
+                RasterizeRecordingInputs(exported_asset_id=asset_id, product="replay_vision"),
                 id=_rasterizer_workflow_id(inputs),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),

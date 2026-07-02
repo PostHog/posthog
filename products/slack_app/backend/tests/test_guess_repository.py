@@ -19,9 +19,8 @@ from products.slack_app.backend.api import (
     _extract_explicit_repo,
     _get_full_repo_names,
     _invalidate_user_repo_list_cache,
-    _parse_rules_command,
     _user_repo_list_cache_key,
-    classify_task_needs_repo,
+    parse_rules_command,
 )
 
 
@@ -410,7 +409,7 @@ class TestParseRulesCommand:
         ]
     )
     def test_parses_command(self, _name, text, expected):
-        assert _parse_rules_command(text) == expected
+        assert parse_rules_command(text) == expected
 
     @parameterized.expand(
         [
@@ -424,7 +423,7 @@ class TestParseRulesCommand:
         ]
     )
     def test_returns_none_for_non_commands(self, _name, text):
-        assert _parse_rules_command(text) is None
+        assert parse_rules_command(text) is None
 
 
 class TestHandleRulesCommandActivity:
@@ -660,33 +659,3 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
-
-
-class TestClassifyTaskNeedsRepo:
-    @parameterized.expand(
-        [
-            (
-                "product_debug_automation",
-                "debug why the automation that sends PostHog AI Feedback always gives a thumbs down",
-                False,
-            ),
-            (
-                "product_debug_destination",
-                "investigate the slack destination configuration for this automation",
-                False,
-            ),
-            (
-                "product_debug_report_not_repo",
-                "debug why this dashboard report always shows a thumbs down",
-                False,
-            ),
-            (
-                "explicit_repo_request",
-                "open a PR in posthog/posthog to fix this serializer",
-                True,
-            ),
-        ]
-    )
-    def test_heuristic_classification(self, _name, text, expected):
-        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
-        assert result is expected

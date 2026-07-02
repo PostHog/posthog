@@ -24,6 +24,7 @@ from products.mcp_analytics.backend import intent_clustering
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     EMBEDDING_MODEL,
+    MAX_INTENT_TEXT_LENGTH,
     NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     _content_hash,
@@ -240,7 +241,7 @@ class TestBuildSnapshot:
 
 
 class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
-    """End-to-end: posthog_mcp_session in Postgres + mcp_tool_call in ClickHouse."""
+    """End-to-end: posthog_mcp_session in Postgres + $mcp_tool_call in ClickHouse."""
 
     def _seed_session(
         self,
@@ -253,18 +254,28 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         # created_at is auto_now_add, so override it directly to position the row in the lookback window.
         MCPSession.objects.filter(pk=session.pk).update(created_at=datetime.now(tz=UTC) + created_at_offset)
 
-    def _seed_tool_call(self, session_id: str, tool_name: str, is_error: bool = False) -> None:
+    def _seed_tool_call(
+        self,
+        session_id: str,
+        tool_name: str,
+        is_error: bool = False,
+        intent: str | None = None,
+        timestamp: datetime | None = None,
+    ) -> None:
+        properties: dict[str, Any] = {
+            "$session_id": session_id,
+            "$mcp_tool_name": tool_name,
+            "$mcp_is_error": is_error,
+        }
+        if intent is not None:
+            properties["$mcp_intent"] = intent
         _create_event(
             event_uuid=uuid.uuid4(),
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             team=self.team,
             distinct_id="seed",
-            timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
-            properties={
-                "$session_id": session_id,
-                "$mcp_tool_name": tool_name,
-                "$mcp_is_error": is_error,
-            },
+            timestamp=timestamp or (datetime.now(tz=UTC) - timedelta(hours=1)),
+            properties=properties,
         )
 
     def test_returns_empty_when_no_sessions(self) -> None:
@@ -331,6 +342,78 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
 
         assert [r.intent_text for r in records] == expected_intents
+
+    def test_builds_corpus_from_event_intents_without_session_rows(self) -> None:
+        # Two intents in one session: the chronologically first one represents it.
+        self._seed_tool_call(
+            "session-a",
+            "execute_sql",
+            intent="find slow queries",
+            timestamp=datetime.now(tz=UTC) - timedelta(hours=2),
+        )
+        self._seed_tool_call("session-a", "query_trends", intent="chart the slow queries")
+        # Calls without an intent still count toward the session's tool stats.
+        self._seed_tool_call("session-a", "insight_create")
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flag rollout", is_error=True)
+        # Sessionless intent events must not enter the corpus.
+        self._seed_tool_call("", "execute_sql", intent="orphan intent")
+        flush_persons_and_events()
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert intent_by_session == {
+            "session-a": "find slow queries",
+            "session-b": "check flag rollout",
+        }
+        by_text = {r.intent_text: r for r in records}
+        assert by_text["find slow queries"].tool_counts == {
+            "execute_sql": 1,
+            "query_trends": 1,
+            "insight_create": 1,
+        }
+        assert by_text["check flag rollout"].error_counts == {"feature_flag_get": 1}
+
+    def test_llm_summary_overrides_event_intent(self) -> None:
+        self._seed_tool_call("session-a", "execute_sql", intent="raw first intent")
+        flush_persons_and_events()
+        self._seed_session("session-a", "Condensed LLM summary of the session")
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert intent_by_session == {"session-a": "Condensed LLM summary of the session"}
+        assert [r.intent_text for r in records] == ["Condensed LLM summary of the session"]
+
+    def test_oversized_event_intent_is_clipped(self) -> None:
+        # Agents control the intent text — an unbounded value would flow into
+        # embedding requests and the snapshot blob.
+        self._seed_tool_call("session-big", "execute_sql", intent="x" * (MAX_INTENT_TEXT_LENGTH * 5))
+        flush_persons_and_events()
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert intent_by_session == {"session-big": "x" * MAX_INTENT_TEXT_LENGTH}
+        assert [len(r.intent_text) for r in records] == [MAX_INTENT_TEXT_LENGTH]
+
+    @parameterized.expand(
+        [
+            ("default_7_excludes_old", 7, {}),
+            ("override_30_includes_old", 30, {"session-old": "old event intent"}),
+        ]
+    )
+    def test_event_intents_respect_lookback_window(
+        self, _name: str, lookback_days: int, expected: dict[str, str]
+    ) -> None:
+        self._seed_tool_call(
+            "session-old",
+            "execute_sql",
+            intent="old event intent",
+            timestamp=datetime.now(tz=UTC) - timedelta(days=10),
+        )
+        flush_persons_and_events()
+
+        _, intent_by_session = fetch_intent_corpus(self.team, lookback_days=lookback_days)
+
+        assert intent_by_session == expected
 
     @parameterized.expand(
         [

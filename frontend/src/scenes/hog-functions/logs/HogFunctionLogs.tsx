@@ -6,11 +6,12 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
+import { InvocationsLegacyTabBanner } from '../invocations/InvocationsTabBanners'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
@@ -34,6 +35,7 @@ export function HogFunctionLogs(): JSX.Element | null {
 
     return (
         <>
+            <InvocationsLegacyTabBanner legacyTab="Logs" />
             {selectingMany ? (
                 <div className="flex gap-2 items-center mb-2 justify-end">
                     <>

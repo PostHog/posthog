@@ -23,6 +23,11 @@ if TYPE_CHECKING:
     from .resolver import ResolvedEnvironment
 
 
+def _dev_sandbox_enabled() -> bool:
+    """Dev filesystem sandbox is on by default; opt out with POSTHOG_DEV_SANDBOX=0 (strict)."""
+    return os.getenv("POSTHOG_DEV_SANDBOX") != "0"
+
+
 class DevenvConfig(BaseModel):
     """Source configuration for dev environment (what the user selected).
 
@@ -88,6 +93,7 @@ class MprocsConfig(BaseModel):
 
     procs: dict[str, dict[str, Any]]
     group_order: dict[str, list[str]] = {}  # display order per grouping dimension
+    default_group: str = ""  # grouping dimension the sidebar starts grouped by ("" = ungrouped)
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
@@ -100,6 +106,8 @@ class MprocsConfig(BaseModel):
         result["procs"] = self.procs
         if self.group_order:
             result["group_order"] = self.group_order
+        if self.default_group:
+            result["default_group"] = self.default_group
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
         return result
@@ -207,6 +215,7 @@ class MprocsGenerator(ConfigGenerator):
         return MprocsConfig(
             procs=procs,
             group_order=global_settings.get("group_order", {}),
+            default_group=global_settings.get("default_group", ""),
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
@@ -229,18 +238,18 @@ class MprocsGenerator(ConfigGenerator):
         bold = r"\033[1m"
         reset = r"\033[0m"
 
-        # Reflect the *effective* dependency-sandbox state: opted in via
-        # POSTHOG_DEV_SANDBOX=1 AND on macOS with sandbox-exec (the wrapper no-ops
-        # elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner can't
-        # claim isolation the platform won't deliver.
-        sandbox_opted_in = os.getenv("POSTHOG_DEV_SANDBOX") == "1"
+        # Reflect the *effective* dependency-sandbox state: on by default (opt out
+        # with POSTHOG_DEV_SANDBOX=0) AND on macOS with sandbox-exec (the wrapper
+        # no-ops elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner
+        # can't claim isolation the platform won't deliver.
+        sandbox_enabled = _dev_sandbox_enabled()
         sandbox_supported = sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
-        if sandbox_opted_in and sandbox_supported:
+        if sandbox_enabled and sandbox_supported:
             sandbox_status = f"{green}on{reset}"
-        elif sandbox_opted_in:
-            sandbox_status = f"{gray}off — POSTHOG_DEV_SANDBOX set but unsupported on this platform{reset}"
+        elif sandbox_enabled:
+            sandbox_status = f"{gray}off — unsupported on this platform{reset}"
         else:
-            sandbox_status = f"{gray}off{reset} {gray}(set POSTHOG_DEV_SANDBOX=1 in .env.local){reset}"
+            sandbox_status = f"{gray}off{reset} {gray}(POSTHOG_DEV_SANDBOX=0; unset to re-enable){reset}"
 
         news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
         news_local = "devenv/news.txt"
@@ -355,9 +364,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         original_shell = proc_config.get("shell", "")
         if original_shell:
-            env_exports = (
-                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
-            )
+            env_exports = "export PERSONHOG_ADDR='127.0.0.1:50052'"
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config
@@ -391,34 +398,55 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     # code, so running them unsandboxed doesn't widen the untrusted attack surface.
     _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
 
+    # Trusted helpers peeled out to run OUTSIDE the sandbox for a reason other than
+    # the docker socket. bin/dev-open-when-ready backgrounds a poller and opens the
+    # browser once a server is up — the OS browser-open path (open → LaunchServices)
+    # reads $HOME, which the sandbox denies. It self-backgrounds and returns 0
+    # immediately, so hoisting it to the front is safe. It takes a fixed URL from the
+    # proc def (never dependency input) and lives in $PROJECT/bin, which the profile
+    # write-denies, so a compromised dep can't tamper with it.
+    _SANDBOX_UNSANDBOXED_PREFIXES = ("bin/dev-open-when-ready",)
+
+    # Procs excluded from the sandbox by default: they need the docker socket the
+    # profile denies (e.g. temporal-worker running PostHog Code tasks with
+    # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
+    _SANDBOX_DEFAULT_EXCLUDES = frozenset({"temporal-worker"})
+
     def _add_sandbox_wrapper(self, proc_config: dict[str, Any], name: str = "") -> dict[str, Any]:
-        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
+        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) by default.
 
-        Opt in globally with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). A proc is
-        wrapped only if it declares ``sandbox: true`` in the registry — an explicit,
-        reviewable per-proc boundary rather than one inferred from the cosmetic
-        ``groups.tech`` field (which is optional, so a forgotten annotation silently
-        dropped a service out of the sandbox). Rust/Docker/migration procs simply
-        omit the flag. The sandbox restricts reads to the repo + toolchain caches so
-        a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
-        the docker/agent sockets so it can't escape via a container mount.
+        On by default; opt out globally with POSTHOG_DEV_SANDBOX=0 (e.g. in
+        .env.local). A proc is wrapped only if it declares ``sandbox: true`` in the
+        registry — an explicit, reviewable per-proc boundary rather than one inferred
+        from the cosmetic ``groups.tech`` field (which is optional, so a forgotten
+        annotation silently dropped a service out of the sandbox). Rust/Docker/migration
+        procs simply omit the flag. The sandbox restricts reads to the repo + toolchain
+        caches so a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...)
+        and denies the docker/agent sockets so it can't escape via a container mount.
 
-        POSTHOG_DEV_SANDBOX_EXCLUDE (comma-separated proc names) opts individual
-        procs back out. Use sparingly — it exists for procs whose feature set
-        requires the docker socket the profile denies, e.g. temporal-worker running
-        PostHog Code tasks with SANDBOX_PROVIDER=docker. Excluded procs run fully
-        unsandboxed, so the dependency-isolation guarantee no longer covers them.
+        Some procs are excluded by default (``_SANDBOX_DEFAULT_EXCLUDES``) because
+        they need the docker socket the profile denies, e.g. temporal-worker running
+        PostHog Code tasks with SANDBOX_PROVIDER=docker. POSTHOG_DEV_SANDBOX_EXCLUDE
+        (comma-separated proc names) opts additional procs back out. Excluded procs
+        run fully unsandboxed, so the dependency-isolation guarantee no longer covers
+        them.
 
         The docker-gate preamble (bin/wait-for-docker) is peeled out to run
         unsandboxed, since it needs the very socket the sandbox denies; the actual
         server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
         is a no-op passthrough on non-macOS, so the generated config stays portable.
+
+        bin/dev-open-when-ready (``_SANDBOX_UNSANDBOXED_PREFIXES``) is peeled out the
+        same way so a proc can auto-open its browser once it's listening — the OS
+        browser-open path the sandbox denies runs outside it, not by widening the
+        profile.
         """
         # `sandbox` is a registry-only selector; pop it so it never leaks into the
         # emitted proc config (which phrocs/mprocs would otherwise see).
         should_sandbox = bool(proc_config.pop("sandbox", False))
-        excluded = {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
-        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox or (name and name in excluded):
+        excluded = set(self._SANDBOX_DEFAULT_EXCLUDES)
+        excluded |= {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
+        if not _dev_sandbox_enabled() or not should_sandbox or (name and name in excluded):
             return proc_config
 
         shell = proc_config.get("shell", "")
@@ -433,9 +461,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         # in place: _add_startup_message and _add_uv_groups prepend echo/uv-sync
         # preambles, so a gate is never the leading segment (a leading-run scan would
         # wrongly sandbox it). Hoisting reorders segments, which is safe because the
-        # only gates (wait-for-docker, wait-for-postgres-tables) just block until
-        # infra is ready and are order-independent w.r.t. install/echo/server steps.
-        # A future order-sensitive gate would need interleaving instead of hoisting.
+        # peeled-out helpers (wait-for-docker / wait-for-postgres-tables block until
+        # infra is ready; dev-open-when-ready self-backgrounds and returns at once)
+        # are all order-independent w.r.t. install/echo/server steps. A future
+        # order-sensitive helper would need interleaving instead of hoisting.
+        unsandboxed_prefixes = self._SANDBOX_DOCKER_GATES + self._SANDBOX_UNSANDBOXED_PREFIXES
         normalized = re.sub(r"\\\n\s*", " ", shell)
         gates: list[str] = []
         rest: list[str] = []
@@ -444,7 +474,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             if not stripped:
                 continue
             first_token = stripped.split(maxsplit=1)[0]
-            (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
+            (gates if first_token in unsandboxed_prefixes else rest).append(stripped)
 
         rest_cmd = " && ".join(rest)
         if not rest_cmd:

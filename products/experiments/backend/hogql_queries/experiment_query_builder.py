@@ -86,13 +86,11 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
-        funnel_steps_data_disabled: bool = False,
         cuped_config: CupedQueryConfig | None = None,
     ):
         self.team = team
         self.metric = metric
         self.only_count_matured_users = only_count_matured_users
-        self.funnel_steps_data_disabled = funnel_steps_data_disabled
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -120,7 +118,6 @@ class ExperimentQueryBuilder:
             entity_key=self.entity_key,
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
-            funnel_steps_data_disabled=self.funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
@@ -690,18 +687,6 @@ class ExperimentQueryBuilder:
         """
         return self._funnel_query_builder().build_funnel_aggregation_expr()
 
-    def _build_uuid_to_session_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to session ID for funnel metrics.
-        """
-        return self._funnel_query_builder().build_uuid_to_session_map()
-
-    def _build_uuid_to_timestamp_map(self) -> ast.Expr:
-        """
-        Creates a map from event UUID to timestamp for funnel metrics.
-        """
-        return self._funnel_query_builder().build_uuid_to_timestamp_map()
-
     def _has_datawarehouse_steps(self) -> bool:
         """
         Check if funnel metric has any datawarehouse steps.
@@ -800,18 +785,6 @@ class ExperimentQueryBuilder:
         Funnel aggregation for the optimized path. References base_events instead of metric_events.
         """
         return self._funnel_query_builder().build_funnel_aggregation_expr_optimized()
-
-    def _build_uuid_to_session_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-session map for the optimized path. References base_events columns.
-        """
-        return self._funnel_query_builder().build_uuid_to_session_map_optimized()
-
-    def _build_uuid_to_timestamp_map_optimized(self) -> ast.Expr:
-        """
-        UUID-to-timestamp map for the optimized path. References base_events columns.
-        """
-        return self._funnel_query_builder().build_uuid_to_timestamp_map_optimized()
 
     def _build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """

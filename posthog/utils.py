@@ -582,18 +582,6 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
-                with tracer.start_as_current_span("template.promoted_product_intent"):
-                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
-
-                    # Best-effort — the promoted-product sidebar entry is experimental.
-                    # If the lookup fails for any reason, hide it for this request
-                    # rather than 500ing the page render.
-                    try:
-                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
-                    except Exception:
-                        capture_exception()
-                        posthog_app_context["promoted_product_intent"] = None
-
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
@@ -1993,32 +1981,6 @@ def patchable(fn):
     inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
-
-
-def label_for_team_id_to_track(team_id: int) -> str:
-    """
-    LEGACY: Only used by flag_matching.py (cohort creation background task).
-    Returns empty string to avoid tracking specific team IDs in metrics.
-    """
-    team_id_as_string = str(team_id)
-    team_id_filter: list[str] = []  # No longer tracking specific teams
-
-    if "all" in team_id_filter:
-        return team_id_as_string
-
-    if team_id_as_string in team_id_filter:
-        return team_id_as_string
-
-    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
-    for range in team_id_ranges:
-        try:
-            start, end = range.split(":")
-            if int(start) <= team_id <= int(end):
-                return team_id_as_string
-        except Exception:
-            pass
-
-    return "unknown"
 
 
 def camel_to_snake_case(name: str) -> str:

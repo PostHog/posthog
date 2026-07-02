@@ -9,13 +9,6 @@ use axum::http::HeaderValue;
 pub const DEFAULT_RETRY_AFTER_SECS: HeaderValue = HeaderValue::from_static("1");
 
 // ---------------------------------------------------------------------------
-// Supported content encodings
-// ---------------------------------------------------------------------------
-
-/// Allowlist of content encodings the capture endpoint will decompress.
-pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
-
-// ---------------------------------------------------------------------------
 // Route paths
 // ---------------------------------------------------------------------------
 
@@ -54,6 +47,9 @@ pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_di
 
 /// Detail tag for events dropped by the event restriction service.
 pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
+
+/// Detail tag for events dropped due to uncoercible options fields.
+pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 
 // ---------------------------------------------------------------------------
 // Validation limits
@@ -119,3 +115,7 @@ pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restric
 
 /// Counter for per-request batch outcome mix (labels: outcome, path).
 pub(super) const CAPTURE_V1_BATCH_OUTCOMES: &str = "capture_v1_batch_outcomes";
+
+/// Histogram for end-to-end processing time (parsing through sink publish).
+pub(super) const CAPTURE_V1_PROCESSING_DURATION_SECONDS: &str =
+    "capture_v1_processing_duration_seconds";

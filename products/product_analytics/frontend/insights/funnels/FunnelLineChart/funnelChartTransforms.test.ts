@@ -47,6 +47,17 @@ describe('funnelChartTransforms', () => {
             })
         })
 
+        it('carries compare_label into series meta when comparing to a previous period', () => {
+            const steps: IndexedFunnelStep[] = [
+                makeStep({ id: 0, order: 0, breakdown_value: 'Spike', compare_label: 'current' }),
+                makeStep({ id: 1, order: 1, breakdown_value: 'Spike', compare_label: 'previous' }),
+            ]
+            const series = buildFunnelLineSeries(steps, { getColor: () => RED })
+
+            expect(series[0].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'current' })
+            expect(series[1].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'previous' })
+        })
+
         it('normalises missing data to an empty array so the trends transform accepts it', () => {
             const step = makeStep({ data: undefined as unknown as number[] })
             const [series] = buildFunnelLineSeries([step], { getColor: () => RED })

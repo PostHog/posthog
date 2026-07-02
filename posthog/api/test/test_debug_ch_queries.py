@@ -55,7 +55,8 @@ class TestDebugCHQuery(APIBaseTest):
 
     def test_slowest_queries_wildcard_pat_rejected(self):
         # A full-access (`*`) PAT must NOT satisfy the query_performance:read requirement —
-        # this scope is INTERNAL and only programmatically-minted tokens carry it explicitly.
+        # the view's `scope_object = "INTERNAL"` blocks the wildcard short-circuit, so a PAT
+        # must carry `query_performance:read` explicitly.
         self.user.is_staff = True
         self.user.save()
         token = self._create_pat(scopes=["*"])

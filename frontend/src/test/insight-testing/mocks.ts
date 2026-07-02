@@ -1,5 +1,3 @@
-import { RestRequest } from 'msw'
-
 import { useMocks } from '~/mocks/jest'
 import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
@@ -115,12 +113,14 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
             const buckets = s.data.length
+            // Compare current/previous share one series identity (order 0), mirroring the real runner.
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
             return {
                 action: {
                     id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
                     type: 'events',
                     name: s.label,
-                    order: i,
+                    order: seriesOrder,
                 },
                 label: s.label,
                 count: s.data.reduce((a, b) => a + b, 0),
@@ -129,6 +129,8 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
                 labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
                 days: Array.from({ length: buckets }, (_, j) => j + 1),
                 breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
             }
         }),
     } as TrendsQueryResponse
@@ -156,6 +158,10 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
 /** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
 function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    const isCompare = !!(query as { compareFilter?: { compare?: boolean } }).compareFilter?.compare
+    if (isCompare && breakdownProp && funnelTrendsSteps.compareByBreakdown[breakdownProp]) {
+        return { results: funnelTrendsSteps.compareByBreakdown[breakdownProp] }
+    }
     if (breakdownProp && funnelTrendsSteps.byBreakdown[breakdownProp]) {
         return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
     }
@@ -259,21 +265,21 @@ export function setupInsightMocks({
 
     useMocks({
         get: {
-            '/api/projects/:team/event_definitions': (req: RestRequest) => {
-                const search = req.url.searchParams.get('search') ?? ''
+            '/api/projects/:team/event_definitions': ({ request }) => {
+                const search = new URL(request.url).searchParams.get('search') ?? ''
                 const results = filterBySearch(eventDefs, search)
                 return [200, { results, count: results.length }]
             },
-            '/api/projects/:team/property_definitions': (req: RestRequest) => {
-                const search = req.url.searchParams.get('search') ?? ''
+            '/api/projects/:team/property_definitions': ({ request }) => {
+                const search = new URL(request.url).searchParams.get('search') ?? ''
                 const results = filterBySearch(propDefs, search)
                 return [200, { results, count: results.length }]
             },
             '/api/projects/:team/actions': { results: actionDefinitions },
             '/api/environments/:team/persons/properties': personProperties,
             '/api/environments/:team/sessions/property_definitions': { results: sessionPropertyDefinitions },
-            '/api/environments/:team/events/values': (req: RestRequest) => {
-                const key = req.url.searchParams.get('key') ?? ''
+            '/api/environments/:team/events/values': ({ request }) => {
+                const key = new URL(request.url).searchParams.get('key') ?? ''
                 const values = (propValues[key] ?? []).map((name) => ({ name }))
                 return [200, values]
             },
@@ -291,8 +297,8 @@ export function setupInsightMocks({
             },
         },
         post: {
-            '/api/environments/:team_id/query/:kind': (req: RestRequest) => {
-                const queryBody = extractQueryBody(req.body)
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const queryBody = extractQueryBody(await request.json())
 
                 for (const mock of responses) {
                     if (mock.match(queryBody)) {

@@ -345,12 +345,12 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async (req, res, ctx) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     if (body.kind == 'EventsQuery') {
-                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                        return [200, MOCK_SURVEY_RESULTS]
                     }
-                    return res(ctx.json(MOCK_SURVEY_SHOWN))
+                    return [200, MOCK_SURVEY_SHOWN]
                 },
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [200, { affected: 120, total: 2000 }],
@@ -445,7 +445,14 @@ export const NewSurveyTargetingSection: Story = {
     parameters: {
         pageUrl: urls.survey('new?edit=true'),
         testOptions: {
-            waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+            // The right-hand survey preview is rendered asynchronously by posthog-js after a
+            // delayed mount, and re-renders as the story sets survey values. Wait for the
+            // question content inside the form (not just the form shell) so it isn't captured blank.
+            waitForSelector: [
+                '.LemonBanner .LemonIcon',
+                '.TaxonomicPropertyFilter__row',
+                '.survey-form .survey-question',
+            ],
         },
     },
 }
@@ -561,19 +568,19 @@ export const SurveyResults: Story = {
                 '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async (req, res, ctx) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     const sql: string = body?.query?.query ?? ''
                     if (sql.includes('question_id, label, cnt')) {
-                        return res(ctx.json(MOCK_SURVEY_AGGREGATE_RESULTS))
+                        return MOCK_SURVEY_AGGREGATE_RESULTS
                     }
                     if (sql.includes('BASE STATS')) {
-                        return res(ctx.json(MOCK_SURVEY_BASE_STATS))
+                        return MOCK_SURVEY_BASE_STATS
                     }
                     if (sql.includes('DISMISSED AND SENT COUNT')) {
-                        return res(ctx.json({ results: [[60]] }))
+                        return { results: [[60]] }
                     }
-                    return res(ctx.json({ results: [] }))
+                    return { results: [] }
                 },
             },
         }),

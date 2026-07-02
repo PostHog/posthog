@@ -16,7 +16,8 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.models import CustomPropertyValue
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
@@ -28,7 +29,9 @@ except ImportError:
 @override_settings(IN_UNIT_TESTING=True)
 class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def _run_query(self, user: User | None = None, **query_kwargs) -> tuple[AccountsQueryRunner, AccountsQueryResponse]:
-        runner = AccountsQueryRunner(query=AccountsQuery(**query_kwargs), team=self.team, user=user)
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(**query_kwargs), team=self.team, user=user if user is not None else self.user
+        )
         return runner, runner.calculate()
 
     def _ids(self, user: User | None = None, **query_kwargs) -> list[str]:
@@ -140,31 +143,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(self._ids(tagNames=["billing"]), [str(local_account.id)])
 
-    def test_csm_filter_by_id(self):
-        match = create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        create_account(team_id=self.team.id, name="Other CSM", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        self.assertEqual(self._ids(csm=[7]), [str(match.id)])
-
-    def test_csm_filter_matches_any_of_multiple_ids(self):
-        seven = create_account(team_id=self.team.id, name="Seven", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        nine = create_account(team_id=self.team.id, name="Nine", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        create_account(team_id=self.team.id, name="Eleven", _properties={"csm": {"id": 11, "email": "c@x.com"}})
-        self.assertEqual(set(self._ids(csm=[7, 9])), {str(seven.id), str(nine.id)})
-
-    def test_account_executive_filter_by_id(self):
-        match = create_account(
-            team_id=self.team.id, name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}}
-        )
-        create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountExecutive=[7]), [str(match.id)])
-
-    def test_account_owner_filter_by_id(self):
-        match = create_account(
-            team_id=self.team.id, name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}}
-        )
-        create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountOwner=[7]), [str(match.id)])
-
     @parameterized.expand(
         [
             ("absent_keys", {"_properties": {}}),
@@ -176,7 +154,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         unassigned = create_account(team_id=self.team.id, name="Unassigned", **unassigned_kwargs)
         self.assertEqual(self._ids(allRolesUnassigned=True), [str(unassigned.id)])
 
-    def test_combined_role_and_tags(self):
+    def test_combined_assigned_to_and_tags(self):
         enterprise_tag = Tag.objects.create(name="enterprise", team=self.team)
         startup_tag = Tag.objects.create(name="startup", team=self.team)
 
@@ -186,16 +164,10 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         wrong_tag = create_account(team_id=self.team.id, name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         wrong_tag.tagged_items.create(tag=startup_tag)
 
-        wrong_csm = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
-        wrong_csm.tagged_items.create(tag=enterprise_tag)
+        wrong_user = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        wrong_user.tagged_items.create(tag=enterprise_tag)
 
-        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(match.id)])
-
-    def test_role_filter_respects_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization)
-        create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(csm=[7]), [str(mine.id)])
+        self.assertEqual(self._ids(assignedToUserIds=[7], tagNames=["enterprise"]), [str(match.id)])
 
     @parameterized.expand(
         [
@@ -248,10 +220,11 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         # resolves to the same accounts no matter which user opens it.
         target = create_account(team_id=self.team.id, name="Target", _properties={"csm": {"id": 7, "email": "t@x.com"}})
         create_account(team_id=self.team.id, name="Other", _properties={"csm": {"id": 8, "email": "o@x.com"}})
+        other_user = self._create_user("other@example.com")
         as_user = self._ids(user=self.user, assignedToUserIds=[7])
-        anonymous = self._ids(user=None, assignedToUserIds=[7])
+        as_other_user = self._ids(user=other_user, assignedToUserIds=[7])
         self.assertEqual(as_user, [str(target.id)])
-        self.assertEqual(as_user, anonymous)
+        self.assertEqual(as_user, as_other_user)
 
     def test_assigned_to_user_unknown_id_matches_nothing(self):
         create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
@@ -328,6 +301,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -351,6 +325,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count DESC", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -384,6 +359,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=[f"tupleElement({role_key}, 2)"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -412,6 +388,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=[f"tupleElement({role_key}, 2) DESC"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -456,13 +433,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_set_tags_on_object_helper_matches(self):
         # Mirror existing API test setup that uses set_tags_on_object.
-        account = create_account(team_id=self.team.id, name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account = create_account(team_id=self.team.id, name="A")
         set_tags_on_object(["enterprise"], account)
-        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(account.id)])
+        self.assertEqual(self._ids(tagNames=["enterprise"]), [str(account.id)])
 
     def test_custom_select_uses_only_requested_columns(self):
         create_account(team_id=self.team.id, name="A")
-        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team)
+        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team, user=self.user)
         response = runner.calculate()
         self.assertEqual(runner.columns, ["id", "name"])
         self.assertEqual(len(response.results[0]), 2)
@@ -529,6 +506,47 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
         )
         self.assertEqual(names, ["Match"])
+
+    def test_custom_property_value_round_trips_through_a_selected_alias(self):
+        account = create_account(team_id=self.team.id, name="A")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=definition, value_str="enterprise"
+        )
+        other = create_account(team_id=self.team.id, name="No value")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(select=["id", f"accounts.custom_properties.values.`{definition.id}` AS cp_x"]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        id_idx, value_idx = runner.columns.index("id"), runner.columns.index("cp_x")
+        values_by_id = {str(row[id_idx]): row[value_idx] for row in response.results}
+
+        self.assertEqual(values_by_id[str(account.id)], "enterprise")
+        # An account with no value for the definition aggregates to NULL/empty.
+        self.assertFalse(values_by_id[str(other.id)])
+
+    def test_numeric_custom_property_aggregates_in_metrics_mode(self):
+        # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        for account_name, seats in [("A", 10.0), ("B", 30.0)]:
+            account = create_account(team_id=self.team.id, name=account_name)
+            CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=account, definition=definition, value_num=seats
+            )
+        create_account(team_id=self.team.id, name="No value")
+
+        expr = f"toFloatOrNull(accounts.custom_properties.values.`{definition.id}`)"
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(metrics=[f"sum({expr})", f"avg({expr})"], select=[]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        # Sum ignores the null (no-value) account; avg averages only the two present values.
+        self.assertEqual(response.metricsResults, [40.0, 20.0])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

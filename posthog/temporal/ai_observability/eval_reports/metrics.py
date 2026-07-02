@@ -1,6 +1,6 @@
 """Prometheus metrics for the LLMA evaluation reports temporal workflows.
 
-Follows the same pattern as trace_clustering/metrics.py and sentiment/metrics.py.
+Follows the same pattern as trace_clustering/metrics.py.
 Metrics are emitted via Temporal's built-in metric meter (activity/workflow context)
 and scraped by the Prometheus endpoint on the worker pod.
 """

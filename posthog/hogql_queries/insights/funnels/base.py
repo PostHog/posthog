@@ -95,6 +95,10 @@ class FunnelBase(ABC):
             return False
         return len(self.breakdown_cohorts) == 1
 
+    def _extract_total_median_conversion_time(self, results, columns) -> Optional[float]:
+        """Funnel-level median of total conversion time. Only the Steps viz computes one; others return None."""
+        return None
+
     def _format_results(
         self, results
     ) -> Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]:

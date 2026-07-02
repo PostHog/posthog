@@ -26,7 +26,7 @@ export function ThemeMenu(): JSX.Element {
         <Menu.SubmenuRoot>
             <Menu.SubmenuTrigger
                 render={
-                    <ButtonPrimitive menuItem>
+                    <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
                         <IconPalette />
                         Color theme
                         <div className="ml-auto flex items-center gap-1">

@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -170,6 +170,15 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             (s) => [s.allTables],
             (allTables: DatabaseSchemaTable[]): DatabaseSchemaDataWarehouseTable[] => {
                 return allTables.filter((n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse')
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+        // Tables synced from an external data source (Stripe, Postgres, etc). Excludes views/saved
+        // queries and self-managed S3 tables — only these can trigger CDP from a warehouse sync.
+        externalDataSourceTables: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): DatabaseSchemaDataWarehouseTable[] => {
+                return dataWarehouseTables.filter((table) => table.source != null)
             },
             { resultEqualityCheck: objectsEqual },
         ],

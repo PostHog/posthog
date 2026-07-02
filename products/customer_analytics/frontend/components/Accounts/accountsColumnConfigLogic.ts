@@ -1,22 +1,20 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import type { DataWarehouseViewLink } from '~/types'
 
+import { customPropertyDefinitionsList } from 'products/customer_analytics/frontend/generated/api'
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
-import { AccountsEvents } from './constants'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -62,7 +60,14 @@ export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
 // of which name the backend hands us.
 const ACCOUNTS_JOIN_SOURCE_TABLE_NAMES = new Set(['accounts', ACCOUNTS_ACCOUNTS_TABLE_NAME])
 
-export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
+export type AccountColumnGroupKey = 'account_properties' | 'custom_properties' | 'sql_expression' | `accounts.${string}`
+
+// Custom property definition ids are UUIDs, which aren't valid HogQL identifiers (hyphens).
+// Strip them so the column alias is a clean identifier, and so the renderer can map a visible
+// column name back to its definition.
+export function customPropertyAlias(id: string): string {
+    return `cp_${id.replace(/-/g, '')}`
+}
 
 export type AccountColumnOption = {
     name: string
@@ -116,9 +121,20 @@ function joinOptionsFromSchema(
     return buildJoinOptions(field.name, names, joinedTable)
 }
 
+function customPropertyOptions(definitions: CustomPropertyDefinitionApi[]): AccountColumnOption[] {
+    return definitions.map((definition) => ({
+        name: definition.name,
+        type: definition.display_type,
+        // JSON dot-access through the lazy join (`events.person.properties.foo` analog), aliased to a
+        // clean identifier so the alias round-trips through `visibleColumnNames` / `aliasToDefinition`.
+        expression: `accounts.custom_properties.values.\`${definition.id}\` AS ${customPropertyAlias(definition.id)}`,
+    }))
+}
+
 export function buildAccountColumnGroups(
     allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
-    warehouseJoins: DataWarehouseViewLink[]
+    warehouseJoins: DataWarehouseViewLink[],
+    customPropertyDefinitions: CustomPropertyDefinitionApi[] = []
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
@@ -175,8 +191,22 @@ export function buildAccountColumnGroups(
         addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
+    // Omit the group entirely when the team has no definitions, so the category dropdown
+    // doesn't show an empty "Custom properties" entry.
+    const customPropertyGroups: AccountColumnGroup[] =
+        customPropertyDefinitions.length > 0
+            ? [
+                  {
+                      key: 'custom_properties',
+                      label: 'Custom properties',
+                      options: customPropertyOptions(customPropertyDefinitions),
+                  },
+              ]
+            : []
+
     return [
         { key: 'account_properties', label: 'Account properties', options: directOptions },
+        ...customPropertyGroups,
         ...joinGroups,
         { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
     ]
@@ -188,6 +218,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             databaseTableListLogic,
             ['allTablesMap', 'databaseLoading'],
             joinsLogic,
@@ -201,7 +233,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         unselectColumn: (column: string) => ({ column }),
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         resetColumns: true,
-        saveColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
     }),
@@ -230,33 +261,16 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
-                saveColumns: () => false,
             },
         ],
     }),
     loaders(({ values }) => ({
-        savedColumnConfiguration: [
-            null as { id: string; columns: string[] } | null,
+        customPropertyDefinitions: [
+            [] as CustomPropertyDefinitionApi[],
             {
-                loadSavedColumnConfiguration: async (): Promise<{ id: string; columns: string[] } | null> => {
-                    try {
-                        const response = await api.columnConfigurations.list({
-                            teamId: values.currentTeamId || undefined,
-                            context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
-                        })
-                        if (response.results && response.results.length > 0) {
-                            return {
-                                id: response.results[0].id,
-                                columns: response.results[0].columns || [],
-                            }
-                        }
-                        return null
-                    } catch (error) {
-                        posthog.captureException(error as Error, {
-                            scope: 'accountsColumnConfigLogic.loadSavedColumnConfiguration',
-                        })
-                        return null
-                    }
+                loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
+                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
+                    return response.results
                 },
             },
         ],
@@ -267,65 +281,28 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (selectColumns: string[]): string[] => selectColumns.map((c) => extractDisplayLabel(c)),
         ],
         accountsColumnGroups: [
-            (s) => [s.allTablesMap, s.warehouseJoins],
+            (s) => [s.allTablesMap, s.warehouseJoins, s.customPropertyDefinitions],
             (
                 allTablesMap: Record<string, DatabaseSchemaTable>,
-                warehouseJoins: DataWarehouseViewLink[]
-            ): AccountColumnGroup[] => buildAccountColumnGroups(allTablesMap, warehouseJoins),
+                warehouseJoins: DataWarehouseViewLink[],
+                customPropertyDefinitions: CustomPropertyDefinitionApi[]
+            ): AccountColumnGroup[] =>
+                buildAccountColumnGroups(allTablesMap, warehouseJoins, customPropertyDefinitions),
+        ],
+        aliasToDefinition: [
+            (s) => [s.customPropertyDefinitions],
+            (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
+                Object.fromEntries(
+                    customPropertyDefinitions.map((definition) => [customPropertyAlias(definition.id), definition])
+                ),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
-            // A shared link's columns (in the URL hash) win over the per-user
-            // saved config, which loads asynchronously after mount. Read the
-            // live URL rather than tracking state, so this stays correct
-            // regardless of later column edits.
-            const urlHasColumns = !!router.values.hashParams?.view?.columns
-            if (savedColumnConfiguration && !urlHasColumns) {
-                actions.setSelectColumns(savedColumnConfiguration.columns)
-            }
-        },
-        saveColumns: async () => {
-            const teamId = values.currentTeamId || undefined
-            const columns = values.selectColumns
-            const previousColumns = values.savedColumnConfiguration?.columns ?? ACCOUNTS_HOGQL_DEFAULT_SELECT
-            try {
-                if (values.savedColumnConfiguration?.id) {
-                    await api.columnConfigurations.update({
-                        teamId,
-                        id: values.savedColumnConfiguration.id,
-                        data: { columns },
-                    })
-                } else {
-                    const response = await api.columnConfigurations.create({
-                        teamId,
-                        data: { context_key: ACCOUNTS_COLUMN_CONFIG_KEY, columns },
-                    })
-                    actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns || [] })
-                }
-                lemonToast.success('Columns saved')
-                const diff = diffColumnConfiguration(previousColumns, columns)
-                if (diff.changed) {
-                    posthog.capture(AccountsEvents.ColumnsSaved, {
-                        column_count: columns.length,
-                        columns,
-                        added_count: diff.added,
-                        removed_count: diff.removed,
-                        reordered: diff.reordered,
-                    })
-                }
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountsColumnConfigLogic.saveColumns' })
-                lemonToast.error('Failed to save columns')
-            }
-        },
-    })),
     afterMount(({ actions, values }) => {
-        actions.loadSavedColumnConfiguration()
         // Lazily fetch the database schema only if it isn't already in flight / loaded.
         // databaseTableListLogic dedupes concurrent calls internally.
         if (!values.allTablesMap || Object.keys(values.allTablesMap).length === 0) {
             actions.loadDatabase()
         }
+        actions.loadCustomPropertyDefinitions()
     }),
 ])

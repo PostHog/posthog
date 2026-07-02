@@ -11,25 +11,28 @@ Login management is fully handled by ``UserSocialAuth`` (python-social-auth) and
 is not controlled here.
 """
 
+import os
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from django.core.cache import cache
-
 import requests
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.github_callback.personal_state import github_app_install_url, github_oauth_authorize_url
+from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
-    GITHUB_INSTALL_STATE_CACHE_PREFIX,
-    GITHUB_INSTALL_STATE_TTL_SECONDS,
+    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    github_oauth_authorize_url,
 )
 from posthog.api.integration import (
     GitHubBranchesQuerySerializer,
@@ -46,6 +49,10 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
+from posthog.user_permissions import UserPermissions
+
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 
 logger = structlog.get_logger(__name__)
 
@@ -90,6 +97,10 @@ class UserGitHubIntegrationListResponseSerializer(serializers.Serializer):
     )
 
 
+class UserGitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(help_text="GitHub App installation id being managed on github.com.")
+
+
 class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
@@ -112,13 +123,92 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
 
 
+class UserSlackIntegrationItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog UserIntegration row id.")
+    kind = serializers.CharField(help_text="Integration kind; always `slack` for this API.")
+    slack_user_id = serializers.CharField(help_text="Slack user id this PostHog account is linked to.")
+    slack_team_id = serializers.CharField(help_text="Slack workspace (team) id the link belongs to.")
+    slack_team_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack workspace display name as of link time.",
+    )
+    slack_email_at_link = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack email at the time of linking. Stored for support; not consulted at resolve time.",
+    )
+    created_at = serializers.DateTimeField(help_text="When this link was first created.")
+
+
+class UserSlackIntegrationListResponseSerializer(serializers.Serializer):
+    results = UserSlackIntegrationItemSerializer(
+        many=True,
+        help_text="Slack identity links for the authenticated user.",
+    )
+
+
+class UserSlackLinkStartRequestSerializer(serializers.Serializer):
+    """Settings-initiated link can target a specific PostHog team + Slack workspace.
+
+    Both are optional — when omitted we fall back to the user's ``current_team``
+    and that team's first Slack ``Integration`` (mirrors ``github_start`` for
+    the simple case). The frontend passes both explicitly once it has the
+    linkable-workspace list and the user has picked a workspace.
+    """
+
+    team_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional team/project id to link against; defaults to the user's current team.",
+    )
+    slack_team_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).",
+    )
+
+
+class UserSlackLinkStartResponseSerializer(serializers.Serializer):
+    install_url = serializers.CharField(
+        help_text="URL to open in the browser to start the Sign-in-with-Slack flow.",
+    )
+
+
+class UserSlackLinkableWorkspaceItemSerializer(serializers.Serializer):
+    posthog_team_id = serializers.IntegerField(help_text="PostHog team/project id owning the Slack workspace install.")
+    posthog_team_name = serializers.CharField(help_text="PostHog team/project name, for display in a picker.")
+    posthog_organization_name = serializers.CharField(
+        help_text="PostHog organization name owning the team, for picker disambiguation.",
+    )
+    slack_team_id = serializers.CharField(help_text="Slack workspace (team) id.")
+    slack_team_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Slack workspace display name as known by PostHog.",
+    )
+
+
+class UserSlackLinkableWorkspaceListResponseSerializer(serializers.Serializer):
+    results = UserSlackLinkableWorkspaceItemSerializer(
+        many=True,
+        help_text="Slack workspaces the user could link to but hasn't yet.",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
     scope_object = "user"
     required_scopes: list[str] | None = None
-    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "github_repos",
+        "github_branches",
+        "slack_linkable",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -126,8 +216,11 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "patch",
         "destroy",
         "github_start",
+        "github_prepare_callback",
         "github_destroy",
         "github_repos_refresh",
+        "slack_start",
+        "slack_destroy",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -166,21 +259,59 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         return installation_ids
 
     @extend_schema(
-        summary="List personal GitHub integrations",
+        summary="List the user's personal integrations of a given kind",
+        parameters=[
+            OpenApiParameter(
+                name="kind",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["github", "slack"],
+                description="Integration kind to list. Defaults to `github` for back-compat with mobile and the Code SDK, which call this endpoint without a query param and expect GitHub-shaped items.",
+            ),
+        ],
         responses={200: UserGitHubIntegrationListResponseSerializer},
     )
     def list(self, request: Request, **_kwargs) -> Response:
+        """Return the authenticated user's personal integrations of a given
+        ``kind`` (``github`` or ``slack``).
+
+        The response shape varies per kind because the underlying ``UserIntegration``
+        rows carry different identity fields — GitHub rows expose
+        ``installation_id`` / ``account`` / ``uses_shared_installation``; Slack
+        rows expose ``slack_user_id`` / ``slack_team_id`` / ``slack_team_name``.
+        Kind-specific destroy and start actions remain split so their distinct
+        semantics (e.g. Slack's lack of "uninstall on last reference") stay
+        explicit at the URL layer.
+
+        Default of ``kind=github`` is load-bearing: mobile (``apps/mobile/...``)
+        and the Code SDK (``packages/api-client/...``) both call this endpoint
+        without a query param today and rely on receiving GitHub rows.
+        """
         user = self._get_user()
-        integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
-        team_installation_ids = self._team_github_installation_ids(user)
-        return Response(
-            {
-                "results": [
+        kind = request.query_params.get("kind") or "github"
+        if kind not in {"github", "slack"}:
+            raise exceptions.ValidationError(f"Unsupported integration kind: {kind!r}")
+
+        # Single query and single pass — each row picks its own serializer
+        # off `integration.kind`. Today the query is filtered to one kind so
+        # the loop only sees that one shape, but the per-row dispatch keeps
+        # the door open for dropping the kind default and returning github
+        # + slack rows side-by-side in one response.
+        integrations = UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at")
+        # Only compute the github-specific cross-team installation set when
+        # there could be github rows in the response; for `kind=slack` this
+        # would be an unused DB roundtrip on every settings page load.
+        team_installation_ids: set[str] = self._team_github_installation_ids(user) if kind == "github" else set()
+        results: list[dict[str, Any]] = []
+        for integration in integrations:
+            if integration.kind == "github":
+                results.append(
                     _serialize_github_integration(integration, team_integration_installation_ids=team_installation_ids)
-                    for integration in integrations
-                ],
-            }
-        )
+                )
+            elif integration.kind == "slack":
+                results.append(_serialize_slack_integration(integration))
+        return Response({"results": results})
 
     @extend_schema(
         summary="Disconnect a personal GitHub integration",
@@ -329,10 +460,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         if connect_from in APP_CONNECT_FROM_VALUES:
             if _team_github_installation_id(team) is None:
-                cache.set(
-                    f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-                    {"user_id": user.id, "connect_from": connect_from, "flow": "oauth_discover"},
-                    timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+                github_callback_state.store_unified_authorize_state(
+                    GitHubAuthorizeState(
+                        token=token,
+                        flow=FlowKind.OAUTH_DISCOVER,
+                        user_id=user.id,
+                        connect_from=connect_from,
+                    ),
                 )
                 return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
 
@@ -345,13 +479,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "All GitHub App installations accessible to your account are already linked."
             )
 
-        install_state_payload: dict[str, Any] = {"user_id": user.id}
-        if connect_from:
-            install_state_payload["connect_from"] = connect_from
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            install_state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=user.id,
+                connect_from=str(connect_from) if connect_from else None,
+            ),
         )
         return Response(
             {
@@ -359,6 +493,172 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "connect_flow": "app_install",
             }
         )
+
+    @extend_schema(
+        request=UserGitHubPrepareCallbackRequestSerializer, responses={204: OpenApiResponse(description="No content")}
+    )
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, **_kwargs) -> Response:
+        """Seed personal GitHub manage callback state before opening installation settings on GitHub."""
+        serializer = UserGitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        installation_id = str(serializer.validated_data["installation_id"])
+        user = self._get_user()
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_UPDATE,
+                user_id=user.id,
+                installation_id=installation_id,
+                next_url=PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+            ),
+        )
+        return Response(status=204)
+
+    @extend_schema(
+        summary="List Slack workspaces this user could link to",
+        responses={200: UserSlackLinkableWorkspaceListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="slack/linkable_workspaces")
+    def slack_linkable(self, request: Request, **_kwargs) -> Response:
+        """Return Slack workspaces in the user's organizations that they have
+        not yet linked. The settings UI uses this list to decide whether to
+        show a "Link my Slack account" button (non-empty list) and what to
+        offer in the picker when several are connectable.
+        """
+        user = self._get_user()
+        org_ids = set(user.organization_memberships.values_list("organization_id", flat=True))
+        if not org_ids:
+            return Response({"results": []})
+
+        already_linked_slack_team_ids = set(
+            UserIntegration.objects.filter(
+                user=user,
+                kind=UserIntegration.IntegrationKind.SLACK,
+            ).values_list("config__slack_team_id", flat=True)
+        )
+
+        candidates = (
+            Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
+            .exclude(integration_id__in=already_linked_slack_team_ids)
+            .select_related("team", "team__organization")
+        )
+
+        # Skip projects the user can't actually access (private project, no role
+        # via access-control, etc.). Without the per-team check, an org member
+        # would see Slack workspace IDs + project names for every project in
+        # their orgs — including private ones their `effective_membership_level`
+        # is `None` for. Using per-team `effective_membership_level` rather than
+        # `user.teams` mirrors `resolve_user_for_workspace` and dodges the
+        # `Organization.first()`-feature-flags quirk that gates `user.teams`.
+        permissions = UserPermissions(user=user)
+
+        results: list[dict[str, Any]] = []
+        for integration in candidates:
+            if permissions.team(integration.team).effective_membership_level is None:
+                continue
+            # Feature-flag check per workspace so an org that hasn't rolled out
+            # the flag yet doesn't show up in another org's picker.
+            if not is_slack_app_oauth_enabled(integration, integration.integration_id):
+                continue
+            # `(config or {}).get("team", {})` doesn't defend against an explicit
+            # ``config["team"] = None`` — dict.get returns the literal None
+            # rather than the default — so we coerce defensively before the
+            # second `.get("name")`.
+            team_block = (integration.config or {}).get("team") or {}
+            results.append(
+                {
+                    "posthog_team_id": integration.team_id,
+                    "posthog_team_name": integration.team.name,
+                    "posthog_organization_name": integration.team.organization.name,
+                    "slack_team_id": integration.integration_id,
+                    "slack_team_name": team_block.get("name"),
+                }
+            )
+        return Response({"results": results})
+
+    @extend_schema(
+        summary="Start Slack identity link from settings",
+        request=UserSlackLinkStartRequestSerializer,
+        responses={200: UserSlackLinkStartResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="slack/start", throttle_classes=[UserAuthenticationThrottle])
+    def slack_start(self, request: Request, **_kwargs) -> Response:
+        """Mint a Sign-in-with-Slack invite URL initiated from settings, without
+        Slack-DM context. The returned URL takes the user through PostHog login
+        (already satisfied here), then to Slack OAuth, then back to our callback
+        which writes the ``UserIntegration`` row.
+
+        Without body params, falls back to the user's ``current_team`` and that
+        team's first Slack ``Integration`` — works when there's exactly one
+        linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+        the exact pair (what the frontend uses when a picker is shown).
+
+        Refuses if the target team has no matching Slack workspace, if the
+        feature flag is off for the workspace, or if the user is already linked
+        to it.
+        """
+        user = self._get_user()
+        team = _resolve_team_for_github_start(user, request)
+        if team is None:
+            raise exceptions.ValidationError("No team available for this user.")
+
+        # If the caller specifies a Slack workspace explicitly, honor it (this
+        # is the picker path). Otherwise pick the first Slack integration on
+        # the resolved team (the simple "Link my Slack account" path).
+        body: Any = request.data if isinstance(request.data, dict) else {}
+        slack_team_id_hint = body.get("slack_team_id")
+        workspace_query = Integration.objects.filter(team=team, kind="slack")
+        if slack_team_id_hint:
+            workspace_query = workspace_query.filter(integration_id=slack_team_id_hint)
+        workspace = workspace_query.first()
+        if workspace is None:
+            raise exceptions.ValidationError(
+                "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
+            )
+
+        if not is_slack_app_oauth_enabled(workspace, workspace.integration_id):
+            raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
+
+        if UserIntegration.objects.filter(
+            user=user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            config__slack_team_id=workspace.integration_id,
+        ).exists():
+            raise exceptions.ValidationError("You're already linked to this Slack workspace.")
+
+        install_url = build_invite_url(
+            slack_user_id=None,
+            slack_team_id=workspace.integration_id,
+            posthog_team_id=team.id,
+            channel=None,
+            thread_ts=None,
+        )
+        return Response({"install_url": install_url})
+
+    @extend_schema(
+        summary="Unlink a Slack identity",
+        responses={204: OpenApiResponse(description="Slack link removed.")},
+    )
+    # Restrict the slack_user_id capture to Slack's real id format ("U..." for
+    # human users, "W..." for Enterprise Grid). A looser regex would shadow
+    # sibling actions like ``slack/start`` and return 405 on their POSTs.
+    @action(methods=["DELETE"], detail=False, url_path=r"slack/(?P<slack_user_id>[UW][A-Z0-9]+)")
+    def slack_destroy(self, request: Request, slack_user_id: str, **_kwargs) -> Response:
+        """Remove a Slack identity link by Slack user id. Idempotent and
+        flag-agnostic — users must always be able to unlink even after the
+        feature flag is turned off."""
+        user = self._get_user()
+        integration = UserIntegration.objects.filter(
+            user=user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id=slack_user_id,
+        ).first()
+        if integration is None:
+            raise exceptions.NotFound("No Slack link found for this Slack user id.")
+        integration.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):
@@ -460,15 +760,14 @@ def _attempt_app_oauth_fast_path(
         return None
     if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
         return None
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        {
-            "user_id": user.id,
-            "installation_id": team_installation_id,
-            "flow": "oauth_authorize",
-            "connect_from": connect_from,
-        },
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+    github_callback_state.store_unified_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.PERSONAL_OAUTH,
+            user_id=user.id,
+            installation_id=team_installation_id,
+            connect_from=connect_from,
+        ),
     )
     return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
 
@@ -486,5 +785,19 @@ def _serialize_github_integration(
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
+        "created_at": integration.created_at,
+    }
+
+
+def _serialize_slack_integration(integration: UserIntegration) -> dict[str, Any]:
+    """Build the response payload for a single Slack UserIntegration row."""
+    config = integration.config or {}
+    return {
+        "id": integration.id,
+        "kind": "slack",
+        "slack_user_id": integration.integration_id,
+        "slack_team_id": config.get("slack_team_id"),
+        "slack_team_name": config.get("slack_team_name"),
+        "slack_email_at_link": config.get("slack_email_at_link"),
         "created_at": integration.created_at,
     }

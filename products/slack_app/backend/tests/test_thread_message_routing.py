@@ -20,7 +20,7 @@ class TestRouteThreadMessage(TestCase):
     workflow so the webhook handler stays fast."""
 
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -39,7 +39,7 @@ class TestRouteThreadMessage(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T_SLACK",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
         SlackUserProfileCache.objects.create(
@@ -92,7 +92,9 @@ class TestRouteThreadMessage(TestCase):
         # All routing tests assume the per-org feature flag is on. The
         # dedicated ``test_feature_flag_off_dropped`` test stops the patcher
         # to exercise the off path.
-        self._ff_patcher = patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=True)
+        self._ff_patcher = patch(
+            "products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=True
+        )
         self._ff_patcher.start()
         self.addCleanup(self._ff_patcher.stop)
 
@@ -182,7 +184,7 @@ class TestRouteThreadMessage(TestCase):
 
         self._ff_patcher.stop()
         with (
-            patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=False),
+            patch("products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=False),
             patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):

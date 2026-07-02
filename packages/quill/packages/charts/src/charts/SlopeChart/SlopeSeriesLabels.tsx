@@ -13,7 +13,7 @@ const LABEL_PADDING_Y = 3
 export interface SlopeSeriesLabelsProps {
     /** Render the series name labels. Default true. */
     show?: boolean
-    /** Px to the right of the right endpoint where the name labels begin. */
+    /** Px to the right of the last point where the name labels begin. */
     offsetX?: number
 }
 
@@ -23,7 +23,7 @@ interface NameEntry {
     label: string
 }
 
-/** Series name labels anchored beside each series' end point. When two names would overlap, the
+/** Series name labels anchored beside each series' last point. When two names would overlap, the
  *  series with the larger change (`|end − start|`) wins — it is always kept, and lower-change names
  *  that collide with it are dropped (requirement: the steepest line never loses its label). */
 export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabelsProps): React.ReactElement | null {

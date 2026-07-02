@@ -28,10 +28,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER,
     AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
     AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL,
 )
@@ -94,6 +95,11 @@ def fetch_evaluation_embeddings(
     Stage A scopes each embedding to its job via ``metadata.job_id``; we read that back
     with ``JSONExtractString(metadata, 'job_id')``. Random-order sampling keeps the read
     size bounded when a job has accumulated far more than ``max_samples`` over time.
+
+    The returned ``document_id`` is ``{event_uuid}::{job_id}`` for rows Stage A wrote per
+    (event, job) — we strip it back to the bare event uuid so the downstream metadata join keys
+    on the real ``$ai_evaluation`` uuid. Pre-suffix rows carry a bare uuid and pass through
+    unchanged (the split is a no-op).
 
     Transitional dual-match: rows written before the metadata migration carry the job id
     in ``rendering`` as ``{team_id}_{run_ts}_{job_id}`` (matched by suffix). Both predicates
@@ -161,12 +167,14 @@ def fetch_evaluation_embeddings(
         )
 
     rows = result.results or []
-    eval_ids: list[str] = []
+    # document_id is `{event_uuid}::{job_id}` (or a bare uuid for pre-suffix rows). Strip back to
+    # the event uuid; UUIDs contain no ":", so a single split recovers it. Dedupe via the dict in
+    # case a transition window briefly holds both a bare and a suffixed row for the same event.
     embeddings: dict[str, list[float]] = {}
     for row in rows:
-        eval_id = row[0]
-        eval_ids.append(eval_id)
+        eval_id = row[0].split(AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER, 1)[0]
         embeddings[eval_id] = row[1]
+    eval_ids: list[str] = list(embeddings.keys())
 
     logger.info("fetch_evaluation_embeddings_result", job_id=job_id, num_rows=len(rows), team_id=team.id)
     return eval_ids, embeddings
@@ -409,11 +417,11 @@ def fetch_generation_contents(
 
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
     trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
-    # Read from `posthog.ai_events` so the heavy `input` / `output_choices`
-    # columns survive the strip; the resolver re-runs against the shared
-    # `events` table when ai_events returns zero rows (rollout window /
-    # kill-switch off). `trace_id IN (...)` gets us the full sorting-key
-    # prefix + single-shard reads instead of an N-shard heavy fan-out.
+    # Read the heavy `input` / `output_choices` columns from `posthog.ai_events`,
+    # where they live as native columns; the resolver re-runs against the shared
+    # `events` table when ai_events returns zero rows (data beyond the retention
+    # window). `trace_id IN (...)` gets us the full sorting-key prefix +
+    # single-shard reads instead of an N-shard heavy fan-out.
     query = parse_select(
         """
         SELECT
@@ -436,11 +444,12 @@ def fetch_generation_contents(
     }
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders=placeholders,
             team=team,
             query_type="GenerationContentsForLabeling",
+            fall_back_to_events=True,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

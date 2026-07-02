@@ -137,6 +137,8 @@ export interface HeatmapScreenshotResponseApi {
     readonly snapshots: readonly HeatmapSnapshotMetadataApi[]
     /** Soft-delete flag; deleted heatmaps are hidden from the list. */
     deleted?: boolean
+    /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -172,6 +174,8 @@ export interface HeatmapsResponseApi {
     results: HeatmapResponseItemApi[]
     /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
     fold?: HeatmapFoldSummaryApi | null
+    /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+    has_more?: boolean
 }
 
 export interface HeatmapEventItemApi {
@@ -230,6 +234,8 @@ export interface SavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 export interface PatchedSavedHeatmapRequestApi {
@@ -265,15 +271,17 @@ export interface PatchedSavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 /**
  * * `Up` - Up
  * * `Down` - Down
  */
-export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
+export type WoWChangeDirectionEnumApi = (typeof WoWChangeDirectionEnumApi)[keyof typeof WoWChangeDirectionEnumApi]
 
-export const DirectionEnumApi = {
+export const WoWChangeDirectionEnumApi = {
     Up: 'Up',
     Down: 'Down',
 } as const
@@ -285,7 +293,7 @@ export interface WoWChangeApi {
      *
      * * `Up` - Up
      * * `Down` - Down */
-    direction: DirectionEnumApi
+    direction: WoWChangeDirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string
     /** Short label, e.g. 'Up 12%'. */
@@ -347,6 +355,67 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
+export interface RecapPersonaApi {
+    /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
+    id: string
+    /** Display name for the persona, e.g. 'Traffic Magnet'. */
+    name: string
+    /** Emoji representing the persona. */
+    emoji: string
+    /** One-line explanation of why this persona was assigned this week. */
+    blurb: string
+    /** Hex accent color for rendering the persona card. */
+    color: string
+}
+
+export interface RecapHighlightApi {
+    /** Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'. */
+    id: string
+    /** Emoji for the highlight. */
+    emoji: string
+    /** Short headline for the highlight, e.g. 'Rising star page'. */
+    title: string
+    /** The standout value, e.g. a page path or visitor count. */
+    value: string
+    /** Supporting sentence for the highlight. */
+    detail: string
+}
+
+export interface WebAnalyticsRecapResponseApi {
+    /** Unique visitors. */
+    visitors: NumericMetricApi
+    /** Total pageviews. */
+    pageviews: NumericMetricApi
+    /** Total sessions. */
+    sessions: NumericMetricApi
+    /** Bounce rate (0–100). */
+    bounce_rate: NumericMetricApi
+    /** Average session duration. */
+    avg_session_duration: DurationMetricApi
+    /** Top 5 pages by unique visitors. */
+    top_pages: TopPageApi[]
+    /** Top 5 traffic sources by unique visitors. */
+    top_sources: TopSourceApi[]
+    /** Goal conversions. */
+    goals: GoalApi[]
+    /** Link to the Web analytics dashboard for this project. */
+    dashboard_url: string
+    /** The single weekly persona assigned from this week's data. */
+    persona: RecapPersonaApi
+    /** Up to three screenshot-worthy superlatives for the week. */
+    highlights: RecapHighlightApi[]
+    /** Human-readable period label, e.g. 'Last 7 days'. */
+    period_label: string
+    /** First date included in the recap period, in the project timezone. */
+    period_start: string
+    /** Final date included in the recap period, in the project timezone. */
+    period_end: string
+    /** Name of the project this recap is for. */
+    project_name: string
+    /** Canonical link to this project's weekly recap. */
+    recap_url: string
+}
+
 export interface WeeklyDigestResponseApi {
     /** Unique visitors. */
     visitors: NumericMetricApi
@@ -366,6 +435,136 @@ export interface WeeklyDigestResponseApi {
     goals: GoalApi[]
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
+}
+
+export interface AcknowledgeCelebrationRequestApi {
+    /** Track of the celebration being acknowledged. */
+    track_key: string
+    /**
+     * Stage number being acknowledged, 1-5.
+     * @minimum 1
+     * @maximum 5
+     */
+    stage: number
+}
+
+export interface AcknowledgeCelebrationResponseApi {
+    /** True if a matching pending celebration was cleared (idempotent). */
+    acknowledged: boolean
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ */
+export type AchievementDefinitionScopeEnumApi =
+    (typeof AchievementDefinitionScopeEnumApi)[keyof typeof AchievementDefinitionScopeEnumApi]
+
+export const AchievementDefinitionScopeEnumApi = {
+    User: 'user',
+    Team: 'team',
+} as const
+
+export interface AchievementStageApi {
+    /** Stage number within the track, 1-5. */
+    stage: number
+    /** Stage name within the track, e.g. 'On a roll'. */
+    name: string
+    /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+    threshold: number
+}
+
+export interface AchievementDefinitionApi {
+    /** Stable track identifier, e.g. 'streak'. */
+    key: string
+    /** Human-readable track name. */
+    display_name: string
+    /** One-line description of what the track rewards. */
+    description: string
+    /** Whether the track is tracked per user or per team.
+     *
+     * * `user` - user
+     * * `team` - team */
+    scope: AchievementDefinitionScopeEnumApi
+    /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+    is_experiment_track: boolean
+    /** The five stages of this track, in ascending threshold order. */
+    stages: AchievementStageApi[]
+}
+
+/**
+ * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+ */
+export type AchievementProgressApiUnlockedAt = { [key: string]: string }
+
+export interface AchievementProgressApi {
+    /** Track this progress row belongs to. */
+    track_key: string
+    /** Highest stage unlocked so far, 0-5. */
+    current_stage: number
+    /** Most recently computed progress value for the track. */
+    progress_value: number
+    /**
+     * When the track was last recomputed, or null if it never has been.
+     * @nullable
+     */
+    last_computed_at: string | null
+    /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+    unlocked_at: AchievementProgressApiUnlockedAt
+}
+
+export interface PendingCelebrationApi {
+    /** Track whose stage was newly unlocked. */
+    track_key: string
+    /** Newly unlocked stage number, 1-5. */
+    stage: number
+    /** Name of the unlocked stage, shown in the celebration UI. */
+    stage_name: string
+}
+
+export interface AchievementsListResponseApi {
+    /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+    definitions: AchievementDefinitionApi[]
+    /** The requesting user's progress on per-user tracks. */
+    user_progress: AchievementProgressApi[]
+    /** The team's progress on per-team tracks. */
+    team_progress: AchievementProgressApi[]
+    /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+    pending_celebrations: PendingCelebrationApi[]
+}
+
+export interface WebAnalyticsUserPreferencesApi {
+    /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
+    achievements_opt_out: boolean
+}
+
+/**
+ * * `data` - data
+ * * `recording` - recording
+ */
+export type InteractionKindEnumApi = (typeof InteractionKindEnumApi)[keyof typeof InteractionKindEnumApi]
+
+export const InteractionKindEnumApi = {
+    Data: 'data',
+    Recording: 'recording',
+} as const
+
+export interface RecordInteractionRequestApi {
+    /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+     *
+     * * `data` - data
+     * * `recording` - recording */
+    interaction_kind: InteractionKindEnumApi
+}
+
+export interface RecordInteractionResponseApi {
+    /** True once the interaction has been counted for the user. */
+    recorded: boolean
+}
+
+export interface RecordVisitResponseApi {
+    /** True once today's visit row exists for the user. */
+    recorded: boolean
 }
 
 export interface WebAnalyticsFilterPresetApi {
@@ -447,6 +646,18 @@ export type HeatmapsListParams = {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
@@ -594,6 +805,17 @@ export type SavedListParams = {
      * @minLength 1
      */
     type?: string
+}
+
+export type WebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number
 }
 
 export type WebAnalyticsWeeklyDigestParams = {

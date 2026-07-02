@@ -8,7 +8,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
@@ -115,6 +115,18 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
+# Dialects with native PIVOT/UNPIVOT support. Snowflake speaks the same standard-SQL
+# `PIVOT (agg FOR col IN (...))` shape, so it joins the Postgres family here even though it
+# isn't Postgres-wire compatible for the other gated constructs. `hogql` is included so the
+# canonical round-trip (the re-printed `self.hogql`) doesn't reject a query the target dialect
+# accepts.
+_PIVOT_ONLY_DIALECTS: frozenset[HogQLDialect] = frozenset({"snowflake", "hogql"})
+_PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _PIVOT_ONLY_DIALECTS
+
+
+def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
+    return select_from is not None and isinstance(select_from.table, ast.PivotExpr)
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -144,9 +156,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
-) -> ast.Expr:
+def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
+    """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
+    resolve against to reference the table's columns. Raises `QueryError` if the database/table is
+    unavailable. Caching, if wanted, is the caller's concern."""
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
@@ -159,8 +172,14 @@ def resolve_types_from_table(
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
+    return select_node_with_types.type
 
-    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+def resolve_types_from_table(
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
+) -> ast.Expr:
+    scope = resolve_table_scope(table_chain, context, dialect)
+    return resolve_types(expr, context, dialect, [scope])
 
 
 ResolverFactory = Callable[
@@ -256,6 +275,8 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+        # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
+        self._inside_posthog_macro_expansion: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -336,7 +357,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -523,7 +544,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -772,6 +793,13 @@ class Resolver(CloningVisitor):
                 continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
+                # A PIVOT produces output columns named after its IN-list values, which we can't
+                # enumerate at resolve time. Snowflake names them in ways HogQL can't express, so
+                # keep `*` literal and let Snowflake expand it. (UNPIVOT output IS knowable, so it
+                # still expands normally.)
+                if self.dialect == "snowflake" and _select_from_is_pivot(new_node.select_from):
+                    select_nodes.append(new_expr)
+                    continue
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 for col in columns:
                     visited_col = self.visit(col)
@@ -1508,6 +1536,27 @@ class Resolver(CloningVisitor):
         node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
+    def _expand_duplicating_macro(self, node: ast.Call, builder: Callable[[], ast.Expr]) -> ast.Expr:
+        """Build and resolve a bot-lookup macro whose builder duplicates its argument.
+
+        The bot-lookup helpers reference the same multiMatchAnyIndex node in two positions
+        (`_build_bot_array_lookup`), so each level copies the unvisited argument subtree, and a
+        user-written duplicating macro nested inside another's argument would expand ~2^depth
+        during resolution. The flag is set across the visit so the inner macro is rejected before
+        the blowup compounds; it persists through any non-duplicating macro's plain visit in
+        between, so `getTrafficType(toString(getBotName(...)))` is still caught. Only the
+        duplicating bot-lookup macros set the flag — macros that embed their argument once or
+        expand bounded, user-authored content (matchesAction's action, the survey filters) must
+        not, or they would reject a legitimate macro reached during their expansion.
+        """
+        if self._inside_posthog_macro_expansion:
+            raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function call.")
+        self._inside_posthog_macro_expansion = True
+        try:
+            return self.visit(builder())
+        finally:
+            self._inside_posthog_macro_expansion = False
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -1552,18 +1601,30 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
-            if node.name == "__preview_getTrafficType":
-                return self.visit(get_traffic_type(node=node, args=node.args))
-            if node.name == "__preview_getTrafficCategory":
-                return self.visit(get_traffic_category(node=node, args=node.args))
-            if node.name == "__preview_isBot":
+            if node.name in ("isLikelyBot", "__preview_isBot"):
                 return self.visit(is_bot(node=node, args=node.args))
-            if node.name == "__preview_getBotType":
-                return self.visit(get_bot_type(node=node, args=node.args))
-            if node.name == "__preview_getBotName":
-                return self.visit(get_bot_name(node=node, args=node.args))
-            if node.name == "__preview_getBotOperator":
-                return self.visit(get_bot_operator(node=node, args=node.args))
+            # The bot-lookup builders below duplicate their argument, so they must expand under the
+            # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
+            if node.name in ("getTrafficType", "__preview_getTrafficType"):
+                return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
+            if node.name in ("getTrafficCategory", "__preview_getTrafficCategory"):
+                return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
+            if node.name in ("getBotType", "__preview_getBotType"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
+            if node.name in ("getBotName", "__preview_getBotName"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
+            if node.name in ("getBotOperator", "__preview_getBotOperator"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
+            if node.name in ("_defaultChannelType", "_domainType"):
+                from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle
+                    expand_default_channel_type_call,
+                    expand_domain_type_call,
+                )
+
+                builder = (
+                    expand_default_channel_type_call if node.name == "_defaultChannelType" else expand_domain_type_call
+                )
+                return self._expand_duplicating_macro(node, lambda: builder(node.args))
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
@@ -1838,7 +1899,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
+        if self.dialect in SQL_TARGET_DIALECTS and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1881,7 +1942,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _POSTGRES_FAMILY
+            and self.dialect in SQL_TARGET_DIALECTS
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

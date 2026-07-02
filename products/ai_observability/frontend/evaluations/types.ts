@@ -2,10 +2,21 @@ import { AnyPropertyFilter } from '~/types'
 
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
-export type EvaluationType = 'llm_judge' | 'hog'
-export type EvaluationOutputType = 'boolean'
+export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
+export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
-export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+export type EvaluationStatusReason =
+    | 'trial_limit_reached'
+    | 'model_not_allowed'
+    | 'provider_key_deleted'
+    | 'no_default_model'
+    | 'provider_key_invalid'
+    | 'provider_key_permission_denied'
+    | 'provider_key_quota_exceeded'
+    | 'provider_key_rate_limited'
+    | 'model_not_found'
+    | 'hog_error'
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -18,6 +29,11 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
+export interface EvaluationTargetConfig {
+    /** For 'trace' target: seconds to wait after the first matching generation before evaluating the trace. */
+    window_seconds?: number
+}
+
 export interface LLMJudgeEvaluationConfig {
     prompt: string
 }
@@ -27,6 +43,10 @@ export interface HogEvaluationConfig {
     bytecode?: unknown[]
 }
 
+export interface SentimentEvaluationConfig {
+    source: 'user_messages'
+}
+
 export interface BaseEvaluationConfig {
     id: string
     name: string
@@ -34,9 +54,14 @@ export interface BaseEvaluationConfig {
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
+    status_reason_detail: string | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
+    /** What the evaluation runs on: each matching generation event, or the whole trace once. */
+    target: EvaluationTarget
+    /** Target-specific settings. For 'trace': {window_seconds}. Empty for 'generation'. */
+    target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
     total_runs: number
     last_run_at?: string
@@ -47,15 +72,24 @@ export interface BaseEvaluationConfig {
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'llm_judge'
+    output_type: 'boolean'
     evaluation_config: LLMJudgeEvaluationConfig
 }
 
 export interface HogEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'hog'
+    output_type: 'boolean'
     evaluation_config: HogEvaluationConfig
 }
 
-export type EvaluationConfig = LLMJudgeEvaluation | HogEvaluation
+export interface SentimentEvaluation extends BaseEvaluationConfig {
+    evaluation_type: 'sentiment'
+    output_type: 'sentiment'
+    evaluation_config: SentimentEvaluationConfig
+    model_configuration: null
+}
+
+export type EvaluationConfig = LLMJudgeEvaluation | HogEvaluation | SentimentEvaluation
 
 export interface EvaluationConditionSet {
     id: string
@@ -74,7 +108,11 @@ export interface EvaluationRun {
     generation_id: string | null
     trace_id: string
     timestamp: string
+    evaluation_type?: EvaluationType
+    result_type?: EvaluationOutputType
     result: boolean | null
+    sentiment_label?: string | null
+    sentiment_score?: number | null
     applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
@@ -174,7 +212,8 @@ export interface EvaluationReportRun {
     created_at: string
 }
 
-export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
+export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
+export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
 
 export interface EvaluationPattern {
     title: string

@@ -5,10 +5,16 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.tasks.backend.constants import (
+    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    DEFAULT_SANDBOX_WORKING_DIR,
+    SNAPSHOT_KIND_DIRECTORY,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
+    RunState,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_sandbox_github_token,
@@ -16,6 +22,39 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     is_caller_token_run,
 )
+
+
+class TestRunStateSnapshotPaths(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "new_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
+                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+            ),
+            (
+                "stored_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                DEFAULT_SANDBOX_WORKING_DIR,
+            ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
+            (
+                "unsupported_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
+                None,
+            ),
+            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+        ]
+    )
+    def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
+        assert RunState.model_validate(state).resume_snapshot_mount_path() == expected_path
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -148,6 +187,23 @@ class TestGetSandboxMcpConfigs(TestCase):
             mock_settings.SITE_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
+    def test_task_id_adds_attribution_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, task_id="task-uuid-123")
+            assert configs[0].headers == [
+                *self._expected_headers(),
+                {"name": "X-PostHog-Task-Id", "value": "task-uuid-123"},
+            ]
+
+    def test_no_task_id_omits_attribution_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert all(h["name"] != "X-PostHog-Task-Id" for h in configs[0].headers)
+
     @parameterized.expand(
         [
             (None, "posthog-code"),
@@ -155,6 +211,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("posthog-code", "posthog-code"),
             ("some-other-origin", "posthog-code"),
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
         ]
     )
     def test_consumer_header_reflects_interaction_origin(
@@ -245,6 +302,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     @parameterized.expand(
         [
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
             ("posthog_code", "posthog-code"),
             (None, "posthog-code"),
         ]
@@ -349,6 +407,7 @@ class TestGetGitIdentityEnvVars(TestCase):
         [
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
+            (Task.OriginProduct.HOGDESK,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
             (Task.OriginProduct.SESSION_SUMMARIES,),
         ]

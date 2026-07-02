@@ -13,7 +13,13 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExpiredSessionInfo, ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { AdminLoginButtons } from './AdminLoginButtons'
+import {
+    AdminLoginUrl,
+    ExpiredSessionInfo,
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
@@ -50,19 +56,11 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
 
 function LoginAsContent({
     ticketContext,
-    adminLoginUrl,
+    adminLoginUrls,
 }: {
     ticketContext: ImpersonationTicketContext
-    adminLoginUrl: string | null
+    adminLoginUrls: AdminLoginUrl[]
 }): JSX.Element {
-    const disabledReason = !ticketContext.email
-        ? 'This ticket has no associated email'
-        : !ticketContext.region
-          ? 'Unable to determine region for this ticket, no login available'
-          : !adminLoginUrl
-            ? 'Unable to determine admin URL'
-            : undefined
-
     return (
         <>
             <p className="ImpersonationNotice__message">
@@ -74,28 +72,14 @@ function LoginAsContent({
                     'No customer email on this ticket'
                 )}
             </p>
-            <div className="flex gap-2 justify-end">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    tooltip={
-                        !disabledReason
-                            ? 'This currently redirects to the admin login page, but in future will log you in directly.'
-                            : undefined
-                    }
-                    disabledReason={disabledReason}
-                    onClick={() => adminLoginUrl && window.open(adminLoginUrl, '_blank')}
-                >
-                    Login as {ticketContext.email || 'customer'}
-                </LemonButton>
-            </div>
+            <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
         </>
     )
 }
 
 function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInfo: ExpiredSessionInfo }): JSX.Element {
     const { isReImpersonating } = useValues(impersonationNoticeLogic)
-    const { reImpersonate } = useActions(impersonationNoticeLogic)
+    const { reImpersonate, returnToPostHog } = useActions(impersonationNoticeLogic)
 
     const [readOnly, setReadOnly] = useState(true)
 
@@ -114,6 +98,16 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
                 onClick: () => {
                     window.location.href = '/admin/'
                 },
+                sideAction: {
+                    dropdown: {
+                        placement: 'top-end',
+                        overlay: (
+                            <LemonButton fullWidth onClick={() => returnToPostHog()}>
+                                Return to PostHog
+                            </LemonButton>
+                        ),
+                    },
+                },
             }}
         >
             <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
@@ -125,7 +119,8 @@ function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
     const { isReadOnly, isUpgradeModalOpen, isImpersonationUpgradeInProgress } = useValues(impersonationNoticeLogic)
-    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired } = useActions(impersonationNoticeLogic)
+    const { closeUpgradeModal, upgradeImpersonation, setSessionExpired, returnToPostHog } =
+        useActions(impersonationNoticeLogic)
 
     const handleSessionExpired = (): void => {
         if (user) {
@@ -160,8 +155,23 @@ function ImpersonationNoticeContent(): JSX.Element {
                 <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
                     Refresh
                 </LemonButton>
-                <LemonButton type="secondary" status="danger" size="small" onClick={() => logout()}>
-                    Log out
+                <LemonButton
+                    type="secondary"
+                    status="danger"
+                    size="small"
+                    onClick={() => logout()}
+                    sideAction={{
+                        dropdown: {
+                            placement: 'top-end',
+                            overlay: (
+                                <LemonButton fullWidth size="small" onClick={() => returnToPostHog()}>
+                                    Log out to PostHog
+                                </LemonButton>
+                            ),
+                        },
+                    }}
+                >
+                    Log out to admin
                 </LemonButton>
             </div>
             {isReadOnly && (
@@ -189,7 +199,7 @@ export function ImpersonationNotice(): JSX.Element | null {
         isSessionExpired,
         expiredSessionInfo,
         ticketContext,
-        adminLoginUrl,
+        adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
     const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
 
@@ -278,7 +288,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                         </div>
                         <div className="ImpersonationNotice__content">
                             {showLoginAs ? (
-                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrl={adminLoginUrl} />
+                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrls={adminLoginUrls} />
                             ) : (
                                 <ImpersonationNoticeContent />
                             )}

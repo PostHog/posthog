@@ -10,9 +10,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -47,6 +48,13 @@ import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
+/**
+ * Upper bound on how long the starred-shortcuts fetch may run before we give up. A stalled
+ * request that never settles would otherwise leave `shortcutDataHasLoaded` false forever,
+ * freezing the global search page on a loading skeleton (the flag only flips via the loader's
+ * Success/Failure reducers).
+ */
+const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
@@ -202,6 +210,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             projectTreeLogicKey,
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
+        // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
+        restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
@@ -274,6 +284,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             await api.fileSystem.move(action.item.id, newPath)
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
+                            if (action.item.type === 'dashboard') {
+                                // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
+                                // dashboard-specific event in the generic move path — a deliberate altitude
+                                // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
+                                // mounts only in the tree arm, so emitting there would miss control-arm moves and
+                                // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
+                                // post-move analytics hook) once we agree on a solution / the experiment ends.
+                                // method/count + undo net-out deferred.
+                                eventUsageLogic.actions.reportDashboardMovedToFolder({
+                                    fromDepth: splitPath(oldPath).length,
+                                    toDepth: splitPath(newPath).length,
+                                    fromUnfiled: oldPath.startsWith('Unfiled/'),
+                                    toUnfiled: newPath.startsWith('Unfiled/'),
+                                })
+                            }
                             lemonToast.success('Item moved successfully', {
                                 button: {
                                     label: 'Undo',
@@ -418,6 +443,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                               ?.actions.expandProjectFolder(folder)
                                                       }
                                                   }
+                                                  // Signal non-sidebar consumers (the dashboards tree) to refetch.
+                                                  actions.restoredItems()
                                                   const restoreCountsByType = new Map<string, number>()
                                                   for (const entry of undoableEntries) {
                                                       restoreCountsByType.set(
@@ -465,7 +492,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return []
                     }
 
-                    const response = await api.fileSystemShortcuts.list()
+                    // A stalled fetch that never settles would leave `shortcutDataHasLoaded` false
+                    // forever and freeze the search page on a loading skeleton. The timeout makes
+                    // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
+                    // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
+                    // initKea captures the exception so the previously-silent hang is surfaced.
+                    const response = await withTimeout(
+                        (signal) => api.fileSystemShortcuts.list({ signal }),
+                        SHORTCUTS_LOADER_TIMEOUT_MS,
+                        'loadShortcuts timed out'
+                    )
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
@@ -550,9 +586,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    const newState = {
-                        ...state,
-                        [folder]: state[folder].filter((item) => item.id !== savedItem.id),
+                    const newState = { ...state }
+                    // The parent folder may not be loaded into the store yet (folders load lazily); only
+                    // prune it when it's present — otherwise state[folder] is undefined and .filter throws.
+                    if (newState[folder]) {
+                        newState[folder] = newState[folder].filter((item) => item.id !== savedItem.id)
                     }
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {

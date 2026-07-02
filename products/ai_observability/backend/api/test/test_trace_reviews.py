@@ -12,13 +12,12 @@ from products.ai_observability.backend.models.trace_reviews import TraceReview, 
 
 
 class TestTraceReviewsApi(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.posthoganalytics.feature_enabled",
-            return_value=True,
+            "products.ai_observability.backend.api.trace_reviews.feature_enabled_or_false", return_value=True
         )
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
+        self.feature_flag_patcher.start()
         self.addCleanup(self.feature_flag_patcher.stop)
 
     def _endpoint(self) -> str:
@@ -95,13 +94,6 @@ class TestTraceReviewsApi(APIBaseTest):
 
     def _create_queue_item(self, *, queue: ReviewQueue, trace_id: str = "trace_123") -> ReviewQueueItem:
         return ReviewQueueItem.objects.create(team=self.team, queue=queue, trace_id=trace_id, created_by=self.user)
-
-    def test_returns_403_when_feature_flag_disabled(self):
-        self.mock_feature_enabled.return_value = False
-
-        response = self.client.get(self._endpoint())
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_list_response_includes_absolute_trace_url(self):

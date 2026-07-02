@@ -18,25 +18,33 @@ function fillHistoryBuckets(history: RateLimitHistoryBucket[], bucketMinutes: nu
     })
     return getBucketTimeline(bucketMinutes).map((ms) => {
         const entry = byBucket.get(ms)
-        return { bucket: dayjs(ms).toISOString(), recorded: entry?.recorded ?? 0, dropped: entry?.dropped ?? 0 }
+        return {
+            bucket: dayjs(ms).toISOString(),
+            recorded: entry?.recorded ?? 0,
+            dropped: entry?.dropped ?? 0,
+            bypassed: entry?.bypassed ?? 0,
+        }
     })
 }
 
 export function RateLimitHistoryChart({
     history,
     bucketMinutes,
+    emptyMessage = 'No rate limiting activity recorded yet. Exceptions dropped by your project-wide limit will appear here.',
 }: {
     history: RateLimitHistoryBucket[]
     bucketMinutes: number
+    emptyMessage?: string
 }): JSX.Element {
     const { xData, yData, isEmpty } = useMemo(() => {
         const filled = fillHistoryBuckets(history, bucketMinutes)
         const labels = filled.map((b) => formatBucketLabel(b.bucket, bucketMinutes))
         const recorded = filled.map((b) => b.recorded)
         const dropped = filled.map((b) => b.dropped)
+        const bypassed = filled.map((b) => b.bypassed)
 
         return {
-            isEmpty: recorded.every((c) => c === 0) && dropped.every((c) => c === 0),
+            isEmpty: recorded.every((c) => c === 0) && dropped.every((c) => c === 0) && bypassed.every((c) => c === 0),
             xData: {
                 column: {
                     name: 'bucket',
@@ -67,6 +75,16 @@ export function RateLimitHistoryChart({
                     data: dropped,
                     settings: { display: { displayType: 'bar' as const, color: getColorVar('danger') } },
                 },
+                {
+                    column: {
+                        name: 'bypassed',
+                        type: { name: 'INTEGER' as const, isNumerical: true },
+                        label: 'Bypassed',
+                        dataIndex: 0,
+                    },
+                    data: bypassed,
+                    settings: { display: { displayType: 'bar' as const, color: getColorVar('warning') } },
+                },
             ],
         }
     }, [history, bucketMinutes])
@@ -74,7 +92,7 @@ export function RateLimitHistoryChart({
     if (isEmpty) {
         return (
             <div className="h-80 border rounded flex items-center justify-center text-muted-foreground text-sm p-4 text-center">
-                No rate limiting activity recorded yet. Exceptions dropped by your project-wide limit will appear here.
+                {emptyMessage}
             </div>
         )
     }

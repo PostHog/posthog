@@ -7,13 +7,16 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -141,7 +144,7 @@ export const getDisplayNameFromEntityNode = (
           ? node.event
           : isGroupNode(node)
             ? undefined
-            : node.id
+            : node?.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -331,7 +334,7 @@ export function getCohortNameFromId(
     cohorts: CohortType[] | null | undefined
 ): string {
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-    if (cohortId === 'all' || cohortId === 0) {
+    if (cohortId === 'all' || cohortId === 0 || cohortId === '0') {
         return 'All Users'
     }
 
@@ -339,7 +342,18 @@ export function getCohortNameFromId(
         return 'Not in cohort'
     }
 
-    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+    const cohortName = cohorts?.filter((c) => c.id == cohortId)[0]?.name
+    if (cohortName) {
+        return cohortName
+    }
+
+    // The cohorts list may not be loaded yet (or the cohort was deleted). Fall back to a
+    // human-readable label rather than leaking a bare numeric id into pills/axis labels.
+    // Keep in sync with BreakdownTag's `Cohort ${id}` convention.
+    if (cohortId == null || cohortId === '') {
+        return ''
+    }
+    return `Cohort ${cohortId}`
 }
 
 export function formatBreakdownLabel(

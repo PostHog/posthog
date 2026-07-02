@@ -2,14 +2,14 @@ import * as PartialJSON from 'partial-json'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { isObject, isString } from 'lib/utils'
+import { isObject, isString } from 'lib/utils/guards'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
-import type { EvaluationRun } from './evaluations/types'
+import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -246,6 +246,12 @@ export function readAiOutput(properties: Record<string, any>): unknown {
 
 export function eventLabel(event: LLMTraceEvent): string {
     return asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
+}
+
+const TRACE_STEP_EVENT_TYPES = new Set(['$ai_generation', '$ai_span', '$ai_embedding'])
+
+export function getTraceStepCount(trace: Partial<Pick<LLMTrace, 'events'>>): number {
+    return trace.events?.filter((event) => TRACE_STEP_EVENT_TYPES.has(event.event)).length ?? 0
 }
 
 export function formatAiErrorForDisplay(value: unknown): string {
@@ -1023,20 +1029,103 @@ type RawEvaluationRunRow = [
     result: boolean | string | null,
     reasoning: string | null,
     applicable: boolean | string | null,
+    evaluation_type: string | null,
+    result_type: string | null,
+    sentiment_label: string | null,
+    sentiment_score: number | string | null,
 ]
 
-export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
-    const rawResult = row[6]
-    const applicable = row[8]
-
-    // N/A only when backend explicitly sets applicable=false
-    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
-    let result: boolean | null
-    if (applicable === false || applicable === 'false') {
-        result = null
-    } else {
-        result = rawResult === true || rawResult === 'true'
+export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
+    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment') {
+        return value
     }
+    return undefined
+}
+
+export function normalizeEvaluationOutputType(value: unknown): EvaluationOutputType | undefined {
+    if (value === 'boolean' || value === 'sentiment') {
+        return value
+    }
+    return undefined
+}
+
+export function normalizeOptionalNumber(value: unknown): number | null {
+    if (value === null || value === undefined) {
+        return null
+    }
+    const parsed = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+export function isExplicitEvaluationPass(value: unknown): boolean {
+    return value === true || value === 'true' || value === 'True' || value === '1'
+}
+
+function isExplicitEvaluationNotApplicable(value: unknown): boolean {
+    return value === false || value === 'false'
+}
+
+function normalizeEvaluationApplicable(value: unknown): boolean | undefined {
+    if (value === null || value === undefined) {
+        return undefined
+    }
+    return isExplicitEvaluationPass(value)
+}
+
+export interface NormalizedEvaluationResultProperties {
+    rawResult: unknown
+    rawApplicable?: unknown
+    rawEvaluationType?: unknown
+    rawResultType?: unknown
+    rawSentimentLabel?: unknown
+    rawSentimentScore?: unknown
+}
+
+export function normalizeEvaluationResultProperties({
+    rawResult,
+    rawApplicable,
+    rawEvaluationType,
+    rawResultType,
+    rawSentimentLabel,
+    rawSentimentScore,
+}: NormalizedEvaluationResultProperties): Pick<
+    EvaluationRun,
+    'evaluation_type' | 'result_type' | 'result' | 'sentiment_label' | 'sentiment_score' | 'applicable'
+> {
+    const evaluationType = normalizeEvaluationType(rawEvaluationType)
+    const sentimentLabel =
+        typeof rawSentimentLabel === 'string' && rawSentimentLabel.length > 0 ? rawSentimentLabel : null
+    const resultType =
+        normalizeEvaluationOutputType(rawResultType) ??
+        (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
+
+    const result =
+        resultType === 'sentiment' ||
+        isExplicitEvaluationNotApplicable(rawApplicable) ||
+        rawResult === null ||
+        rawResult === undefined
+            ? null
+            : isExplicitEvaluationPass(rawResult)
+
+    return {
+        evaluation_type: evaluationType,
+        result_type: resultType,
+        result,
+        sentiment_label: sentimentLabel,
+        sentiment_score: normalizeOptionalNumber(rawSentimentScore),
+        applicable: normalizeEvaluationApplicable(rawApplicable),
+    }
+}
+
+export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const normalizedResult = normalizeEvaluationResultProperties({
+        rawResult: row[6],
+        rawApplicable: row[8],
+        rawEvaluationType: row[9],
+        rawResultType: row[10],
+        rawSentimentLabel: row[11],
+        rawSentimentScore: row[12],
+    })
 
     return {
         id: row[0],
@@ -1045,26 +1134,27 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result,
+        ...normalizedResult,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
-        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
 export async function queryEvaluationRuns(params: {
     evaluationId?: string
     generationEventId?: string
+    traceId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, generationEventId, forceRefresh } = params
+    const { evaluationId, generationEventId, traceId, forceRefresh } = params
 
-    if (!evaluationId && !generationEventId) {
-        throw new Error('Either evaluationId or generationEventId must be provided')
+    const propertyValue = evaluationId || generationEventId || traceId
+
+    if (!propertyValue) {
+        throw new Error('Either evaluationId, generationEventId, or traceId must be provided')
     }
 
-    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_target_event_id'
-    const propertyValue = evaluationId || generationEventId
+    const propertyName = evaluationId ? '$ai_evaluation_id' : generationEventId ? '$ai_target_event_id' : '$ai_trace_id'
 
     const query = hogql`
         SELECT
@@ -1076,7 +1166,11 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
             properties.$ai_evaluation_reasoning as reasoning,
-            properties.$ai_evaluation_applicable as applicable
+            properties.$ai_evaluation_applicable as applicable,
+            properties.$ai_evaluation_runtime as evaluation_type,
+            properties.$ai_evaluation_result_type as result_type,
+            properties.$ai_sentiment_label as sentiment_label,
+            properties.$ai_sentiment_score as sentiment_score
         FROM events
         WHERE
             event = '$ai_evaluation'

@@ -1,0 +1,29 @@
+{
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
+    "reasoning": "low",
+    "triggers": [
+        {
+            "type": "chat",
+            "config": {},
+            "auth": { "modes": [{ "type": "posthog", "scopes": ["agents:read"] }] }
+        }
+    ],
+    "mcps": [
+        {
+            "kind": "agent",
+            "id": "incident",
+            "url": "https://mcp.incident.io/mcp",
+            "connection": "00000000-0000-0000-0000-000000000000",
+            "default_tool_approval": "approve"
+        },
+        {
+            "kind": "principal",
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "default_tool_approval": "allow",
+            "auth": { "provider": "posthog" }
+        }
+    ],
+    "identity_providers": [{ "kind": "posthog", "scopes": ["openid", "profile", "email", "user:read"] }],
+    "limits": { "max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 120 }
+}

@@ -1,5 +1,4 @@
-import { HealthCheckResult } from '../../../types'
-import { OverflowType } from './overflow-redis-repository'
+import { HealthCheckResult } from '~/types'
 
 // Re-export OverflowType so consumers of the interface
 // don't need to know about the repository layer
@@ -27,9 +26,12 @@ export interface OverflowRedirectService {
      * - Main lane: Check if flagged, flag if rate limited, return set of keys to redirect
      * - Overflow lane: Refresh TTL for all keys, return empty set (no redirects)
      *
+     * The overflow keyspace (`OverflowType`) is fixed per service instance and
+     * supplied at construction — a given service belongs to exactly one pipeline.
+     *
      * @returns Set of keys (token:distinctId) that should be redirected to overflow
      */
-    handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>>
+    handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>>
 
     /**
      * Health check for the service

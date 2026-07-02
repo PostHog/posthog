@@ -56,6 +56,7 @@ interface SnapshotDiffViewerProps {
     repoFullName?: string | null
     runType?: string
     githubRunId?: string | null
+    isReportingOnly?: boolean
     isRecomputing?: boolean
     onRecompute?: () => void
     recomputeDisabledReason?: string
@@ -77,6 +78,7 @@ export function SnapshotDiffViewer({
     repoFullName,
     runType,
     githubRunId,
+    isReportingOnly,
     isRecomputing,
     onRecompute,
     recomputeDisabledReason,
@@ -128,7 +130,8 @@ export function SnapshotDiffViewer({
     const isTolerated = snapshot.review_state === 'tolerated'
     const isQuarantined = !!quarantineEntry
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
-    const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined
+    // Default-branch (tracking-only) runs are never approvable — don't offer accept/reject/tolerate.
+    const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined && !isReportingOnly
 
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
@@ -230,6 +233,10 @@ export function SnapshotDiffViewer({
                         result={(snapshot.result || 'unchanged') as VisualDiffResult}
                         imageWidth={width ?? undefined}
                         imageHeight={height ?? undefined}
+                        baselineWidth={snapshot.baseline_artifact?.width ?? undefined}
+                        baselineHeight={snapshot.baseline_artifact?.height ?? undefined}
+                        currentWidth={snapshot.current_artifact?.width ?? undefined}
+                        currentHeight={snapshot.current_artifact?.height ?? undefined}
                         mode={comparisonMode}
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"

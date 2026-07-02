@@ -1,5 +1,6 @@
+import { logger } from '~/common/utils/logger'
+
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import { logger } from '../../utils/logger'
 
 const DEFAULT_TIMEOUT_MS = 2000
 

@@ -20,7 +20,8 @@ import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { isString, pluralize } from 'lib/utils'
+import { isString } from 'lib/utils/guards'
+import { pluralize } from 'lib/utils/strings'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -147,6 +148,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -171,6 +173,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -596,6 +599,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
@@ -614,6 +618,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_resource_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
@@ -653,6 +658,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+        },
+        {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
         },
         {
             name: 'Cohorts',
@@ -942,6 +960,21 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 {
                     key: 'comment_text',
                     name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'click_count',
+                    name: getFilterLabel('click_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'keypress_count',
+                    name: getFilterLabel('keypress_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'mouse_activity_count',
+                    name: getFilterLabel('mouse_activity_count', TaxonomicFilterGroupType.Replay),
                     propertyFilterType: PropertyFilterType.Recording,
                 },
             ],

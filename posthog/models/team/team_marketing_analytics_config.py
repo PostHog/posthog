@@ -263,6 +263,13 @@ def validate_conversion_goals(conversion_goals: list) -> None:
                 f"Conversion goal kind must be one of {NodeKind.EVENTS_NODE}, {NodeKind.ACTIONS_NODE} or {NodeKind.DATA_WAREHOUSE_NODE}, got {goal.get('kind')}"
             )
 
+    # conversion_goal_name is used verbatim as a SQL column alias in marketing analytics
+    # queries, so duplicates collide at query time ("Cannot redefine an alias").
+    goal_names = [name for goal in conversion_goals if (name := goal.get("conversion_goal_name"))]
+    duplicates = sorted({name for name in goal_names if goal_names.count(name) > 1})
+    if duplicates:
+        raise ValidationError(f"Conversion goal names must be unique. Duplicate names: {', '.join(duplicates)}")
+
 
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.

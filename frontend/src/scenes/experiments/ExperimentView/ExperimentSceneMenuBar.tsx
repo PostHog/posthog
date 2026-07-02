@@ -101,7 +101,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const paused = isExperimentPaused(experiment)
     const exposureClosed = getExperimentStatus(experiment) === ExperimentStatus.ExposureClosed
 
-    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleArchive = (): void =>
+        confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
     const handleDelete = (): void =>
         confirmDeleteExperiment({
             projectId: currentProjectId,

@@ -5,12 +5,53 @@
             "description": "Whether the feature flag is active.",
             "type": "boolean"
         },
+        "archived": {
+            "description": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+            "type": "boolean"
+        },
+        "bucketing_identifier": {
+            "anyOf": [
+                {
+                    "description": "* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "enum": ["distinct_id", "device_id"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`."
+        },
+        "ensure_experience_continuity": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to persist the flag's value for a user across the anonymous-to-identified transition (the \"persist across authentication steps\" option in the UI). Keeps a user's evaluated value stable once they log in. Incompatible with `device_id` bucketing."
+        },
         "evaluation_contexts": {
             "description": "Evaluation contexts that control where this flag evaluates at runtime.",
             "items": {
                 "type": "string"
             },
             "type": "array"
+        },
+        "evaluation_runtime": {
+            "anyOf": [
+                {
+                    "description": "* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "enum": ["server", "client", "all"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`."
         },
         "filters": {
             "description": "Feature flag targeting configuration.",

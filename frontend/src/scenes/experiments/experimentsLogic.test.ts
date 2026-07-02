@@ -333,7 +333,7 @@ describe('experimentsLogic', () => {
             api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
-                logic.actions.archiveExperiment(mockExperiment.id as number)
+                logic.actions.archiveExperiment({ id: mockExperiment.id as number, disableFeatureFlag: false })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -344,7 +344,8 @@ describe('experimentsLogic', () => {
                 })
 
             expect(api.create).toHaveBeenCalledWith(
-                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`),
+                { disable_feature_flag: false }
             )
         })
 

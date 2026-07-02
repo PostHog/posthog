@@ -17,7 +17,7 @@ import {
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
@@ -66,12 +66,12 @@ const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema,
 
 const ApmAttributesListSchema = TracingSpansAttributesRetrieveQueryParams
 
-const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> => ({
+const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, Schemas._TracingAttributesResponse> => ({
     name: 'apm-attributes-list',
     schema: ApmAttributesListSchema,
     handler: async (context: Context, params: z.infer<typeof ApmAttributesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAttributesResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
@@ -79,6 +79,7 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> 
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                search_values: params.search_values,
             },
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result
@@ -228,13 +229,16 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.excludeAttributes !== undefined) {
                 body['excludeAttributes'] = params.excludeAttributes
             }
+            if (params.offset !== undefined) {
+                body['offset'] = params.offset
+            }
             const result = await context.api.request<unknown>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
-            return filtered
+            return await withPostHogUrl(context, filtered, `/tracing/?trace=${params.trace_id}`)
         },
     })
 

@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration } from '~/types'
 
@@ -106,6 +107,24 @@ const BIGQUERY_BATCH_EXPORT = fixture('test-bq-id', 'BigQuery Export', {
         include_events: [],
         use_json_type: false,
     },
+})
+
+// A BigQuery export whose stored config still carries pre-Integration leftovers: the frontend-only
+// `json_config_file` and credentials that now live on the integration. These must be stripped on
+// save — the backend rejects any config key not on the destination's allowlist.
+const BIGQUERY_STALE_BATCH_EXPORT = fixture('test-bq-stale-id', 'BigQuery Stale Export', {
+    type: 'BigQuery',
+    integration: 7,
+    config: {
+        dataset_id: 'test_dataset',
+        table_id: 'events',
+        use_json_type: false,
+        exclude_events: [],
+        include_events: [],
+        json_config_file: [{}],
+        private_key: 'stale-private-key',
+        project_id: 'stale-project',
+    } as any,
 })
 
 const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
@@ -287,6 +306,7 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
+    BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
     SNOWFLAKE_PASSWORD_BATCH_EXPORT,
     SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
@@ -324,11 +344,11 @@ describe('batchExportConfigFormLogic', () => {
         // Register a GET + PATCH mock for every fixture so any round-trip test can load its
         // own fixture by id and look up the captured request body via patchBodiesById[fx.id].
         const getMocks: Record<string, BatchExportConfiguration> = {}
-        const patchMocks: Record<string, (req: any) => Promise<[number, BatchExportConfiguration]>> = {}
+        const patchMocks: Record<string, (info: MockResolverInfo) => Promise<[number, BatchExportConfiguration]>> = {}
         for (const fx of ALL_BATCH_EXPORTS) {
             getMocks[`/api/environments/:team_id/batch_exports/${fx.id}`] = fx
-            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async (req) => {
-                const body = await req.json()
+            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async ({ request }) => {
+                const body = (await request.json()) as Record<string, any>
                 lastPatchBody = body
                 patchBodiesById[fx.id] = body
                 return [200, fx]
@@ -340,8 +360,8 @@ describe('batchExportConfigFormLogic', () => {
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
             },
             post: {
-                '/api/environments/:team_id/batch_exports/': async (req) => {
-                    lastPostBody = await req.json()
+                '/api/environments/:team_id/batch_exports/': async ({ request }) => {
+                    lastPostBody = (await request.json()) as Record<string, any>
                     return [200, { ...S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
             },
@@ -406,31 +426,18 @@ describe('batchExportConfigFormLogic', () => {
                 ],
             },
             {
+                // New AwsS3 exports authenticate via an integration, not inline credentials.
                 service: 'AwsS3' as const,
-                fields: [
-                    'bucket_name',
-                    'region',
-                    'prefix',
-                    'aws_access_key_id',
-                    'aws_secret_access_key',
-                    'file_format',
-                ],
+                fields: ['integration_id', 'bucket_name', 'region', 'prefix', 'file_format'],
             },
             {
+                // New S3Compatible exports authenticate via an integration; endpoint_url lives on it.
                 service: 'S3Compatible' as const,
-                fields: [
-                    'bucket_name',
-                    'region',
-                    'prefix',
-                    'endpoint_url',
-                    'aws_access_key_id',
-                    'aws_secret_access_key',
-                    'file_format',
-                ],
+                fields: ['integration_id', 'bucket_name', 'region', 'prefix', 'file_format'],
             },
             {
                 service: 'Postgres' as const,
-                fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
+                fields: ['integration_id', 'database', 'schema', 'table_name'],
             },
             {
                 service: 'Redshift' as const,
@@ -522,6 +529,87 @@ describe('batchExportConfigFormLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.configurationErrors.container_name).toBe(error)
+        })
+    })
+
+    describe('compression resets when file_format changes', () => {
+        it.each([
+            { newFormat: 'JSONLines', expected: null },
+            { newFormat: 'Parquet', expected: 'zstd' },
+        ])('new export: switching to $newFormat sets compression to $expected', async ({ newFormat, expected }) => {
+            await initLogic({ service: 'S3', id: null })
+
+            logic.actions.setConfigurationValue('file_format', newFormat)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configuration.compression).toBe(expected)
+        })
+
+        it.each([
+            { startCompression: 'snappy', expected: null },
+            { startCompression: 'gzip', expected: 'gzip' },
+        ])(
+            'existing export: Parquet/$startCompression -> JSONLines yields $expected',
+            async ({ startCompression, expected }) => {
+                await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+                logic.actions.setConfigurationValues({ compression: startCompression })
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setConfigurationValue('file_format', 'JSONLines')
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.configuration.compression).toBe(expected)
+            }
+        )
+
+        it('existing export: Parquet/zstd -> JSONLines -> Parquet restores the saved zstd codec', async () => {
+            // AWS_S3_BATCH_EXPORT is saved with Parquet/zstd; zstd is invalid for JSONLines, so it's
+            // cleared on the way out and must come back from the saved config — not default to zstd by
+            // coincidence.
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('zstd')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBeNull()
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('zstd')
+        })
+
+        it('existing export: Parquet/gzip survives a JSONLines round-trip (valid for both formats)', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+        })
+    })
+
+    describe('invalid persisted compression is dropped on save', () => {
+        it('clears a JSONLines+zstd combination when saving an unrelated edit', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                file_format: 'JSONLines',
+                compression: 'zstd',
+                prefix: 'updated-prefix/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.file_format).toBe('JSONLines')
+            expect(lastPatchBody!.destination.config.compression).toBeNull()
+            expect(lastPatchBody!.destination.config.prefix).toBe('updated-prefix/')
         })
     })
 
@@ -732,50 +820,46 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                // AwsS3 must not leak endpoint_url / use_virtual_style_addressing into the payload.
+                // New AwsS3 exports authenticate via an integration; credentials live on it, and
+                // endpoint_url / use_virtual_style_addressing must not leak into the payload.
                 name: 'AwsS3',
                 service: 'AwsS3' as const,
                 requiredValues: {
+                    integration_id: 21,
                     bucket_name: 'my-bucket',
                     region: 'us-east-1',
                     prefix: 'test/',
-                    aws_access_key_id: 'AKIA',
-                    aws_secret_access_key: 'secret',
                 },
                 expectedDestination: {
                     type: 'AwsS3',
+                    integration: 21,
                     config: {
                         bucket_name: 'my-bucket',
                         region: 'us-east-1',
                         prefix: 'test/',
-                        aws_access_key_id: 'AKIA',
-                        aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
                         compression: 'zstd',
                     },
                 },
             },
             {
-                // S3Compatible requires endpoint_url and must not leak encryption / kms_key_id.
+                // New S3Compatible exports authenticate via an integration (which carries endpoint_url);
+                // no inline credentials, no leaked encryption / kms_key_id.
                 name: 'S3Compatible',
                 service: 'S3Compatible' as const,
                 requiredValues: {
+                    integration_id: 22,
                     bucket_name: 'my-bucket',
                     region: 'auto',
                     prefix: 'test/',
-                    endpoint_url: 'https://my-minio-host:9000',
-                    aws_access_key_id: 'AKIA',
-                    aws_secret_access_key: 'secret',
                 },
                 expectedDestination: {
                     type: 'S3Compatible',
+                    integration: 22,
                     config: {
                         bucket_name: 'my-bucket',
                         region: 'auto',
                         prefix: 'test/',
-                        endpoint_url: 'https://my-minio-host:9000',
-                        aws_access_key_id: 'AKIA',
-                        aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
                         compression: 'zstd',
                     },
@@ -785,21 +869,15 @@ describe('batchExportConfigFormLogic', () => {
                 name: 'Postgres',
                 service: 'Postgres' as const,
                 requiredValues: {
-                    user: 'pg-user',
-                    password: 'pg-pass',
-                    host: 'pg-host',
-                    port: 5432,
+                    integration_id: 13,
                     database: 'pg-db',
                     schema: 'public',
                     table_name: 'events',
                 },
                 expectedDestination: {
                     type: 'Postgres',
+                    integration: 13,
                     config: {
-                        user: 'pg-user',
-                        password: 'pg-pass',
-                        host: 'pg-host',
-                        port: 5432,
                         database: 'pg-db',
                         schema: 'public',
                         table_name: 'events',
@@ -991,6 +1069,55 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
+        })
+    })
+
+    describe('strips stale/legacy config fields not in the destination allowlist', () => {
+        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
+        // Editing such an export must not re-send them, or the backend rejects the PATCH with
+        // "Configuration has unknown field/s".
+        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
+            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
+            expect(body).not.toBeUndefined()
+            expect(body.destination.config).toEqual({
+                dataset_id: 'test_dataset',
+                table_id: 'events',
+                use_json_type: false,
+                exclude_events: [],
+                include_events: [],
+            })
+        })
+    })
+
+    describe('grandfathered inline S3 exports stay editable without an integration', () => {
+        // AwsS3/S3Compatible are integration-backed for new exports, but exports created before
+        // integrations existed have inline credentials and no linked integration. Editing one must not
+        // require an integration and must preserve the inline credentials — otherwise the export breaks.
+        it('saves an inline AwsS3 export, keeping its credentials and sending no integration', async () => {
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValue('prefix', 'updated-prefix/')
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[AWS_S3_BATCH_EXPORT.id]
+            expect(body).not.toBeUndefined()
+            expect(body.destination.integration).toBeUndefined()
+            expect(body.destination.config.prefix).toBe('updated-prefix/')
+            expect(body.destination.config.aws_access_key_id).toBe('AKIAIOSFODNN7EXAMPLE')
+            expect(body.destination.config.aws_secret_access_key).toBe('wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
         })
     })
 })

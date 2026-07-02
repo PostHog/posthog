@@ -18,7 +18,7 @@ import { LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
-import { hashCodeForString } from 'lib/utils'
+import { hashCodeForString } from 'lib/utils/strings'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
@@ -101,6 +101,9 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
     const query = nodeAttributes?.query
     if (!query) {
         return false
+    }
+    if (isHogQLQuery(query)) {
+        return true
     }
     if (isNodeWithSource(query)) {
         return isHogQLQuery(query.source)

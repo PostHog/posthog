@@ -1,5 +1,9 @@
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -15,6 +19,8 @@ const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
     avg_duration_nano: 1000,
     p50_duration_nano: 1000,
     p95_duration_nano: 1000,
+    p99_duration_nano: 1000,
+    p999_duration_nano: 1000,
     error_count: 0,
 })
 
@@ -122,7 +128,7 @@ describe('tracingDataLogic', () => {
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
             logic.actions.fetchSpansSuccess(withChild)
-            // rootSpans = [root-1, root-2]; index 1 is root-2, never the child at 05:00.
+            // listRows = [root-1, root-2] in traces mode; index 1 is root-2, never the child at 05:00.
             logic.actions.setVisibleRowRange(0, 1)
             expect(logic.values.visibleRowDateRange).toEqual({
                 date_from: '2024-01-01T00:00:00.000Z',
@@ -183,6 +189,121 @@ describe('tracingDataLogic', () => {
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
             expect(captureSpy).toHaveBeenCalledWith(event, properties)
+        })
+    })
+
+    describe('view mode', () => {
+        const withChildSpans: Span[] = [
+            createMockSpan('root-1', '2024-01-01T00:00:00Z'),
+            { ...createMockSpan('child-1', '2024-01-01T00:00:01Z'), parent_span_id: 'root-1', is_root_span: false },
+            createMockSpan('root-2', '2024-01-01T01:00:00Z'),
+        ]
+
+        it('lists only root spans in traces mode (default)', () => {
+            logic = mountWithSpans(withChildSpans)
+            expect(logic.values.filters.viewMode).toBe('traces')
+            expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'root-2'])
+        })
+
+        it('lists every span (root and child) in spans mode', () => {
+            logic = mountWithSpans(withChildSpans)
+            tracingFiltersLogic().actions.setViewMode('spans')
+            expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'child-1', 'root-2'])
+        })
+
+        it('requests flat spans from the API when in spans mode', async () => {
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSpans()
+            expect(listSpansSpy).toHaveBeenCalledWith(expect.objectContaining({ flatSpans: true }), expect.anything())
+            listSpansSpy.mockRestore()
+        })
+
+        it('requests grouped traces from the API in traces mode', async () => {
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSpans()
+            expect(listSpansSpy).toHaveBeenCalledWith(expect.objectContaining({ flatSpans: false }), expect.anything())
+            listSpansSpy.mockRestore()
+        })
+
+        it('totalMatchingFilters reports trace count in traces mode and span count in spans mode', () => {
+            logic = mountWithSpans([])
+            logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 100 })
+            expect(logic.values.totalMatchingFilters).toBe(100)
+            tracingFiltersLogic().actions.setViewMode('spans')
+            expect(logic.values.totalMatchingFilters).toBe(5000)
+        })
+
+        it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: false }),
+                expect.anything()
+            )
+            sparklineSpy.mockRestore()
+        })
+    })
+
+    describe('matching counts', () => {
+        it('does not re-fetch the count when only the view mode changes', async () => {
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchMatchingCounts()
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchMatchingCounts()
+            // The count is view-mode-independent, so the second run reuses the cached result.
+            expect(countSpy).toHaveBeenCalledTimes(1)
+            countSpy.mockRestore()
+        })
+
+        it('re-fetches the count when the data scope changes', async () => {
+            const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchMatchingCounts()
+            tracingFiltersLogic().actions.setServiceNames(['api'])
+            await logic.asyncActions.fetchMatchingCounts()
+            expect(countSpy).toHaveBeenCalledTimes(2)
+            countSpy.mockRestore()
+        })
+
+        it('toasts on a real count failure', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+            jest.spyOn(api.tracing, 'count').mockRejectedValue(new Error('boom'))
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchMatchingCounts().catch(() => {})
+            expect(toastSpy).toHaveBeenCalled()
+            toastSpy.mockRestore()
+        })
+    })
+
+    describe('sparkline', () => {
+        it('re-fetches the sparkline when the view mode changes', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSparkline()
+            // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
+            // view-mode toggle changes its scope and must re-fetch.
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
+        })
+
+        it('re-fetches the sparkline when the data scope changes', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            tracingFiltersLogic().actions.setServiceNames(['api'])
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
+            sparklineSpy.mockRestore()
         })
     })
 })

@@ -394,6 +394,107 @@ describe('generateToolCode without input_schema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
+    it('comma-joins explode:false array query params (DRF comma-separated filters)', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'type',
+                        style: 'form',
+                        explode: false,
+                        schema: { type: 'array', items: { type: 'string' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(
+            "type: Array.isArray(params.type) ? params.type.join(',') || undefined : params.type,"
+        )
+    })
+
+    it('forwards array query params without explode:false untouched (json.loads()-style backends)', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'serviceNames',
+                        schema: { type: 'array', items: { type: 'string' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('serviceNames: params.serviceNames,')
+        expect(result.code).not.toContain('serviceNames.join')
+    })
+
+    it('keeps explode:false params with object items on the JSON path', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'filters',
+                        style: 'form',
+                        explode: false,
+                        schema: { type: 'array', items: { $ref: '#/components/schemas/Filter' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('filters: params.filters,')
+        expect(result.code).not.toContain('filters.join')
+    })
+
     it('collects toolInputsImports from param_overrides', () => {
         const config: ToolConfig = {
             operation: 'things_create',
@@ -1703,5 +1804,63 @@ describe('generateToolCode with confirmed_action', () => {
             stubGetQuerySchema
         )
         expect(result.code).toContain('actionLabel: "Enforce 2FA"')
+    })
+})
+
+describe('optional param with state fallback', () => {
+    const resolved = (): ResolvedOperation =>
+        makeResolved({
+            path: '/api/organizations/{organization_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { in: 'path', name: 'organization_id', required: true, schema: { type: 'string' } },
+                    { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+    const config = (): ToolConfig => ({
+        operation: 'things_retrieve',
+        enabled: true,
+        param_overrides: {
+            id: {
+                description: 'Thing ID. If omitted, uses the active project.',
+                optional: true,
+                fallback: 'projectId',
+                cast: 'string-int',
+            },
+        },
+    })
+
+    it('resolves the omitted param from state in the handler', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('const id = params.id ?? await context.stateManager.getProjectId()')
+    })
+
+    it('surfaces the field as optional despite the cast wrapper (z.preprocess strips inner optionality)', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        // The outer `.optional()` after the preprocess is what makes the agent-facing
+        // JSON Schema treat the param as optional. Without it, the tool would still
+        // demand the id the fallback exists to supply.
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('.optional()).optional()')
     })
 })
