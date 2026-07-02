@@ -708,19 +708,15 @@ class BasePrinter(Visitor[str]):
             raise QueryError(f"Invalid join constraint type: {constraint.constraint_type!r}")
 
         if constraint.constraint_type == "USING":
-            # The resolver binds each USING field to the left table, so the resolved field prints as
-            # `left_alias.col`. SQL requires USING columns to be bare identifiers resolvable from *both*
-            # relations — the qualified form makes ClickHouse raise Code 47 UNKNOWN_IDENTIFIER.
+            # The resolver binds USING fields to the left table, so they'd print qualified (`e.col`) —
+            # but USING columns must be bare identifiers, else ClickHouse raises Code 47.
             fields = self._unwrap_using_fields(constraint.expr)
             if on_clause_guard is None:
-                # No predicate to fold in: keep USING, just strip the resolver's qualification.
-                #   FROM events AS e JOIN persons AS p USING (person_id)  ->  ... USING (person_id)
                 names = ", ".join(self._print_identifier(str(field.chain[-1])) for field in fields)
                 return f"USING ({names})"
             # A LEFT-JOIN guard (team_id / access control) must live in the join condition to preserve
-            # NULL rows, but USING can't carry a boolean predicate — so lower the whole thing to ON:
-            #   ... LEFT JOIN persons AS p USING (person_id)
-            #   -> ... LEFT JOIN persons AS p ON e.person_id = p.person_id AND p.team_id = 2
+            # NULL rows, but USING can't carry a predicate — so lower to ON:
+            #   LEFT JOIN persons AS p USING (person_id)  ->  ... ON e.person_id = p.person_id AND p.team_id = 2
             if not isinstance(
                 node_type, ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType
             ):
@@ -741,8 +737,7 @@ class BasePrinter(Visitor[str]):
         columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
         fields: list[ast.Field] = []
         for col in columns:
-            # The resolver wraps each resolved USING field in a hidden Alias; unwrap it so nothing
-            # downstream ever prints `col AS alias` inside a USING or ON clause.
+            # The resolver wraps each resolved field in a hidden Alias; unwrap to the bare Field.
             field = col.expr if isinstance(col, ast.Alias) else col
             if not isinstance(field, ast.Field) or not field.chain:
                 raise QueryError("JOIN USING expects column names")
