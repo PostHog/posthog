@@ -222,13 +222,16 @@ class DeltaBatchConsumerAdapter:
         )
         return True
 
-    async def confirm_stale_before_failure(
+    async def fail_stale_run(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         batch: PendingBatch,
+        reason: str,
     ) -> bool:
         # Unfenced (pre-existing behavior): see requeue_stale_batch above.
+        # fail_run is documented no-raise, isolating its internal steps.
+        await self.fail_run(conn, batch=batch, reason=reason)
         return True
 
     async def reconcile_failed_runs(

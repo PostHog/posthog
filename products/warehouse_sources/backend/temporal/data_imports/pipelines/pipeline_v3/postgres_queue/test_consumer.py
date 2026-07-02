@@ -371,7 +371,12 @@ class TestRecoverySweep:
         mock_unlock.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_fails_exhausted_stale_batch(self):
+    @pytest.mark.parametrize("fenced_result", [True, False])
+    async def test_exhausted_stale_batch_failed_only_through_the_fenced_path(self, fenced_result):
+        # The sweep must fail exhausted batches via the adapter's fenced
+        # fail_stale_run (write-time re-check of staleness/ownership) — never
+        # via the unfenced _fail_run — and skip cleanly when the fence refuses
+        # (a rival sweep or reclaiming pod moved the batch since the scan).
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=3)
 
@@ -381,38 +386,16 @@ class TestRecoverySweep:
                 new_callable=AsyncMock,
                 return_value=[stale_batch],
             ),
-            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
-                new_callable=AsyncMock,
-            ) as mock_unlock,
+            patch.object(
+                consumer._adapter, "fail_stale_run", new_callable=AsyncMock, return_value=fenced_result
+            ) as mock_fenced,
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_unfenced,
         ):
             await consumer._recovery_sweep()
 
-        mock_fail.assert_called_once()
-        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
-        mock_unlock.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_exhausted_batch_not_failed_when_stale_confirmation_fails(self):
-        # A rival sweep or a reclaiming pod can move a max-attempts batch
-        # between the unlocked stale scan and the fail write; the sweep must
-        # re-confirm at action time instead of failing live work.
-        consumer = _make_consumer(max_attempts=3)
-        stale_batch = _make_batch(latest_attempt=3)
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
-                new_callable=AsyncMock,
-                return_value=[stale_batch],
-            ),
-            patch.object(consumer._adapter, "confirm_stale_before_failure", new_callable=AsyncMock, return_value=False),
-            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
-        ):
-            await consumer._recovery_sweep()
-
-        mock_fail.assert_not_called()
+        mock_fenced.assert_called_once()
+        assert "max retries exceeded" in mock_fenced.call_args[1]["reason"]
+        mock_unfenced.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_recovery_sweep_skips_batches_retired_mid_sweep(self):

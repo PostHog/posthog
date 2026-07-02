@@ -682,26 +682,40 @@ class DuckgresBatchQueue:
         return bool(cursor.rowcount)
 
     @staticmethod
-    async def is_stale_executing_unowned(
+    async def fail_run_if_stale(
         conn: psycopg.AsyncConnection[Any],
         *,
         batch: PendingBatch,
+        reason: str,
     ) -> bool:
-        """Re-check a recovery candidate right before terminal action.
+        """Terminally fail a run from recovery — fenced inside the insert itself.
 
-        The stale scan is unlocked: between it and the sweep's write, a rival
-        sweep may have requeued the batch or another pod may have reclaimed the
-        group. True only while the batch's latest status is still 'executing'
-        and the group carries no live lease.
+        The stale scan is unlocked, so between it and this write a rival sweep
+        may have requeued the anchor batch or another pod may have reclaimed
+        the group. The failure rows are therefore inserted only while, in this
+        statement's own snapshot, the anchor batch's latest status is still
+        'executing' AND the group carries no live lease. Returns False (and
+        writes nothing) when the fence fails. The group error path uses
+        ``fail_run`` instead — it legitimately fails runs while holding its
+        own live lease.
         """
-        async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                SELECT (
-                    SELECT cur.job_state
-                    FROM {DUCKGRES_STATUS_TABLE} cur
-                    WHERE cur.batch_id = %(batch_id)s
-                    ORDER BY cur.created_at DESC, cur.id DESC
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
+            LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.run_uuid = %(run_uuid)s
+                AND ds.job_state = 'succeeded'
+                AND (dgs.batch_id IS NULL OR dgs.job_state IN ('waiting_retry', 'executing'))
+                AND (
+                    SELECT anchor.job_state
+                    FROM {DUCKGRES_STATUS_TABLE} anchor
+                    WHERE anchor.batch_id = %(anchor_batch_id)s
+                    ORDER BY anchor.created_at DESC, anchor.id DESC
                     LIMIT 1
                 ) = 'executing'
                 AND NOT EXISTS (
@@ -710,11 +724,16 @@ class DuckgresBatchQueue:
                         AND l.schema_id = %(schema_id)s
                         AND l.expires_at > now()
                 )
-                """,
-                {"batch_id": batch.id, "team_id": batch.team_id, "schema_id": batch.schema_id},
-            )
-            row = await cur.fetchone()
-            return bool(row and row[0])
+            """,
+            {
+                "run_uuid": batch.run_uuid,
+                "anchor_batch_id": batch.id,
+                "team_id": batch.team_id,
+                "schema_id": batch.schema_id,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return bool(cursor.rowcount)
 
     @staticmethod
     async def is_failed(

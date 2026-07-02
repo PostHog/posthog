@@ -180,14 +180,16 @@ class BatchConsumerAdapter(Protocol):
         (e.g. the group was reclaimed between the stale scan and this write)."""
         ...
 
-    async def confirm_stale_before_failure(
+    async def fail_stale_run(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         batch: PendingBatch,
+        reason: str,
     ) -> bool:
-        """Re-confirm a max-attempts recovery candidate is still stale (and its
-        group unowned) right before the sweep terminally fails its run."""
+        """Terminally fail a max-attempts recovery candidate's run. Returns False
+        when skipped (the batch moved or its group was reclaimed since the
+        unlocked stale scan) — implementations fence this in the write itself."""
         ...
 
     async def reconcile_failed_runs(
@@ -848,14 +850,17 @@ class BatchConsumer:
             )
             try:
                 if batch.latest_attempt >= self._config.max_attempts:
-                    # Re-confirm at action time — the scan is unlocked, so a
-                    # rival sweep or a reclaiming pod may have moved the batch
-                    # since; failing the run then would stamp over live work.
-                    if await self._adapter.confirm_stale_before_failure(conn, batch=batch):
+                    # The scan is unlocked, so a rival sweep or a reclaiming pod
+                    # may have moved the batch since; the adapter fences the
+                    # failure inside the write itself rather than check-then-act.
+                    failed = await self._adapter.fail_stale_run(
+                        conn, batch=batch, reason="max retries exceeded (likely OOM)"
+                    )
+                    if failed:
                         logger.warning(
                             self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
                         )
-                        await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                        self._metrics.runs_failed_total.inc()
                     else:
                         logger.info(self._event("batch_recovery_skipped_group_reclaimed"), batch_id=batch.id)
                 else:
