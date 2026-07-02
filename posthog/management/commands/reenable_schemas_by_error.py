@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, bulk_update_should_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +40,17 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help="Only include schemas updated before this ISO8601 datetime (e.g. 2026-04-17T00:00:00Z)",
+        )
+        parser.add_argument(
+            "--trigger",
+            action="store_true",
+            help="Trigger an immediate sync for each re-enabled schema instead of waiting for its next scheduled run",
+        )
+        parser.add_argument(
+            "--concurrency",
+            type=int,
+            default=10,
+            help="Number of concurrent Temporal schedule operations",
         )
 
     def handle(self, *args, **options):
@@ -92,21 +103,30 @@ class Command(BaseCommand):
             )
             return
 
-        succeeded = 0
-        failed = 0
+        failures = bulk_update_should_sync(
+            schema_list,
+            should_sync=True,
+            trigger=options["trigger"],
+            concurrency=options["concurrency"],
+        )
 
         for schema in schema_list:
-            try:
-                update_should_sync(schema_id=str(schema.id), team_id=schema.team_id, should_sync=True)
-                succeeded += 1
+            error = failures.get(str(schema.id))
+            if error is not None:
+                logger.error(
+                    "Failed to re-enable schema",
+                    schema_id=str(schema.id),
+                    team_id=schema.team_id,
+                    error=str(error),
+                )
+            else:
                 logger.info(
                     "Re-enabled schema",
                     schema_id=str(schema.id),
                     team_id=schema.team_id,
                     source_type=schema.source.source_type,
                 )
-            except Exception:
-                failed += 1
-                logger.exception("Failed to re-enable schema", schema_id=str(schema.id), team_id=schema.team_id)
 
-        self.stdout.write(self.style.SUCCESS(f"\nDone. Re-enabled: {succeeded}, Failed: {failed}"))
+        self.stdout.write(
+            self.style.SUCCESS(f"\nDone. Re-enabled: {len(schema_list) - len(failures)}, Failed: {len(failures)}")
+        )

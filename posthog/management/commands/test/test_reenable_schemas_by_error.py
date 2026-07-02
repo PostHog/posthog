@@ -43,7 +43,11 @@ def _create_schema(source, name="test_table", should_sync=True, latest_error=Non
     )
 
 
-@patch("posthog.management.commands.reenable_schemas_by_error.update_should_sync")
+def _updated_schema_ids(mock_update):
+    return [str(schema.id) for schema in mock_update.call_args.args[0]]
+
+
+@patch("posthog.management.commands.reenable_schemas_by_error.bulk_update_should_sync", return_value={})
 class TestReenableSchemasByError:
     def test_reenables_matching_schemas(self, mock_update, team):
         source = _create_source(team)
@@ -55,7 +59,8 @@ class TestReenableSchemasByError:
 
         call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
-        mock_update.assert_called_once_with(schema_id=str(schema.id), team_id=team.id, should_sync=True)
+        assert _updated_schema_ids(mock_update) == [str(schema.id)]
+        assert mock_update.call_args.kwargs == {"should_sync": True, "trigger": False, "concurrency": 10}
 
     def test_case_insensitive_match(self, mock_update, team):
         source = _create_source(team)
@@ -127,7 +132,7 @@ class TestReenableSchemasByError:
 
         call_command("reenable_schemas_by_error", "connection is insecure", source_type="Postgres", live_run=True)
 
-        mock_update.assert_called_once_with(schema_id=str(pg_schema.id), team_id=team.id, should_sync=True)
+        assert _updated_schema_ids(mock_update) == [str(pg_schema.id)]
 
     def test_reenables_across_teams(self, mock_update, team, team_2):
         source_1 = _create_source(team)
@@ -137,7 +142,7 @@ class TestReenableSchemasByError:
 
         call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
-        assert mock_update.call_count == 2
+        assert len(_updated_schema_ids(mock_update)) == 2
 
     def test_no_matches_prints_warning(self, mock_update, team, capsys):
         call_command("reenable_schemas_by_error", "nonexistent error string", live_run=True)
@@ -146,16 +151,25 @@ class TestReenableSchemasByError:
         captured = capsys.readouterr()
         assert "No disabled schemas found" in captured.out
 
-    def test_continues_on_individual_failure(self, mock_update, team):
+    def test_trigger_flag_forwarded(self, mock_update, team):
         source = _create_source(team)
-        _create_schema(source, name="t1", should_sync=False, latest_error="connection is insecure")
+        _create_schema(source, should_sync=False, latest_error="connection is insecure")
+
+        call_command("reenable_schemas_by_error", "connection is insecure", live_run=True, trigger=True)
+
+        assert mock_update.call_args.kwargs["trigger"] is True
+
+    def test_failures_reported_in_summary(self, mock_update, team, capsys):
+        source = _create_source(team)
+        failing = _create_schema(source, name="t1", should_sync=False, latest_error="connection is insecure")
         _create_schema(source, name="t2", should_sync=False, latest_error="connection is insecure")
 
-        mock_update.side_effect = [Exception("temporal down"), None]
+        mock_update.return_value = {str(failing.id): Exception("temporal down")}
 
         call_command("reenable_schemas_by_error", "connection is insecure", live_run=True)
 
-        assert mock_update.call_count == 2
+        captured = capsys.readouterr()
+        assert "Re-enabled: 1, Failed: 1" in captured.out
 
     @pytest.mark.parametrize(
         "disabled_after,disabled_before,expected_name",
@@ -185,4 +199,4 @@ class TestReenableSchemasByError:
 
         call_command("reenable_schemas_by_error", "connection is insecure", **kwargs)
 
-        mock_update.assert_called_once_with(schema_id=str(expected_schema.id), team_id=team.id, should_sync=True)
+        assert _updated_schema_ids(mock_update) == [str(expected_schema.id)]

@@ -1,6 +1,7 @@
 import sys
 import uuid
-from collections.abc import Callable, Iterable
+import asyncio
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
@@ -8,6 +9,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
@@ -715,6 +717,80 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
             sync_external_data_job_workflow(schema, create=True)
 
     return schema
+
+
+def bulk_update_should_sync(
+    schemas: Sequence[ExternalDataSchema],
+    should_sync: bool,
+    *,
+    trigger: bool = False,
+    concurrency: int = 10,
+) -> dict[str, BaseException]:
+    """Batch counterpart of update_should_sync sharing one Temporal connection.
+
+    update_should_sync opens two fresh mTLS connections per schema, which caps
+    mass re-enables at a few schemas per second. Returns schema id -> exception
+    for the schemas that failed; the rest succeeded.
+    """
+    # Same reason as update_should_sync: keep temporalio off the django.setup() path
+    from temporalio.client import Client  # noqa: PLC0415
+
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415
+    from posthog.temporal.common.schedule import (  # noqa: PLC0415
+        a_pause_schedule,
+        a_schedule_exists,
+        a_trigger_schedule,
+        a_unpause_schedule,
+    )
+
+    from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow  # noqa: PLC0415
+
+    failures: dict[str, BaseException] = {}
+    saved: list[ExternalDataSchema] = []
+    for schema in schemas:
+        try:
+            schema.should_sync = should_sync
+            schema.save()
+            saved.append(schema)
+        except Exception as e:
+            failures[str(schema.id)] = e
+
+    to_schedule = [schema for schema in saved if schema.source.supports_scheduled_sync]
+
+    async def _apply(client: Client, semaphore: asyncio.Semaphore, schema: ExternalDataSchema) -> bool:
+        async with semaphore:
+            schedule_id = str(schema.id)
+            if not await a_schedule_exists(client, schedule_id=schedule_id):
+                return False
+            if should_sync:
+                await a_unpause_schedule(client, schedule_id=schedule_id)
+                if trigger:
+                    await a_trigger_schedule(client, schedule_id=schedule_id)
+            else:
+                await a_pause_schedule(client, schedule_id=schedule_id)
+            return True
+
+    async def _apply_all() -> list[bool | BaseException]:
+        client = await async_connect()
+        semaphore = asyncio.Semaphore(concurrency)
+        return await asyncio.gather(
+            *(_apply(client, semaphore, schema) for schema in to_schedule), return_exceptions=True
+        )
+
+    results: list[bool | BaseException] = async_to_sync(_apply_all)() if to_schedule else []
+
+    for schema, result in zip(to_schedule, results, strict=True):
+        if isinstance(result, BaseException):
+            failures[str(schema.id)] = result
+        elif result is False and should_sync:
+            # Schedule missing despite should_sync flipping on — recreate it. Rare enough
+            # that the per-schema connection sync_external_data_job_workflow opens is fine.
+            try:
+                sync_external_data_job_workflow(schema, create=True)
+            except Exception as e:
+                failures[str(schema.id)] = e
+
+    return failures
 
 
 def update_sync_type_config_keys(

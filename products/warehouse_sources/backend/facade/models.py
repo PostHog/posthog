@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.models.custom_oauth2_integration import 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    bulk_update_should_sync,
     get_all_schemas_for_source_id,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -67,6 +68,7 @@ __all__ = [
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
+    "bulk_update_should_sync",
     "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",

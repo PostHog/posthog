@@ -1,11 +1,15 @@
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db.models import Model
+
+from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
 
@@ -14,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    bulk_update_should_sync,
     process_incremental_value,
     update_sync_type_config_keys,
 )
@@ -572,3 +577,93 @@ class TestStagedIncrementalCursor:
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+
+
+class TestBulkUpdateShouldSync(BaseTest):
+    def _create_schema(self, name: str) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name=name,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    @contextmanager
+    def _temporal_mocks(self, exists: bool = True, unpause_side_effect=None):
+        with (
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=MagicMock())),
+            patch(
+                "posthog.temporal.common.schedule.a_schedule_exists", new=AsyncMock(return_value=exists)
+            ) as exists_mock,
+            patch(
+                "posthog.temporal.common.schedule.a_unpause_schedule", new=AsyncMock(side_effect=unpause_side_effect)
+            ) as unpause_mock,
+            patch("posthog.temporal.common.schedule.a_pause_schedule", new=AsyncMock()) as pause_mock,
+            patch("posthog.temporal.common.schedule.a_trigger_schedule", new=AsyncMock()) as trigger_mock,
+            patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as create_mock,
+        ):
+            yield SimpleNamespace(
+                exists=exists_mock,
+                unpause=unpause_mock,
+                pause=pause_mock,
+                trigger=trigger_mock,
+                create=create_mock,
+            )
+
+    @parameterized.expand(
+        [
+            (True, False, 1, 0, 0),
+            (True, True, 1, 0, 1),
+            (False, False, 0, 1, 0),
+        ]
+    )
+    def test_dispatches_schedule_operation(
+        self, should_sync: bool, trigger: bool, unpause_calls: int, pause_calls: int, trigger_calls: int
+    ) -> None:
+        schema = self._create_schema("t1")
+
+        with self._temporal_mocks() as mocks:
+            failures = bulk_update_should_sync([schema], should_sync=should_sync, trigger=trigger)
+
+        assert failures == {}
+        assert mocks.unpause.call_count == unpause_calls
+        assert mocks.pause.call_count == pause_calls
+        assert mocks.trigger.call_count == trigger_calls
+        schema.refresh_from_db()
+        assert schema.should_sync is should_sync
+
+    def test_one_failure_does_not_block_other_schemas(self) -> None:
+        ok = self._create_schema("ok")
+        bad = self._create_schema("bad")
+
+        def unpause(client, schedule_id: str, note=None) -> None:
+            if schedule_id == str(bad.id):
+                raise RuntimeError("temporal down")
+
+        with self._temporal_mocks(unpause_side_effect=unpause) as mocks:
+            failures = bulk_update_should_sync([ok, bad], should_sync=True)
+
+        assert list(failures) == [str(bad.id)]
+        assert {call.kwargs["schedule_id"] for call in mocks.unpause.call_args_list} == {str(ok.id), str(bad.id)}
+        ok.refresh_from_db()
+        bad.refresh_from_db()
+        assert ok.should_sync is True
+        assert bad.should_sync is True
+
+    def test_missing_schedule_is_recreated(self) -> None:
+        schema = self._create_schema("t1")
+
+        with self._temporal_mocks(exists=False) as mocks:
+            failures = bulk_update_should_sync([schema], should_sync=True)
+
+        assert failures == {}
+        mocks.unpause.assert_not_called()
+        mocks.create.assert_called_once_with(schema, create=True)
