@@ -37,6 +37,7 @@ export function StaffTeamSearchInput(): JSX.Element {
             loading={teamSearchResultsLoading}
             onInputChange={(query) => searchTeams({ query })}
             onChange={(teamIds) => setSelectedTeamIds(teamIds)}
+            disableFiltering
         />
     )
 }
