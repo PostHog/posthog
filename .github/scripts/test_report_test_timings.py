@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from defusedxml import ElementTree
+
 SCRIPT_PATH = Path(__file__).with_name("report_test_timings.py")
 SPEC = importlib.util.spec_from_file_location("report_test_timings", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -129,6 +131,35 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
+
+
+# ---------- rerun classification (posthog.reruns testcase property) ----------
+
+
+@pytest.mark.parametrize(
+    "testcase_xml,expected",
+    [
+        # pytest 8's junitxml drops rerun attempts entirely; the posthog-junit-timings
+        # plugin records them as a testcase property — the only rerun signal we get.
+        (
+            '<testcase name="t"><properties><property name="posthog.reruns" value="2"/></properties></testcase>',
+            ("rerun_passed", 3),
+        ),
+        # A rerun count must not mask a test that exhausted its retries and failed.
+        (
+            '<testcase name="t"><properties><property name="posthog.reruns" value="2"/></properties>'
+            '<failure message="x"/></testcase>',
+            ("failed", 3),
+        ),
+        # Malformed value must never crash the exporter.
+        (
+            '<testcase name="t"><properties><property name="posthog.reruns" value="garbage"/></properties></testcase>',
+            ("passed", 1),
+        ),
+    ],
+)
+def test_classify_testcase_reads_rerun_property(testcase_xml: str, expected: tuple[str, int]) -> None:
+    assert report_test_timings.classify_testcase(ElementTree.fromstring(testcase_xml)) == expected
 
 
 # ---------- setup_seconds (posthog-junit-timings plugin) ----------

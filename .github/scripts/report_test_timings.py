@@ -148,14 +148,24 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
 def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
-    pytest-rerunfailures emits prior attempts as `<rerunFailure>` /
-    `<rerunError>` siblings before the final outcome child. Walk children once.
+    pytest's junitxml records nothing for pytest-rerunfailures attempts (a
+    rerun report is neither passed, failed, nor skipped), so the root
+    conftest's `posthog-junit-timings` plugin surfaces the retry count as a
+    `posthog.reruns` testcase property. `<rerunFailure>`/`<rerunError>`
+    children from other junit producers are honored too. Walk children once.
     """
     rerun_count = 0
     final_outcome: str | None = None
     for child in testcase:
         tag = child.tag
-        if tag.startswith("rerun"):
+        if tag == "properties":
+            for prop in child.findall("property"):
+                if prop.get("name") == "posthog.reruns":
+                    try:
+                        rerun_count += max(0, int(prop.get("value", "0")))
+                    except ValueError:
+                        pass
+        elif tag.startswith("rerun"):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
