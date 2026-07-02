@@ -907,10 +907,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             with self.timings.measure("ma_build_database"):
                 _ = self._shared_hogql_database
 
-            # Get marketing source adapters
-            with self.timings.measure("ma_get_adapters"):
-                adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
-
             # Build the cost source. When cost precompute is enabled, read the native materialized table
             # (no S3); fall back to the live S3 adapter union if not enabled or jobs aren't ready.
             union_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
@@ -922,6 +918,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         logger.exception("cost_precompute_failed", team_id=self.team.pk)
                         union_subquery = None
             if union_subquery is None:
+                # Only the S3 fallback consumes the live adapters. When precompute serves the query
+                # they'd be built and thrown away, so defer construction into this branch.
+                with self.timings.measure("ma_get_adapters"):
+                    adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
                 with self.timings.measure("ma_build_union_s3"):
                     # AST form to skip parse_select.
                     union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
