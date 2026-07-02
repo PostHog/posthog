@@ -198,6 +198,7 @@ the row lists both.
 | mux                     | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | okta                    | HTTP                        | requests                                                        | ✅                          |
+| northpass_lms           | HTTP                        | requests                                                        | ✅                          |
 | notion                  | HTTP                        | requests                                                        | ✅                          |
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
 | orb                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -530,7 +531,6 @@ doesn't conflict with concurrent PRs.
 - nexiopay
 - ninjaone_rmm
 - nocrm
-- northpass_lms
 - nutshell
 - nylas
 - oncehub

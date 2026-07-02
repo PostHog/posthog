@@ -2146,7 +2146,7 @@ class NoCRMSourceConfig(config.Config):
 
 @config.config
 class NorthpassLMSSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
