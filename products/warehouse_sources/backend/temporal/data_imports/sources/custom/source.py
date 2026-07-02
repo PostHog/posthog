@@ -12,7 +12,7 @@ from django.db import IntegrityError
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import PreparedRequest, Response
+from requests import PreparedRequest, Response, Timeout
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
@@ -931,8 +931,19 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT),
                     stream=True,
                 )
-            except Exception as exc:
-                return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
+            except Timeout:
+                # str(exc) here is the raw urllib3 "HTTPSConnectionPool(...): Read timed out" dump,
+                # which isn't actionable — surface the configured timeouts instead.
+                return False, (
+                    f"Resource {resource['name']!r}: timed out reaching {url} "
+                    f"(connect timeout {PROBE_CONNECT_TIMEOUT}s, read timeout {PROBE_READ_TIMEOUT}s). "
+                    "The endpoint may be slow or temporarily unreachable — check the URL and try again."
+                )
+            except Exception:
+                return False, (
+                    f"Resource {resource['name']!r}: could not reach {url}. "
+                    "Check that the URL is correct and the endpoint is reachable."
+                )
 
             # Only an auth rejection (401/403) is a credential problem. Other
             # statuses — 404 (resource not yet provisioned), 405, 429 (rate
