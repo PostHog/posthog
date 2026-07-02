@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import html
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -28,10 +28,13 @@ from django.utils import timezone
 import structlog
 
 if TYPE_CHECKING:
+    import requests
+
     from posthog.models.integration import GitHubIntegration
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -424,20 +427,13 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
     from urllib.parse import quote
 
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
     try:
-        response = github_request(
+        response = github.api_request(
             "GET",
-            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            access_token=access_token,
-            installation_id=github.github_installation_id,
+            f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
             timeout=10,
         )
-    except requests.RequestException:
+    except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
         return None
 
@@ -464,20 +460,9 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
     try:
-        response = github_request(
-            "GET",
-            f"https://api.github.com/repos/{repo_full_name}",
-            access_token=access_token,
-            installation_id=github.github_installation_id,
-            timeout=10,
-        )
-    except requests.RequestException:
+        response = github.api_request("GET", f"/repos/{repo_full_name}", timeout=10)
+    except GitHubIntegrationError:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
 
@@ -503,8 +488,6 @@ def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return False
@@ -520,8 +503,6 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}
@@ -552,8 +533,6 @@ def _resolve_baselines_with_merge_base(
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
@@ -1379,16 +1358,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repositories/{repo_external_id}",
-        access_token=access_token,
-        installation_id=github.github_installation_id,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repositories/{repo_external_id}", timeout=10)
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1398,8 +1368,10 @@ def _github_api_request(
     method: str,
     repo: Repo,
     path: str,
-    **kwargs,
-):
+    *,
+    json: Mapping[str, object] | None = None,
+    timeout: int = 10,
+) -> requests.Response:
     """
     Make a GitHub API request, auto-resolving renamed repos on 404.
 
@@ -1409,18 +1381,12 @@ def _github_api_request(
     """
     from urllib.parse import quote
 
-    from .github import github_request
-
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    access_token = github.get_access_token()
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = github_request(
-        method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
-    )
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1434,9 +1400,8 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = github_request(
-                method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
+            response = github.api_request(
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
             )
 
     return response
@@ -1448,17 +1413,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        access_token=access_token,
-        installation_id=github.github_installation_id,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}", timeout=10)
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1484,15 +1439,9 @@ def _fetch_baseline_file(
 
     import yaml
 
-    from .github import github_request
-
-    access_token = github.get_access_token()
-
-    response = github_request(
+    response = github.api_request(
         "GET",
-        f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
-        access_token=access_token,
-        installation_id=github.github_installation_id,
+        f"/repos/{repo_full_name}/contents/{file_path}",
         params={"ref": branch},
         timeout=10,
     )
@@ -1588,8 +1537,6 @@ def _post_commit_status(
     if not repo.repo_full_name:
         return
 
-    from .github import github_request
-
     context = f"PostHog Visual Review / {run.run_type}"
     # Tracking-only (observe) and partial runs must never satisfy the gating context that
     # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
@@ -1603,22 +1550,17 @@ def _post_commit_status(
 
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.get_access_token()
     target_url = _run_url(run, repo)
 
     try:
-        response = github_request(
+        response = github.api_request(
             "POST",
-            f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
-            access_token=access_token,
-            installation_id=github.github_installation_id,
-            json={
+            f"/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            json_body={
                 "state": state,
                 "description": description[:140],
                 "context": context,
@@ -1673,9 +1615,6 @@ def _commit_baseline_to_github(
         raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
 
     github = get_github_integration_for_repo(repo)
-
-    if github.access_token_expired():
-        github.refresh_access_token()
 
     if run.pr_number is None:
         raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
@@ -2289,8 +2228,6 @@ def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
     current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
 
     snapshots = list(run.snapshots.all())
