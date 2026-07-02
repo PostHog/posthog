@@ -477,6 +477,14 @@ describe('replayScannerLogic', () => {
         it('splits, trims, and drops empty values', () => {
             expect(parseCsvParam('a, b ,c,')).toEqual(['a', 'b', 'c'])
         })
+
+        it('survives the router coercing a single numeric param to a number', () => {
+            expect(parseCsvParam(2024)).toEqual(['2024'])
+        })
+
+        it('drops values outside the allowlist when one is given', () => {
+            expect(parseCsvParam('banana,yes', ['yes', 'no'])).toEqual(['yes'])
+        })
     })
 
     describe('observationsPage / sort URL sync', () => {

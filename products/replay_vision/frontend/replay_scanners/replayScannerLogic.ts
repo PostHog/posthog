@@ -48,6 +48,16 @@ export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
 export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
+const OBSERVATION_STATUS_VALUES: readonly ObservationStatusValue[] = [
+    'pending',
+    'running',
+    'succeeded',
+    'failed',
+    'ineligible',
+]
+const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = ['schedule', 'on_demand']
+const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
+
 export const OBSERVATIONS_PAGE_SIZE = 50
 
 const OBSERVE_POLL_GRACE_MS = 30_000
@@ -1037,11 +1047,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const pageRaw = Number(searchParams.page ?? 1)
             const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
             const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
-            const status = parseCsvParam<ObservationStatusValue>(searchParams.status)
-            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(searchParams.triggered_by)
-            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict)
+            const status = parseCsvParam<ObservationStatusValue>(searchParams.status, OBSERVATION_STATUS_VALUES)
+            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(
+                searchParams.triggered_by,
+                OBSERVATION_TRIGGERED_BY_VALUES
+            )
+            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict, OBSERVATION_VERDICT_VALUES)
             const tags = parseCsvParam<string>(searchParams.tags)
-            const subject = typeof searchParams.recording_subject === 'string' ? searchParams.recording_subject : ''
+            const subjectRaw = searchParams.recording_subject
+            // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
+            const subject =
+                typeof subjectRaw === 'string' ? subjectRaw : typeof subjectRaw === 'number' ? String(subjectRaw) : ''
             const sameAsCurrent =
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
@@ -1133,12 +1149,16 @@ export function parseSortParam(value: string | undefined): ObservationsSorting |
     return { columnKey, order: descending ? -1 : 1 }
 }
 
-export function parseCsvParam<T extends string>(value: string | undefined): T[] {
-    if (typeof value !== 'string' || value.length === 0) {
+export function parseCsvParam<T extends string>(value: unknown, validValues?: readonly T[]): T[] {
+    // The router coerces a single numeric param to a number, so `?tags=2024` must not be dropped.
+    const raw = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : ''
+    if (raw.length === 0) {
         return []
     }
-    return value
+    const parsed = raw
         .split(',')
         .map((v) => v.trim())
         .filter((v) => v.length > 0) as T[]
+    // Enum params drop unknown values at parse time instead of round-tripping garbage to the server.
+    return validValues ? parsed.filter((v) => validValues.includes(v)) : parsed
 }
