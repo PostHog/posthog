@@ -72,7 +72,7 @@ diagnosis, and stay open to a cause that is not listed here.
    the printer) and prod still emits `JSONExtract`, the property genuinely isn't materialized, so the
    fix is to materialize it (the migration layer in `SKILL.md` Step 5) or drop the property filter. This
    applies to both event and person property blobs: reading either as raw JSON can be up to ~100x slower
-   than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group
+   than reading a directly materialized (`mat_*`) column, and ~10x slower than a property group
    read.
 2. **Session joins.** Joining `raw_sessions` / `sharded_sessions` (for `$session_duration` etc.) adds a
    full sessions scan. Look for `raw_sessions` in the text.
@@ -168,13 +168,13 @@ Signals to read off the plan:
 
 ## Codebase map (in `../posthog` or the public repo)
 
-| Path                                            | What it explains                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `posthog/hogql/printer/base.py`                 | HogQL → SQL; the materialization decision tree (`mat_*` → `dmat_*` → property groups → JSONExtract fallback) |
-| `posthog/hogql/transforms/property_types.py`    | Whether a property access uses a materialized column or JSON extraction                                      |
-| `posthog/hogql/property.py`                     | How property filters become AST (person properties → `["person","properties"]` chain)                        |
-| `posthog/hogql/database/schema/events.py`       | Events table schema; lazy joins to person, pdi, sessions, groups                                             |
-| `posthog/hogql/database/database.py`            | Person-on-events mode: how `person_id` resolves via overrides vs pdi2                                        |
-| `posthog/hogql_queries/experiments/`            | How experiment queries build exposure CTEs and resolve persons                                               |
-| `ee/clickhouse/materialized_columns/analyze.py` | Auto-materialization logic (properties in 10+ slow queries reading >20GB or >5M rows)                        |
-| `posthog/clickhouse/query_tagging.py`           | The `QueryTags` model behind the `lc_*` columns                                                              |
+| Path                                            | What it explains                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `posthog/hogql/printer/base.py`                 | HogQL → SQL; the materialization decision tree (`mat_*` → property groups → JSONExtract fallback) |
+| `posthog/hogql/transforms/property_types.py`    | Whether a property access uses a materialized column or JSON extraction                           |
+| `posthog/hogql/property.py`                     | How property filters become AST (person properties → `["person","properties"]` chain)             |
+| `posthog/hogql/database/schema/events.py`       | Events table schema; lazy joins to person, pdi, sessions, groups                                  |
+| `posthog/hogql/database/database.py`            | Person-on-events mode: how `person_id` resolves via overrides vs pdi2                             |
+| `posthog/hogql_queries/experiments/`            | How experiment queries build exposure CTEs and resolve persons                                    |
+| `ee/clickhouse/materialized_columns/analyze.py` | Auto-materialization logic (properties in 10+ slow queries reading >20GB or >5M rows)             |
+| `posthog/clickhouse/query_tagging.py`           | The `QueryTags` model behind the `lc_*` columns                                                   |
