@@ -454,7 +454,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
-- incident_io
 - inflowinventory
 - infor_nexus
 - insightful
