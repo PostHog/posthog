@@ -289,6 +289,27 @@ class TestValidateCredentials:
             assert validate_credentials("key", "us") is False
 
 
+class TestSessionHardening:
+    """The API key travels in a custom `X-APTRINSIC-API-KEY` header, which the sample-capture
+    denylist can't recognise. Every session must value-mask the key and leave retries to tenacity."""
+
+    @staticmethod
+    def _assert_hardened(call: Any) -> None:
+        assert call.kwargs["redact_values"] == ("secret-key",)
+        assert call.kwargs["retry"].total == 0
+
+    def test_validate_credentials_masks_key_and_disables_adapter_retry(self) -> None:
+        with patch.object(gainsight_px, "make_tracked_session", return_value=MagicMock()) as make_session:
+            validate_credentials("secret-key", "us")
+        self._assert_hardened(make_session.call_args)
+
+    def test_get_rows_masks_key_and_disables_adapter_retry(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(gainsight_px, "_fetch_page", lambda *a, **k: {"users": [], "scrollId": None})
+        with patch.object(gainsight_px, "make_tracked_session", return_value=MagicMock()) as make_session:
+            list(get_rows("secret-key", "us", "users", MagicMock(), MagicMock()))
+        self._assert_hardened(make_session.call_args)
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [

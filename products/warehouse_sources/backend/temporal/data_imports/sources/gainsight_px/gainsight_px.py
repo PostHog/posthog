@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -95,7 +96,10 @@ def _fetch_page(
 def validate_credentials(api_key: str, region: str) -> bool:
     url = _build_url(f"{_base_url(region)}/accounts", {"pageSize": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
+        # `retry=Retry(total=0)` leaves retries to tenacity elsewhere; `redact_values` masks the API
+        # key in captured samples since `X-APTRINSIC-API-KEY` isn't a name-redacted auth header.
+        session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
         return response.status_code == 200
     except Exception:
         return False
@@ -183,7 +187,10 @@ def get_rows(
     base = _base_url(region)
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # `retry=Retry(total=0)` leaves retries to tenacity in `_fetch_page` (rather than stacking urllib3
+    # retries under them); `redact_values` masks the API key in captured samples since the custom
+    # `X-APTRINSIC-API-KEY` header isn't one of the name-redacted auth headers.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -201,6 +208,7 @@ def gainsight_px_source(
     resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
 ) -> SourceResponse:
     config = GAINSIGHT_PX_ENDPOINTS[endpoint]
+    partition_key = config.partition_key
 
     return SourceResponse(
         name=endpoint,
@@ -214,7 +222,7 @@ def gainsight_px_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="month" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
     )
