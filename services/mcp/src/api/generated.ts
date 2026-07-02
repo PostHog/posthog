@@ -138,6 +138,27 @@ export namespace Schemas {
     }
 
     /**
+     * A team-wide account note — an internal notebook linked to a Customer analytics account.
+     */
+    export interface AccountNote {
+      /** URL-safe short ID of the notebook. */
+      readonly short_id: string;
+      /**
+         * Title of the note.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the note was created. */
+      readonly created_at: string;
+      /** When the note was last modified. */
+      readonly last_modified_at: string;
+      /** UUID of the account this note is linked to. */
+      readonly account_id: string;
+      /** Name of the account this note is linked to. */
+      readonly account_name: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -31120,6 +31141,15 @@ export namespace Schemas {
       results: Account[];
     }
 
+    export interface PaginatedAccountNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNote[];
+    }
+
     export interface PaginatedAccountNotebookList {
       count: number;
       /** @nullable */
@@ -60132,6 +60162,21 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AccountNotesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Full-text search across note title and content, plus substring match on account name.
+     */
+    search?: string;
     };
 
     export type AccountsListParams = {
