@@ -147,7 +147,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         filtering). Built with the runner's user+modifiers so it's valid for resolving the final
         query, not just the factory's warehouse-name lookup."""
         modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
-        return Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
+        # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
+        # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
+        # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
+        # opaque flat span.
+        return Database.create_for(team=self.team, user=self.user, modifiers=modifiers, timings=self.timings)
 
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
@@ -897,21 +901,30 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
 
+            # Force the shared warehouse Database build here, in its own span, so its cost is isolated
+            # from adapter construction (both otherwise collapse into ma_get_adapters via the cached
+            # property's first access).
+            with self.timings.measure("ma_build_database"):
+                _ = self._shared_hogql_database
+
             # Get marketing source adapters
-            adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
+            with self.timings.measure("ma_get_adapters"):
+                adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
             # Build the cost source. When cost precompute is enabled, read the native materialized table
             # (no S3); fall back to the live S3 adapter union if not enabled or jobs aren't ready.
             union_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
             if self.config.costs_precomputation_enabled:
-                try:
-                    union_subquery = self._build_costs_from_precompute(self.query_date_range)
-                except Exception:
-                    logger.exception("cost_precompute_failed", team_id=self.team.pk)
-                    union_subquery = None
+                with self.timings.measure("ma_build_costs_precompute"):
+                    try:
+                        union_subquery = self._build_costs_from_precompute(self.query_date_range)
+                    except Exception:
+                        logger.exception("cost_precompute_failed", team_id=self.team.pk)
+                        union_subquery = None
             if union_subquery is None:
-                # AST form to skip parse_select.
-                union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
+                with self.timings.measure("ma_build_union_s3"):
+                    # AST form to skip parse_select.
+                    union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()

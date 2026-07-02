@@ -4842,6 +4842,12 @@ class FunnelsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+        ),
+    )
     funnel_step: int | None = Field(
         default=None,
         description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
@@ -5468,6 +5474,20 @@ class PathsFilter(BaseModel):
     showFullUrls: bool | None = None
     startPoint: str | None = None
     stepLimit: int | None = 5
+
+
+class PersonMetadataPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["person_metadata"] = Field(
+        default="person_metadata",
+        description=("Top-level columns on the persons table (e.g. created_at), not properties JSON"),
+    )
+    value: list[str | float | bool] | str | float | bool | None = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -9243,6 +9263,184 @@ class AssistantTrendsQuery(BaseModel):
     )
 
 
+class AssistantWebAnalyticsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown = Field(
+        ...,
+        description=(
+            "Required. Property to break down the table by. The full enum covers"
+            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
+            " marketing/source (UTM source/medium/campaign/term/content, channel,"
+            " referring domain), audience/device (browser, OS, device type, viewport),"
+            " and geography (country, region, city, timezone, language). Path-style"
+            " breakdowns pair naturally with `includeBounceRate` /"
+            " `includeAvgTimeOnPage`."
+        ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    includeAvgTimeOnPage: bool | None = Field(
+        default=False,
+        description=(
+            "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path."
+        ),
+    )
+    includeBounceRate: bool | None = Field(
+        default=False,
+        description=("Add a bounce-rate column. Most useful with a path-style breakdown."),
+    )
+    includeHost: bool | None = Field(
+        default=False,
+        description=(
+            "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`,"
+            " `PreviousPage`), concatenate host + pathname so the same path on"
+            " different hosts is counted separately."
+        ),
+    )
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for"
+            " more. Hard ceiling enforced at the wrapper."
+        ),
+    )
+    offset: conint(ge=0) | None = Field(default=None, description="Pagination offset.")
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
 class BreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12875,6 +13073,7 @@ class ConversionGoalFilter1(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -12925,6 +13124,7 @@ class ConversionGoalFilter1(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -12962,6 +13162,7 @@ class ConversionGoalFilter2(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -13011,6 +13212,7 @@ class ConversionGoalFilter2(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -13050,6 +13252,7 @@ class ConversionGoalFilter3(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -13100,6 +13303,7 @@ class ConversionGoalFilter3(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -13140,6 +13344,7 @@ class DashboardFilter(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14170,6 +14375,7 @@ class DataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14220,6 +14426,7 @@ class DataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14523,6 +14730,7 @@ class EntityNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14571,6 +14779,7 @@ class EntityNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14677,6 +14886,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14869,6 +15079,7 @@ class EventsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14919,6 +15130,7 @@ class EventsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -14955,6 +15167,7 @@ class EventsQueryActionStep(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15064,6 +15277,7 @@ class ExperimentDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15112,6 +15326,7 @@ class ExperimentDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15148,6 +15363,7 @@ class ExperimentEventExposureConfig(BaseModel):
     properties: list[
         EventPropertyFilter
         | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
         | ElementPropertyFilter
         | EventMetadataPropertyFilter
         | SessionPropertyFilter
@@ -15181,6 +15397,7 @@ class FeatureFlagGroupType(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15263,6 +15480,7 @@ class FunnelExclusionActionsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15314,6 +15532,7 @@ class FunnelExclusionActionsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15349,6 +15568,7 @@ class FunnelExclusionEventsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15401,6 +15621,7 @@ class FunnelExclusionEventsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15437,6 +15658,7 @@ class FunnelsDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15487,6 +15709,7 @@ class FunnelsDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15659,6 +15882,7 @@ class HogQLFilters(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15846,6 +16070,7 @@ class LifecycleDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -15895,6 +16120,7 @@ class LifecycleDataWarehouseNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -16736,6 +16962,7 @@ class PersonsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -16768,6 +16995,7 @@ class PersonsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -16814,6 +17042,7 @@ class PropertyGroupFilterValue(BaseModel):
         PropertyGroupFilterValue
         | EventPropertyFilter
         | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
         | ElementPropertyFilter
         | EventMetadataPropertyFilter
         | SessionPropertyFilter
@@ -20623,6 +20852,7 @@ class RetentionEntity(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21053,6 +21283,7 @@ class TileFilters(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21089,6 +21320,7 @@ class TraceNeighborsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21132,6 +21364,7 @@ class TraceQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21212,6 +21445,7 @@ class TracesQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21729,6 +21963,7 @@ class ActionsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -21778,6 +22013,7 @@ class ActionsNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -22857,6 +23093,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -23304,6 +23541,7 @@ class RecordingsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -23355,6 +23593,7 @@ class RecordingsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -23408,6 +23647,7 @@ class RetentionQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -23462,6 +23702,7 @@ class StickinessQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -23809,6 +24050,7 @@ class CalendarHeatmapQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24148,6 +24390,7 @@ class GroupNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24202,6 +24445,7 @@ class GroupNode(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24244,6 +24488,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24289,6 +24534,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24334,6 +24580,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24379,6 +24626,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24424,6 +24672,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24469,6 +24718,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24528,6 +24778,7 @@ class LifecycleQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24667,6 +24918,7 @@ class SessionsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24698,6 +24950,7 @@ class SessionsQuery(BaseModel):
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24732,6 +24985,7 @@ class SessionsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -24812,6 +25066,7 @@ class TrendsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -25094,6 +25349,7 @@ class FunnelsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -25475,6 +25731,7 @@ class PathsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -26218,6 +26475,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -26321,6 +26579,7 @@ class SessionBatchEventsQuery(BaseModel):
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -26359,6 +26618,7 @@ class SessionBatchEventsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -26397,7 +26657,14 @@ class ActorsQuery(BaseModel):
         extra="forbid",
     )
     fixedProperties: (
-        list[PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter] | None
+        list[
+            PersonPropertyFilter
+            | PersonMetadataPropertyFilter
+            | CohortPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+        ]
+        | None
     ) = Field(
         default=None,
         description=(
@@ -26411,7 +26678,13 @@ class ActorsQuery(BaseModel):
     offset: int | None = None
     orderBy: list[str] | None = None
     properties: (
-        list[PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter]
+        list[
+            PersonPropertyFilter
+            | PersonMetadataPropertyFilter
+            | CohortPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+        ]
         | PropertyGroupFilterValue
         | None
     ) = Field(
@@ -26463,6 +26736,7 @@ class EventsQuery(BaseModel):
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
@@ -26497,6 +26771,7 @@ class EventsQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter

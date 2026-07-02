@@ -21,6 +21,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
+    ErrorTrackingIssueMergeResult,
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
@@ -107,11 +108,11 @@ def update_issue(
     return issue
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> None:
+def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
     issue = _get_issue(team_id, issue_id)
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    issue.merge(issue_ids=ids)
+    return issue.merge(issue_ids=ids)
 
 
 def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:

@@ -48,6 +48,14 @@ def _current_month_bounds(now: datetime) -> tuple[datetime, datetime]:
     return start_of_month(now), next_month_start(now)
 
 
+def sum_enabled_scanner_estimates(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
+    """Projected monthly observation volume from the org's enabled scanners' cached estimates."""
+    scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
+    if exclude_scanner_id is not None:
+        scanners = scanners.exclude(pk=exclude_scanner_id)
+    return scanners.aggregate(total=Coalesce(Sum("estimated_monthly_observations"), Value(0)))["total"]
+
+
 def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     # Single `now` so the usage window, bonus expiry, and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
@@ -70,10 +78,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         organization_id=organization_id,
         expires_at__gt=now,
     ).aggregate(total=Coalesce(Sum("amount"), Value(0)))["total"]
-    projected = ReplayScanner.objects.filter(
-        team__organization_id=organization_id,
-        enabled=True,
-    ).aggregate(total=Coalesce(Sum("estimated_monthly_observations"), Value(0)))["total"]
+    projected = sum_enabled_scanner_estimates(organization_id)
     return QuotaSnapshot(
         monthly_quota=MONTHLY_OBSERVATION_QUOTA + bonus,
         usage_this_month=usage,
