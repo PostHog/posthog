@@ -7,15 +7,23 @@ from typing import Any, Generic, ParamSpec, TypeVar, cast
 from django.utils.timezone import now
 
 import orjson
+import structlog
+import redis.exceptions
 from django_redis.serializers.base import BaseSerializer
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.settings import TEST
 
+logger = structlog.get_logger(__name__)
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
 CacheKey = tuple[tuple[Any, ...], frozenset[tuple[Any, Any]]]
+
+# Transient connectivity blips (e.g. the Redis master briefly unreachable during a deploy or
+# failover) that a background refresh should tolerate rather than re-raise into an unwatched thread.
+_TRANSIENT_REFRESH_ERRORS = (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, ConnectionError)
 
 
 @dataclass()
@@ -35,11 +43,24 @@ class CachedFunction(Generic[P, R]):
         current_time = now()
         key: CacheKey = (args, frozenset(sorted(kwargs.items())))
 
-        def refresh():
+        def refresh(background: bool = False) -> None:
             try:
                 value = self._fn(*args, **kwargs)
                 self._cache[key] = (now(), value)
                 self._refreshing[key] = None
+            except _TRANSIENT_REFRESH_ERRORS as e:
+                # Clear the in-flight marker so the next call can retry.
+                self._refreshing[key] = None
+                if background and key in self._cache:
+                    # Nobody is waiting on this thread; keep serving the last cached value rather
+                    # than re-raising into a thread that only lands in error tracking as noise.
+                    logger.info(
+                        "cache_for.background_refresh_transient_error",
+                        fn=getattr(self._fn, "__name__", repr(self._fn)),
+                        error=str(e),
+                    )
+                    return
+                raise
             except Exception:
                 self._refreshing[key] = None
                 raise
@@ -50,7 +71,7 @@ class CachedFunction(Generic[P, R]):
             if self._background_refresh:
                 if not self._refreshing.get(key):
                     self._refreshing[key] = current_time
-                    t = threading.Thread(target=refresh)
+                    t = threading.Thread(target=refresh, kwargs={"background": True})
                     t.start()
             else:
                 refresh()
