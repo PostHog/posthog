@@ -747,8 +747,11 @@ class BatchConsumer:
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
         # Both sinks coordinate via group leases: get_stale_executing already
-        # excludes any group with a live lease, and the finally-unlock below only
-        # deletes leases this pod owns, so it can't steal a live group.
+        # excludes any group with a live lease and holds nothing itself, so the
+        # sweep must NOT release leases afterwards — this pod's poll loop can
+        # reclaim a just-requeued group (same owner token) while the sweep is
+        # still running, and an owner-scoped delete here would strip that fresh
+        # lease from the active group task.
         stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
@@ -768,44 +771,33 @@ class BatchConsumer:
             "log_source_id",
             "attempt",
         )
-        try:
-            for batch in stale:
-                structlog.contextvars.bind_contextvars(
-                    team_id=batch.team_id,
-                    external_data_schema_id=batch.schema_id,
-                    external_data_source_id=batch.source_id,
-                    external_data_job_id=batch.job_id,
-                    run_uuid=batch.run_uuid,
-                    batch_id=batch.id,
-                    resource_name=batch.resource_name,
-                    log_source_id=batch.schema_id,
-                    attempt=batch.latest_attempt,
-                )
-                try:
-                    if batch.latest_attempt >= self._config.max_attempts:
-                        logger.warning(
-                            self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
-                        )
-                        await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-                    else:
-                        logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
-                        await self._adapter.update_status(
-                            conn,
-                            batch_id=batch.id,
-                            job_state=self._adapter.waiting_retry_state,
-                            attempt=batch.latest_attempt,
-                            error_response={"error": "executing timed out - pod restart or OOM"},
-                        )
-                finally:
-                    structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
-        finally:
-            # Drop any leases this pod still owns for the recovered groups so a
-            # surviving consumer can claim them immediately; a no-op for groups
-            # abandoned by other pods.
+        for batch in stale:
+            structlog.contextvars.bind_contextvars(
+                team_id=batch.team_id,
+                external_data_schema_id=batch.schema_id,
+                external_data_source_id=batch.source_id,
+                external_data_job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                batch_id=batch.id,
+                resource_name=batch.resource_name,
+                log_source_id=batch.schema_id,
+                attempt=batch.latest_attempt,
+            )
             try:
-                await self._adapter.unlock(conn, batches=stale, owner_token=self._owner_token)
-            except Exception:
-                logger.exception(self._event("recovery_sweep_unlock_failed"))
+                if batch.latest_attempt >= self._config.max_attempts:
+                    logger.warning(self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt)
+                    await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                else:
+                    logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
+                    await self._adapter.update_status(
+                        conn,
+                        batch_id=batch.id,
+                        job_state=self._adapter.waiting_retry_state,
+                        attempt=batch.latest_attempt,
+                        error_response={"error": "executing timed out - pod restart or OOM"},
+                    )
+            finally:
+                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()

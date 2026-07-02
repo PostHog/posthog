@@ -312,9 +312,10 @@ class TestRecoverySweep:
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
         )
-        mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
-        )
+        # The sweep must not release leases: the poll loop can reclaim a
+        # just-requeued group (same owner token) while the sweep runs, and an
+        # owner-scoped delete here would strip that fresh lease mid-flight.
+        mock_unlock.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fails_exhausted_stale_batch(self):
@@ -337,10 +338,10 @@ class TestRecoverySweep:
 
         mock_fail.assert_called_once()
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
-        mock_unlock.assert_called_once()
+        mock_unlock.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_recovery_sweep_unlocks_on_error(self):
+    async def test_recovery_sweep_error_propagates_without_releasing_leases(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
 
@@ -363,9 +364,7 @@ class TestRecoverySweep:
         ):
             await consumer._recovery_sweep()
 
-        mock_unlock.assert_called_once_with(
-            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
-        )
+        mock_unlock.assert_not_called()
 
 
 class TestFailRun:
