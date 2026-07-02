@@ -5292,12 +5292,6 @@
               `irclid` Nullable(String)
           )') as p,
           JSONExtractString(person_properties, 'email') as _person_email,
-          mapSort(
-              mapFilter(
-                  (key, _) -> key like '$feature/%%',
-                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')
-              )
-          ) as properties_group_feature_flags,
           tupleElement(p, '$current_url') as _current_url,
           tupleElement(p, '$external_click_url') as _external_click_url,
           tupleElement(p, '$browser') as _browser,
