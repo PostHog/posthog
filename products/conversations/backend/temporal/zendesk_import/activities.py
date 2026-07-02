@@ -422,6 +422,14 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     # Phase 3: Persist tickets + comments in a single transaction (no network I/O).
     # Ticket numbers are assigned under the same lock that guards bulk_create, so
     # concurrent batch activities can't collide on unique_ticket_number_per_team.
+    #
+    # IMPORTANT: persist historical rows with bulk_create/bulk_update ONLY. These bypass the
+    # post_save/pre_save receivers in products/conversations/backend/signals.py, which is what
+    # keeps a backfill silent: those receivers emit the $conversation_* analytics events that
+    # power hogflow triggers (New ticket created, Ticket message sent/received, ...) AND enqueue
+    # outbound Slack/email/Teams/GitHub replies. Switching any write here to create_with_number(),
+    # Comment.objects.create(), or .save() would fire those signals for every imported row —
+    # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
         Team.objects.select_for_update().get(id=team.id)
         max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0

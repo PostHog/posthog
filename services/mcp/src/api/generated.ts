@@ -53822,6 +53822,12 @@ export namespace Schemas {
          * @maxLength 500
          */
       api_token: string;
+      /**
+         * Optional cap on how many tickets to import, for testing. Omit or null to import all.
+         * @minimum 1
+         * @nullable
+         */
+      max_tickets?: number | null;
     }
 
     export interface _CompareFilter {

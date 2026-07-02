@@ -46,6 +46,12 @@ class ZendeskImportStartSerializer(serializers.Serializer):
         write_only=True,
         max_length=500,
     )
+    max_tickets = serializers.IntegerField(
+        help_text="Optional cap on how many tickets to import, for testing. Omit or null to import all.",
+        required=False,
+        allow_null=True,
+        min_value=1,
+    )
 
 
 class ZendeskImportErrorSerializer(serializers.Serializer):
@@ -152,7 +158,11 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             workflow_id, workflow_run_id = asyncio.run(
-                start_zendesk_import_workflow(job_id=str(job.id), team_id=team_id)
+                start_zendesk_import_workflow(
+                    job_id=str(job.id),
+                    team_id=team_id,
+                    max_tickets=data.get("max_tickets"),
+                )
             )
             job.workflow_id = workflow_id
             job.workflow_run_id = workflow_run_id

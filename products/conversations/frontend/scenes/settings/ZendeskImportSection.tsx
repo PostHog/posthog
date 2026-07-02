@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -48,9 +49,17 @@ export function ZendeskImportSection(): JSX.Element {
 }
 
 function ZendeskImportForm(): JSX.Element {
-    const { subdomain, emailAddress, apiToken, importJob, importJobLoading, isImportRunning, importProgressLabel } =
-        useValues(zendeskImportLogic)
-    const { setSubdomain, setEmailAddress, setApiToken, submitImport } = useActions(zendeskImportLogic)
+    const {
+        subdomain,
+        emailAddress,
+        apiToken,
+        maxTickets,
+        importJob,
+        importJobLoading,
+        isImportRunning,
+        importProgressLabel,
+    } = useValues(zendeskImportLogic)
+    const { setSubdomain, setEmailAddress, setApiToken, setMaxTickets, submitImport } = useActions(zendeskImportLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -99,6 +108,22 @@ function ZendeskImportForm(): JSX.Element {
                 onChange={setApiToken}
                 disabled={isImportRunning}
             />
+            <LemonField.Pure
+                label="Tickets to import"
+                info="Cap the number of tickets to import — useful for a quick test run before a full import."
+            >
+                <LemonSelect<number | null>
+                    value={maxTickets}
+                    onChange={setMaxTickets}
+                    disabled={isImportRunning}
+                    options={[
+                        { label: 'First 10 tickets', value: 10 },
+                        { label: 'First 100 tickets', value: 100 },
+                        { label: 'First 1,000 tickets', value: 1000 },
+                        { label: 'All tickets', value: null },
+                    ]}
+                />
+            </LemonField.Pure>
             <div>
                 <LemonButton
                     type="primary"
