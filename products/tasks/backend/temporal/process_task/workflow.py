@@ -1301,15 +1301,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except Exception as e:
+            error_properties = self._activity_error_properties(e)
+            cause_message = error_properties.get("cause_error_message")
             workflow.logger.warning(
                 "send_followup_to_sandbox_failed",
                 extra={
                     "run_id": self.context.run_id,
                     "error": str(e),
+                    **error_properties,
                 },
             )
             # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
-            self._completion_error = f"Follow-up delivery failed: {e}"
+            self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._task_completed = True

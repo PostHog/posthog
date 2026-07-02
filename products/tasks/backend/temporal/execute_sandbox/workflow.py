@@ -727,19 +727,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
                 # task-completion path so it can react immediately.
+                error_properties = self._activity_error_properties(e)
+                cause_message = error_properties.get("cause_error_message")
                 workflow.logger.warning(
                     "execute_sandbox_send_followup_failed",
                     run_id=self.context.run_id,
                     error=str(e),
+                    **error_properties,
                 )
                 self._completion_status = "failed"
-                self._completion_error = f"Follow-up delivery failed: {e}"
+                self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
                 self._task_completed = True
                 self._enqueue_ack(
                     signal_name=SEND_FOLLOWUP_SIGNAL,
                     ack_id=followup.ack_id,
                     accepted=False,
-                    detail=str(e)[:200],
+                    detail=(cause_message or str(e))[:200],
                 )
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
