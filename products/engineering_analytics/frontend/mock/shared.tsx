@@ -10,8 +10,8 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { cn } from 'lib/utils/css-classes'
 
-import type { MockJob, MockLogLine, MockPr } from './mockData'
-import { DAY_LABELS } from './mockData'
+import type { MockJob, MockJobGroup, MockLogLine, MockPr } from './mockData'
+import { DAY_LABELS, failedShardsLabel, groupJobs } from './mockData'
 import { MockNavContext, MockRoute } from './mockNavContext'
 
 export type { MockRoute } from './mockNavContext'
@@ -82,11 +82,15 @@ export function MockHeaderBar({
     crumbs = [],
     branch = 'master',
     range = 'Last 30 days',
+    lensFilter,
 }: {
     /** hierarchy below the repo (workflow › run, PR, author); empty on the repo page itself */
     crumbs?: CrumbItem[]
     branch?: string
     range?: string
+    /** the lens as a literal filter — every entity page is the same runs+jobs view with this
+     *  filter applied; removing it zooms out one level */
+    lensFilter?: { label: string; clearTo: MockRoute }
 }): JSX.Element {
     const { go } = useMockNav()
     const chip =
@@ -114,6 +118,23 @@ export function MockHeaderBar({
                 </Fragment>
             ))}
             <span className="ml-auto flex items-center gap-2">
+                {lensFilter && (
+                    <span
+                        className={cn(chip, 'border-accent-highlight-secondary bg-fill-highlight-50')}
+                        title="This page is the same runs+jobs view with one filter applied — remove it to zoom out"
+                    >
+                        <strong className="font-semibold text-primary">{lensFilter.label}</strong>
+                        <span
+                            className="cursor-pointer px-0.5 text-tertiary hover:text-primary"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                go(lensFilter.clearTo)
+                            }}
+                        >
+                            ✕
+                        </span>
+                    </span>
+                )}
                 <span className={chip} title="Mock — one branch scope for every section below">
                     branch: <strong className="font-semibold text-primary">{branch}</strong>
                     <span className="text-[8px] text-tertiary">▼</span>
@@ -345,56 +366,100 @@ export function LogRows({ lines, header }: { lines: MockLogLine[]; header?: Reac
 /* ============ jobs table: tight rows, subtle timing bar, queue + duration + result ============ */
 
 export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
-    const tmax = Math.max(...jobs.map((j) => j.startMin + j.queueMin + j.durMin)) * 1.05
+    // matrix shards collapse into one group row — 77 raw jobs become ~12 rows; failing groups first
+    const groups = groupJobs(jobs).sort((a, b) => Number(b.failed.length > 0) - Number(a.failed.length > 0))
+    const tmax = Math.max(...groups.map((g) => g.endMin)) * 1.05
     const barColor: Record<MockJob['conclusion'], string> = {
         success: 'var(--success)',
         failure: 'var(--danger)',
         skipped: 'var(--muted)',
     }
     return (
-        <LemonTable<MockJob>
-            dataSource={jobs}
+        <LemonTable<MockJobGroup>
+            dataSource={groups}
             size="small"
             embedded
+            expandable={{
+                // only matrix groups expand, straight to their individual shards
+                rowExpandable: (g) => (g.jobs.length > 1 ? 1 : -1),
+                expandedRowRender: (g) => (
+                    <div className="px-3 py-2">
+                        {[...g.jobs]
+                            .sort((a, b) => Number(b.conclusion === 'failure') - Number(a.conclusion === 'failure'))
+                            .map((j) => (
+                                <div key={j.name} className="flex items-center gap-2 py-0.5 text-[11px]">
+                                    <StatusDot
+                                        kind={
+                                            j.conclusion === 'success'
+                                                ? 'success'
+                                                : j.conclusion === 'failure'
+                                                  ? 'danger'
+                                                  : 'muted'
+                                        }
+                                    />
+                                    <span className="truncate font-mono">{j.name}</span>
+                                    <span className="ml-auto tabular-nums text-tertiary">{fmtMin(j.durMin)}</span>
+                                </div>
+                            ))}
+                    </div>
+                ),
+            }}
             columns={[
                 {
                     title: 'Job',
-                    render: (_, j) => (
-                        <span className="flex items-center gap-1.5 overflow-hidden">
-                            <StatusDot
-                                kind={
-                                    j.conclusion === 'success'
-                                        ? 'success'
-                                        : j.conclusion === 'failure'
-                                          ? 'danger'
-                                          : 'muted'
-                                }
-                            />
-                            <span className="truncate font-mono text-[11px]">{j.name}</span>
+                    render: (_, g) => (
+                        <span className="overflow-hidden">
+                            <span className="flex items-center gap-1.5">
+                                <StatusDot
+                                    kind={
+                                        g.conclusion === 'success'
+                                            ? 'success'
+                                            : g.conclusion === 'failure'
+                                              ? 'danger'
+                                              : 'muted'
+                                    }
+                                />
+                                <span className="truncate font-mono text-[11px]">{g.base}</span>
+                                {g.jobs.length > 1 && (
+                                    <LemonTag type="muted">
+                                        ×{g.jobs.length}
+                                        {g.variants > 1 ? ` · ${g.variants} variants` : ''}
+                                    </LemonTag>
+                                )}
+                            </span>
+                            {g.failed.length > 0 && (
+                                <span className="mt-0.5 block pl-3.5 font-mono text-[10.5px] text-danger">
+                                    {failedShardsLabel(g)} failed
+                                </span>
+                            )}
                         </span>
                     ),
                 },
                 {
                     title: 'Timing',
-                    width: 260,
-                    render: (_, j) => (
-                        <span className="relative block h-2 w-full min-w-40">
+                    width: 220,
+                    render: (_, g) => (
+                        <span className="relative block h-2 w-full min-w-36">
                             <span
                                 className="absolute top-[3px] h-0.5 rounded-full bg-fill-secondary"
                                 style={{
-                                    left: `${(j.startMin / tmax) * 100}%`,
-                                    width: `${(j.queueMin / tmax) * 100}%`,
+                                    left: `${(g.startMin / tmax) * 100}%`,
+                                    width: `${(g.queueP50Min / tmax) * 100}%`,
                                 }}
-                                title={`queued ${fmtMin(j.queueMin)}`}
+                                title={`queued ~${fmtMin(g.queueP50Min)}`}
                             />
                             <span
                                 className="absolute top-0.5 h-1 rounded-full opacity-80"
                                 style={{
-                                    left: `${((j.startMin + j.queueMin) / tmax) * 100}%`,
-                                    width: `${(j.durMin / tmax) * 100}%`,
-                                    backgroundColor: barColor[j.conclusion],
+                                    left: `${((g.startMin + g.queueP50Min) / tmax) * 100}%`,
+                                    width: `${Math.max(0.5, ((g.endMin - g.startMin - g.queueP50Min) / tmax) * 100)}%`,
+                                    backgroundColor: barColor[g.conclusion],
                                 }}
-                                title={`${j.name} — ${fmtMin(j.durMin)} · ${j.conclusion}`}
+                                title={
+                                    g.jobs.length > 1
+                                        ? `${g.base} — ${g.jobs.length} jobs between ${fmtMin(g.minDurMin)} and ${fmtMin(g.maxDurMin)}`
+                                        : `${g.base} — ${fmtMin(g.maxDurMin)} · ${g.conclusion}`
+                                }
                             />
                         </span>
                     ),
@@ -402,24 +467,38 @@ export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
                 {
                     title: 'Queued',
                     align: 'right',
-                    render: (_, j) => <span className="tabular-nums text-tertiary">{fmtMin(j.queueMin)}</span>,
+                    render: (_, g) => <span className="tabular-nums text-tertiary">{fmtMin(g.queueP50Min)}</span>,
                 },
                 {
                     title: 'Duration',
                     align: 'right',
-                    render: (_, j) => <span className="tabular-nums">{fmtMin(j.durMin)}</span>,
+                    render: (_, g) => (
+                        <span className="tabular-nums">
+                            {g.jobs.length > 1 ? (
+                                <>
+                                    {fmtMin(g.minDurMin)} <span className="text-tertiary">→ {fmtMin(g.maxDurMin)}</span>
+                                </>
+                            ) : (
+                                fmtMin(g.maxDurMin)
+                            )}
+                        </span>
+                    ),
                 },
                 {
                     title: 'Runner',
-                    render: (_, j) => <span className="font-mono text-[11px] text-tertiary">{j.runner}</span>,
+                    render: (_, g) => <span className="font-mono text-[11px] text-tertiary">{g.jobs[0].runner}</span>,
                 },
                 {
                     title: 'Result',
-                    render: (_, j) =>
-                        j.conclusion === 'skipped' ? (
+                    render: (_, g) =>
+                        g.conclusion === 'skipped' ? (
                             <LemonTag type="muted">Skipped</LemonTag>
+                        ) : g.failed.length > 0 && g.jobs.length > 1 ? (
+                            <LemonTag type="danger">
+                                {g.failed.length}/{g.jobs.length} failed
+                            </LemonTag>
                         ) : (
-                            <CiTag ci={j.conclusion} />
+                            <CiTag ci={g.conclusion} />
                         ),
                 },
             ]}
@@ -429,7 +508,36 @@ export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
 
 /* ============ job dots: a run row IS a rollup of its jobs — make that visible ============ */
 
-export function JobDots({ jobs }: { jobs: MockJob[] }): JSX.Element {
+export function JobDots({ jobs, max = 20 }: { jobs: MockJob[]; max?: number }): JSX.Element {
+    const color: Record<MockJob['conclusion'], string> = {
+        success: 'var(--success)',
+        failure: 'var(--danger)',
+        skipped: 'var(--muted)',
+    }
+    // failures always make the cut — overflow only ever hides green
+    const shown =
+        jobs.length > max
+            ? [...jobs]
+                  .sort((a, b) => Number(b.conclusion === 'failure') - Number(a.conclusion === 'failure'))
+                  .slice(0, max)
+            : jobs
+    return (
+        <span className="inline-flex items-center gap-[3px]">
+            {shown.map((j) => (
+                <span
+                    key={j.name}
+                    className="inline-block size-1.5 rounded-full"
+                    style={{ backgroundColor: color[j.conclusion], opacity: j.conclusion === 'skipped' ? 0.5 : 0.9 }}
+                    title={`${j.name} — ${j.conclusion}`}
+                />
+            ))}
+            {jobs.length > max && <span className="text-[9px] text-tertiary">+{jobs.length - max}</span>}
+        </span>
+    )
+}
+
+/** One dot per matrix group — the readable rollup when a run has 50+ jobs. */
+export function GroupDots({ groups }: { groups: MockJobGroup[] }): JSX.Element {
     const color: Record<MockJob['conclusion'], string> = {
         success: 'var(--success)',
         failure: 'var(--danger)',
@@ -437,12 +545,12 @@ export function JobDots({ jobs }: { jobs: MockJob[] }): JSX.Element {
     }
     return (
         <span className="inline-flex items-center gap-[3px]">
-            {jobs.map((j) => (
+            {groups.map((g) => (
                 <span
-                    key={j.name}
+                    key={g.base}
                     className="inline-block size-1.5 rounded-full"
-                    style={{ backgroundColor: color[j.conclusion], opacity: j.conclusion === 'skipped' ? 0.5 : 0.9 }}
-                    title={`${j.name} — ${j.conclusion}`}
+                    style={{ backgroundColor: color[g.conclusion], opacity: g.conclusion === 'skipped' ? 0.5 : 0.9 }}
+                    title={`${g.base} — ${g.jobs.length > 1 ? `${g.jobs.length} jobs, ` : ''}${g.conclusion}`}
                 />
             ))}
         </span>

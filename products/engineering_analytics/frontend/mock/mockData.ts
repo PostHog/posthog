@@ -559,6 +559,166 @@ export function summarizeJobs(jobs: MockJob[]): { failed: MockJob[]; skipped: nu
     return { failed, skipped, label }
 }
 
+/** A realistic master-push Backend CI run, job names taken from a real PostHog run (77–82 jobs):
+ *  a multi-dimension Django matrix (segment × PoE × shard), sharded + list-valued product-test
+ *  groups, and ~11 orchestration jobs. This is the "how does it behave with 50+ jobs" case. */
+export function mockJobsBackendFull(seed: number, failing: boolean): MockJob[] {
+    const r = mulberry32(seed)
+    const jobs: MockJob[] = []
+    const meta: Array<[string, number, string]> = [
+        ['Determine need to run backend and migration checks', 0.4, 'ubuntu-latest'],
+        ['Get ClickHouse versions', 0.3, 'ubuntu-latest'],
+        ['Validate OpenAPI types', 4.5, 'depot-ubuntu-latest'],
+        ['Validate migrations', 3.2, 'depot-ubuntu-latest'],
+        ['Repo checks (depot-ubuntu-latest)', 2.1, 'depot-ubuntu-latest'],
+        ['Select tests', 0.8, 'ubuntu-latest'],
+        ['Detect snapshot mode', 0.2, 'ubuntu-latest'],
+        ['Build Django matrix', 0.3, 'ubuntu-latest'],
+    ]
+    for (const [name, dur, runner] of meta) {
+        jobs.push({ name, queueMin: 0.2 + r(), startMin: 0.5, durMin: dur + r(), conclusion: 'success', runner })
+    }
+    const django: Array<[string, number]> = [
+        ['Django tests – Core (persons-on-events off), Py 3.13, clickhouse:26.3', 23],
+        ['Django tests – Temporal (persons-on-events off), Py 3.13, clickhouse:26.3', 13],
+        ['Django tests – Core (persons-on-events on), Py 3.13, clickhouse:26.3', 3],
+    ]
+    for (const [variant, shards] of django) {
+        for (let i = 1; i <= shards; i++) {
+            jobs.push({
+                name: `${variant} (${i}/${shards})`,
+                queueMin: 0.8 + r() * 2.5,
+                startMin: 2 + r() * 2,
+                durMin: 14 + r() * 9,
+                conclusion: 'success',
+                runner: 'depot-ubuntu-latest-4',
+            })
+        }
+    }
+    const products = [
+        'Product tests (experiments (1/2))',
+        'Product tests (experiments (2/2))',
+        'Product tests (data-warehouse (1/2))',
+        'Product tests (data-warehouse (2/2))',
+        'Product tests (web-analytics)',
+        'Product tests (revenue-analytics)',
+        'Product tests (logs, ai-observability)',
+        'Product tests (replay-vision, tasks)',
+        'Product tests (marketing-analytics, slack-app)',
+        'Product tests (signals, notebooks, warehouse-sources-queue)',
+    ]
+    for (const name of products) {
+        jobs.push({
+            name,
+            queueMin: 0.6 + r() * 1.5,
+            startMin: 2.5 + r(),
+            durMin: 6 + r() * 8,
+            conclusion: 'success',
+            runner: 'depot-ubuntu-latest',
+        })
+    }
+    if (failing) {
+        // fail two Core shards — the realistic shape: one variant red, everything else green
+        const core = jobs.filter((j) => j.name.startsWith('Django tests – Core (persons-on-events off)'))
+        core[2].conclusion = 'failure'
+        core[2].durMin = 11.7
+        core[16].conclusion = 'failure'
+        core[16].durMin = 13.2
+    }
+    jobs.push({
+        name: 'Django Tests Pass',
+        queueMin: 0.1,
+        startMin: 26,
+        durMin: 0.3,
+        conclusion: failing ? 'failure' : 'success',
+        runner: 'ubuntu-latest',
+    })
+    jobs.push({
+        name: 'Calculate running time',
+        queueMin: 0.1,
+        startMin: 26.5,
+        durMin: 0.4,
+        conclusion: 'success',
+        runner: 'ubuntu-latest',
+    })
+    return jobs
+}
+
+export interface MockJobGroup {
+    /** grouping key: shard suffix stripped, then everything before the first " – " or " (" */
+    base: string
+    jobs: MockJob[]
+    /** distinct matrix variants inside the group (e.g. Core PoE-off / Core PoE-on / Temporal) */
+    variants: number
+    failed: MockJob[]
+    skipped: number
+    queueP50Min: number
+    minDurMin: number
+    maxDurMin: number
+    startMin: number
+    endMin: number
+    conclusion: MockJob['conclusion']
+}
+
+/** Matrix grouping, derived from real PostHog job names: strip a trailing "(G/N)" shard suffix
+ *  (handles nested parens like "Product tests (experiments (1/2))"), then group by the base name
+ *  before the first " – " or " (". Skipped matrices keep raw "${{ matrix.* }}" template names —
+ *  those are cleaned for display but grouped as-is. */
+export function groupJobs(jobs: MockJob[]): MockJobGroup[] {
+    const stripShard = (name: string): string =>
+        name.replace(/\s*\((\d+)\/(\d+)\)(\))?$/, (_, __, ___, close) => (close ? ')' : ''))
+    const baseOf = (name: string): string => {
+        const cleaned = stripShard(name).replace(/\$\{\{[^}]*\}\}/g, '…')
+        const dash = cleaned.indexOf(' – ')
+        const paren = cleaned.indexOf(' (')
+        const cut = [dash, paren].filter((i) => i > 0)
+        return cut.length ? cleaned.slice(0, Math.min(...cut)).trim() : cleaned.trim()
+    }
+    const order: string[] = []
+    const byBase = new Map<string, MockJob[]>()
+    for (const j of jobs) {
+        const base = baseOf(j.name)
+        if (!byBase.has(base)) {
+            byBase.set(base, [])
+            order.push(base)
+        }
+        byBase.get(base)!.push(j)
+    }
+    return order.map((base) => {
+        const group = byBase.get(base)!
+        const failed = group.filter((j) => j.conclusion === 'failure')
+        const skipped = group.filter((j) => j.conclusion === 'skipped').length
+        const variants = new Set(group.map((j) => stripShard(j.name))).size
+        const queues = group.map((j) => j.queueMin).sort((a, b) => a - b)
+        return {
+            base,
+            jobs: group,
+            variants,
+            failed,
+            skipped,
+            queueP50Min: queues[Math.floor(queues.length / 2)],
+            minDurMin: Math.min(...group.map((j) => j.durMin)),
+            maxDurMin: Math.max(...group.map((j) => j.durMin)),
+            startMin: Math.min(...group.map((j) => j.startMin)),
+            endMin: Math.max(...group.map((j) => j.startMin + j.queueMin + j.durMin)),
+            conclusion: failed.length ? 'failure' : skipped === group.length ? 'skipped' : 'success',
+        }
+    })
+}
+
+/** Short human form of which shards failed inside a group: "shards 3, 17 of 23". */
+export function failedShardsLabel(group: MockJobGroup): string {
+    const nums = group.failed
+        .map((j) => j.name.match(/\((\d+)\/(\d+)\)\)?$/))
+        .filter(Boolean)
+        .map((m) => m![1])
+    if (!nums.length) {
+        return group.failed.map((j) => j.name).join(' · ')
+    }
+    const total = group.failed[0].name.match(/\(\d+\/(\d+)\)\)?$/)?.[1]
+    return `shard${nums.length > 1 ? 's' : ''} ${nums.join(', ')}${total ? ` of ${total}` : ''}`
+}
+
 export interface MockJobAggregate {
     name: string
     /** matrix jobs auto-roll up into one row; null = plain job */
@@ -661,58 +821,158 @@ export function mockActivityRuns(seed: number, count: number, failRate: number, 
 export interface MockRun {
     id: number
     branch: string
+    sha: string
+    author: string
     prNumber: number | null
     conclusion: 'success' | 'failure' | 'cancelled'
     durationMin: number
+    queueMin: number
+    costUsd: number
     when: string
     attempt: number
 }
 
 export const MOCK_RECENT_RUNS: MockRun[] = [
-    { id: 41397, branch: 'master', prNumber: null, conclusion: 'failure', durationMin: 40, when: '6m ago', attempt: 1 },
+    {
+        id: 41397,
+        branch: 'master',
+        sha: 'c2dbdaa',
+        author: 'anna-cx',
+        prNumber: null,
+        conclusion: 'failure',
+        durationMin: 40,
+        queueMin: 0.7,
+        costUsd: 1.85,
+        when: '6m ago',
+        attempt: 1,
+    },
     {
         id: 41393,
         branch: 'feat/retention-export',
+        sha: '8e8d604',
+        author: 'webjunkie',
         prNumber: 67891,
         conclusion: 'failure',
         durationMin: 34,
+        queueMin: 1.2,
+        costUsd: 1.62,
         when: '31m ago',
         attempt: 2,
     },
     {
         id: 41390,
         branch: 'master',
+        sha: '593064b',
+        author: 'marcush',
         prNumber: null,
         conclusion: 'failure',
         durationMin: 37,
+        queueMin: 0.5,
+        costUsd: 1.71,
         when: '38m ago',
         attempt: 1,
     },
     {
         id: 41384,
         branch: 'fix/replay-window',
+        sha: '9dbc0c6',
+        author: 'tomasfp',
         prNumber: 67851,
         conclusion: 'success',
         durationMin: 29,
+        queueMin: 0.9,
+        costUsd: 1.4,
         when: '1h ago',
         attempt: 1,
     },
     {
         id: 41377,
         branch: 'chore/bump-kea',
+        sha: '465f79f',
+        author: 'dev-priya',
         prNumber: 67858,
         conclusion: 'success',
         durationMin: 27,
+        queueMin: 2.4,
+        costUsd: 1.31,
         when: '2h ago',
         attempt: 1,
     },
     {
         id: 41371,
         branch: 'feat/llma-cost-rollups',
+        sha: '593064b',
+        author: 'marcush',
         prNumber: 67862,
         conclusion: 'success',
         durationMin: 32,
+        queueMin: 0.6,
+        costUsd: 1.55,
         when: '2h ago',
         attempt: 1,
     },
 ]
+
+/** Per-push CI runs for the PR page's per-workflow expansion — the same runs surface, filtered. */
+export interface MockPrRun {
+    sha: string
+    runId: number
+    attempt: number
+    conclusion: 'success' | 'failure'
+    durationMin: number
+    costUsd: number
+    when: string
+}
+
+export function mockPrRuns(workflowSlug: string, failing: boolean): MockPrRun[] {
+    const base: MockPrRun[] = [
+        {
+            sha: 'a41f20c',
+            runId: 41302,
+            attempt: 1,
+            conclusion: 'success',
+            durationMin: 31,
+            costUsd: 1.4,
+            when: 'Jun 30 14:18',
+        },
+        {
+            sha: 'b7e91d4',
+            runId: 41318,
+            attempt: 1,
+            conclusion: 'success',
+            durationMin: 33,
+            costUsd: 1.5,
+            when: 'Jun 30 18:47',
+        },
+        {
+            sha: '5c20aa1',
+            runId: 41356,
+            attempt: 1,
+            conclusion: 'failure',
+            durationMin: 28,
+            costUsd: 1.3,
+            when: 'Jul 1 10:11',
+        },
+        {
+            sha: '5c20aa1',
+            runId: 41356,
+            attempt: 2,
+            conclusion: 'failure',
+            durationMin: 29,
+            costUsd: 1.35,
+            when: 'Jul 1 11:02',
+        },
+        {
+            sha: '8e8d604',
+            runId: 41393,
+            attempt: 1,
+            conclusion: failing ? 'failure' : 'success',
+            durationMin: 34,
+            costUsd: 1.62,
+            when: 'Jul 2 09:38',
+        },
+    ]
+    return workflowSlug === 'lint'
+        ? base.map((r) => ({ ...r, conclusion: 'success' as const, durationMin: 4, costUsd: 0.1 }))
+        : base
+}

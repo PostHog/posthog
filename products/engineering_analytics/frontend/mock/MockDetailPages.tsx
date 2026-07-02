@@ -2,21 +2,27 @@
 
 import { Fragment } from 'react'
 
-import { LemonCard, LemonTable } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { cn } from 'lib/utils/css-classes'
 
+import type { ActivityRun } from '../components/RunActivityChart'
+import { RunActivityChart } from '../components/RunActivityChart'
 import {
     DAY_LABELS,
     MOCK_LOG_DJANGO,
     MOCK_LOG_E2E,
     MOCK_PRS,
+    MockPrRun,
     daySeries,
     mockAuthor,
     mockJobs,
+    mockJobsBackendFull,
     mockPr,
+    mockPrRuns,
     mockWorkflow,
+    summarizeJobs,
 } from './mockData'
 import {
     AuthorChip,
@@ -38,7 +44,6 @@ import {
     fmtHours,
     fmtMin,
     fmtUsd,
-    useMockNav,
 } from './shared'
 
 /* ============================================================ run ============================================================ */
@@ -47,8 +52,9 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
     const isMasterRun = [41397, 41390].includes(id)
     const failing = [41397, 41393, 41390, 41371].includes(id)
     const w = isMasterRun ? mockWorkflow('e2e-ci') : mockWorkflow('backend-ci')
-    const jobs = mockJobs(id, failing, isMasterRun ? 'e2e (chromium)' : 'Django tests')
-    const failedJobs = jobs.filter((j) => j.conclusion === 'failure')
+    // the backend run carries the realistic 60+-job matrix — the grouping stress test
+    const jobs = isMasterRun ? mockJobs(id, failing, 'e2e (chromium)') : mockJobsBackendFull(id, failing)
+    const rollup = summarizeJobs(jobs)
 
     return (
         <div>
@@ -89,18 +95,14 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
                     sub={`critical path of ${jobs.length} jobs · workflow p50 is ${w.p50Min}m`}
                 />
                 <MockStatTile label="Queue time" value="41" valueSuffix="seconds" sub="created → first job started" />
-                <MockStatTile
-                    label="Jobs"
-                    value={`${jobs.length}`}
-                    sub={failing ? '2 failed · 1 skipped' : 'all succeeded'}
-                />
+                <MockStatTile label="Jobs" value={`${jobs.length}`} sub={rollup.label} />
                 <MockStatTile label="Estimated cost" value="$1.85" sub="sum of billable job minutes × tier rate" />
             </div>
 
             <Section
                 id="run-jobs"
                 title="Jobs"
-                note="queue then execution, per job — this is where a run becomes explainable"
+                note={`${jobs.length} jobs, grouped by matrix — failing groups first, expand a group for its shards`}
             >
                 <LemonCard hoverEffect={false} className="p-0">
                     <MockJobsTable jobs={jobs} />
@@ -114,15 +116,15 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
                     note="thinned to the lines that matter — full logs on GitHub"
                 >
                     <div className="flex flex-col gap-2.5">
-                        {failedJobs.map((j) => (
+                        {rollup.failed.slice(0, 2).map((j) => (
                             <LogRows
                                 key={j.name}
                                 lines={isMasterRun ? MOCK_LOG_E2E : MOCK_LOG_DJANGO}
                                 header={
                                     <>
                                         <StatusDot kind="danger" />
-                                        <span className="font-mono">{j.name}</span>
-                                        <span className="font-mono font-normal text-tertiary">
+                                        <span className="truncate font-mono">{j.name}</span>
+                                        <span className="shrink-0 font-mono font-normal text-tertiary">
                                             failed after {fmtMin(j.durMin)}
                                         </span>
                                     </>
@@ -139,14 +141,32 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
 /* ============================================================ pull request ============================================================ */
 
 const PUSHES = [
-    { sha: 'a41f20c', when: 'Jun 30 14:12', ok: true, gap: '26m' },
-    { sha: 'b7e91d4', when: 'Jun 30 18:40', ok: true, gap: '4h 28m' },
-    { sha: '5c20aa1', when: 'Jul 1 10:05', ok: false, gap: '15h' },
-    { sha: '8e8d604', when: 'Jul 2 09:31', ok: false, gap: '23h' },
+    { sha: 'a41f20c', when: 'Jun 30 14:12', ok: true, gap: '26m', hoursAgo: 52, costUsd: 3.1 },
+    { sha: 'b7e91d4', when: 'Jun 30 18:40', ok: true, gap: '4h 28m', hoursAgo: 47.5, costUsd: 3.2 },
+    { sha: '5c20aa1', when: 'Jul 1 10:05', ok: false, gap: '15h', hoursAgo: 28, costUsd: 4.4 },
+    { sha: '8e8d604', when: 'Jul 2 09:31', ok: false, gap: '23h', hoursAgo: 5, costUsd: 3.3 },
 ]
 
+const PR_WORKFLOW_NAMES = ['Backend CI', 'E2E CI', 'Frontend CI', 'Lint & types']
+const PR_WORKFLOW_DURATIONS_MIN = [24, 33, 13, 4]
+
+/** The PR's CI runs shaped for the shared RunActivityChart — variant C of the timeline:
+ *  same chart as the workflow and repo pages, the PR is just a filter. */
+function prActivityRuns(prNumber: number): ActivityRun[] {
+    const now = Date.now()
+    return PUSHES.flatMap((push, pi) =>
+        PR_WORKFLOW_NAMES.map((_, wi) => ({
+            runId: 41300 + pi * 10 + wi,
+            conclusion: !push.ok && wi <= 1 ? 'failure' : 'success',
+            startedAt: new Date(now - push.hoursAgo * 3600 * 1000 + wi * 60 * 1000).toISOString(),
+            durationSeconds: PR_WORKFLOW_DURATIONS_MIN[wi] * 60,
+            headBranch: 'feat/retention-export',
+            prNumber,
+        }))
+    )
+}
+
 export function MockPrPage({ number }: { number: number }): JSX.Element {
-    const { go } = useMockNav()
     const p = mockPr(number)
     const pushes = PUSHES.slice(0, Math.min(p.pushes, 4))
     const prWorkflows = [
@@ -154,7 +174,8 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
             w: mockWorkflow('backend-ci'),
             c: p.ci === 'failing' ? ('failure' as const) : ('success' as const),
             failedJob: 'Django tests (shard 3/6)',
-            dur: '24m',
+            p50: '24m',
+            cost: 5.2,
             runs: p.pushes + p.reruns,
         },
         {
@@ -166,16 +187,22 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                       ? ('running' as const)
                       : ('success' as const),
             failedJob: 'e2e (chromium, shard 3/8)',
-            dur: '33m',
+            p50: '33m',
+            cost: 6.1,
             runs: p.pushes + p.reruns + 1,
         },
-        { w: mockWorkflow('frontend-ci'), c: 'success' as const, failedJob: '', dur: '13m', runs: p.pushes },
-        { w: mockWorkflow('lint'), c: 'success' as const, failedJob: '', dur: '4m', runs: p.pushes },
+        { w: mockWorkflow('frontend-ci'), c: 'success' as const, failedJob: '', p50: '13m', cost: 0.9, runs: p.pushes },
+        { w: mockWorkflow('lint'), c: 'success' as const, failedJob: '', p50: '4m', cost: 0.2, runs: p.pushes },
     ]
 
     return (
         <div>
-            <MockHeaderBar crumbs={[{ label: `#${p.number}` }]} branch="feat/retention-export" />
+            {/* a PR is not a place under the repo — it's a filter on the same runs+jobs view, so it
+                rides the filter group, not the breadcrumb */}
+            <MockHeaderBar
+                branch="feat/retention-export"
+                lensFilter={{ label: `pr: #${p.number}`, clearTo: { page: 'repo' } }}
+            />
             <MockEntityHeader
                 icon={p.state === 'merged' ? '🟣' : '🟢'}
                 title={p.title}
@@ -231,17 +258,20 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
             <SectionNav
                 items={[
                     { id: 'pr-timeline', label: 'Timeline' },
-                    { id: 'pr-failures', label: 'Failures' },
                     { id: 'pr-runs', label: 'CI runs' },
+                    { id: 'pr-failures', label: 'Failures' },
                 ]}
             />
 
             <Section
                 id="pr-timeline"
                 title="Lifecycle"
-                note="every push triggers CI — red nodes had at least one failing workflow"
+                note="three candidate treatments of the same data — pick one, the other two go"
             >
                 <LemonCard hoverEffect={false} className="overflow-x-auto p-4">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
+                        Variant A · milestone strip
+                    </div>
                     <div className="flex min-w-[560px] items-start pt-2">
                         <LifecycleNode label="Opened" time="Jun 30 13:58" kind="start" />
                         {pushes.map((push) => (
@@ -261,6 +291,175 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                             kind={p.state === 'merged' ? 'end' : 'open'}
                         />
                     </div>
+                </LemonCard>
+                <LemonCard hoverEffect={false} className="mt-2.5 p-4">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
+                        Variant B · push ledger — a table again, one row per push
+                    </div>
+                    <LemonTable
+                        dataSource={[...pushes].reverse()}
+                        size="small"
+                        embedded
+                        columns={[
+                            {
+                                title: 'Push',
+                                render: (_, push) => <span className="font-mono text-xs">{push.sha}</span>,
+                            },
+                            { title: 'When', render: (_, push) => <span className="text-tertiary">{push.when}</span> },
+                            {
+                                title: 'Gap since previous',
+                                align: 'right',
+                                render: (_, push) => <span className="tabular-nums text-secondary">{push.gap}</span>,
+                            },
+                            {
+                                title: 'CI on this push',
+                                render: (_, push) => (
+                                    <span className="flex items-center gap-2">
+                                        <span className="inline-flex items-center gap-[3px]">
+                                            {PR_WORKFLOW_NAMES.map((name, wi) => (
+                                                <span
+                                                    key={name}
+                                                    className="inline-block size-1.5 rounded-full"
+                                                    style={{
+                                                        backgroundColor:
+                                                            !push.ok && wi <= 1 ? 'var(--danger)' : 'var(--success)',
+                                                    }}
+                                                    title={name}
+                                                />
+                                            ))}
+                                        </span>
+                                        {!push.ok && (
+                                            <span className="font-mono text-[10.5px] text-danger">
+                                                E2E CI · Backend CI
+                                            </span>
+                                        )}
+                                    </span>
+                                ),
+                            },
+                            {
+                                title: 'Cost',
+                                align: 'right',
+                                render: (_, push) => <span className="tabular-nums">{fmtUsd(push.costUsd)}</span>,
+                            },
+                        ]}
+                    />
+                </LemonCard>
+                <div className="mt-2.5">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
+                        Variant C · the same run scatter as everywhere else — the PR is just a filter
+                    </div>
+                    <RunActivityChart runs={prActivityRuns(p.number)} title={`Run activity · PR #${p.number}`} />
+                </div>
+            </Section>
+
+            <Section
+                id="pr-runs"
+                title="CI runs · by workflow"
+                note="attribution is by PR number, so every push is captured — expand a workflow for its runs per push"
+            >
+                <LemonCard hoverEffect={false} className="p-0">
+                    <LemonTable
+                        dataSource={prWorkflows}
+                        size="small"
+                        embedded
+                        expandable={{
+                            expandedRowRender: (x) => (
+                                <div className="p-2">
+                                    <LemonTable<MockPrRun>
+                                        dataSource={mockPrRuns(x.w.slug, x.c === 'failure')}
+                                        size="small"
+                                        embedded
+                                        columns={[
+                                            {
+                                                title: 'Push',
+                                                render: (_, r) => <span className="font-mono text-xs">{r.sha}</span>,
+                                            },
+                                            {
+                                                title: 'Run',
+                                                render: (_, r) => (
+                                                    <MockLink to={{ page: 'run', id: r.runId }}>
+                                                        <span className="font-mono text-xs">#{r.runId}</span>
+                                                    </MockLink>
+                                                ),
+                                            },
+                                            {
+                                                title: 'Attempt',
+                                                align: 'right',
+                                                render: (_, r) =>
+                                                    r.attempt > 1 ? (
+                                                        <LemonTag type="warning">{r.attempt}</LemonTag>
+                                                    ) : (
+                                                        <span className="tabular-nums">{r.attempt}</span>
+                                                    ),
+                                            },
+                                            { title: 'Conclusion', render: (_, r) => <CiTag ci={r.conclusion} /> },
+                                            {
+                                                title: 'Duration',
+                                                align: 'right',
+                                                render: (_, r) => (
+                                                    <span className="tabular-nums">{r.durationMin}m</span>
+                                                ),
+                                            },
+                                            {
+                                                title: 'Cost',
+                                                align: 'right',
+                                                render: (_, r) => (
+                                                    <span className="tabular-nums">{fmtUsd(r.costUsd)}</span>
+                                                ),
+                                            },
+                                            {
+                                                title: 'Started',
+                                                align: 'right',
+                                                render: (_, r) => (
+                                                    <span className="whitespace-nowrap text-tertiary">{r.when}</span>
+                                                ),
+                                            },
+                                        ]}
+                                    />
+                                </div>
+                            ),
+                        }}
+                        columns={[
+                            {
+                                title: 'Workflow',
+                                render: (_, x) => (
+                                    <span className="flex items-center gap-2 font-medium">
+                                        <StatusDot
+                                            kind={
+                                                x.c === 'failure' ? 'danger' : x.c === 'running' ? 'primary' : 'success'
+                                            }
+                                        />
+                                        <MockLink to={{ page: 'workflow', slug: x.w.slug }}>{x.w.name}</MockLink>
+                                    </span>
+                                ),
+                            },
+                            { title: 'Latest conclusion', render: (_, x) => <CiTag ci={x.c} /> },
+                            {
+                                title: 'What failed',
+                                render: (_, x) =>
+                                    x.c === 'failure' ? (
+                                        <span className="font-mono text-[10.5px] text-secondary">{x.failedJob}</span>
+                                    ) : (
+                                        <span className="text-tertiary">—</span>
+                                    ),
+                            },
+                            {
+                                title: 'Runs on this PR',
+                                align: 'right',
+                                render: (_, x) => <span className="tabular-nums">{x.runs}</span>,
+                            },
+                            {
+                                title: 'p50 on this PR',
+                                align: 'right',
+                                render: (_, x) => <span className="tabular-nums">{x.p50}</span>,
+                            },
+                            {
+                                title: 'Cost on this PR',
+                                align: 'right',
+                                render: (_, x) => <span className="tabular-nums">{fmtUsd(x.cost)}</span>,
+                            },
+                        ]}
+                    />
                 </LemonCard>
             </Section>
 
@@ -307,60 +506,6 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                 ) : (
                     <div className="text-xs text-tertiary">No failing checks on the latest push.</div>
                 )}
-            </Section>
-
-            <Section
-                id="pr-runs"
-                title="CI runs · grouped by workflow"
-                note="attribution is by PR number, so every push is captured — re-runs fold under their push"
-            >
-                <LemonCard hoverEffect={false} className="p-0">
-                    <LemonTable
-                        dataSource={prWorkflows}
-                        embedded
-                        onRow={(x) => ({ onClick: () => go({ page: 'workflow', slug: x.w.slug }) })}
-                        columns={[
-                            {
-                                title: 'Workflow',
-                                render: (_, x) => (
-                                    <span className="flex items-center gap-2 font-medium">
-                                        <StatusDot
-                                            kind={
-                                                x.c === 'failure' ? 'danger' : x.c === 'running' ? 'primary' : 'success'
-                                            }
-                                        />
-                                        <MockLink to={{ page: 'workflow', slug: x.w.slug }}>{x.w.name}</MockLink>
-                                    </span>
-                                ),
-                            },
-                            { title: 'Latest conclusion', render: (_, x) => <CiTag ci={x.c} /> },
-                            {
-                                title: 'What failed',
-                                render: (_, x) =>
-                                    x.c === 'failure' ? (
-                                        <span className="font-mono text-[10.5px] text-secondary">{x.failedJob}</span>
-                                    ) : (
-                                        <span className="text-tertiary">—</span>
-                                    ),
-                            },
-                            {
-                                title: 'Runs on this PR',
-                                align: 'right',
-                                render: (_, x) => <span className="tabular-nums">{x.runs}</span>,
-                            },
-                            {
-                                title: 'Latest duration',
-                                align: 'right',
-                                render: (_, x) => <span className="tabular-nums">{x.dur}</span>,
-                            },
-                            {
-                                title: '',
-                                align: 'right',
-                                render: () => <MockLink to={{ page: 'run', id: 41393 }}>latest run →</MockLink>,
-                            },
-                        ]}
-                    />
-                </LemonCard>
             </Section>
         </div>
     )
@@ -415,7 +560,10 @@ export function MockAuthorPage({ handle }: { handle: string }): JSX.Element {
 
     return (
         <div>
-            <MockHeaderBar crumbs={[{ label: a.handle }]} branch="all branches" />
+            <MockHeaderBar
+                branch="all branches"
+                lensFilter={{ label: `author: ${a.handle}`, clearTo: { page: 'repo' } }}
+            />
             <MockEntityHeader
                 title={a.handle}
                 slug={<span className="cursor-pointer text-link">github.com/{a.handle} ↗</span>}

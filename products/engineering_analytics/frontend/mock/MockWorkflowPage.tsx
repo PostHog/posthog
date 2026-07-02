@@ -10,18 +10,22 @@ import {
     MOCK_JOB_AGGREGATES,
     MOCK_LOG_E2E,
     MOCK_RECENT_RUNS,
+    MockJob,
     MockJobAggregate,
     MockRun,
     daySeries,
+    failedShardsLabel,
+    groupJobs,
     mockActivityRuns,
     mockJobs,
+    mockJobsBackendFull,
     mockWorkflow,
-    summarizeJobs,
 } from './mockData'
 import {
+    AuthorChip,
     CiTag,
     DeltaBadge,
-    JobDots,
+    GroupDots,
     LogRows,
     MockEntityHeader,
     MockHeaderBar,
@@ -43,7 +47,11 @@ import {
 export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
     const w = mockWorkflow(slug)
     const failing = w.onMaster === 'failing'
-    const shardName = w.slug === 'e2e-ci' ? 'e2e (chromium)' : 'Django tests'
+    // Backend CI carries the real 60+-job matrix; other workflows a small flat job set
+    const jobsForRun = (runId: number, runFailing: boolean): MockJob[] =>
+        w.slug === 'backend-ci'
+            ? mockJobsBackendFull(runId, runFailing)
+            : mockJobs(runId, runFailing, w.slug === 'e2e-ci' ? 'e2e (chromium)' : 'Django tests')
 
     return (
         <div>
@@ -199,9 +207,14 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                 ),
                             },
                             {
-                                title: 'p50 duration',
+                                title: 'p50 → p95',
                                 align: 'right',
-                                render: (_, j) => <span className="tabular-nums">{j.p50Min}m</span>,
+                                render: (_, j) => (
+                                    <span className="tabular-nums">
+                                        {j.p50Min}m{' '}
+                                        <span className="text-tertiary">→ {Math.round(j.p50Min * 1.8)}m</span>
+                                    </span>
+                                ),
                             },
                             {
                                 title: 'Failure rate',
@@ -220,8 +233,8 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                 render: (_, j) => <span className="tabular-nums">{j.retries30d}</span>,
                             },
                             {
-                                title: 'Cost share',
-                                width: 180,
+                                title: 'Cost · 30d',
+                                width: 210,
                                 render: (_, j) => (
                                     <span className="flex items-center gap-2">
                                         <span className="relative h-1.5 w-24 overflow-hidden rounded-full bg-fill-secondary">
@@ -233,8 +246,9 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                                 }}
                                             />
                                         </span>
-                                        <span className="text-xs tabular-nums text-secondary">
-                                            {Math.round(j.costShare * 100)}%
+                                        <span className="text-xs tabular-nums">
+                                            {fmtUsd(j.costShare * w.cost30d)}
+                                            <span className="ml-1 text-tertiary">{Math.round(j.costShare * 100)}%</span>
                                         </span>
                                     </span>
                                 ),
@@ -291,15 +305,20 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                 </div>
             </Section>
 
-            <Section id="runs" title="Runs" note="latest first — expand a run for its jobs without leaving the page">
+            <Section
+                id="runs"
+                title="Runs"
+                note={`latest first — expand a run for its jobs; ${w.slug === 'backend-ci' ? 'these runs carry 60+ jobs, grouped by matrix' : 'dots are matrix groups, not raw jobs'}`}
+            >
                 <LemonCard hoverEffect={false} className="p-0">
                     <LemonTable<MockRun>
                         dataSource={MOCK_RECENT_RUNS}
+                        size="small"
                         embedded
                         expandable={{
                             expandedRowRender: (r) => (
                                 <div className="p-3">
-                                    <MockJobsTable jobs={mockJobs(r.id, r.conclusion === 'failure', shardName)} />
+                                    <MockJobsTable jobs={jobsForRun(r.id, r.conclusion === 'failure')} />
                                     <div className="mt-2 text-xs">
                                         <MockLink to={{ page: 'run', id: r.id }}>Open run #{r.id} →</MockLink>
                                     </div>
@@ -315,22 +334,22 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                     </MockLink>
                                 ),
                             },
+                            { title: 'Conclusion', render: (_, r) => <CiTag ci={r.conclusion} /> },
                             {
-                                title: 'Conclusion',
+                                title: 'Jobs',
                                 tooltip:
-                                    'A run is a rollup of its jobs — the dots are the jobs, the failing ones are named',
+                                    'One dot per matrix group — a run is a rollup of its jobs, failing groups are named',
                                 render: (_, r) => {
-                                    const jobs = mockJobs(r.id, r.conclusion === 'failure', shardName)
-                                    const rollup = summarizeJobs(jobs)
+                                    const groups = groupJobs(jobsForRun(r.id, r.conclusion === 'failure'))
+                                    const failing = groups.filter((g) => g.failed.length > 0)
                                     return (
                                         <span>
-                                            <span className="flex items-center gap-2">
-                                                <CiTag ci={r.conclusion} />
-                                                <JobDots jobs={jobs} />
-                                            </span>
-                                            {rollup.failed.length > 0 && (
-                                                <span className="mt-0.5 block font-mono text-[10.5px] text-tertiary">
-                                                    {rollup.failed.map((j) => j.name).join(' · ')}
+                                            <GroupDots groups={groups} />
+                                            {failing.length > 0 && (
+                                                <span className="mt-0.5 block font-mono text-[10.5px] text-danger">
+                                                    {failing
+                                                        .map((g) => `${g.base}: ${failedShardsLabel(g)}`)
+                                                        .join(' · ')}
                                                 </span>
                                             )}
                                         </span>
@@ -349,6 +368,10 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                 ),
                             },
                             {
+                                title: 'Commit',
+                                render: (_, r) => <span className="font-mono text-xs text-tertiary">{r.sha}</span>,
+                            },
+                            {
                                 title: 'PR',
                                 render: (_, r) =>
                                     r.prNumber ? (
@@ -356,6 +379,10 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                     ) : (
                                         <span className="text-tertiary">—</span>
                                     ),
+                            },
+                            {
+                                title: 'Author',
+                                render: (_, r) => <AuthorChip handle={r.author} />,
                             },
                             {
                                 title: 'Attempt',
@@ -368,14 +395,26 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                     ),
                             },
                             {
+                                title: 'Queue',
+                                align: 'right',
+                                render: (_, r) => (
+                                    <span className="tabular-nums text-tertiary">{fmtMin(r.queueMin)}</span>
+                                ),
+                            },
+                            {
                                 title: 'Duration',
                                 align: 'right',
                                 render: (_, r) => <span className="tabular-nums">{r.durationMin}m</span>,
                             },
                             {
+                                title: 'Cost',
+                                align: 'right',
+                                render: (_, r) => <span className="tabular-nums">{fmtUsd(r.costUsd)}</span>,
+                            },
+                            {
                                 title: 'Started',
                                 align: 'right',
-                                render: (_, r) => <span className="text-tertiary">{r.when}</span>,
+                                render: (_, r) => <span className="whitespace-nowrap text-tertiary">{r.when}</span>,
                             },
                         ]}
                     />
