@@ -1,7 +1,7 @@
 """Marks provably-orphaned pending/running observations as failed so they stop blocking re-scans and eating quota."""
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import structlog
@@ -30,11 +30,13 @@ _ORPHANED_ERROR_REASON = f"{FailureKind.ORPHANED.value}:The analysis stopped wit
 
 def _list_stale_observations() -> list[dict[str, Any]]:
     cutoff = datetime.now(UTC) - OBSERVATION_ORPHAN_CUTOFF
-    return list(
+    rows = (
         ReplayObservation.objects.filter(status__in=_LIVE_STATUSES, created_at__lt=cutoff)
         .order_by("created_at")
         .values("id", "workflow_id", "scanner_snapshot")[:REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE]
     )
+    # cast: django-stubs types `.values()` rows as a TypedDict, which mypy won't widen to dict[str, Any].
+    return cast(list[dict[str, Any]], list(rows))
 
 
 async def _workflow_is_open(temporal: Client, workflow_id: str) -> bool | None:

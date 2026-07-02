@@ -898,7 +898,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(
             session_id="done-old",
             status=ObservationStatus.SUCCEEDED,
-            completed_at=now - timezone.timedelta(hours=2),
+            completed_at=now - timedelta(hours=2),
         )
         self._create_observation(session_id="done-new", status=ObservationStatus.SUCCEEDED, completed_at=now)
         self._create_observation(
