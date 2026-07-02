@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
@@ -32,7 +32,8 @@ const BASE_PROPERTIES = BASE_QUERY_PROPERTIES.map(([, property]) => property)
 function pinnedSessionProperties(pinnedProperties: string[]): string[] {
     return pinnedProperties.filter(
         (property) =>
-            property in CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties && !BASE_PROPERTIES.includes(property)
+            Object.hasOwn(CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties, property) &&
+            !BASE_PROPERTIES.includes(property)
     )
 }
 
@@ -59,10 +60,7 @@ function buildPropertiesQuery(
                         FROM events
                         WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                         AND session_id IN ${sessionIds}
-                        -- the timestamp range here is only to avoid querying too much of the events table
-                        -- we don't really care about the absolute value,
-                        -- but we do care about whether timezones have an odd impact
-                        -- so, we extend the range by a day on each side so that timezones don't cause issues
+                        -- the timestamp range only bounds the events-table scan, padded a day each side so timezones can't cause issues
                         AND timestamp >= ${dayjs(oldestTimestamp).subtract(1, 'day')}
                         AND timestamp <= ${dayjs(newestTimestamp).add(1, 'day')}
                         GROUP BY session_id`
@@ -107,13 +105,14 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         if (!extraSessionProperties.length) {
                             throw e
                         }
-                        // a pinned property may not exist on this project's session table version —
-                        // remember the failing set so subsequent batches skip the wide query
                         response = await api.queryHogQL(
                             buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, []),
                             QUERY_TAGS
                         )
-                        actions.markExtraPropertiesUnqueryable(extraSessionProperties)
+                        // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch
+                        if (e instanceof ApiError && e.status === 400) {
+                            actions.markExtraPropertiesUnqueryable(extraSessionProperties)
+                        }
                     }
                     const loadTimeMs = performance.now() - startTime
 

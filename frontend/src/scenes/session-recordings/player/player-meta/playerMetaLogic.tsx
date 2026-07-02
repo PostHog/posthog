@@ -120,8 +120,7 @@ export function getPropertyDisplayInfo(
 } {
     const propertyType =
         recordingProperties && property in recordingProperties
-            ? // HogQL query can return multiple types, so we need to check
-              // but if it doesn't match a core definition it must be an event property
+            ? // anything the query returned that doesn't match a core definition must be an event property
               getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
             : TaxonomicFilterGroupType.PersonProperties
 
@@ -541,8 +540,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (!id) {
                     return
                 }
-                // Delegates the SSE stream + per-session state to the singleton so that
-                // progress survives navigation away from and back to a recording mid-stream.
+                // delegates the SSE stream + per-session state to the singleton so progress survives navigating away and back mid-stream
                 actions.startSummarization(id)
             },
         }

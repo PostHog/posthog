@@ -203,7 +203,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         useQueryMocks((query) => {
             issuedQueries.push(query)
             if (query.includes('$entry_utm_medium')) {
-                return [500, { detail: 'unknown field' }]
+                return [400, { detail: 'unknown field' }]
             }
             return {
                 results: [query.includes('$channel_type') ? [...S1_BASE_ROW, 'Paid Search'] : S1_BASE_ROW],
@@ -223,7 +223,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             logic.actions.maybeLoadPropertiesForSessions([mockSessons[0]])
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
-        // previously cached values survive the fallback; the failed pin reads as complete (null), so no refetch loop
+        // cached values survive the fallback and the failed pin reads as complete (null), so no refetch loop
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({
             $browser: 'Chrome',
             $channel_type: 'Paid Search',
@@ -240,5 +240,34 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
         expect(issuedQueries).toHaveLength(queriesSoFar + 1)
         expect(issuedQueries[issuedQueries.length - 1]).not.toContain('$entry_utm_medium')
+    })
+
+    it('retries the extended query after a transient failure', async () => {
+        const issuedQueries: string[] = []
+        let failWideQuery = true
+        useQueryMocks((query) => {
+            issuedQueries.push(query)
+            if (query.includes('$entry_utm_medium')) {
+                if (failWideQuery) {
+                    return [500, { detail: 'timeout' }]
+                }
+                return { results: [[...S2_BASE_ROW, 'paid']] }
+            }
+            return { results: [S1_BASE_ROW] }
+        })
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPropertiesForSessions([mockSessons[0]])
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
+
+        // a 5xx does not mark the pin set unqueryable — the next batch retries the wide query
+        failWideQuery = false
+        await expectLogic(logic, () => {
+            logic.actions.maybeLoadPropertiesForSessions([mockSessons[1]])
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
+
+        expect(issuedQueries[issuedQueries.length - 1]).toContain('$entry_utm_medium')
+        expect(logic.values.recordingPropertiesById['s2']).toMatchObject({ $entry_utm_medium: 'paid' })
     })
 })
