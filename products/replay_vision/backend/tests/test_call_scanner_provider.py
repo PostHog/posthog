@@ -133,6 +133,28 @@ async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cached_tool_budget_exhaustion_forces_an_inline_tool_free_answer() -> None:
+    # With the video cached, the forced final turn can't reuse the cache (Gemini rejects tools/tool_config alongside
+    # cached_content). It must run inline with no tool and the video + preamble re-supplied — otherwise every
+    # budget-exhausting cached scan hits a hard 400 and produces no observation.
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(7)]
+    responses.append(_Resp(text='{"verdict":"yes"}'))
+    client = _FakeClient(responses)
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, cache_name="caches/abc")
+    assert out["core"].verdict == "yes"
+
+    cached_turn, forced_turn = client.models.calls[0], client.models.calls[-1]
+    assert cached_turn["config"].cached_content == "caches/abc"  # normal turns still use the cache
+    assert cached_turn["contents"][0] != _VIDEO  # video lives in the cache, not inline
+
+    assert forced_turn["config"].cached_content is None  # forced turn drops the cache...
+    assert forced_turn["config"].tools is None and forced_turn["config"].tool_config is None  # ...and offers no tool
+    assert forced_turn["contents"][0] == _VIDEO  # video + preamble re-supplied inline so context isn't lost
+    assert forced_turn["contents"][1].text == "PRE"
+
+
+@pytest.mark.asyncio
 async def test_step_survives_a_response_with_no_candidates() -> None:
     # Gemini can return zero candidates (safety filter / content policy); the step must fail cleanly rather than
     # IndexError on candidates[0].
@@ -223,6 +245,17 @@ class TestStepConfig:
         assert config.tools is None
         assert config.cached_content == "caches/abc"
         assert config.response_json_schema is not None
+
+    def test_forced_turn_never_references_the_cache_or_sets_tool_config(self) -> None:
+        # Gemini rejects a request that sets `tools` or `tool_config` alongside `cached_content` with a hard 400.
+        # The forced final turn must therefore run inline with the tool simply absent, even when the run is cached.
+        step = MissionStep(name="core", instruction="c", response_model=_Core)
+        for cache_name in (None, "caches/abc"):
+            config = _step_config(step, cache_name=cache_name, allow_tools=False)
+            assert config.tools is None
+            assert config.tool_config is None
+            assert config.cached_content is None
+            assert config.response_json_schema is not None
 
 
 @pytest.mark.asyncio
