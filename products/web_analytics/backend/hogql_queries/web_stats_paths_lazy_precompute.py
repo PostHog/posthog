@@ -383,13 +383,17 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     direction = order_by[1] if len(order_by) > 1 else WebAnalyticsOrderByDirection.DESC
     if direction != WebAnalyticsOrderByDirection.DESC:
         return None
-    over = "OVER (PARTITION BY breakdown_value)"
+    # Fully static SQL — no interpolation, no user input. The window merges the metric
+    # across the breakdown's per-hour rows so the capped template can rank in one pass.
     field = order_by[0] if order_by else WebAnalyticsOrderByFields.VISITORS
     if field == WebAnalyticsOrderByFields.VIEWS:
-        return parse_expr(f"sumMerge(sum_pageviews_state) {over}")
+        return parse_expr("sumMerge(sum_pageviews_state) OVER (PARTITION BY breakdown_value)")
     if field == WebAnalyticsOrderByFields.BOUNCE_RATE:
-        return parse_expr(f"if(isNaN(avgMerge(avg_bounce_state) {over}), -1.0, avgMerge(avg_bounce_state) {over})")
-    return parse_expr(f"uniqMerge(uniq_users_state) {over}")
+        return parse_expr(
+            "if(isNaN(avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value)), -1.0, "
+            "avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value))"
+        )
+    return parse_expr("uniqMerge(uniq_users_state) OVER (PARTITION BY breakdown_value)")
 
 
 def ensure_web_stats_paths_precomputed(
