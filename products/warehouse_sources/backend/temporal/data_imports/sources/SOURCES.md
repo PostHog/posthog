@@ -167,6 +167,7 @@ the row lists both.
 | granola                 | HTTP                        | requests                                                        | ✅                          |
 | gorgias                 | HTTP                        | requests                                                        | ✅                          |
 | greenhouse              | HTTP                        | requests                                                        | ✅                          |
+| gridly                  | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
@@ -444,7 +445,6 @@ doesn't conflict with concurrent PRs.
 - google_workspace_admin_reports
 - grafana
 - greythr
-- gridly
 - gusto
 - harness
 - heap
