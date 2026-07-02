@@ -1,8 +1,15 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
+import structlog
+
+from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import GitHubIntegration
+
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.tasks.backend.facade import api as tasks_facade
+
+logger = structlog.get_logger(__name__)
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
@@ -37,3 +44,44 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
         if pr_url and report_id not in result:
             result[report_id] = pr_url
     return result
+
+
+def close_implementation_pr_for_report(team_id: int, report_id: str) -> bool:
+    """Best-effort: close the GitHub PR opened for this report's implementation task.
+
+    Called when a report is dismissed — a dismissed report means the fix isn't wanted, so the
+    open PR shouldn't linger. Returns True when a PR was closed, False when there was nothing to
+    close or the close couldn't be completed. Never raises: dismissal must succeed regardless.
+    """
+    try:
+        pr_url = fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
+        if not pr_url:
+            return False
+
+        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+        if parsed is None:
+            logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
+            return False
+        owner, repo, _pr_number = parsed
+
+        github = GitHubIntegration.first_for_team_repository(team_id, f"{owner}/{repo}")
+        if github is None:
+            logger.info(
+                "close_implementation_pr_no_integration", report_id=str(report_id), repository=f"{owner}/{repo}"
+            )
+            return False
+
+        outcome = github.close_pull_request_from_url(pr_url)
+        if not outcome.get("success"):
+            logger.warning(
+                "close_implementation_pr_failed",
+                report_id=str(report_id),
+                pr_url=pr_url,
+                error=outcome.get("error"),
+                status_code=outcome.get("status_code"),
+            )
+            return False
+        return True
+    except Exception:
+        logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
+        return False
