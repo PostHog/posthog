@@ -126,6 +126,23 @@ class TestGetRowsPaginated:
         assert "from=0" in mock_session.return_value.get.call_args_list[0].args[0]
 
     @mock.patch(_TRANSPORT)
+    def test_empty_page_with_advancing_cursor_keeps_paginating(self, mock_session):
+        # A page can be empty yet still carry an advancing lastId; pagination must continue
+        # (not terminate) so later, non-empty pages are not skipped.
+        mock_session.return_value.get.side_effect = [
+            _resp({"lastId": "p2", "tasks": []}),
+            _resp({"tasks": [{"id": "1"}]}),  # no lastId -> final page
+        ]
+        manager = _make_manager()
+
+        batches = list(get_rows("key", "tasks", mock.MagicMock(), manager))
+
+        assert [row["id"] for batch in batches for row in batch] == ["1"]
+        assert "lastId=p2" in mock_session.return_value.get.call_args_list[1].args[0]
+        # No batch was yielded for the empty page, so no state was saved for it.
+        manager.save_state.assert_not_called()
+
+    @mock.patch(_TRANSPORT)
     def test_non_advancing_cursor_terminates(self, mock_session):
         # A repeated lastId must not loop forever.
         mock_session.return_value.get.side_effect = [

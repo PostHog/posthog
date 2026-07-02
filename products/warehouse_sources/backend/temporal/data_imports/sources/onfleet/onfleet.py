@@ -166,7 +166,6 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[OnfleetResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ONFLEET_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -201,7 +200,6 @@ def onfleet_source(
     resumable_source_manager: ResumableSourceManager[OnfleetResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = ONFLEET_ENDPOINTS[endpoint]
 
@@ -214,7 +212,6 @@ def onfleet_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         # `/tasks/all` returns rows ascending by creation time; the single-batch endpoints are
