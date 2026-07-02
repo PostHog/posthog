@@ -8,7 +8,8 @@ the Temporal retry honors the reset.
 
 import requests
 
-from posthog.models.integration import GITHUB_API_VERSION, _is_safe_github_repo_path, raise_if_github_rate_limited
+from posthog.egress.github.transport import GITHUB_API_VERSION, raise_if_github_rate_limited
+from posthog.models.integration import _is_safe_github_repo_path
 
 _GITHUB_API = "https://api.github.com"
 _BASE_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}

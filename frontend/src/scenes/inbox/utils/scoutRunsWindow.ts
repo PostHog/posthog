@@ -49,12 +49,21 @@ export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScou
     )
 }
 
+// ── Scout skill-name helpers ──────────────────────────────────────────────────
+
+/** The shared `signals-scout-*` skill-name prefix. The fleet prefix is noise inside the scouts surface. */
+export const SIGNALS_SCOUT_SKILL_PREFIX = 'signals-scout-'
+
+/** Strip the fleet prefix, leaving the bare scout code name verbatim. `signals-scout-apm` → `apm`. */
+export function stripScoutPrefix(skillName: string): string {
+    return skillName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)
+        ? skillName.slice(SIGNALS_SCOUT_SKILL_PREFIX.length)
+        : skillName
+}
+
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
-    const cleaned = skillName
-        .replace(/^signals-scout-/, '')
-        .replace(/[-_]/g, ' ')
-        .trim()
+    const cleaned = stripScoutPrefix(skillName).replace(/[-_]/g, ' ').trim()
     if (!cleaned) {
         return skillName
     }

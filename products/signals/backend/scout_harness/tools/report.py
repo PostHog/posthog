@@ -381,7 +381,12 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
 # scout never authored. These fields are the opposite: a curated, scout-authored report title/summary —
 # the deliberate product output — not an arbitrary nested blob. They're forwarded by name (no blob
 # passthrough) and length-capped here, which is what makes carrying them acceptable.
-_MAX_TELEMETRY_SUMMARY_LEN = 2000
+#
+# The summary cap must comfortably exceed what CDP forwards deliver downstream — a Slack forward posts
+# the event's `summary` verbatim, so a cap below the authored length silently cuts the message mid-content
+# (this happened at 2000). 10000 bounds the payload while leaving digest-style summaries intact; the
+# report row itself allows up to MAX_REPORT_SUMMARY_LENGTH.
+_MAX_TELEMETRY_SUMMARY_LEN = 10000
 _MAX_TELEMETRY_TEXT_LEN = 1000
 
 

@@ -1,5 +1,5 @@
 /** Blur inline `url(data:image/...;base64,...)` backgrounds in CSS */
-import { BLANK_IMAGE_DATA_URI, blurImageDataUri } from './blur'
+import { BLANK_IMAGE_DATA_URI, blurImageDataUri, memoizedBlur } from './blur'
 import { ScrubContext } from './config'
 
 const URL_DATA_IMAGE_RE = /url\(\s*(['"]?)(data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\1\s*\)/gi
@@ -21,7 +21,7 @@ export function scrubCssImages(ctx: ScrubContext, container: Record<string, unkn
         // its own image back independently; on blur failure it just stays the blank.
         const placeholder = `${BLANK_IMAGE_DATA_URI}#a${n++}`
         ctx.blurJobs?.push(async () => {
-            const blurred = await blurImageDataUri(original)
+            const blurred = await memoizedBlur(ctx.blurCache, original, () => blurImageDataUri(original))
             const cur = container[key]
             if (typeof cur === 'string') {
                 container[key] = cur.replace(placeholder, () => blurred ?? BLANK_IMAGE_DATA_URI)

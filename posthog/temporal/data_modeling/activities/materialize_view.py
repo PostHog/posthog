@@ -33,7 +33,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.services.materialization import prepare_executable_query
+from products.endpoints.backend.facade.temporal import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 

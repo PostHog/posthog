@@ -117,10 +117,16 @@ def _make_paginated_request(
 
         try:
             payload = response.json()
-        except Exception:
+        except Exception as e:
             if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})")
-            raise Exception(f"Unexpected Linear response: {response.text}")
+                raise Exception(
+                    f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})"
+                ) from e
+            # A 2xx whose body won't parse as JSON is almost always a truncated transfer (the
+            # connection dropped mid-body on a large page), not a stable response Linear will keep
+            # returning. Ride it out on the same backoff path as other transient failures instead of
+            # failing the activity outright. Don't echo response.text — a partial body carries data.
+            raise LinearRetryableError(f"Linear: incomplete JSON response ({e})") from e
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]

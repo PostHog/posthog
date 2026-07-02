@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import {
     KafkaDownstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,

@@ -70,6 +70,23 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
+    _delete_llm_evaluations_for_teams(team_ids)
+
+
+def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
+    """Delete LLM-analytics Evaluation rows before the Team cascade reaches them.
+
+    The Evaluation model recurses infinitely when materialized with `enabled`/`status` loaded
+    deferred (an upstream model bug): reading a deferred one re-fetches the row, which builds a new
+    partially-deferred instance, which reads the other deferred field, and so on. The Team cascade's
+    SET_NULL on `Evaluation.model_configuration` materializes the rows exactly that way, so team
+    deletion hits a RecursionError. Deleting the rows here through the ORM avoids it: a plain
+    queryset delete fetches full rows (no deferred read) and cascades the children (e.g.
+    EvaluationReport), so nothing is left for the Team cascade to materialize.
+    """
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    Evaluation.objects.filter(team_id__in=team_ids).delete()
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:

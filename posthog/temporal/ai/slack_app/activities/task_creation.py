@@ -536,11 +536,11 @@ def forward_posthog_code_followup_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
+    from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade import api as tasks_facade
 
-    if _parse_rules_command(event_text):
+    if parse_rules_command(event_text):
         return False
 
     try:

@@ -251,8 +251,15 @@ def _verify_and_fix_batch(
                 issue_type = "expiry_missing"
 
         if issue_type:
-            # Check if we should skip fixing (e.g., grace period for recently updated flags)
-            if team.id in team_ids_to_skip_fix:
+            # The grace period guards against clobbering an in-flight async rebuild,
+            # which only matters when an entry EXISTS (mismatch/expiry). A full
+            # cache_miss has nothing to clobber and hard-fails no-DB-fallback readers
+            # (e.g. the Rust /flags/definitions endpoint → 503). This routine is shared
+            # by every hypercache, so the miss exemption is opt-in per config: only the
+            # flag_definitions caches set repair_miss_during_grace_period; read-through
+            # caches (flags, team_metadata) cold-load on miss and keep the skip.
+            repair_miss = issue_type == "cache_miss" and config.repair_miss_during_grace_period
+            if not repair_miss and team.id in team_ids_to_skip_fix:
                 result.skipped_for_grace_period += 1
                 if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
                     result.skipped_team_ids.append(team.id)
@@ -307,6 +314,11 @@ def _fix_and_record(
     try:
         # Use preloaded db_data if available to avoid redundant DB query
         if "db_data" in verification:
+            # The direct write bypasses update_fn's internal guards, so apply the
+            # config's write guard here too (e.g. refuse to cache an emptied
+            # group_type_mapping over populated data). A veto is neither fix nor failure.
+            if config.should_skip_write is not None and config.should_skip_write(team, verification["db_data"]):
+                return
             config.hypercache.set_cache_value(team, verification["db_data"])
             success = True
         else:
