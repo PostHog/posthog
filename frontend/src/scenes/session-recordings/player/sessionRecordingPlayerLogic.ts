@@ -1797,6 +1797,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.currentTimestamp) {
                 actions.initializePlayerFromStart()
             }
+
+            // Segments can reshape under a stale currentSegment (e.g. a trailing buffer resolving into real window segments) — re-derive so playback continues in the right segment with the right replayer.
+            if (values.currentTimestamp != null && values.currentSegment) {
+                const freshSegment = values.segmentForTimestamp(values.currentTimestamp)
+                if (freshSegment && !objectsEqual(freshSegment, values.currentSegment)) {
+                    actions.setCurrentSegment(freshSegment)
+                }
+            }
+
             actions.checkBufferingCompleted()
 
             // If snapshot data arrived but the replayer hasn't been created yet,

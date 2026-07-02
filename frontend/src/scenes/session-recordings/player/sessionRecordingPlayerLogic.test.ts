@@ -664,6 +664,24 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBe(START + 500)
         })
 
+        it('re-derives a stale current segment when segments reshape under a paused playhead', async () => {
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            const initial = [fs(START), inc(START + 1000), inc(START + 11000)]
+            seedRecording(initial, [])
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 5000)
+            expect(logic.values.currentSegment?.kind).toBe('gap')
+
+            // processing later synthesizes activity around the playhead, reshaping the gap into a window segment
+            const reshaped = [fs(START), inc(START + 1000), w1move(START + 4900), inc(START + 5100), inc(START + 11000)]
+            await expectLogic(logic, () => {
+                coordinator.actions.setProcessedSnapshots(reshaped)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'window', windowId: 1 })
+        })
+
         it('revives a dead loading chain from checkBufferingCompleted while still buffering', async () => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             seedRecording(null, [inc(START + 61000), inc(START + 62000)])
