@@ -134,11 +134,9 @@ class PreparedSlackAttachments:
 
 
 def get_slack_bot_token(slack: Any, integration: Any) -> str | None:
-    sensitive_config = getattr(integration, "sensitive_config", None)
-    if isinstance(sensitive_config, dict):
-        token = sensitive_config.get("access_token")
-        if isinstance(token, str) and token:
-            return token
+    token = getattr(integration, "access_token", None)
+    if isinstance(token, str) and token:
+        return token
 
     client = getattr(slack, "client", None)
     token = getattr(client, "token", None)

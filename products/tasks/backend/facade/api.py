@@ -1584,8 +1584,12 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 def upload_task_run_artifacts(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
-) -> list[dict] | None:
-    """Write artifact bytes to S3 and append them to the run manifest. Returns the full manifest."""
+) -> tuple[list[dict], list[dict]] | None:
+    """Write artifact bytes to S3 and append them to the run manifest.
+
+    Returns ``(uploaded, manifest)`` — the entries created for ``artifacts`` and the full
+    manifest including them — or ``None`` when the run isn't visible.
+    """
     import uuid as uuid_module  # noqa: PLC0415
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -1637,7 +1641,7 @@ def upload_task_run_artifacts(
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
-    return manifest
+    return uploaded, manifest
 
 
 def prepare_task_run_artifact_uploads(
