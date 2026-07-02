@@ -38,8 +38,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
 # completion would never be emitted and the alert's next_check_at would never advance.
 # Compound worst cases (e.g. a slow prepare pushing evaluate past the envelope) can
 # still hit the server-side timeout; the cap guarantees no single activity does.
-CHECK_ALERT_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(minutes=12)
 
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
@@ -156,7 +154,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=timeouts.evaluate_start_to_close,
                 schedule_to_close_timeout=timeouts.activity_schedule_to_close,
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                heartbeat_timeout=timeouts.heartbeat_timeout,
                 retry_policy=timeouts.evaluate_retry_policy,
             )
             new_state = evaluation.new_state

@@ -125,6 +125,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
         # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        # Only one of these will be non-None for any given interval — each returns None when
+        # the interval doesn't match, so this is an exclusive check, not a combination.
         entitlement_error = AlertConfiguration.real_time_interval_validation_error(
             calculation_interval=alert.calculation_interval,
             organization=alert.team.organization,

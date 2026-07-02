@@ -36,6 +36,7 @@ class AlertTimeouts:
     activity_schedule_to_close: dt.timedelta
     evaluate_start_to_close: dt.timedelta
     evaluate_retry_policy: RetryPolicy
+    heartbeat_timeout: dt.timedelta
     notify_start_to_close: dt.timedelta
 
 
@@ -44,6 +45,7 @@ _DEFAULT_TIMEOUTS = AlertTimeouts(
     activity_schedule_to_close=dt.timedelta(minutes=12),
     evaluate_start_to_close=dt.timedelta(minutes=10),
     evaluate_retry_policy=ALERT_EVALUATE_RETRY_POLICY,
+    heartbeat_timeout=dt.timedelta(minutes=2),
     notify_start_to_close=dt.timedelta(minutes=5),
 )
 
@@ -64,6 +66,7 @@ _REAL_TIME_TIMEOUTS = AlertTimeouts(
     activity_schedule_to_close=dt.timedelta(minutes=6),
     evaluate_start_to_close=dt.timedelta(minutes=3),
     evaluate_retry_policy=_REAL_TIME_EVALUATE_RETRY_POLICY,
+    heartbeat_timeout=dt.timedelta(seconds=90),
     notify_start_to_close=dt.timedelta(seconds=60),
 )
 
