@@ -286,6 +286,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentHoldout = 'experiment_holdout',
@@ -4392,6 +4393,8 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** The effective access level the user has for this early access feature. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -5421,6 +5424,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }

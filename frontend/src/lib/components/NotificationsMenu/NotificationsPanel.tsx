@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconCheckCircle, IconEllipsis, IconNotification } from '@posthog/icons'
+import { IconArchive, IconCheckCircle, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
@@ -76,42 +75,42 @@ export function NotificationsPanel(): JSX.Element {
                     Archived
                 </button>
             </div>
-            {!isArchivedTab && (loadedUnreadCount > 0 || hasArchivableNotifications) && (
-                <div className="ml-auto">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
-                            render={
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    icon={<IconEllipsis />}
-                                    aria-label="More actions"
-                                    tooltip="More actions"
-                                />
-                            }
-                        />
-                        <DropdownMenuContent align="end" className="w-auto min-w-max">
-                            {loadedUnreadCount > 0 && (
-                                <DropdownMenuItem onClick={() => markAllAsRead()}>
-                                    <IconCheckCircle />
-                                    Mark all as read
-                                </DropdownMenuItem>
-                            )}
-                            {hasArchivableNotifications && (
-                                <DropdownMenuItem onClick={() => archiveAll()}>
-                                    <IconArchive />
-                                    Archive all
-                                </DropdownMenuItem>
-                            )}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            )}
         </div>
     )
 
+    // Bulk actions are rare — tuck them into the panel's overflow (⋯) menu instead of the header.
+    // Each surfaces only when it applies; the whole menu is hidden on the archived tab.
+    const panelActions = isArchivedTab
+        ? undefined
+        : [
+              loadedUnreadCount > 0
+                  ? {
+                        'data-attr': 'notifications-mark-all-read',
+                        onClick: () => markAllAsRead(),
+                        children: (
+                            <>
+                                <IconCheckCircle />
+                                Mark all as read
+                            </>
+                        ),
+                    }
+                  : null,
+              hasArchivableNotifications
+                  ? {
+                        'data-attr': 'notifications-archive-all',
+                        onClick: () => archiveAll(),
+                        children: (
+                            <>
+                                <IconArchive />
+                                Archive all
+                            </>
+                        ),
+                    }
+                  : null,
+          ]
+
     return (
-        <PanelLayoutPanel searchField={header}>
+        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

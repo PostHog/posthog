@@ -143,6 +143,7 @@ the row lists both.
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finage                  | HTTP                        | requests                                                        | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
@@ -316,6 +317,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - ahrefs
 - airbyte
+- airops
 - akeneo
 - alpaca_broker_api
 - alpha_vantage
@@ -383,6 +385,7 @@ doesn't conflict with concurrent PRs.
 - dolibarr
 - dremio
 - dropbox
+- dub
 - dwolla
 - dynamics365
 - dynamodb
@@ -397,7 +400,6 @@ doesn't conflict with concurrent PRs.
 - fastly
 - fauna
 - feishu
-- finage
 - firebase
 - firebolt
 - flexmail
@@ -458,6 +460,7 @@ doesn't conflict with concurrent PRs.
 - insightful
 - insightly
 - instagram
+- instantly
 - instatus
 - interzoid
 - intruder
@@ -492,6 +495,7 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - lokalise
 - looker
+- loops
 - luma
 - mailosaur
 - mailtrap
@@ -575,6 +579,7 @@ doesn't conflict with concurrent PRs.
 - planhat
 - plunk
 - pocket
+- podium
 - polygon
 - poplar
 - prestashop
@@ -594,6 +599,7 @@ doesn't conflict with concurrent PRs.
 - recreation
 - recruitee
 - reddit
+- redis
 - referralhero
 - rentcast
 - repairshopr

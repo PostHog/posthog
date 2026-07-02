@@ -9,6 +9,7 @@ import {
 } from 'lib/components/NotificationsMenu/NotificationActionButton'
 import { getNotificationDescriber } from 'lib/components/NotificationsMenu/notificationDescribers'
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
@@ -128,8 +129,11 @@ export function NotificationRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, archiveNotification } = useActions(sidePanelNotificationsLogic)
+    const { navigateToNotification, toggleRead, markAsRead, archiveNotification } =
+        useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
+
+    const autoMarkRef = useAutoMarkRead(!notification.read, () => markAsRead(notification.id))
 
     const otherProjectName = projectNameForNotification(notification)
     const describer = getNotificationDescriber(notification)
@@ -160,6 +164,7 @@ export function NotificationRow({
 
     return (
         <div
+            ref={autoMarkRef}
             className={`group/row flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}

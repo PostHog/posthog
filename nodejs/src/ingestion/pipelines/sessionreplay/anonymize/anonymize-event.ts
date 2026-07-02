@@ -5,7 +5,7 @@ import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionr
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
-import { BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
+import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -30,8 +30,10 @@ export async function anonymizeParsedMessage(
     parsedMessage: ParsedMessageData
 ): Promise<{ failed: boolean }> {
     const blurJobs: BlurJob[] = []
+    // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
+    const blurCache: BlurCache = new Map()
     const timing: ScrubTiming = { decompressMs: 0, recompressMs: 0 }
-    const ctx: ScrubContext = { ...scrubContext, blurJobs, timing }
+    const ctx: ScrubContext = { ...scrubContext, blurJobs, blurCache, timing }
 
     const scrubStart = performance.now()
     let eventCount = 0
@@ -66,6 +68,12 @@ export async function anonymizeParsedMessage(
             walkMs: Math.round(scrubMs - timing.decompressMs - timing.recompressMs),
             events: eventCount,
             blurJobs: blurJobs.length,
+            sessionId: parsedMessage.session_id,
+            topic: parsedMessage.metadata.topic,
+            partition: parsedMessage.metadata.partition,
+            offset: parsedMessage.metadata.offset,
+            kafkaTimestamp: parsedMessage.metadata.timestamp,
+            rawSize: parsedMessage.metadata.rawSize,
         })
     }
 

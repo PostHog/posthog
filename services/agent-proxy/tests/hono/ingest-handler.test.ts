@@ -883,6 +883,52 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(400)
     })
 
+    it.each([
+        {
+            variant: 'ECONNRESET code',
+            makeError: (): Error => Object.assign(new Error('read failed'), { code: 'ECONNRESET' }),
+        },
+        { variant: 'aborted message', makeError: (): Error => new Error('aborted') },
+        {
+            variant: 'AbortError name',
+            makeError: (): Error => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }),
+        },
+        {
+            variant: 'premature close code',
+            makeError: (): Error => Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }),
+        },
+    ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
+        const infoSpy = vi.spyOn(logger, 'info')
+        const errorSpy = vi.spyOn(logger, 'error')
+        const config = makeConfig()
+        const enc = new TextEncoder()
+        const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+        let sentFirstChunk = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (!sentFirstChunk) {
+                    sentFirstChunk = true
+                    controller.enqueue(line)
+                    return
+                }
+                controller.error(makeError())
+            },
+        })
+
+        const res = await handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(408)
+        const responseBody = (await decodeJson(res)) as { last_accepted_seq: number }
+        expect(responseBody.last_accepted_seq).toBe(1)
+
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+
+        const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
+        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1 })
+        expect(errorSpy).not.toHaveBeenCalledWith('http.unhandled_error', expect.anything())
+    })
+
     // -----------------------------------------------------------------------
     // Empty body
     // -----------------------------------------------------------------------
