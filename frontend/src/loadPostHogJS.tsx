@@ -75,9 +75,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             // Always drop known browser-injected noise, then run any caller-provided filters.
-            before_send: [dropBrowserInjectedNoise, options.beforeSend]
-                .flat()
-                .filter((fn): fn is BeforeSendFn => !!fn),
+            before_send: [dropBrowserInjectedNoise, options.beforeSend].flat().filter((fn): fn is BeforeSendFn => !!fn),
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
