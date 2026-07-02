@@ -70,10 +70,11 @@ def write_json(key: str, obj: Any, *, compress: bool = False) -> None:
     uncompressed — it's part of the billing-facing contract; only the
     per-query intermediates (read back exclusively by `read_json`) opt in.
     """
-    body: str | bytes = json.dumps(obj, default=str)
+    serialized = json.dumps(obj, default=str)
     extras = {"ContentType": "application/json"}
+    body: str | bytes = serialized
     if compress:
-        body = gzip.compress(body.encode("utf-8"), compresslevel=1)
+        body = gzip.compress(serialized.encode("utf-8"), compresslevel=1)
         extras["ContentEncoding"] = "gzip"
     object_storage.write(key, body, extras=extras, bucket=bucket())
 

@@ -423,8 +423,11 @@ def object_storage_client() -> ObjectStorageClient:
     global _client
 
     if not settings.OBJECT_STORAGE_ENABLED:
-        _client = UnavailableStorage()
-    elif isinstance(_client, UnavailableStorage):
+        # Don't touch the cached client here: `_client` must only ever be
+        # written under `_client_lock`, and a stateless no-op instance is
+        # what this branch always handed out anyway.
+        return UnavailableStorage()
+    if isinstance(_client, UnavailableStorage):
         with _client_lock:
             if isinstance(_client, UnavailableStorage):  # re-check now that we hold the lock
                 _client = _build_object_storage_client()
