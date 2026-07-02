@@ -27,16 +27,56 @@ real engine behavior. Only the fields the engine reads are documented here; unkn
 The auth **type** lives in the manifest; the secret value travels in a separate payload key and is injected at run
 time. Never put the secret in the manifest.
 
-| `client.auth` block                                                | Secret payload key | Sends                                         |
-| ------------------------------------------------------------------ | ------------------ | --------------------------------------------- |
-| `{ "type": "bearer" }`                                             | `auth_token`       | `Authorization: Bearer <token>`               |
-| `{ "type": "api_key", "name": "X-Api-Key", "location": "header" }` | `auth_api_key`     | the key in header / query param `name`        |
-| `{ "type": "api_key", "name": "api_key", "location": "query" }`    | `auth_api_key`     | `?api_key=<key>`                              |
-| `{ "type": "http_basic", "username": "user" }`                     | `auth_password`    | HTTP Basic with the given username + password |
+| `client.auth` block                                                | Secret payload key(s)                                                                          | Sends                                         |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `{ "type": "bearer" }`                                             | `auth_token`                                                                                   | `Authorization: Bearer <token>`               |
+| `{ "type": "api_key", "name": "X-Api-Key", "location": "header" }` | `auth_api_key`                                                                                 | the key in header / query param `name`        |
+| `{ "type": "api_key", "name": "api_key", "location": "query" }`    | `auth_api_key`                                                                                 | `?api_key=<key>`                              |
+| `{ "type": "http_basic", "username": "user" }`                     | `auth_password`                                                                                | HTTP Basic with the given username + password |
+| `{ "type": "oauth2", ... }` (see below)                            | `auth_oauth2_client_secret` (+ `auth_oauth2_refresh_token` for the `refresh_token` grant only) | `Authorization: Bearer <minted access token>` |
 
 `location` is one of `header`, `query`, `param`, `cookie`. `query` and `param` are **synonyms** — both append
 `name=<key>` to the URL query string, so use either (prefer `query`); they differ only in spelling, not behavior. For
 an API with no auth, omit `auth` entirely.
+
+### OAuth2
+
+For APIs where the customer brings their own OAuth2 client, the engine mints access tokens itself from the token
+endpoint declared in the manifest:
+
+```json
+{
+  "type": "oauth2",
+  "client_id": "my-client-id",
+  "token_url": "https://auth.example.com/oauth/token",
+  "grant_type": "refresh_token",
+  "scopes": "read:orders read:users"
+}
+```
+
+- **`grant_type`** — `client_credentials` (machine-to-machine; default) or `refresh_token` (the user supplies a
+  pre-obtained refresh token). The interactive `authorization_code` flow is **not supported** — for providers that
+  only issue tokens that way, the user must obtain a refresh token out of band first.
+- **Secrets** travel in `auth_oauth2_client_secret` (the client secret) and, for the `refresh_token` grant,
+  `auth_oauth2_refresh_token`. Never inline them in the manifest.
+- **Optional knobs** for non-standard token endpoints: `access_token_name` / `expires_in_name` (response fields when
+  they aren't `access_token` / `expires_in`), `expiry_date_format` (strptime format for absolute-datetime expiries),
+  `extra_token_request_params` (extra form params, e.g. `audience`), `token_request_headers`, and
+  `client_auth_method` (`body`, the default, or `basic` for HTTP Basic client auth).
+
+PostHog **adopts the OAuth2 secrets into a server-managed credential store** on the first validation, preview, or
+create call — they are never kept in the source's stored config, and any rotated single-use refresh token the provider
+returns is persisted server-side. Two practical consequences:
+
+- **Keep the entire `client.auth` block identical across the db-schema → preview → create calls of one setup.**
+  The stored credential is found again by matching `client_id` + `token_url` + `grant_type`, but changing _any_
+  auth-block field (`scopes`, token-request knobs, `client_auth_method`, …) makes PostHog treat the re-submitted
+  refresh token as a deliberately new credential and discard the stored rotation — with a single-use-rotating
+  provider the next mint then fails with `invalid_grant`. Only change the auth block mid-setup together with a
+  freshly issued refresh token.
+- **`auth_oauth2_integration_id`** may appear in a stored source's config — it is the server-owned pointer to the
+  credential store. Never set or copy it yourself; on create it is ignored, and to reconnect a broken credential you
+  update the source with re-entered `auth_oauth2_client_secret` / `auth_oauth2_refresh_token` instead.
 
 ## Endpoint fields
 
@@ -197,6 +237,36 @@ Credential: `auth_api_key`.
 ```
 
 Credential: `auth_password`.
+
+### OAuth2 refresh-token grant + page-number pagination
+
+```json
+{
+  "client": {
+    "base_url": "https://api.example.com/v2",
+    "auth": {
+      "type": "oauth2",
+      "client_id": "warehouse-import",
+      "token_url": "https://auth.example.com/oauth/token",
+      "grant_type": "refresh_token"
+    }
+  },
+  "resources": [
+    {
+      "name": "invoices",
+      "primary_key": "id",
+      "endpoint": {
+        "path": "/invoices",
+        "data_selector": "items",
+        "paginator": { "type": "page_number", "page_param": "page", "total_path": "total_pages" },
+        "incremental": { "cursor_path": "updated_at", "start_param": "modified_since" }
+      }
+    }
+  ]
+}
+```
+
+Credentials: `auth_oauth2_client_secret` + `auth_oauth2_refresh_token`.
 
 ### Bearer + cursor pagination + incremental
 

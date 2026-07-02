@@ -279,6 +279,7 @@ from .infor_nexus.source import InforNexusSource
 from .insightful.source import InsightfulSource
 from .insightly.source import InsightlySource
 from .instagram.source import InstagramSource
+from .instantly.source import InstantlySource
 from .instatus.source import InstatusSource
 from .intercom.source import IntercomSource
 from .interzoid.source import InterzoidSource

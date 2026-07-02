@@ -37,6 +37,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.models.team import Team
 
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
+from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.materialization_transforms import (
     ENDPOINT_BREAKDOWN_LIMIT,
     MaterializableVariable,
@@ -45,7 +46,6 @@ from products.endpoints.backend.materialization_transforms import (
     transform_select_for_materialized_table,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.pagination import EndpointPagination
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery

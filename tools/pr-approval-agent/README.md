@@ -74,6 +74,9 @@ LLM Review
     apps like inkeep react for non-review reasons), never the PR author
   - An 👀 reaction signals an in-flight review — the LLM refuses rather than
     approving over someone who is mid-review
+  - Stamphog's own prior reviews (stamphog[bot] refusals, github-actions[bot]
+    approvals) are excluded from the prompt — they describe an earlier snapshot
+    of the PR and are never independent review signal
   - For non-trivial changes, expects at least one independent reviewer (an
     agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
     over the current head; escalates otherwise. Trivial changes (docs, tests,

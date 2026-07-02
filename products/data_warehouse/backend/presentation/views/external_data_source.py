@@ -914,6 +914,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             else:
                 new_job_inputs.pop(key, None)
 
+        # The OAuth2 integration row pointer is server-managed: pin it to the stored value so an
+        # editor can't repoint the source at a different row (and through it, different credentials).
+        # Re-entered auth_oauth2_* secrets flow into the pinned row during credential validation.
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            existing_oauth2_pointer = existing_job_inputs.get("auth_oauth2_integration_id")
+            if existing_oauth2_pointer:
+                new_job_inputs["auth_oauth2_integration_id"] = existing_oauth2_pointer
+            else:
+                new_job_inputs.pop("auth_oauth2_integration_id", None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -947,22 +957,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
             manifest_host_added = bool(new_hosts - existing_hosts)
 
-        # An integration-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
-        # tokens live in the CustomOAuth2Integration row and are injected at sync time, keyed by the
-        # non-secret `auth_oauth2_integration_id`. So `has_preserved_credentials` never sees a preserved
-        # secret for it, yet a host change would still redirect that injected token to the new host. A source
-        # that still has a bound integration row is preserving that credential — and clearing the job_inputs
-        # pointer does NOT unbind the row, so keying off the pointer alone let an editor clear it, move the
-        # host, then re-add the pointer to redirect the still-bound token. Gate on the actual row binding too.
-        source_has_bound_integration = source_type_model == ExternalDataSourceType.CUSTOM and (
-            CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).exists()
-        )
-        existing_integration_id = existing_job_inputs.get("auth_oauth2_integration_id")
-        preserved_oauth2_integration = source_has_bound_integration or (
-            bool(existing_integration_id)
-            and incoming_job_inputs.get("auth_oauth2_integration_id", existing_integration_id)
-            == existing_integration_id
-        )
+        # A row-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
+        # tokens live in the bound CustomOAuth2Integration row and are injected at sync time. So
+        # `has_preserved_credentials` never sees a preserved secret for it, yet a host change would
+        # still redirect the row's injected token to the new host. Re-entering every secret the row
+        # holds satisfies the gate the same way typing a password does for other sources: because a
+        # config change makes adoption replace the row's secrets with the typed ones outright (see
+        # _apply_oauth2_material — the rotated-token keep-rule is suspended on config change), only
+        # material the editor provably possesses is ever sent to the new host.
+        bound_integration = None
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            bound_integration = (
+                CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).first()
+            )
+        reentered_oauth2_secrets = False
+        if bound_integration is not None:
+            held_secret_fields = [
+                incoming_field
+                for row_key, incoming_field in (
+                    ("client_secret", "auth_oauth2_client_secret"),
+                    ("refresh_token", "auth_oauth2_refresh_token"),
+                )
+                if bound_integration.sensitive_config.get(row_key)
+            ]
+            reentered_oauth2_secrets = bool(held_secret_fields) and all(
+                bool(incoming_job_inputs.get(field)) for field in held_secret_fields
+            )
+        preserved_oauth2_integration = bound_integration is not None and not reentered_oauth2_secrets
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
@@ -1088,6 +1109,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
+
+        if job_inputs_were_submitted and isinstance(source, CustomSource):
+            # Credential validation adopts re-entered OAuth2 secrets into the integration row and
+            # rewrites the config (pointer set, static secrets cleared) — re-serialize so job_inputs
+            # stores the pointer and never the raw secrets.
+            validated_job_inputs = source_config.to_dict()
+            for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+                if key in existing_job_inputs:
+                    validated_job_inputs[key] = existing_job_inputs[key]
+            validated_data["job_inputs"] = validated_job_inputs
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -1749,6 +1780,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
             direct_query_enabled=direct_query_enabled,
         )
+
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            # Claim the OAuth2 integration row for the new source right away instead of waiting for the
+            # first sync's trust-on-first-use claim, closing the window where another create by the same
+            # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
+            # a no-op; sync-time authorization remains the backstop.
+            oauth2_integration_id = (new_source_model.job_inputs or {}).get("auth_oauth2_integration_id")
+            if oauth2_integration_id:
+                CustomOAuth2Integration.objects.for_team(self.team_id).filter(
+                    id=oauth2_integration_id, external_data_source__isnull=True
+                ).update(external_data_source=new_source_model)
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
         # can `if cdc_enabled` without repeating the source-type check.
@@ -2619,12 +2661,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+                data={"message": error_message},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2728,6 +2770,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:
             return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
+
+        if isinstance(source, CustomSource):
+            # Validation may have adopted static OAuth2 secrets into an integration row and rewritten
+            # the config to point at it. `_create_external_data_source` below re-parses the raw payload
+            # (it skips the credential gate), so propagate the rewrite onto the payload — the created
+            # source must store the row pointer, never the raw secrets.
+            validated_payload = source_config.to_dict()
+            for key in ("auth_oauth2_integration_id", "auth_oauth2_client_secret", "auth_oauth2_refresh_token"):
+                if validated_payload.get(key):
+                    payload[key] = validated_payload[key]
+                else:
+                    payload.pop(key, None)
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
@@ -3006,6 +3060,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:
         """Run the config + live credential gate (including the SSRF host check) for a source payload."""
+        if isinstance(source, CustomSource):
+            # The OAuth2 integration row pointer is server-managed: validation derives it by adopting
+            # the submitted auth_oauth2_* secrets into a row. Never trust a client-supplied pointer on
+            # a pre-create seam — it could reference a row the caller shouldn't consume.
+            payload.pop("auth_oauth2_integration_id", None)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return (

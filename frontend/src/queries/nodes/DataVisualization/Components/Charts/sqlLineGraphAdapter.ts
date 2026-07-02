@@ -136,13 +136,6 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     ) {
         return false
     }
-    // quill's TimeSeriesBarChart has no trend-line support yet — fall back until it does.
-    if (yData?.some((series) => series.settings?.display?.trendLine)) {
-        return false
-    }
-    if (yData?.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
-        return false
-    }
     return true
 }
 
@@ -165,15 +158,8 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
     if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
         return false
     }
-    // ComboChart has no trend-line support yet (same limitation as the bar path).
-    if (yData.some((series) => series.settings?.display?.trendLine)) {
-        return false
-    }
     // ComboChart supports only stacked/grouped bars, not percent (stackBars100).
     if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
-        return false
-    }
-    if (yData.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
         return false
     }
     return true
@@ -439,19 +425,33 @@ export function buildBarChartConfig({
 }: BuildBarConfigArgs): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const leftSeries = seriesForAxis(ySeriesData, 'left')
+    const rightSeries = seriesForAxis(ySeriesData, 'right')
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(
-            chartSettings.leftYAxisSettings,
-            seriesForAxis(ySeriesData, 'left'),
-            chartSettings.yAxisAtZero,
-            {
-                forceLinear: barLayout === 'percent',
-            }
-        ),
+        yAxis:
+            rightSeries.length > 0
+                ? [
+                      buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                          id: 'left',
+                          position: 'left',
+                          forceLinear: barLayout === 'percent',
+                      }),
+                      buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
+                          id: 'right',
+                          position: 'right',
+                          forceLinear: barLayout === 'percent',
+                      }),
+                  ]
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                      forceLinear: barLayout === 'percent',
+                  }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
+        // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
+        // render off-scale and invisible.
+        trendLines: barLayout === 'percent' ? [] : buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
@@ -468,15 +468,27 @@ export function buildComboChartConfig({
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig & { yAxis?: YAxisConfig } {
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
+    const leftSeries = seriesForAxis(ySeriesData, 'left')
+    const rightSeries = seriesForAxis(ySeriesData, 'right')
+
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(
-            chartSettings.leftYAxisSettings,
-            seriesForAxis(ySeriesData, 'left'),
-            chartSettings.yAxisAtZero
-        ),
+        yAxis:
+            rightSeries.length > 0
+                ? [
+                      buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                          id: 'left',
+                          position: 'left',
+                      }),
+                      buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
+                          id: 'right',
+                          position: 'right',
+                      }),
+                  ]
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
+        trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {

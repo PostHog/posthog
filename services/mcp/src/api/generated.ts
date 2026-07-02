@@ -15679,6 +15679,7 @@ export namespace Schemas {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -16334,6 +16335,7 @@ export namespace Schemas {
       InforNexus: 'InforNexus',
       Insightful: 'Insightful',
       Insightly: 'Insightly',
+      Instantly: 'Instantly',
       Instatus: 'Instatus',
       Intruder: 'Intruder',
       Invoiced: 'Invoiced',
@@ -17003,6 +17005,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -21478,8 +21481,8 @@ export namespace Schemas {
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
       kind?: Kind1 | null;
-      /** Event property filters. Pass an empty array if no filters needed. */
-      properties: EventPropertyFilter[];
+      /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+      properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
     }
 
     export interface ExperimentApiExposureCriteria {
@@ -22831,6 +22834,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49143,6 +49147,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49838,6 +49843,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -50525,6 +50531,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
