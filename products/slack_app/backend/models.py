@@ -73,7 +73,14 @@ class SlackUserProfileCache(UUIDModel):
         ]
 
 
-class SlackAutonomyTier(models.TextChoices):
+class SlackPermissionMode(models.TextChoices):
+    """Approval policy for Slack-started agent runs.
+
+    Values are recorded on the task run as ``slack_permission_mode`` and drive the
+    permission broker in ``products/tasks/backend/logic/services/permission_broker.py``,
+    plus the sandbox session's ``initial_permission_mode`` at task creation.
+    """
+
     READ_ONLY = "read_only", "Read-only"
     ASK_BEFORE_WRITE = "ask_before_write", "Ask before write"
     FULL_AUTO = "full_auto", "Full auto"
@@ -82,7 +89,7 @@ class SlackAutonomyTier(models.TextChoices):
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
     Currently stores the routing default — which PostHog integration a mention
-    from this Slack user should route to — and the autonomy tier for Slack-started
+    from this Slack user should route to — and the permission mode for Slack-started
     agent runs.
 
     Two row shapes share this table:
@@ -110,11 +117,11 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
-    autonomy_tier = models.CharField(
+    permission_mode = models.CharField(
         max_length=32,
-        choices=SlackAutonomyTier.choices,
-        default=SlackAutonomyTier.ASK_BEFORE_WRITE,
-        db_default=SlackAutonomyTier.ASK_BEFORE_WRITE,
+        choices=SlackPermissionMode.choices,
+        default=SlackPermissionMode.ASK_BEFORE_WRITE,
+        db_default=SlackPermissionMode.ASK_BEFORE_WRITE,
         help_text="Controls how Slack-started agent runs handle tool calls that can write.",
     )
     # Keys mirror the task-run request serializer.

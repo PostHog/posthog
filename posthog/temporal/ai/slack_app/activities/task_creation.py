@@ -30,58 +30,60 @@ _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 # channel that mostly ignored the bot); we surface the most recent slice so the
 # update stays bounded and the agent doesn't drown in scrollback.
 _THREAD_UPDATE_MAX_MESSAGES = 50
-_SlackPermissionMode = Literal["default", "plan", "bypassPermissions"]
+# Sandbox session permission mode the run launches with (a subset of the tasks
+# product's ClaudePermissionMode values — see products/tasks/backend/constants.py).
+_InitialPermissionMode = Literal["default", "plan", "bypassPermissions"]
 
 
 @dataclass(frozen=True)
-class SlackAutonomyPolicy:
-    tier: str
-    initial_permission_mode: _SlackPermissionMode
+class SlackPermissionPolicy:
+    mode: str
+    initial_permission_mode: _InitialPermissionMode
     is_ext_shared_channel: bool
     customer_facing_approval_required: bool
 
 
-def _slack_autonomy_state_updates(policy: SlackAutonomyPolicy) -> dict[str, Any]:
+def _slack_permission_state_updates(policy: SlackPermissionPolicy) -> dict[str, Any]:
     return {
-        "slack_autonomy_tier": policy.tier,
+        "slack_permission_mode": policy.mode,
         "slack_is_ext_shared_channel": policy.is_ext_shared_channel,
         "slack_customer_facing_approval_required": policy.customer_facing_approval_required,
     }
 
 
-def _resolve_slack_autonomy_policy(
+def _resolve_slack_permission_policy(
     *,
     slack_workspace_id: str,
     slack_user_id: str,
     is_ext_shared_channel: bool,
-) -> SlackAutonomyPolicy:
-    from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
+) -> SlackPermissionPolicy:
+    from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
 
-    tier: str = SlackAutonomyTier.ASK_BEFORE_WRITE
+    mode: str = SlackPermissionMode.ASK_BEFORE_WRITE
     settings = list(
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
         .filter(models.Q(slack_user_id=slack_user_id) | models.Q(slack_user_id__isnull=True))
-        .only("slack_user_id", "autonomy_tier")
+        .only("slack_user_id", "permission_mode")
     )
     settings.sort(key=lambda setting: setting.slack_user_id is None)
     if settings:
-        tier = settings[0].autonomy_tier or SlackAutonomyTier.ASK_BEFORE_WRITE
+        mode = settings[0].permission_mode or SlackPermissionMode.ASK_BEFORE_WRITE
 
-    permission_mode: _SlackPermissionMode
-    if tier == SlackAutonomyTier.READ_ONLY:
-        permission_mode = "plan"
-    elif tier == SlackAutonomyTier.FULL_AUTO:
-        permission_mode = "bypassPermissions"
+    initial_permission_mode: _InitialPermissionMode
+    if mode == SlackPermissionMode.READ_ONLY:
+        initial_permission_mode = "plan"
+    elif mode == SlackPermissionMode.FULL_AUTO:
+        initial_permission_mode = "bypassPermissions"
     else:
-        permission_mode = "default"
+        initial_permission_mode = "default"
 
     customer_facing_approval_required = is_ext_shared_channel
-    if customer_facing_approval_required and permission_mode == "bypassPermissions":
-        permission_mode = "default"
+    if customer_facing_approval_required and initial_permission_mode == "bypassPermissions":
+        initial_permission_mode = "default"
 
-    return SlackAutonomyPolicy(
-        tier=tier,
-        initial_permission_mode=permission_mode,
+    return SlackPermissionPolicy(
+        mode=mode,
+        initial_permission_mode=initial_permission_mode,
         is_ext_shared_channel=is_ext_shared_channel,
         customer_facing_approval_required=customer_facing_approval_required,
     )
@@ -478,7 +480,7 @@ def create_posthog_code_task_for_repo_activity(
     # Slack tasks can intentionally start without an attached repository. Keep
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
-    autonomy_policy = _resolve_slack_autonomy_policy(
+    permission_policy = _resolve_slack_permission_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,
@@ -503,7 +505,7 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_url=slack_thread_url,
             start_workflow=False,
             posthog_mcp_scopes="full",
-            initial_permission_mode=autonomy_policy.initial_permission_mode,
+            initial_permission_mode=permission_policy.initial_permission_mode,
             runtime_adapter=ai_prefs.runtime_adapter,
             model=ai_prefs.model,
             reasoning_effort=ai_prefs.reasoning_effort,
@@ -568,7 +570,7 @@ def create_posthog_code_task_for_repo_activity(
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
             "slack_mention_workflow_id": derive_mention_workflow_id(inputs),
-            **_slack_autonomy_state_updates(autonomy_policy),
+            **_slack_permission_state_updates(permission_policy),
         }
         if repo_research_task_id and repo_research_run_id:
             state_updates["repo_research_task_id"] = repo_research_task_id
@@ -872,7 +874,7 @@ def _resume_task_with_new_run(
         )
         return True
 
-    autonomy_policy = _resolve_slack_autonomy_policy(
+    permission_policy = _resolve_slack_permission_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,
@@ -880,8 +882,8 @@ def _resume_task_with_new_run(
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
-        "initial_permission_mode": autonomy_policy.initial_permission_mode,
-        **_slack_autonomy_state_updates(autonomy_policy),
+        "initial_permission_mode": permission_policy.initial_permission_mode,
+        **_slack_permission_state_updates(permission_policy),
     }
 
     previous_state = previous_run.state or {}

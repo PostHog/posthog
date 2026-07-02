@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import _picker_context_cache_key
-from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
+from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
 from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_ACTION_APPROVE,
     SLACK_PERMISSION_ACTION_DENY,
@@ -328,7 +328,7 @@ class TestRepoPickerOptions(TestCase):
         self,
         token: str = "permission-token",
         user_id: str = "U123",
-        selected_tier: str = SlackAutonomyTier.FULL_AUTO,
+        selected_mode: str = SlackPermissionMode.FULL_AUTO,
     ) -> dict:
         block_id = f"posthog_code_permission_config:{token}"
         return {
@@ -339,7 +339,7 @@ class TestRepoPickerOptions(TestCase):
                 {
                     "action_id": SLACK_PERMISSION_ACTION_SELECT,
                     "block_id": block_id,
-                    "selected_option": {"value": selected_tier},
+                    "selected_option": {"value": selected_mode},
                 }
             ],
             "channel": {"id": "C001"},
@@ -440,14 +440,14 @@ class TestRepoPickerOptions(TestCase):
         token = self._cache_permission_context(task_run)
 
         response = self._post_interactivity(
-            self._permission_config_payload(token, selected_tier=SlackAutonomyTier.FULL_AUTO)
+            self._permission_config_payload(token, selected_mode=SlackPermissionMode.FULL_AUTO)
         )
 
         assert response.status_code == 200
         mock_send_agent_command.assert_not_called()
         settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
         assert settings.default_integration_id == self.posthog_code_integration.id
-        assert settings.autonomy_tier == SlackAutonomyTier.FULL_AUTO
+        assert settings.permission_mode == SlackPermissionMode.FULL_AUTO
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
         assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]

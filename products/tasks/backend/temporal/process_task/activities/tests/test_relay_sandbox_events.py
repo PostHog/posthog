@@ -417,7 +417,7 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
-    async def test_permission_request_dispatches_slack_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
             mark_complete=AsyncMock(),
@@ -466,7 +466,7 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
-        monkeypatch.setattr(relay_sandbox_events_module, "_safe_dispatch_slack_permission_request", dispatch_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "_broker_permission_request", dispatch_mock)
 
         await _relay_loop(
             events_url="https://sandbox.example/events",
@@ -479,7 +479,14 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_any_await(permission_event)
-        dispatch_mock.assert_called_once_with(task_run, permission_event)
+        dispatch_mock.assert_called_once_with(
+            task_run,
+            {
+                "request_id": "perm-1",
+                "tool_call": {"rawInput": {"toolName": "Bash"}},
+                "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
+            },
+        )
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

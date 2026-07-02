@@ -3193,7 +3193,7 @@ def _replace_permission_prompt(payload: dict, text: str) -> None:
         logger.warning("slack_app_permission_replace_failed", exc_info=True)
 
 
-def _selected_autonomy_tier(payload: dict) -> str | None:
+def _selected_permission_mode(payload: dict) -> str | None:
     action = next(
         (a for a in payload.get("actions", []) if a.get("action_id") == SLACK_PERMISSION_ACTION_SELECT),
         None,
@@ -3215,11 +3215,11 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     _context_token, context, integration, clicker_slack_user_id = resolved
-    selected_tier = _selected_autonomy_tier(payload)
+    selected_mode = _selected_permission_mode(payload)
 
-    from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
+    from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
 
-    if selected_tier not in SlackAutonomyTier.values:
+    if selected_mode not in SlackPermissionMode.values:
         return HttpResponse(status=200)
 
     slack_workspace_id = context.get("slack_workspace_id") or integration.integration_id
@@ -3231,18 +3231,18 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
         slack_user_id=clicker_slack_user_id,
         defaults={
             "default_integration": integration,
-            "autonomy_tier": selected_tier,
+            "permission_mode": selected_mode,
         },
     )
 
-    selected_label = SlackAutonomyTier(selected_tier).label
-    _post_permission_ephemeral_feedback(payload, f"Approval config saved: `{selected_label}`.")
+    selected_label = SlackPermissionMode(selected_mode).label
+    _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
     logger.info(
-        "slack_app_permission_config_saved",
+        "slack_app_permission_mode_saved",
         integration_id=integration.id,
         slack_workspace_id=slack_workspace_id,
         slack_user_id=clicker_slack_user_id,
-        autonomy_tier=selected_tier,
+        permission_mode=selected_mode,
     )
     return HttpResponse(status=200)
 
