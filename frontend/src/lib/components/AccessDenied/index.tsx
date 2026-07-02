@@ -1,10 +1,13 @@
 import { useActions } from 'kea'
 import { ReactNode } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
 import noAccessNopehog from 'public/no-access-nopehog.png'
+
+import { urls } from 'scenes/urls'
 
 import { supportLogic } from '../Support/supportLogic'
 
@@ -49,6 +52,16 @@ export function AccessDenied({ object, reason, inline = false }: AccessDeniedPro
                     You do not have access to this page. Please contact your account's administrators or{' '}
                     <Link onClick={handleClickSupport}>support</Link> if you think this is a mistake.
                 </p>
+            )}
+            {!inline && (
+                <div className="flex items-center justify-center gap-2 mt-6">
+                    <LemonButton type="secondary" onClick={() => window.history.back()}>
+                        Go back
+                    </LemonButton>
+                    <LemonButton type="primary" to={urls.projectHomepage()}>
+                        Go to homepage
+                    </LemonButton>
+                </div>
             )}
         </div>
     )
