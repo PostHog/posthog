@@ -1,4 +1,4 @@
-import { scaleLinear, scalePoint } from 'd3-scale'
+import { type ScaleLinear, scaleLinear, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import {
@@ -994,7 +994,7 @@ describe('hog-charts canvas-renderer', () => {
         const series = [makeSeries({ key: 's1', data: [10, 50, 90] })]
         const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
         const yScale = scaleLinear().domain([0, 100]).range([368, 16])
-        const resolveYScale = (): ReturnType<typeof scaleLinear> => yScale
+        const resolveYScale = (): ScaleLinear<number, number> => yScale
 
         it.each([
             { clipLeftEdge: true, expectedLeft: Math.round(dimensions.plotLeft), expectedWidth: dimensions.width - Math.round(dimensions.plotLeft) },
