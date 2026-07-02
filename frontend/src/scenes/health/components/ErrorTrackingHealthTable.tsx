@@ -16,7 +16,7 @@ function missingSourceMapsDescription(issue: HealthIssue): string {
             : ''
     return `${percent}% of JavaScript stack frames${frames} were unresolved in the last ${
         Number(lookback_hours) || 24
-    } hours. Upload source maps so stack traces show your original source code.`
+    } hours. Unresolved frames also degrade issue grouping. Upload source maps so stack traces show your original source code and errors group correctly.`
 }
 
 export function ErrorTrackingHealthTable({

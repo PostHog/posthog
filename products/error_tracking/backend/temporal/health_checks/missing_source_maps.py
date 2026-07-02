@@ -54,7 +54,8 @@ class MissingSourceMapsCheck(HealthCheck):
             title="Missing source maps",
             summary=(
                 f"{pct}% of JavaScript stack frames were unresolved in the last {lookback_hours} hours. "
-                "Upload source maps so stack traces show your original source code."
+                "Unresolved frames also degrade issue grouping. Upload source maps so stack traces "
+                "show your original source code and errors group correctly."
             ),
             link=RECOMMENDATIONS_PATH,
         )
