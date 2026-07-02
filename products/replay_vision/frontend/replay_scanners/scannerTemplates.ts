@@ -11,17 +11,7 @@ import type {
 } from './types'
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
 
-export type ScannerTemplateIcon =
-    | 'bolt'
-    | 'warning'
-    | 'notebook'
-    | 'target'
-    | 'thumbs-down'
-    | 'star'
-    | 'search'
-    | 'magic'
-    | 'bug'
-    | 'check'
+export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
 interface BaseTemplate {
     key: string

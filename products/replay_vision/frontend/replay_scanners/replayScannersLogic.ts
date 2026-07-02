@@ -1,4 +1,5 @@
 import { actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -120,14 +121,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     actions({
         loadScanners: true,
+        // Declared here so the actions stay zero-arg despite the loaders' payload/breakpoint parameters.
+        loadCreators: true,
+        loadScannerStats: true,
         loadScannersSuccess: (scanners: ReplayScanner[], total: number) => ({ scanners, total }),
         loadScannersFailure: (error: string) => ({ error }),
-        loadCreators: true,
-        loadCreatorsSuccess: (creators: UserBasicApi[]) => ({ creators }),
-        loadCreatorsFailure: true,
-        loadScannerStats: true,
-        loadScannerStatsSuccess: (stats: ScannerStatsResponseApi) => ({ stats }),
-        loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
@@ -138,6 +136,44 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setScannersFilters: (filters: Partial<ScannersFilters>, replace: boolean = false) => ({ filters, replace }),
         clearFilters: true,
     }),
+
+    loaders(({ values }) => ({
+        creators: [
+            [] as UserBasicApi[],
+            {
+                loadCreators: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.creators
+                    }
+                    try {
+                        const response = await visionScannersCreatorsRetrieve(String(teamId))
+                        return response.creators ?? []
+                    } catch {
+                        return values.creators
+                    }
+                },
+            },
+        ],
+        scannerStats: [
+            null as ScannerStatsResponseApi | null,
+            {
+                loadScannerStats: async (_, breakpoint) => {
+                    // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
+                    await breakpoint(50)
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scannerStats
+                    }
+                    try {
+                        return await visionScannersStatsRetrieve(String(teamId))
+                    } catch {
+                        return values.scannerStats
+                    }
+                },
+            },
+        ],
+    })),
 
     reducers({
         scanners: [
@@ -192,32 +228,12 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     deleting ? [...state, id] : state.filter((i) => i !== id),
             },
         ],
-        creators: [
-            [] as UserBasicApi[],
-            {
-                loadCreatorsSuccess: (_, { creators }) => creators,
-            },
-        ],
-        scannerStats: [
-            null as ScannerStatsResponseApi | null,
-            {
-                loadScannerStatsSuccess: (_, { stats }) => stats,
-            },
-        ],
         scannersLoading: [
             false,
             {
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
-            },
-        ],
-        scannerStatsLoading: [
-            false,
-            {
-                loadScannerStats: () => true,
-                loadScannerStatsSuccess: () => false,
-                loadScannerStatsFailure: () => false,
             },
         ],
         chartDateFrom: [
@@ -304,34 +320,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             } finally {
                 actions.setScannerDeleting(id, false)
-            }
-        },
-
-        loadCreators: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersCreatorsRetrieve(String(teamId))
-                actions.loadCreatorsSuccess(response.creators ?? [])
-            } catch {
-                actions.loadCreatorsFailure()
-            }
-        },
-
-        loadScannerStats: async (_, breakpoint) => {
-            // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
-            await breakpoint(50)
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersStatsRetrieve(String(teamId))
-                actions.loadScannerStatsSuccess(response)
-            } catch {
-                actions.loadScannerStatsFailure()
             }
         },
 

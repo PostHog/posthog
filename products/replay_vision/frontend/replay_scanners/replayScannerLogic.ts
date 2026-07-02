@@ -1,5 +1,6 @@
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
@@ -200,9 +201,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
-        loadTagSuggestions: true,
-        loadTagSuggestionsSuccess: (suggestions: TagSuggestionApi[]) => ({ suggestions }),
-        loadTagSuggestionsFailure: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
@@ -318,6 +316,35 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
+    loaders(({ props, values }) => ({
+        tagSuggestions: [
+            [] as TagSuggestionApi[],
+            {
+                loadTagSuggestions: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    const scanner = values.scanner
+                    if (!teamId || !scanner || scanner.scanner_type !== 'classifier') {
+                        return []
+                    }
+                    const config = scanner.scanner_config
+                    try {
+                        const response = await visionScannersSuggestTagsCreate(String(teamId), {
+                            prompt: config.prompt ?? '',
+                            tags: config.tags ?? [],
+                            multi_label: config.multi_label ?? true,
+                            allow_freeform_tags: config.allow_freeform_tags ?? false,
+                            scanner_id: props.id !== 'new' ? props.id : undefined,
+                        })
+                        return response.suggestions ?? []
+                    } catch (error: any) {
+                        lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
+
     reducers({
         originalScanner: [
             null as ReplayScanner | null,
@@ -372,25 +399,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
-        tagSuggestions: [
-            [] as TagSuggestionApi[],
-            {
-                loadTagSuggestions: () => [],
-                loadTagSuggestionsSuccess: (_, { suggestions }) => suggestions,
-                loadTagSuggestionsFailure: () => [],
-                // Accepted suggestions leave the panel; the listener adds them to the vocabulary.
-                acceptTagSuggestion: (state, { tag }) => state.filter((s) => s.tag !== tag),
-                dismissTagSuggestions: () => [],
-            },
-        ],
-        tagSuggestionsLoading: [
-            false,
-            {
-                loadTagSuggestions: () => true,
-                loadTagSuggestionsSuccess: () => false,
-                loadTagSuggestionsFailure: () => false,
-            },
-        ],
+        tagSuggestions: {
+            // Accepted suggestions leave the panel; the listener adds them to the vocabulary.
+            acceptTagSuggestion: (state: TagSuggestionApi[], { tag }: { tag: string }) =>
+                state.filter((s) => s.tag !== tag),
+            dismissTagSuggestions: () => [],
+        },
         observations: [
             [] as ReplayObservationApi[],
             {
@@ -730,28 +744,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            loadTagSuggestions: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                const scanner = values.scanner
-                if (!teamId || !scanner || scanner.scanner_type !== 'classifier') {
-                    actions.loadTagSuggestionsFailure()
-                    return
-                }
-                const config = scanner.scanner_config
-                try {
-                    const response = await visionScannersSuggestTagsCreate(String(teamId), {
-                        prompt: config.prompt ?? '',
-                        tags: config.tags ?? [],
-                        multi_label: config.multi_label ?? true,
-                        allow_freeform_tags: config.allow_freeform_tags ?? false,
-                        scanner_id: props.id !== 'new' ? props.id : undefined,
-                    })
-                    actions.loadTagSuggestionsSuccess(response.suggestions ?? [])
-                } catch (error: any) {
-                    lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
-                    actions.loadTagSuggestionsFailure()
-                }
-            },
             acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),
             acceptAllTagSuggestions: () => {
                 // Read the suggestions before dismiss clears them.
