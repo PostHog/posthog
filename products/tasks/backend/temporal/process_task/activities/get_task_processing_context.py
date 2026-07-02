@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.conf import settings
@@ -56,6 +56,7 @@ class TaskProcessingContext:
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
+    additional_repositories: list[str] = field(default_factory=list)
     origin_product: str | None = None
     environment: str | None = None
     github_user_integration_id: str | None = None
@@ -193,6 +194,7 @@ class TaskProcessingContext:
             "run_id": self.run_id,
             "team_id": self.team_id,
             "repository": self.repository,
+            "additional_repositories": self.additional_repositories,
             "origin_product": self.origin_product,
             "environment": self.environment,
             "distinct_id": self.distinct_id,
@@ -672,6 +674,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
         repository=task.repository,
+        additional_repositories=task.additional_repositories or [],
         distinct_id=distinct_id,
         origin_product=task.origin_product,
         environment=task_run.environment,

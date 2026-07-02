@@ -508,6 +508,11 @@ export interface TaskWriteApi {
      */
     repository?: string | null
     /**
+     * Extra repositories to clone into the sandbox alongside `repository`, each in `organization/repo` format. The agent can read/work across them; the PR targets `repository`.
+     * @items.maxLength 255
+     */
+    additional_repositories?: string[]
+    /**
      * GitHub integration for this task.
      * @nullable
      */
@@ -614,6 +619,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * Extra repositories to clone into the sandbox alongside `repository`, each in `organization/repo` format. The agent can read/work across them; the PR targets `repository`.
+     * @items.maxLength 255
+     */
+    additional_repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable

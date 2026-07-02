@@ -1039,6 +1039,55 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
 
+    def test_create_task_with_additional_repositories(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "repository": "posthog/posthog",
+                "additional_repositories": [
+                    "PostHog/posthog-js",
+                    "posthog/posthog-js",
+                    "posthog/posthog",
+                    "posthog/posthog.com",
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Lowercased, deduped, and the primary repo dropped — original order kept.
+        expected = ["posthog/posthog-js", "posthog/posthog.com"]
+        data = response.json()
+        self.assertEqual(data["additional_repositories"], expected)
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.additional_repositories, expected)
+
+    def test_create_task_rejects_too_many_additional_repositories(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "description": "New Description",
+                "repository": "posthog/posthog",
+                "additional_repositories": [f"posthog/repo-{i}" for i in range(6)],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_task_rejects_malformed_additional_repository(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "description": "New Description",
+                "repository": "posthog/posthog",
+                "additional_repositories": ["not-a-repo"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_task_accepts_null_runtime_fields(self):
         # The Code app's cloud-task flows (e.g. Discuss) send the write-only
         # runtime hints as explicit `null` when nothing is selected. `default=None`

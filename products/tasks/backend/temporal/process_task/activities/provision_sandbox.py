@@ -1,6 +1,6 @@
 import shlex
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.conf import settings
 
@@ -16,7 +16,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate, sandbox_repo_path
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -53,6 +53,15 @@ class PrepareSandboxForRepositoryInput:
 
 
 @dataclass
+class PreparedClone:
+    """A resolved extra repository to clone into the sandbox (its own token)."""
+
+    repository: str
+    github_token: str
+    shallow_clone: bool
+
+
+@dataclass
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
@@ -69,6 +78,7 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
+    additional_clones: list[PreparedClone] = field(default_factory=list)
 
 
 @dataclass
@@ -103,6 +113,13 @@ class CloneRepositoryInSandboxInput:
     repository: str
     github_token: str
     shallow_clone: bool
+
+
+@dataclass
+class CloneAdditionalRepositoriesInSandboxInput:
+    context: TaskProcessingContext
+    sandbox_id: str
+    clones: list[PreparedClone]
 
 
 @dataclass
@@ -315,7 +332,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and ctx.github_integration_id is not None:
+        if has_repo and ctx.github_integration_id is not None and not ctx.additional_repositories:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
@@ -414,6 +431,34 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
 
+        additional_clones: list[PreparedClone] = []
+        if should_inject_github_token:
+            for additional_repository in ctx.additional_repositories:
+                try:
+                    additional_token = (
+                        get_sandbox_github_token(
+                            ctx.github_integration_id,
+                            run_id=ctx.run_id,
+                            state=ctx.state,
+                            task=task,
+                            repository=additional_repository,
+                        )
+                        or ""
+                    )
+                except Exception as e:
+                    raise GitHubAuthenticationError(
+                        f"Failed to get GitHub token for additional repository {additional_repository}",
+                        {"repository": additional_repository, "task_id": ctx.task_id, "error": str(e)},
+                        cause=e,
+                    )
+                additional_clones.append(
+                    PreparedClone(
+                        repository=additional_repository,
+                        github_token=additional_token,
+                        shallow_clone=shallow_clone,
+                    )
+                )
+
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(
             has_repo=has_repo,
@@ -438,6 +483,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
+            additional_clones=additional_clones,
         )
 
 
@@ -574,6 +620,41 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
 
 @activity.defn
 @asyncify
+def clone_additional_repositories_in_sandbox(input: CloneAdditionalRepositoriesInSandboxInput) -> None:
+    ctx = input.context
+
+    with log_activity_execution(
+        "clone_additional_repositories_in_sandbox",
+        sandbox_id=input.sandbox_id,
+        **ctx.to_log_context(),
+    ):
+        if not input.clones:
+            return
+
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        for clone in input.clones:
+            repo_path = sandbox_repo_path(clone.repository)
+            already_present = sandbox.execute(f"test -d {shlex.quote(repo_path)}")
+            if already_present.exit_code == 0:
+                emit_agent_log(
+                    ctx.run_id, "debug", f"Additional repo {clone.repository} already present; skipping clone"
+                )
+                continue
+
+            emit_agent_log(ctx.run_id, "debug", f"Cloning additional repo {clone.repository} into sandbox")
+            with StepTimer("additional_repository_clone", used_snapshot=False):
+                clone_result = sandbox.clone_repository(
+                    clone.repository,
+                    github_token=clone.github_token,
+                    shallow=clone.shallow_clone,
+                )
+
+            if clone_result.exit_code != 0:
+                raise RuntimeError(f"Failed to clone additional repository {clone.repository}: {clone_result.stderr}")
+
+
+@activity.defn
+@asyncify
 def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutBranchInSandboxOutput:
     ctx = input.context
 
@@ -681,6 +762,28 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         if github_token and input.repository:
             set_git_remote_token(sandbox, input.repository, github_token)
+
+        additional_repositories = ctx.additional_repositories if ctx.has_github_credentials else []
+        for additional_repository in additional_repositories:
+            try:
+                additional_token = (
+                    get_sandbox_github_token(
+                        ctx.github_integration_id,
+                        run_id=ctx.run_id,
+                        state=ctx.state,
+                        task=task,
+                        repository=additional_repository,
+                    )
+                    or ""
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to refresh GitHub token for additional repository on resume",
+                    extra={"repository": additional_repository, "task_id": ctx.task_id},
+                )
+                continue
+            if additional_token:
+                set_git_remote_token(sandbox, additional_repository, additional_token)
 
         # Pre-seed the agentsh env file so any wrapped command that runs between
         # resume and start_agent_server (diagnostics, branch checkout) sees the

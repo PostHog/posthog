@@ -372,6 +372,7 @@ def _task_detail_to_dto(
         description=task.description,
         origin_product=task.origin_product,
         repository=task.repository,
+        additional_repositories=list(task.additional_repositories or []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
         signal_report=task.signal_report_id,
@@ -2859,6 +2860,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
+        and not validated_data.get("additional_repositories")
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(

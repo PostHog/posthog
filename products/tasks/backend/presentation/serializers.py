@@ -323,6 +323,7 @@ class TaskSerializer(DataclassSerializer):
             "description",
             "origin_product",
             "repository",
+            "additional_repositories",
             "github_integration",
             "github_user_integration",
             "signal_report",
@@ -337,6 +338,17 @@ class TaskSerializer(DataclassSerializer):
             "ci_prompt",
             "channel",
         ]
+
+
+MAX_ADDITIONAL_REPOSITORIES = 5
+
+
+def _normalize_repository_identifier(value: str) -> str:
+    """Validate an ``organization/repo`` identifier and return it lowercased."""
+    parts = value.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise serializers.ValidationError("Repository must be in the format organization/repository")
+    return value.lower()
 
 
 class TaskWriteSerializer(serializers.Serializer):
@@ -373,6 +385,14 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         allow_null=True,
         help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
+    additional_repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text=(
+            "Extra repositories to clone into the sandbox alongside `repository`, each in "
+            "`organization/repo` format. The agent can read/work across them; the PR targets `repository`."
+        ),
     )
     github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.filter(kind="github"),
@@ -535,11 +555,24 @@ class TaskWriteSerializer(serializers.Serializer):
         if not value:
             return value
 
-        parts = value.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return _normalize_repository_identifier(value)
 
-        return value.lower()
+    def validate_additional_repositories(self, value):
+        """Validate, lowercase, dedupe, and cap the extra repositories."""
+        if not value:
+            return value
+
+        if len(value) > MAX_ADDITIONAL_REPOSITORIES:
+            raise serializers.ValidationError(
+                f"At most {MAX_ADDITIONAL_REPOSITORIES} additional repositories are allowed."
+            )
+
+        normalized: list[str] = []
+        for repo in value:
+            normalized_repo = _normalize_repository_identifier(repo)
+            if normalized_repo not in normalized:
+                normalized.append(normalized_repo)
+        return normalized
 
     def validate_signal_report(self, value):
         if value and value.team_id != self.context["team"].id:
@@ -547,6 +580,12 @@ class TaskWriteSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        # The primary repo is cloned via `repository`; never clone it twice.
+        repository = attrs.get("repository")
+        additional = attrs.get("additional_repositories")
+        if repository and additional:
+            attrs["additional_repositories"] = [repo for repo in additional if repo != repository]
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):

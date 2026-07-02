@@ -339,6 +339,37 @@ class TestTask(TestCase):
 
         self.assertEqual(task.repository, expected_repo)
 
+    @parameterized.expand(
+        [
+            (["posthog-repo"],),
+            (["posthog/posthog-js", "noslashhere"],),
+        ]
+    )
+    def test_additional_repositories_validation_fails_without_slash(self, additional_repositories):
+        with self.assertRaises(ValidationError) as cm:
+            Task.objects.create(
+                team=self.team,
+                title="Test Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository="posthog/posthog",
+                additional_repositories=additional_repositories,
+            )
+
+        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+
+    def test_additional_repositories_convert_to_lowercase(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            additional_repositories=["PostHog/PostHog-JS", "posthog/posthog.com"],
+        )
+
+        self.assertEqual(task.additional_repositories, ["posthog/posthog-js", "posthog/posthog.com"])
+
     def test_soft_delete(self):
         task = Task.objects.create(
             team=self.team,

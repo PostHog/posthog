@@ -161,6 +161,16 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    additional_repositories = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        blank=True,
+        help_text=(
+            "Extra repos cloned into the sandbox alongside `repository` so the agent can work "
+            "across them. Each is organization/repo. PRs still target `repository`."
+        ),
+    )
+
     # Channel this task was kicked off in. Legacy tasks (and tasks from non-channel
     # surfaces) stay NULL. SET_NULL so deleting a channel never deletes its tasks.
     channel = models.ForeignKey(
@@ -235,6 +245,15 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
             self.repository = self.repository.lower()
 
+        if self.additional_repositories:
+            normalized: list[str] = []
+            for repo in self.additional_repositories:
+                parts = repo.split("/")
+                if len(parts) != 2 or not parts[0] or not parts[1]:
+                    raise ValidationError({"additional_repositories": "Format for repository is organization/repo"})
+                normalized.append(repo.lower())
+            self.additional_repositories = normalized
+
         if self.task_number is None:
             self._assign_task_number()
 
@@ -281,6 +300,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
                 "repository": self.repository,
+                "additional_repositories_count": len(self.additional_repositories or []),
             }
             if properties:
                 all_properties.update(properties)

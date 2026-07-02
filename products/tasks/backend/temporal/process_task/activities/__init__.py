@@ -13,6 +13,7 @@ from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CheckoutBranchInSandboxOutput,
+    CloneAdditionalRepositoriesInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
@@ -22,6 +23,7 @@ from .provision_sandbox import (
     PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
     checkout_branch_in_sandbox,
+    clone_additional_repositories_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
@@ -60,6 +62,7 @@ __all__ = [
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
     "CheckoutBranchInSandboxOutput",
+    "CloneAdditionalRepositoriesInSandboxInput",
     "CloneRepositoryInSandboxInput",
     "CloneRepositoryInSandboxOutput",
     "CreateSandboxForRepositoryInput",
@@ -105,5 +108,6 @@ __all__ = [
     "track_workflow_event",
     "update_task_run_status",
     "clone_repository_in_sandbox",
+    "clone_additional_repositories_in_sandbox",
     "checkout_branch_in_sandbox",
 ]

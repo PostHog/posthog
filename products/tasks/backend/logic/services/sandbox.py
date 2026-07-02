@@ -275,6 +275,7 @@ class SandboxBase(ABC):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        additional_repositories: list[str] | None = None,
         wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.

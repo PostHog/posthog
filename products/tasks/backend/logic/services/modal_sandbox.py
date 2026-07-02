@@ -809,6 +809,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        additional_directories: list[str] | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -825,6 +826,11 @@ class ModalSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
+        additional_dirs_flag = (
+            f" --additionalDirectories {shlex.quote(','.join(additional_directories))}"
+            if additional_directories
+            else ""
+        )
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -834,7 +840,7 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}{additional_dirs_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -913,6 +919,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        additional_repositories: list[str] | None = None,
         wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
@@ -933,6 +940,11 @@ class ModalSandbox(SandboxBase):
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        additional_dirs: list[str] = []
+        for extra in additional_repositories or []:
+            extra_org, extra_repo = extra.lower().split("/")
+            additional_dirs.append(f"/tmp/workspace/repos/{extra_org}/{extra_repo}")
 
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
 
@@ -962,6 +974,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            additional_directories=additional_dirs or None,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

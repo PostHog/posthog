@@ -112,10 +112,23 @@ def update_sandbox_env_file(sandbox: "SandboxBase", updates: dict[str, str]) -> 
     return True
 
 
-def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str | None, github_token: str) -> None:
-    """Re-inject a GitHub token into both places a running sandbox reads it from."""
+def apply_github_credentials_to_sandbox(
+    sandbox: "SandboxBase",
+    repository: str | None,
+    github_token: str,
+    additional_repositories: list[str] | None = None,
+) -> None:
+    """Re-inject a GitHub token into both places a running sandbox reads it from.
+
+    ``additional_repositories`` remotes are rewritten with the *same* token — pass
+    them only when one token covers every repo (user tokens). Installation tokens
+    can differ per repo, so that path re-resolves each extra instead
+    (``GitHubSandboxCredential._refresh_additional_remotes``).
+    """
     if repository:
         set_git_remote_token(sandbox, repository, github_token)
+    for additional_repository in additional_repositories or []:
+        set_git_remote_token(sandbox, additional_repository, github_token)
     update_sandbox_env_file(sandbox, dict.fromkeys(GITHUB_ENV_KEYS, github_token))
 
 
@@ -129,15 +142,22 @@ def _rotation_lock_key(user_integration_id: int) -> str:
     return f"tasks:gh_user_token_rotate:{user_integration_id}"
 
 
-def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple[str, str, str | None]]:
-    rows: list[tuple[str, str, str | None]] = []
+def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple[str, str, str | None, list[str]]]:
+    rows: list[tuple[str, str, str | None, list[str]]] = []
     runs = (
         TaskRun.objects.filter(
             status=TaskRun.Status.IN_PROGRESS,
             task__github_user_integration_id=user_integration_id,
         )
         .select_related("task")
-        .only("id", "state", "task__repository", "task__github_user_integration_id", "task__origin_product")
+        .only(
+            "id",
+            "state",
+            "task__repository",
+            "task__additional_repositories",
+            "task__github_user_integration_id",
+            "task__origin_product",
+        )
     )
     for run in runs:
         sandbox_id = (run.state or {}).get("sandbox_id")
@@ -150,7 +170,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
             continue
         if is_caller_token_run(str(run.id), run.state):
             continue
-        rows.append((str(run.id), sandbox_id, run.task.repository))
+        rows.append((str(run.id), sandbox_id, run.task.repository, list(run.task.additional_repositories or [])))
     return rows
 
 
@@ -158,11 +178,17 @@ def _propagate_user_token(user_integration_id: int, token: str) -> int:
     from products.tasks.backend.logic.services.sandbox import Sandbox  # noqa: PLC0415
 
     applied = 0
-    for run_id, sandbox_id, repository in _live_sandboxes_for_user_integration(user_integration_id):
+    for run_id, sandbox_id, repository, additional_repositories in _live_sandboxes_for_user_integration(
+        user_integration_id
+    ):
         try:
             sandbox = Sandbox.get_by_id(sandbox_id)
             if sandbox.is_running():
-                apply_github_credentials_to_sandbox(sandbox, repository, token)
+                # Rotation just revoked the previous user token, so every remote that
+                # embeds it — extras included — must be rewritten immediately.
+                apply_github_credentials_to_sandbox(
+                    sandbox, repository, token, additional_repositories=additional_repositories
+                )
                 applied += 1
         except Exception:
             logger.warning(
@@ -271,6 +297,7 @@ class GitHubSandboxCredential:
             )
 
         apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+        self._refresh_additional_remotes(sandbox, ctx, task)
         return CredentialRefreshOutcome(
             self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
@@ -280,10 +307,39 @@ class GitHubSandboxCredential:
     ) -> CredentialRefreshOutcome:
         token = resolve_coordinated_user_token(integration)
         if token:
-            apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+            # One user token covers every repo the user granted, extras included.
+            apply_github_credentials_to_sandbox(
+                sandbox, ctx.repository, token, additional_repositories=ctx.additional_repositories
+            )
         return CredentialRefreshOutcome(
             self.kind, refreshed=bool(token), next_refresh_seconds=USER_TOKEN_REFRESH_INTERVAL_SECONDS
         )
+
+    def _refresh_additional_remotes(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> None:
+        """Extra repos' remotes embed their own clone-time tokens, which may come from a
+        different installation than the primary's — re-resolve each per repo, mirroring
+        the clone/resume paths. Best-effort: a failure leaves that repo's old token in
+        place, and set_git_remote_token no-ops for repos not on disk."""
+        for additional_repository in ctx.additional_repositories:
+            try:
+                additional_token = (
+                    get_sandbox_github_token(
+                        ctx.github_integration_id,
+                        run_id=ctx.run_id,
+                        state=ctx.state,
+                        task=task,
+                        repository=additional_repository,
+                    )
+                    or ""
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to refresh GitHub token for additional repository",
+                    extra={"repository": additional_repository, "task_id": ctx.task_id},
+                )
+                continue
+            if additional_token:
+                set_git_remote_token(sandbox, additional_repository, additional_token)
 
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:

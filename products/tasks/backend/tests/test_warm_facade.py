@@ -201,6 +201,17 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) != str(warm_task.id)
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
+    def test_additional_repositories_skip_warm_reuse(self):
+        # A pre-warmed sandbox only has the single primary repo cloned, so a
+        # multi-repo create must fall through to a fresh create + full clone.
+        warm_task, _ = self._warm_run()
+        with patch(f"{TITLE_SRC}.generate_task_title", return_value="T"):
+            dto = self._create(additional_repositories=["posthog/posthog-js"])
+
+        assert str(dto.id) != str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
+        assert dto.additional_repositories == ["posthog/posthog-js"]
+
     def test_terminal_warm_run_is_not_reused(self):
         warm_task, run = self._warm_run()
         run.status = TaskRun.Status.COMPLETED

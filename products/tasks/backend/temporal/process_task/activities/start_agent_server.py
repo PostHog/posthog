@@ -281,6 +281,7 @@ def _invoke_start_agent_server(
     try:
         sandbox.start_agent_server(
             repository=ctx.repository,
+            additional_repositories=ctx.additional_repositories,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,

@@ -262,6 +262,8 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodyAdditionalRepositoriesItemMax = 255
+
 export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
@@ -309,6 +311,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        additional_repositories: zod
+            .array(zod.string().max(tasksCreateBodyAdditionalRepositoriesItemMax))
+            .optional()
+            .describe(
+                'Extra repositories to clone into the sandbox alongside `repository`, each in `organization\/repo` format. The agent can read\/work across them; the PR targets `repository`.'
+            ),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()
@@ -386,6 +394,8 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
+export const tasksUpdateBodyAdditionalRepositoriesItemMax = 255
+
 export const tasksUpdateBodyBranchMax = 255
 
 export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -433,6 +443,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .max(tasksUpdateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        additional_repositories: zod
+            .array(zod.string().max(tasksUpdateBodyAdditionalRepositoriesItemMax))
+            .optional()
+            .describe(
+                'Extra repositories to clone into the sandbox alongside `repository`, each in `organization\/repo` format. The agent can read\/work across them; the PR targets `repository`.'
+            ),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()
@@ -510,6 +526,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodyAdditionalRepositoriesItemMax = 255
+
 export const tasksPartialUpdateBodyBranchMax = 255
 
 export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -557,6 +575,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .max(tasksPartialUpdateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        additional_repositories: zod
+            .array(zod.string().max(tasksPartialUpdateBodyAdditionalRepositoriesItemMax))
+            .optional()
+            .describe(
+                'Extra repositories to clone into the sandbox alongside `repository`, each in `organization\/repo` format. The agent can read\/work across them; the PR targets `repository`.'
+            ),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .uuid()

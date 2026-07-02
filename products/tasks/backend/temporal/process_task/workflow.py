@@ -39,12 +39,14 @@ from .activities.get_task_processing_context import (
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
+    CloneAdditionalRepositoriesInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,
+    clone_additional_repositories_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
@@ -894,6 +896,25 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             clone_ms = getattr(clone_output, "clone_ms", None)
             await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+
+        # Extra repos to clone alongside the primary. Empty on resume (already on
+        # disk); the activity itself skips any repo already present, so it stays
+        # idempotent across retries and snapshot reuse.
+        if prepared.additional_clones:
+            count = len(prepared.additional_clones)
+            noun = "repository" if count == 1 else "repositories"
+            await self._emit_progress("clone_additional", "in_progress", f"Cloning {count} additional {noun}", "setup")
+            await workflow.execute_activity(
+                clone_additional_repositories_in_sandbox,
+                CloneAdditionalRepositoriesInSandboxInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    clones=prepared.additional_clones,
+                ),
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            await self._emit_progress("clone_additional", "completed", f"Cloned {count} additional {noun}", "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))

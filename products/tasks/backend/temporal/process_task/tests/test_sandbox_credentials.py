@@ -8,6 +8,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     GitHubSandboxCredential,
+    apply_github_credentials_to_sandbox,
     build_sandbox_credentials,
     github_refresh_interval_seconds,
     set_git_remote_token,
@@ -102,6 +103,24 @@ class TestUpdateSandboxEnvFile:
         assert payload == b"GH_TOKEN=ghs_new\x00"
 
 
+class TestApplyGithubCredentials:
+    def test_rewrites_additional_repository_remotes_with_the_same_token(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+
+        apply_github_credentials_to_sandbox(
+            sandbox,
+            "explore-science/paper-wizard-frontend",
+            "ghu_fresh",
+            additional_repositories=["explore-science/paper-wizard-api"],
+        )
+
+        commands = [str(c.args[0]) for c in sandbox.execute.call_args_list]
+        assert any("explore-science/paper-wizard-frontend" in c and "x-access-token:ghu_fresh" in c for c in commands)
+        assert any("explore-science/paper-wizard-api" in c and "x-access-token:ghu_fresh" in c for c in commands)
+
+
 class TestGitHubSandboxCredential:
     def test_resolves_and_applies_token_and_reports_interval(self):
         sandbox = MagicMock()
@@ -122,6 +141,50 @@ class TestGitHubSandboxCredential:
         # git remote rewrite ran with the fresh token.
         assert any("x-access-token:ghs_resolved" in str(c.args[0]) for c in sandbox.execute.call_args_list)
         sandbox.write_file.assert_called_once()
+
+    def test_refreshes_additional_remotes_with_per_repo_tokens(self):
+        # Extras can live under a different installation than the primary, so the
+        # installation-token path re-resolves a token per repo instead of reusing
+        # the primary's.
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        ctx = _context(additional_repositories=["other-org/docs"])
+        tokens = {"explore-science/paper-wizard-frontend": "ghs_primary", "other-org/docs": "ghs_docs"}
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+            side_effect=lambda *a, **k: tokens[k["repository"]],
+        ) as resolve:
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+
+        assert outcome.refreshed is True
+        assert resolve.call_count == 2
+        commands = [str(c.args[0]) for c in sandbox.execute.call_args_list]
+        assert any("other-org/docs" in c and "x-access-token:ghs_docs" in c for c in commands)
+
+    def test_additional_remote_token_failure_is_best_effort(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        ctx = _context(additional_repositories=["other-org/docs"])
+
+        def resolve(*args, **kwargs):
+            if kwargs["repository"] == "other-org/docs":
+                raise RuntimeError("integration gone")
+            return "ghs_primary"
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+            side_effect=resolve,
+        ):
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+
+        # The primary refresh still lands and the run keeps going.
+        assert outcome.refreshed is True
+        commands = [str(c.args[0]) for c in sandbox.execute.call_args_list]
+        assert any("x-access-token:ghs_primary" in c for c in commands)
+        assert not any("other-org/docs" in c for c in commands)
 
     def test_user_token_reports_longer_interval(self):
         sandbox = MagicMock()
@@ -179,12 +242,19 @@ class TestSharedUserIntegrationRefresh:
             apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
 
             sandbox = MagicMock()
-            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
+            ctx = _context(additional_repositories=["explore-science/paper-wizard-api"])
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
 
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == USER_TOKEN_REFRESH_INTERVAL_SECONDS
             resolve.assert_called_once()
-            apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_fresh")
+            # The user token covers extras too, so they ride the same apply call.
+            apply.assert_called_once_with(
+                sandbox,
+                "explore-science/paper-wizard-frontend",
+                "ghu_fresh",
+                additional_repositories=["explore-science/paper-wizard-api"],
+            )
 
     def test_refresh_reports_not_refreshed_when_no_token(self):
         import contextlib
@@ -333,6 +403,8 @@ class TestLiveSandboxRegistry:
             return Task.objects.create(team=team, created_by=user, repository=repo, github_user_integration=integration)
 
         live = _task("org/live")
+        live.additional_repositories = ["org/live-docs"]
+        live.save(update_fields=["additional_repositories"])
         live_run = TaskRun.objects.create(
             task=live,
             team=team,
@@ -368,4 +440,4 @@ class TestLiveSandboxRegistry:
 
         result = _live_sandboxes_for_user_integration(integration.id)
 
-        assert result == [(str(live_run.id), "sb-live", "org/live")]
+        assert result == [(str(live_run.id), "sb-live", "org/live", ["org/live-docs"])]
