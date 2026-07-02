@@ -52,7 +52,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { navigationLogic } from '~/layout/navigation-3000/navigationLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
@@ -147,7 +147,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { setShortcutMenuOpen } = useActions(shortcutLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
+    const { toggleZenMode } = useActions(navigationLogic)
 
     return (
         <DropdownMenu>

@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { navigation3000Logic } from '../navigationLogic'
+import { navigationLogic } from '../navigationLogic'
 import { ZenModeButton } from './ZenModeButton'
 
 export function MinimalNavigation(): JSX.Element {
@@ -22,7 +22,7 @@ export function MinimalNavigation(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hasOnboardedAnyProduct, currentTeam } = useValues(teamLogic)
     const { titleAndIcon } = useValues(sceneLogic)
-    const { zenMode } = useValues(navigation3000Logic)
+    const { zenMode } = useValues(navigationLogic)
 
     const shouldShowOnboarding = !hasOnboardedAnyProduct && !currentTeam?.ingested_event
     const logoUrl = shouldShowOnboarding ? urls.onboarding() : urls.projectRoot()

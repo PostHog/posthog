@@ -29,7 +29,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { navigationLogic } from '~/layout/navigation-3000/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'

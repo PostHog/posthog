@@ -28,7 +28,7 @@ import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { navigationLogic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -239,7 +239,7 @@ export function SceneTitleSection({
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
-    const { zenMode } = useValues(navigation3000Logic)
+    const { zenMode } = useValues(navigationLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2

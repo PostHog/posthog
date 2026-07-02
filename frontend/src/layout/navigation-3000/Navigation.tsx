@@ -16,13 +16,12 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 
-import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
-import { navigation3000Logic } from './navigationLogic'
+import { navigationLogic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
@@ -38,8 +37,7 @@ export function Navigation({
     useMountedLogic(mcpHintLogic)
 
     const { theme } = useValues(themeLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-    const { mode } = useValues(navigation3000Logic)
+    const { mobileLayout, mode } = useValues(navigationLogic)
     const mainRef = useRef<HTMLElement>(null)
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)

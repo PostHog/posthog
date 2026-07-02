@@ -17,7 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation-3000/navigationLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
@@ -67,7 +67,7 @@ export function PanelLayoutPanel({
     const { isLayoutNavCollapsed, panelWidth: computedPanelWidth, panelWillHide } = useValues(panelLayoutLogic)
     const { closePanel } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { mobileLayout: isMobileLayout } = useValues(navigationLogic)
 
     // Filter to only include items that have actual properties (not empty objects from spread conditions)
     const validPanelActions = panelActionsNewSceneLayout?.filter(

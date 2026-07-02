@@ -33,7 +33,7 @@ import {
 } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
-import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
+import { navigationLogic } from '../../navigation-3000/navigationLogic'
 import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
@@ -121,7 +121,7 @@ export function Nav(): JSX.Element {
     } = useActions(panelLayoutLogic)
     const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
         useValues(panelLayoutLogic)
-    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { mobileLayout: isMobileLayout } = useValues(navigationLogic)
     const { toggleCommand } = useActions(commandLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
 

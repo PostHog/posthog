@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation-3000/navigationLogic'
 import { Nav as AiFirstNavBar } from './ai-first/Nav'
 import { PanelLayoutPanels } from './ai-first/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -79,7 +79,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     // Panels can be surfaced from URL state (DataAndPeople, DataManagement) without flipping
     // isLayoutPanelVisible — so for overlay visibility we key off the identifier directly.
     const panelIsShown = isLayoutPanelVisible || activePanelIdentifier !== ''
-    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { mobileLayout: isMobileLayout } = useValues(navigationLogic)
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load

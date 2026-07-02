@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -48,31 +49,31 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
-import { navigationLogic } from '../navigation/navigationLogic'
-import type { navigation3000LogicType } from './navigationLogicType'
+import type { navigationLogicType } from './navigationLogicType'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
+export type NavigationMode = 'none' | 'minimal' | 'zen' | 'full'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
 const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
 const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 
-export const navigation3000Logic = kea<navigation3000LogicType>([
+export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
+    windowValues(() => ({
+        mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+    })),
     connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
             ['sceneConfig', 'activeSceneId'],
-            navigationLogic,
-            ['mobileLayout'],
             sessionRecordingSavedFiltersLogic,
             ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
@@ -109,6 +110,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         toggleListItemAccordion: (key: string) => ({ key }),
         setZenMode: (zenMode: boolean) => ({ zenMode }),
         toggleZenMode: true,
+        showConfigureHomeModal: true,
+        hideConfigureHomeModal: true,
     }),
     reducers({
         isSidebarShown: [
@@ -243,6 +246,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 toggleZenMode: (state) => !state,
             },
         ],
+        isConfigureHomeModalOpen: [
+            false,
+            {
+                showConfigureHomeModal: () => true,
+                hideConfigureHomeModal: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         initiateNewItemInCategory: ({ category: categoryKey }) => {
@@ -369,7 +379,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 zenMode,
                 activeSceneId,
                 featureFlags
-            ): Navigation3000Mode => {
+            ): NavigationMode => {
                 if (zenMode) {
                     return 'zen'
                 }

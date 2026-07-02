@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
 export type PanelLayoutNavIdentifier =
@@ -31,7 +31,7 @@ export const PANEL_NAVBAR_COLLAPSE_THRESHOLD: number = 140
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
     connect(() => ({
-        values: [navigation3000Logic, ['mobileLayout'], router, ['location']],
+        values: [navigationLogic, ['mobileLayout'], router, ['location']],
     })),
     actions({
         closePanel: true,

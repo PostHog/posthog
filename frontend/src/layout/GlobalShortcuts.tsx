@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { SidePanelTab } from '~/types'
 
-import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { navigationLogic } from './navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from './navigation-3000/themeLogic'
 import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
@@ -25,7 +25,7 @@ export function GlobalShortcuts(): null {
     const { shortcutMenuOpen } = useValues(shortcutLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setShortcutMenuOpen } = useActions(shortcutLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
+    const { toggleZenMode } = useActions(navigationLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)

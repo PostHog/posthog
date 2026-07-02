@@ -33,7 +33,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { navigationLogic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -54,7 +54,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
+    const { toggleZenMode } = useActions(navigationLogic)
     const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)

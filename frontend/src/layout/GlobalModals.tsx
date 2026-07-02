@@ -25,7 +25,7 @@ import { ComposeTicketModal } from 'products/conversations/frontend/components/C
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
-import { navigationLogic } from './navigation/navigationLogic'
+import { navigationLogic } from './navigation-3000/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
