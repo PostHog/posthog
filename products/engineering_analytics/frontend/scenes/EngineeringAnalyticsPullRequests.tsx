@@ -52,9 +52,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         refresh,
     } = useActions(engineeringAnalyticsLogic)
 
-    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
-    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
-    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
+    // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
+    // the PR list) shows a retryable error, never the misleading "connect" state.
     if (notConnected) {
         return <ConnectGitHubSource />
     }

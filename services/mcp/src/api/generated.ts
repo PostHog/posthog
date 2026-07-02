@@ -18221,6 +18221,35 @@ export namespace Schemas {
       order?: number | null;
     }
 
+    export interface ElementStats {
+      /** Number of events matching this element chain */
+      count: number;
+      /**
+         * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+         * @nullable
+         */
+      hash: string | null;
+      /** Event type: $autocapture, $rageclick, or $dead_click */
+      type: string;
+      /** Parsed elements of the chain, clicked element first */
+      elements: Element[];
+    }
+
+    export interface ElementStatsResponse {
+      /** Element chains with event counts, ordered by count */
+      results: ElementStats[];
+      /**
+         * URL for the next page of results, if any
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page of results, if any
+         * @nullable
+         */
+      previous: string | null;
+    }
+
     export type ElementTypeAttributes = {[key: string]: string};
 
     export interface ElementType {
@@ -29063,7 +29092,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -33457,6 +33486,7 @@ export namespace Schemas {
     /**
      * * `session_analysis_cluster` - Session analysis cluster
      * * `evaluation` - Evaluation
+     * * `evaluation_report` - Evaluation report
      * * `issue` - Issue
      * * `ticket` - Ticket
      * * `issue_created` - Issue created
@@ -33475,6 +33505,7 @@ export namespace Schemas {
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
       Evaluation: 'evaluation',
+      EvaluationReport: 'evaluation_report',
       Issue: 'issue',
       Ticket: 'ticket',
       IssueCreated: 'issue_created',
@@ -38747,7 +38778,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -54185,12 +54216,16 @@ export namespace Schemas {
     export interface _LogPattern {
       /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
       pattern: string;
-      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
       count: number;
+      /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
+      estimated_count: number;
       /** Share of the sampled log volume this pattern represents (0–100). */
       volume_share_pct: number;
-      /** Sampled occurrences at severity "error" or "fatal". */
+      /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
       error_count: number;
+      /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
+      estimated_error_count: number;
       /** ISO 8601 timestamp of the earliest sampled occurrence. */
       first_seen: string;
       /** ISO 8601 timestamp of the latest sampled occurrence. */
@@ -54408,8 +54443,10 @@ export namespace Schemas {
       scanned_count: number;
       /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
       total_count: number;
-      /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+      /** True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row. */
       sampled: boolean;
+      /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
+      sample_coverage_pct: number;
     }
 
     export interface _LogsQueryBody {
@@ -54800,10 +54837,16 @@ export namespace Schemas {
       metric_name: string;
       /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
       metric_type: string;
-      /** The emitted value. */
+      /** The emitted value. For histogram/summary points this is the distribution sum; pair with count. */
       value: number;
+      /** Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries. */
+      count: number;
       /** Unit of the value, if any. */
       unit: string;
+      /** For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges. */
+      aggregation_temporality: string;
+      /** True for monotonically increasing counters. */
+      is_monotonic: boolean;
       /** Service that emitted the metric. */
       service_name: string;
       /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
@@ -56123,6 +56166,37 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string;
+    /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string;
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     */
+    include?: string[];
+    /**
+     * Maximum rows per page
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number;
     };
 
     export type EnvironmentsEndpointsListParams = {
@@ -62089,6 +62163,37 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string;
+    /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string;
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     */
+    include?: string[];
+    /**
+     * Maximum rows per page
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number;
     };
 
     export type EndpointsListParams = {

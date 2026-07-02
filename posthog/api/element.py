@@ -2,7 +2,7 @@ from typing import Literal
 
 from django.conf import settings
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
-from posthog.models.element.element import chain_to_elements
+from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
@@ -53,10 +53,19 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementStatsSerializer(serializers.Serializer):
-    count = serializers.IntegerField()
-    hash = serializers.CharField(allow_null=True)
-    type = serializers.CharField()
-    elements = ElementSerializer(many=True)
+    count = serializers.IntegerField(help_text="Number of events matching this element chain")
+    hash = serializers.CharField(
+        allow_null=True,
+        help_text="Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages",
+    )
+    type = serializers.CharField(help_text="Event type: $autocapture, $rageclick, or $dead_click")
+    elements = ElementSerializer(many=True, help_text="Parsed elements of the chain, clicked element first")
+
+
+class ElementStatsResponseSerializer(serializers.Serializer):
+    results = ElementStatsSerializer(many=True, help_text="Element chains with event counts, ordered by count")
+    next = serializers.CharField(allow_null=True, help_text="URL for the next page of results, if any")
+    previous = serializers.CharField(allow_null=True, help_text="URL for the previous page of results, if any")
 
 
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
@@ -68,6 +77,38 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include",
+                type=str,
+                many=True,
+                description="Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.",
+            ),
+            OpenApiParameter("limit", type=int, description="Maximum rows per page"),
+            OpenApiParameter("offset", type=int, description="Pagination offset"),
+            OpenApiParameter("sampling_factor", type=float, description="Sampling factor between 0 and 1"),
+            OpenApiParameter(
+                "data_attributes",
+                type=str,
+                description=(
+                    "Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, "
+                    "each element's attributes map is filtered to matching attr__* keys, shrinking the response."
+                ),
+            ),
+            OpenApiParameter(
+                "date_from",
+                type=str,
+                description="Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
+            ),
+            OpenApiParameter(
+                "date_to",
+                type=str,
+                description="End of the date range (e.g. 2024-01-31). Defaults to now.",
+            ),
+        ],
+        responses=ElementStatsResponseSerializer,
+    )
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         """
@@ -109,6 +150,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 events_filter = self._events_filter(request)
 
+                attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
+
                 # unless someone is using this as an API client, this is only for the toolbar,
                 # which only ever queries date range, event type, and URL
                 prop_filters, prop_filter_params = parse_prop_grouped_clauses(
@@ -144,22 +187,18 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            with (
-                timer("prepare_for_serialization"),
-                tracer.start_as_current_span("elements_api_stats.prepare_for_serialization"),
-            ):
-                elements_data = [
-                    {
-                        "count": elements[1],
-                        "hash": None,
-                        "type": elements[2],
-                        "elements": chain_to_elements(elements[0]),
-                    }
-                    for elements in result[:limit]
-                ]
-
             with timer("serialize_elements"), tracer.start_as_current_span("elements_api_stats.serialize_elements"):
-                serialized_elements = ElementStatsSerializer(elements_data, many=True).data
+                # parses chains straight to response dicts (shaped exactly like
+                # ElementStatsSerializer output, which stays as the declared schema)
+                serialized_elements = [
+                    {
+                        "count": int(count),
+                        "hash": f"{chain_hash:x}",
+                        "type": event_type,
+                        "elements": chain_to_element_dicts(chain, attributes_filter),
+                    }
+                    for chain, count, event_type, chain_hash in result[:limit]
+                ]
 
             span.set_attribute("result_count", len(serialized_elements))
             ELEMENT_STATS_RESULT_COUNT_HISTOGRAM.labels(limit=limit).observe(len(serialized_elements))

@@ -28,15 +28,13 @@ import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
-// Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
-// in copy when hit so a truncated list is never mistaken for the whole picture.
+// Mirrors the endpoint's server-side limit; surfaced in copy when hit so a truncated list reads as truncated.
 export const PR_TABLE_LIMIT = 1000
 
-// The workflow-health endpoint returns the top workflows by run count (`workflow_health.py` `_LIMIT`).
-// When hit, the fleet header labels its totals as "top N" so they're never read as the whole fleet.
+// Top workflows by run count (`workflow_health.py` `_LIMIT`); when hit, the header labels totals "top N".
 export const WORKFLOW_HEALTH_LIMIT = 100
 
-// The endpoints are project-scoped; the generated client takes the id as a string.
+// Project-scoped endpoints; the generated client takes the id as a string.
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
@@ -72,7 +70,7 @@ export interface PullRequestRow {
     failingWorkflows: string[]
     /** CI triggers in the PR's window: distinct head SHAs across its workflow runs. Fork PRs unattributed. */
     pushes: number
-    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
     /** Estimated CI cost (USD) over the PR's jobs (billable runners). Null when no cost / source unsynced. */
     estimatedCostUsd: number | null
@@ -99,8 +97,8 @@ export interface WorkflowHealthBucket {
     successes: number
     /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
     failures: number
-    /** Pre-formatted sparkline label; when set, used verbatim instead of formatting bucketStart by time
-     *  (push buckets aren't time-aligned, so they carry their own "Push N (sha)" label). */
+    /** Pre-formatted sparkline label; used verbatim when set — push buckets aren't time-aligned, so they
+     *  carry their own "Push N (sha)" label. */
     label?: string
 }
 
@@ -155,9 +153,8 @@ function formatBucket(bucketStart: string, granularity: WorkflowGranularity): st
 }
 
 /**
- * Series for the run-status sparkline. Each bar is stacked: total height is completed runs (volume)
- * and the red portion is decisive failures, so the red *fraction* reads as the failure rate — 1% is a
- * sliver, 50% is half-red — which length encodes accurately (unlike shade). Skipped, cancelled, and
+ * Run-status sparkline series. Each bar is stacked: total height is completed runs (volume), the red
+ * portion is decisive failures, so the red fraction reads as the failure rate. Skipped, cancelled, and
  * action_required runs are not failures.
  */
 export function workflowFailureSeries(
@@ -219,9 +216,8 @@ export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'nu
     return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
 
-/** Map an API PR list item to the table row shape — shared by the PR list and the author page so both
- *  feed the same PullRequestTable. ?? fallbacks degrade gracefully when a new frontend briefly hits an
- *  older backend whose response predates the cost/push fields. */
+/** Map an API PR list item to the table row — shared by the PR list and author page. ?? fallbacks degrade
+ *  gracefully when a new frontend hits an older backend predating the cost/push fields. */
 export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
     return {
         number: it.number,
@@ -499,11 +495,10 @@ export function quarantineRequestErrorMessage(error: unknown): string {
 }
 
 /**
- * Per-loader outcome. The endpoints all resolve the same GitHub source, so a 400
- * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other
- * failure is a genuine error scoped to the loader that hit it. Tracked per loader so a
- * 500 on one endpoint drives only the scenes that read it — not, say, an error banner on
- * the PR list because workflow health failed.
+ * Per-loader outcome. All endpoints resolve the same GitHub source, so a 400
+ * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other failure is a
+ * genuine error scoped to the loader that hit it, so a 500 on one endpoint doesn't error a scene that
+ * doesn't read it.
  */
 export type LoaderStatus = 'ok' | 'notConnected' | 'error'
 
@@ -594,21 +589,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 p50Seconds: it.p50_seconds,
                                 p95Seconds: it.p95_seconds,
                                 lastFailureAt: it.last_failure_at,
-                                // Defensive ?? null: a new frontend can briefly hit an older backend
-                                // whose response predates this field — degrade to "unknown", not crash.
+                                // ?? fallbacks: a new frontend can briefly hit an older backend predating
+                                // these fields — degrade, don't crash.
                                 latestRunFailed: it.latest_run_failed ?? null,
                                 latestRunConclusion: it.latest_run_conclusion ?? null,
-                                // Defensive ?? 'day': older backends predate adaptive bucketing.
+                                // ?? 'day': older backends predate adaptive bucketing.
                                 granularity: (it.granularity ?? 'day') as WorkflowGranularity,
-                                // ?? []: a new frontend can briefly hit an older backend whose response
-                                // predates the buckets field during a rolling deploy — degrade, don't crash.
                                 buckets: (it.buckets ?? []).map((b) => ({
                                     bucketStart: b.bucket_start,
                                     runCount: b.run_count,
                                     completed: b.completed,
                                     successes: b.successes,
-                                    // Defensive ?? 0: a new frontend can briefly hit an older backend whose
-                                    // response predates this field — degrade to 0, don't compute NaN bars.
+                                    // ?? 0: don't compute NaN bars when the field is absent.
                                     failures: b.failures ?? 0,
                                 })),
                                 billableMinutes: it.billable_minutes ?? null,
@@ -717,13 +709,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.status,
                 },
             ],
-            // Which connected GitHub source to read; null = the backend default (oldest connected).
-            // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
+            // Which GitHub source to read; null = backend default (oldest connected). URL-synced via
+            // `?source=` so it survives tab switches and deep-links into a PR's detail.
             sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
-            // Per-loader status. Each endpoint resolves the same GitHub source, so any one 400 means
-            // "not connected" for every scene; a non-400 failure is a per-loader error. Tracked
-            // separately (rather than off cards alone) so notConnected and the scene error states can
-            // each react to the loaders that actually feed them — see the selectors below.
+            // Per-loader status, tracked separately (not off cards alone) so notConnected and the per-scene
+            // error states each react only to the loaders that feed them — see the selectors below.
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -760,8 +750,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.owner,
                 },
             ],
-            // The quarantine endpoint only 400s when there is no GitHub source AND no local
-            // checkout (production without a source); a failed load is that canary.
+            // The quarantine endpoint only 400s when there's no GitHub source AND no local checkout
+            // (prod without a source); a failed load is that signal.
             quarantineLoadFailed: [
                 false,
                 {
@@ -796,8 +786,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
-            // (no persisted/stateful UI in this phase, per SPEC).
+            // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient (not persisted).
             costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
@@ -807,8 +796,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.workflowHealth],
                 (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
             ],
-            // The endpoint caps at the top workflows by run count; when hit, the header's totals cover only
-            // those, so it labels them as "top N" rather than fleet-wide.
+            // Endpoint caps at top workflows by run count; when hit, the header labels totals "top N", not fleet-wide.
             fleetTruncated: [
                 (s) => [s.workflowHealth],
                 (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
@@ -886,23 +874,23 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading, quarantineLoading): boolean =>
                     cardsLoading || pullRequestsLoading || workflowHealthLoading || quarantineLoading,
             ],
-            // No GitHub source connected: a 400 from any endpoint (they share source resolution).
-            // Drives the "connect a source" state on every scene, regardless of which loaders it renders.
+            // No GitHub source: a 400 from any endpoint (shared source resolution). Drives the "connect a
+            // source" state on every scene, regardless of which loaders it renders.
             notConnected: [
                 (s) => [s.cardsStatus, s.pullRequestsStatus, s.workflowHealthStatus],
                 (cardsStatus, pullRequestsStatus, workflowHealthStatus): boolean =>
                     [cardsStatus, pullRequestsStatus, workflowHealthStatus].includes('notConnected'),
             ],
-            // Genuine (non-400) failure of a loader the PR scene renders (cards + the PR list). A 500
-            // here shows the retryable error; a failure of only workflow health does not, so the PR
-            // list isn't hidden behind an error it doesn't depend on.
+            // Non-400 failure of a loader the PR scene renders (cards + PR list) → retryable error. A
+            // workflow-health-only failure doesn't, so the PR list isn't hidden behind an error it
+            // doesn't depend on.
             pullRequestsLoadError: [
                 (s) => [s.cardsStatus, s.pullRequestsStatus],
                 (cardsStatus, pullRequestsStatus): boolean => cardsStatus === 'error' || pullRequestsStatus === 'error',
             ],
-            // Genuine (non-400) failure of the only loader the Workflows scene renders. Decoupled from
-            // cards so workflow health failing surfaces an error there (not a misleading empty table),
-            // and a cards-only failure doesn't error a scene whose own data loaded fine.
+            // Non-400 failure of the only loader the Workflows scene renders. Decoupled from cards so its
+            // own failure shows an error (not a misleading empty table), and a cards-only failure doesn't
+            // error a scene whose data loaded fine.
             workflowHealthLoadError: [
                 (s) => [s.workflowHealthStatus],
                 (workflowHealthStatus): boolean => workflowHealthStatus === 'error',
@@ -965,7 +953,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
             },
-            // Cards, the PR list, workflow health, and the quarantine repo are all per-source — reload them all.
+            // Cards, PR list, workflow health, and quarantine are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
             // The shared window and branch scope workflow health; reload it when either changes.
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
