@@ -114,7 +114,7 @@ def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricM
     return meter
 
 
-def _tag_span_with_batch_export_context(attributes: Attributes) -> None:
+def _tag_span_with_batch_export_context(attributes: dict[str, str | int | float | bool | None]) -> None:
     """Enrich the active OTel span (the RunActivity/RunWorkflow span emitted by the OTel plugin)
     with batch export metadata.
 
