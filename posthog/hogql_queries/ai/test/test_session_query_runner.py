@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.schema import DateRange, SessionQuery
 
@@ -10,9 +10,10 @@ from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 
 
-def _create_ai_generation_event(
+def _create_ai_generation_event_in_events_table(
     *,
     team: Team,
     session_id: str,
@@ -32,12 +33,16 @@ def _create_ai_generation_event(
         "$ai_total_cost_usd": 0.01,
         **(properties or {}),
     }
-    _create_event(
-        event="$ai_generation",
-        distinct_id=distinct_id,
-        properties=props,
-        team=team,
-        timestamp=timestamp,
+    bulk_create_events(
+        [
+            {
+                "event": "$ai_generation",
+                "distinct_id": distinct_id,
+                "properties": props,
+                "team": team,
+                "timestamp": timestamp,
+            }
+        ]
     )
 
 
@@ -220,7 +225,7 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.events[0].sentiment.messages["0"].score, 0.8)
 
     def test_does_not_fallback_to_events_without_complete_date_range(self) -> None:
-        _create_ai_generation_event(
+        _create_ai_generation_event_in_events_table(
             team=self.team,
             session_id="session-no-bounds",
             trace_id="trace-no-bounds",
@@ -241,7 +246,7 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results, [])
 
     def test_falls_back_to_events_with_complete_date_range(self) -> None:
-        _create_ai_generation_event(
+        _create_ai_generation_event_in_events_table(
             team=self.team,
             session_id="session-with-bounds",
             trace_id="trace-with-bounds",
