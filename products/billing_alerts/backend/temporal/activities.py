@@ -4,11 +4,12 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from django.db.models import F, Q
+from django.db.models import F
 
 import structlog
 import temporalio.activity
 
+from posthog.alerting.scheduling import due_alerts_q
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.sync import database_sync_to_async
@@ -135,10 +136,8 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
         now = datetime.now(UTC)
         alerts = (
             BillingAlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+                due_alerts_q(now, broken_state=BillingAlertConfiguration.State.BROKEN)
             )
-            .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
-            .exclude(state=BillingAlertConfiguration.State.BROKEN)
             .order_by(F("next_check_at").asc(nulls_first=True))
             .values_list("id", flat=True)[:MAX_DUE_BILLING_ALERTS_PER_TICK]
         )

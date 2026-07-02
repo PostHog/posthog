@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 
 from django.db import transaction
-from django.db.models import Q
 from django.db.utils import IntegrityError
 
 import structlog
@@ -21,6 +20,7 @@ from pydantic import ValidationError as PydanticValidationError
 from posthog.schema import PropertyGroupFilter
 
 from posthog.alerting.destinations import produce_alert_internal_event
+from posthog.alerting.scheduling import due_alerts_q
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
@@ -316,13 +316,12 @@ class EmitAlertSignalsInput:
 
 
 def _due_alerts_qs(now: datetime):
-    return (
-        LogsAlertConfiguration.objects.filter(
-            Q(enabled=True),
-            Q(next_check_at__lte=now) | Q(next_check_at__isnull=True),
+    return LogsAlertConfiguration.objects.filter(
+        due_alerts_q(
+            now,
+            broken_state=LogsAlertConfiguration.State.BROKEN,
+            snoozed_state=LogsAlertConfiguration.State.SNOOZED,
         )
-        .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
-        .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
 
