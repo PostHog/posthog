@@ -106,7 +106,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                 <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
                     <PhaiViewToggle variant="lemon" />
                 </div>
-                <div className="flex flex-1 min-h-0">
+                <div className="flex flex-col flex-1 min-h-0">
                     <EmbeddedRunner />
                 </div>
             </div>

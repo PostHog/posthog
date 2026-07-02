@@ -65,12 +65,16 @@ import {
 } from '~/types'
 
 import {
+    DEFAULT_COMPOSER_EFFORT,
+    DEFAULT_COMPOSER_MODEL,
     getRandomThinkingMessage,
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
+    resolveEffortForModel,
     runStreamLogic,
 } from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
+import type { ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
@@ -158,7 +162,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ panelId, conversationId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools', 'effectivePhaiView'],
             maxLogic({ panelId }),
             [
                 'question',
@@ -265,6 +269,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         activateCommand: (command: SlashCommand) => ({ command }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         setIsSandboxMode: (isSandboxMode: boolean) => ({ isSandboxMode }),
+        // Sandbox composer's model/reasoning-effort picker selection. Client-side only (not persisted),
+        // mirroring runInteractionLogic's picker state — applied at send time via api.conversations.open.
+        setSandboxModel: (model: string) => ({ model }),
+        setSandboxEffort: (effort: ReasoningEffortEnumApi) => ({ effort }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({
             agentMode,
         }),
@@ -403,6 +411,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             false,
             {
                 setIsSandboxMode: (_, { isSandboxMode }) => isSandboxMode,
+            },
+        ],
+
+        sandboxModel: [
+            DEFAULT_COMPOSER_MODEL as string,
+            {
+                setSandboxModel: (_, { model }) => model,
+            },
+        ],
+
+        // Clamped so a model switch never leaves an effort the new model doesn't support (e.g. `max`
+        // carried over to a model that only offers low/medium/high) — mirrors runInteractionLogic's
+        // setModel listener, but here it's a direct reducer since there's no request to defer.
+        sandboxEffort: [
+            DEFAULT_COMPOSER_EFFORT as ReasoningEffortEnumApi,
+            {
+                setSandboxEffort: (_, { effort }) => effort,
+                setSandboxModel: (state, { model }) => resolveEffortForModel(state, model),
             },
         ],
 
@@ -733,6 +759,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             // Bind a brand-new conversation to an existing Task (inbox "Open task") so the
                             // backend resumes that Task's run. Only the first message carries it.
                             ...(values.pendingBindTaskId ? { task_id: values.pendingBindTaskId } : {}),
+                            // Applied when this call starts a new run (first message or terminal resume);
+                            // a follow-up to an in-progress run keeps whatever it was launched with.
+                            model: values.sandboxModel,
+                            reasoning_effort: values.sandboxEffort,
                         })
                         if (handle) {
                             // The sent message consumes any in-flight warm — it's now the active run, so
@@ -1404,7 +1434,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // the conversation is created bound to the Task and its run is resumed. Force sandbox mode
             // so the message routes through the sandbox `open` endpoint (which carries the task_id).
             // Reducers apply synchronously, so the `is_sandbox` derivation below sees the new value.
-            if (values.pendingBindTaskId && !values.isSandboxMode) {
+            if (values.pendingBindTaskId && !values.isSandboxRouting) {
                 actions.setIsSandboxMode(true)
             }
             const agentMode = values.agentMode
@@ -1433,8 +1463,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: prompt,
                     contextual_tools: contextualTools,
                     ui_context: mergedUiContext,
@@ -1497,8 +1527,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 {
                     conversation: id,
                     content: null,
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                 },
                 0
             )
@@ -1538,7 +1568,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // (those which aren't included in the streaming response)
             actions.loadConversation(values.conversation.id)
 
-            const shouldConsumeSandboxQueue = values.isSandboxMode && values.queuedMessages.length > 0
+            const shouldConsumeSandboxQueue = values.isSandboxRouting && values.queuedMessages.length > 0
 
             if (values.queueingEnabled && values.conversation?.id && !shouldConsumeSandboxQueue) {
                 actions.loadQueueData()
@@ -1638,8 +1668,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueAfterForm: ({ formAnswers }) => {
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'form', form_answers: formAnswers },
@@ -1651,8 +1681,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueAfterFormDismissal: () => {
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'dismiss_form' },
@@ -1716,8 +1746,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         continueWithClientToolResult: ({ result, toolCallId }) => {
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: null,
                     conversation: values.conversationId,
                     // Refresh tool context so the resumed generation sees state the handler just changed
@@ -1738,8 +1768,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Resume the conversation with the approval payload
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: null,
                     conversation: values.conversationId,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
@@ -1759,8 +1789,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Resume the conversation with the rejection payload
             actions.streamConversation(
                 {
-                    agent_mode: values.isSandboxMode ? null : values.agentMode,
-                    is_sandbox: values.isSandboxMode || undefined,
+                    agent_mode: values.isSandboxRouting ? null : values.agentMode,
+                    is_sandbox: values.isSandboxRouting || undefined,
                     content: null,
                     conversation: values.conversationId,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
@@ -1785,6 +1815,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // The exact id this instance was keyed with. React must bind the per-conversation sandbox
         // logics with the same id connect() used above, or the two would resolve different instances.
         sandboxConversationKey: [(_, p) => [p.conversationId], (conversationId): string => conversationId],
+
+        // The new posthog_ai view routes every send through the sandbox runtime by default; the
+        // legacy view still honors the manual sandbox toggle (task-bind, etc).
+        isSandboxRouting: [
+            (s) => [s.isSandboxMode, s.effectivePhaiView],
+            (isSandboxMode, effectivePhaiView): boolean => isSandboxMode || effectivePhaiView === 'new',
+        ],
 
         // A converted conversation: now on the sandbox runtime but still carrying its legacy
         // LangGraph history. Drives the dual render (full legacy thread → "history was converted"
@@ -1850,9 +1887,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Sandbox conversations always queue follow-ups sent mid-turn (the backend queue endpoints
             // aren't flag-gated, and the sandbox runtime drives the drain itself); LangGraph stays
             // behind the rollout flag.
-            (s) => [s.featureFlags, s.isSandboxMode],
-            (featureFlags, isSandboxMode): boolean =>
-                !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM] || isSandboxMode,
+            (s) => [s.featureFlags, s.isSandboxRouting],
+            (featureFlags, isSandboxRouting): boolean =>
+                !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM] || isSandboxRouting,
         ],
 
         queueIsFull: [

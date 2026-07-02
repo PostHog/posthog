@@ -507,6 +507,23 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+/**
  * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
  * null/absent `content` warms a sandbox that idles awaiting the first message.
  */
@@ -531,6 +548,19 @@ export interface SandboxOpenApi {
     initial_permission_mode?: InitialPermissionModeEnumApi
     /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
     task_id?: string
+    /**
+     * LLM model identifier for the sandbox agent's Claude runtime. Omit or null to use the runtime default. Only applied when this request creates a new Run (first message or resume after a terminal Run) — ignored for a follow-up onto an in-progress Run.
+     * @nullable
+     */
+    model?: string | null
+    /** Reasoning effort to request for `model`, when that model exposes an effort control. Requires `model` to be set; validated together against the model's supported efforts.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**

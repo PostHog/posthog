@@ -1,23 +1,57 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
-import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { Composer, ThreadView } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer, ComposerModelEffortPickers, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 
 import { Intro } from '../Intro'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
+import { SandboxComposerSurfaces, Thread } from '../Thread'
+import { InputFormArea } from './InputFormArea'
+import { ThreadAutoScroller } from './ThreadAutoScroller'
 
 /**
- * The new (sandbox) PostHog AI chat for the side panel: just the new composer + thread viewer, no tasks
- * list. The thread streams from `runStreamLogic` keyed by the conversation — mirroring the sandbox path in
- * `Thread.tsx` — and the logic-free `Composer` is wired to Max's conversation send (`askMax`). Must render
- * inside Max's `maxLogic` + `maxThreadLogic` binds (it reads/sends through them).
+ * The new (sandbox) PostHog AI chat for the side panel: renders Max's `Thread` (which already handles all
+ * three conversation shapes — born-sandbox, converted, and pure legacy) plus a composer wired to Max's
+ * conversation send (`askMax`). A pending approval/question/sandbox-permission request replaces the
+ * composer with `InputFormArea`, mirroring `SidebarQuestionInput`. Must render inside Max's `maxLogic` +
+ * `maxThreadLogic` binds (it reads/sends through them).
  */
 export function PhaiSidePanelChat(): JSX.Element {
     const { threadVisible } = useValues(maxLogic)
-    const { conversation, sandboxConversationKey, threadLoading, streamingActive } = useValues(maxThreadLogic)
-    const { askMax } = useActions(maxThreadLogic)
+    const {
+        threadLoading,
+        streamingActive,
+        activeMultiQuestionForm,
+        pendingApprovalProposalId,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        pendingSandboxPermissionRequest,
+        queuedMessages,
+        queueingEnabled,
+        sandboxModel,
+        sandboxEffort,
+    } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, updateQueuedMessage, deleteQueuedMessage, setSandboxModel, setSandboxEffort } =
+        useActions(maxThreadLogic)
+
+    // A pending sandbox request only originates from the sandbox stream, so its presence alone is
+    // enough — gating on `agent_runtime` would strand approvals on as-yet-unresolved conversations.
+    const hasSandboxPermissionToShow = !!pendingSandboxPermissionRequest
+
+    // Check if there's a pending (not yet resolved) approval to show
+    const hasApprovalToShow = useMemo(() => {
+        if (!pendingApprovalProposalId) {
+            return false
+        }
+        // Don't show if already resolved - resolved approvals appear as summaries in the chat thread
+        if (resolvedApprovalStatuses[pendingApprovalProposalId]) {
+            return false
+        }
+        return !!pendingApprovalsData[pendingApprovalProposalId]
+    }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
+
+    const showFormArea = activeMultiQuestionForm || hasApprovalToShow || hasSandboxPermissionToShow
 
     // Local draft so each keystroke is a cheap local re-render rather than a global kea dispatch — long
     // threads make per-keystroke store notifications expensive (see QuestionInput). `askMax` reads the
@@ -33,35 +67,64 @@ export function PhaiSidePanelChat(): JSX.Element {
         setDraft('')
     }
 
-    // Only bind the sandbox stream for a born-sandbox conversation; a legacy (langgraph) conversation has no
-    // run to stream, so we show the intro and let the next message start a fresh sandbox run.
-    const isSandboxThread = threadVisible && conversation?.agent_runtime === 'sandbox' && !!sandboxConversationKey
-
     return (
         <div className="@container/thread flex flex-col h-full min-h-0">
-            {isSandboxThread ? (
-                <BindLogic
-                    logic={runStreamLogic}
-                    props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
-                >
-                    <ThreadView className="flex-1 min-h-0" listClassName="py-3" rowClassName="px-3" />
-                </BindLogic>
+            {threadVisible ? (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    <ThreadAutoScroller>
+                        <Thread className="p-1" />
+                    </ThreadAutoScroller>
+                </div>
             ) : (
                 <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 px-3 overflow-y-auto">
                     <Intro />
                 </div>
             )}
+            <SandboxComposerSurfaces />
             <div className="border-t border-primary px-3 pb-3 pt-2">
                 <div className="mx-auto w-full max-w-180">
-                    <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={threadLoading}>
-                        <Composer.Frame ringActive={!streamingActive}>
-                            <Composer.Field>
-                                <Composer.Placeholder>Ask PostHog AI…</Composer.Placeholder>
-                                <Composer.Textarea data-attr="phai-sidepanel-composer" />
-                            </Composer.Field>
-                        </Composer.Frame>
-                        <Composer.Submit data-attr="phai-sidepanel-send" />
-                    </Composer.Root>
+                    {showFormArea ? (
+                        <div className="border border-primary rounded-lg bg-surface-primary">
+                            <InputFormArea />
+                        </div>
+                    ) : (
+                        <Composer.Root
+                            value={draft}
+                            onChange={setDraft}
+                            onSubmit={submit}
+                            loading={threadLoading}
+                            isTurnActive={streamingActive}
+                            onStop={() => stopGeneration()}
+                        >
+                            {queueingEnabled && queuedMessages.length > 0 && (
+                                <Composer.Banner>
+                                    <QueuedMessageList
+                                        messages={queuedMessages}
+                                        onUpdate={updateQueuedMessage}
+                                        onRemove={deleteQueuedMessage}
+                                    />
+                                </Composer.Banner>
+                            )}
+                            <Composer.Frame ringActive={!streamingActive}>
+                                <Composer.Field>
+                                    <Composer.Placeholder>Ask PostHog AI…</Composer.Placeholder>
+                                    <Composer.Textarea data-attr="phai-sidepanel-composer" />
+                                </Composer.Field>
+                                <Composer.Footer>
+                                    {/* Model/effort picker: selection lives in maxThreadLogic and is applied
+                                    when the message is sent — the backend uses it only when that send starts
+                                    a new sandbox run. */}
+                                    <ComposerModelEffortPickers
+                                        selectedModel={sandboxModel}
+                                        selectedEffort={sandboxEffort}
+                                        onModelChange={setSandboxModel}
+                                        onEffortChange={setSandboxEffort}
+                                    />
+                                </Composer.Footer>
+                            </Composer.Frame>
+                            <Composer.Submit data-attr="phai-sidepanel-send" />
+                        </Composer.Root>
+                    )}
                 </div>
             </div>
         </div>

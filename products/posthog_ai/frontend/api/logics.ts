@@ -18,3 +18,6 @@ export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInter
 
 // --- Thinking-message helpers ---
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+
+// --- Composer model/effort helpers (pure — no component imports) ---
+export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'

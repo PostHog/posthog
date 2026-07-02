@@ -7,8 +7,8 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
