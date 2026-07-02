@@ -646,6 +646,8 @@ jobs:
                   SHARD_COUNT: 2
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
@@ -667,6 +669,14 @@ jobs:
                   else
                       bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
                   fi
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
 
     calculate-running-time:
         name: Calculate running time
@@ -741,3 +751,31 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend TypeScript checks passed."
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # jest shards emit and upload junit-results-frontend-* artifacts; this feeds them to
+        # Trunk (flaky-test detection) once. Trusted non-pull_request events only (master push),
+        # so the secret token never runs in a PR-controlled context; the uploader is a pinned
+        # external action, not a local one.
+        needs: [jest]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-frontend-*
+            - name: Upload to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/**/*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

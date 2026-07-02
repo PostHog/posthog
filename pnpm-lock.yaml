@@ -1300,6 +1300,9 @@ importers:
       jest-image-snapshot:
         specifier: ^6.1.0
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0
       kea-typegen:
         specifier: 3.7.1
         version: 3.7.1(typescript@6.0.3)
