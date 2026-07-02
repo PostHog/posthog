@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -25,14 +26,40 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeCreation } = useValues(taskTrackerSceneLogic)
+    const { searchParams } = useValues(router)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
+    // A task can 404 in ways the generic "deleted / sharing settings changed" copy doesn't explain: tasks are
+    // scoped to the project in the URL, so a link built for another project 404s here, and a run that failed
+    // before the task finished starting up may never have created the task row. Surface the ids and the real
+    // causes instead — this page is often reached from a Slack "task failed" link with a ?runId deep-link.
+    const linkedRunId = typeof searchParams.runId === 'string' ? searchParams.runId : null
+    const taskNotFoundCaption = (
+        <>
+            We couldn't load this task in the current project.
+            <br />
+            Task ID: <span className="font-mono">{taskId}</span>
+            {linkedRunId ? (
+                <>
+                    <br />
+                    Linked run: <span className="font-mono">{linkedRunId}</span>
+                </>
+            ) : null}
+            <br />
+            <br />
+            Tasks are scoped to the project in the URL, so this usually means the task belongs to a different
+            project, or it was archived. If it came from a Slack thread whose run failed before it finished
+            starting up, the task may never have been created — check the run's Temporal workflow for the
+            underlying error.
+        </>
+    )
+
     if (taskNotFound && !task) {
-        return <NotFound object="task" />
+        return <NotFound object="task" caption={taskNotFoundCaption} />
     }
 
     if (!isTaskPending && !task && !taskError) {
-        return <NotFound object="task" />
+        return <NotFound object="task" caption={taskNotFoundCaption} />
     }
 
     const latestRun = runs.length > 0 ? runs[0] : null

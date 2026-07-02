@@ -63,7 +63,30 @@ export function TaskRunLog({
         )
     }
     if (selectedRunNotFound) {
-        return <NotFound object="task run" className="m-0 py-8" />
+        // Reached via a ?runId deep-link (e.g. a Slack "task failed" link) that no longer resolves. The generic
+        // "deleted / sharing settings changed" copy is misleading for a run — name the id and the real causes.
+        return (
+            <NotFound
+                object="task run"
+                className="m-0 py-8"
+                caption={
+                    <>
+                        We couldn't find this run on the task.
+                        {selectedRunId ? (
+                            <>
+                                <br />
+                                Run ID: <span className="font-mono">{selectedRunId}</span>
+                            </>
+                        ) : null}
+                        <br />
+                        <br />
+                        The run may belong to a different task, or it failed before it was recorded. Pick
+                        another run from the list, or check the run's Temporal workflow for the underlying
+                        error.
+                    </>
+                }
+            />
+        )
     }
     if (isRunPending) {
         return <RunLogSkeleton />
