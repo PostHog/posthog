@@ -255,7 +255,6 @@ import type {
 } from 'products/session_summaries/frontend/types'
 import type {
     ClaudeTaskRunCreateSchemaApi,
-    ReasoningEffortEnumApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -6858,9 +6857,6 @@ const api = {
                 initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
                 /** Bind a brand-new sandbox conversation to an existing Task, resuming its run on the first message. */
                 task_id?: string
-                /** Applied when this call starts a new run (first message or terminal resume); ignored for follow-ups to an in-progress run. */
-                model?: string
-                reasoning_effort?: ReasoningEffortEnumApi
             }
         ): Promise<{
             task_id: string

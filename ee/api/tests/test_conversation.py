@@ -11,7 +11,6 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.test import APIRequestFactory
@@ -1313,61 +1312,6 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(props["agent_runtime"], "sandbox")
         self.assertTrue(props["has_attached_context"])
         self.assertEqual(props["attached_context_count"], 2)
-
-    def test_open_forwards_model_and_reasoning_effort_to_session(self):
-        # If the view stops forwarding these from the validated serializer data, a caller-selected
-        # model/effort would silently keep running on the runtime default instead.
-        conversation = self._sandbox_conversation()
-        sentinel = SandboxRouteResult(
-            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
-        )
-        with (
-            patch("ee.api.conversation.SandboxSession") as m_session,
-            patch("ee.api.conversation.report_user_action"),
-        ):
-            m_session.return_value.open.return_value = sentinel
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
-                {
-                    "content": "hello",
-                    "trace_id": str(uuid.uuid4()),
-                    "model": "claude-sonnet-5",
-                    "reasoning_effort": "high",
-                },
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        _, kwargs = m_session.return_value.open.call_args
-        self.assertEqual(kwargs["model"], "claude-sonnet-5")
-        self.assertEqual(kwargs["reasoning_effort"], "high")
-
-    @parameterized.expand(
-        [
-            ("unknown_model", {"model": "not-a-real-model"}, "model"),
-            (
-                "effort_unsupported_by_model",
-                {"model": "claude-sonnet-5", "reasoning_effort": "xhigh"},
-                "reasoning_effort",
-            ),
-            ("effort_without_model", {"reasoning_effort": "high"}, "reasoning_effort"),
-        ]
-    )
-    def test_open_rejects_invalid_model_or_reasoning_effort(
-        self, _name: str, overrides: dict[str, str], expected_field: str
-    ) -> None:
-        conversation = self._sandbox_conversation()
-        payload = {"content": "hello", "trace_id": str(uuid.uuid4()), **overrides}
-        with patch("ee.api.conversation.SandboxSession") as m_session:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
-                payload,
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], expected_field)
-        m_session.return_value.open.assert_not_called()
 
     def test_open_with_content_creates_new_conversation_row(self):
         # `open` is create-or-resume — a brand-new conversation has no row yet; the first message

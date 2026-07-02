@@ -59,13 +59,7 @@ from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
-from products.tasks.backend.facade.run_config import (
-    INITIAL_PERMISSION_MODE_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
-    RuntimeAdapter,
-    get_models_for_runtime_adapter,
-    get_reasoning_effort_error,
-)
+from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -254,52 +248,6 @@ class SandboxOpenSerializer(serializers.Serializer):
             "for an already-existing conversation."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=False,
-        help_text=(
-            "LLM model identifier for the sandbox agent's Claude runtime. Omit or null to use the "
-            "runtime default. Only applied when this request creates a new Run (first message or "
-            "resume after a terminal Run) — ignored for a follow-up onto an in-progress Run."
-        ),
-    )
-    reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Reasoning effort to request for `model`, when that model exposes an effort control. "
-            "Requires `model` to be set; validated together against the model's supported efforts."
-        ),
-    )
-
-    def validate_model(self, value: str | None) -> str | None:
-        """Reject a model identifier the Claude runtime doesn't recognize.
-
-        PostHog AI sandbox conversations always run the Claude runtime, so this is scoped to the
-        Claude model roster the tasks facade already maintains for its own model picker.
-        """
-        if value is None:
-            return value
-        allowed_models = get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)
-        if value not in allowed_models:
-            raise serializers.ValidationError(
-                f"Unknown model {value!r}. Supported values: {', '.join(allowed_models)}."
-            )
-        return value
-
-    def validate(self, attrs: dict) -> dict:
-        model = attrs.get("model")
-        reasoning_effort = attrs.get("reasoning_effort")
-        if reasoning_effort is not None and model is None:
-            raise serializers.ValidationError({"reasoning_effort": "This field requires `model` to be set."})
-        reasoning_effort_error = get_reasoning_effort_error(
-            runtime_adapter=RuntimeAdapter.CLAUDE.value, model=model, reasoning_effort=reasoning_effort
-        )
-        if reasoning_effort_error is not None:
-            raise serializers.ValidationError({"reasoning_effort": reasoning_effort_error})
-        return attrs
 
     def validate_task_id(self, value: uuid.UUID) -> uuid.UUID:
         """Resolve the Task to bind, scoped to the team and the requesting user's visibility.
@@ -767,13 +715,7 @@ class ConversationViewSet(
             conversation.save(update_fields=["title"])
 
         return self._route_sandbox_message(
-            request,
-            conversation,
-            resumed_context=resumed_context,
-            convert_to_acp=convert_to_acp,
-            created=created,
-            model=serializer.validated_data.get("model"),
-            reasoning_effort=serializer.validated_data.get("reasoning_effort"),
+            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp, created=created
         )
 
     def _get_or_create_sandbox_conversation(
@@ -871,18 +813,11 @@ class ConversationViewSet(
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
         created: bool = False,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
     ) -> Response:
         user = cast(User, request.user)
         repository = self._auto_route_repository(request, conversation, user)
         result = SandboxSession(conversation, user).open(
-            request.data,
-            resumed_context=resumed_context,
-            convert_to_acp=convert_to_acp,
-            repository=repository,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp, repository=repository
         )
         if result is None:
             # Warm intent that provisioned nothing (pool full / released) — no run to open. Drop the

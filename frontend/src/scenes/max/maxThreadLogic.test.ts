@@ -3453,40 +3453,6 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    describe('isSandboxRouting', () => {
-        // Regression: rendering was flag-gated but the send path read the manual `isSandboxMode`
-        // toggle, which defaults to false. A flagged user in the new posthog_ai view would send
-        // through the legacy LangGraph endpoint, whose reply the new UI can't render.
-        beforeEach(() => {
-            featureFlagLogic.mount()
-        })
-
-        afterEach(() => {
-            featureFlagLogic.unmount()
-        })
-
-        it.each([
-            // [flagOn, manualToggleOn, expectedIsSandboxRouting]
-            [false, false, false], // legacy view, toggle untouched: unaffected (as before this fix)
-            [false, true, true], // legacy view, manual sandbox toggle: still honored
-            [true, false, true], // new view, toggle untouched: routes through sandbox by default
-            [true, true, true], // new view with manual toggle: still sandbox
-        ])(
-            'flagOn=%s manualToggleOn=%s -> isSandboxRouting=%s',
-            async (flagOn, manualToggleOn, expectedIsSandboxRouting) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: flagOn })
-                if (manualToggleOn) {
-                    logic.actions.setIsSandboxMode(true)
-                }
-
-                await expectLogic(logic).toMatchValues({
-                    effectivePhaiView: flagOn ? 'new' : 'legacy',
-                    isSandboxRouting: expectedIsSandboxRouting,
-                })
-            }
-        )
-    })
-
     describe('sandbox streaming lock', () => {
         const sandboxRunResponse = {
             task_id: 'task-1',

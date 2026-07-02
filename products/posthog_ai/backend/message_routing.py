@@ -125,12 +125,7 @@ class SandboxSession(BaseSandboxService):
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
         repository: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
     ) -> SandboxRouteResult | None:
-        """Route one sandbox turn. `model` / `reasoning_effort` only apply when this call creates a
-        new Run (first message or resume after a terminal Run) — a follow-up signaled onto an
-        already-running Run keeps that Run's model, so they're not threaded into that path."""
         initial_permission_mode = self._initial_permission_mode(data.get("initial_permission_mode"))
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
@@ -153,8 +148,6 @@ class SandboxSession(BaseSandboxService):
                 resumed_context=resumed_context,
                 convert_to_acp=convert_to_acp,
                 repository=repository,
-                model=model,
-                reasoning_effort=reasoning_effort,
             )
 
         current_run = self.conversation.current_run
@@ -183,8 +176,6 @@ class SandboxSession(BaseSandboxService):
             trace_id=trace_id,
             attached_context=attached_context,
             initial_permission_mode=initial_permission_mode,
-            model=model,
-            reasoning_effort=reasoning_effort,
         )
 
     def _initial_permission_mode(self, value: Any) -> InitialPermissionMode:
@@ -271,8 +262,6 @@ class SandboxSession(BaseSandboxService):
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
         repository: str | None = None,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
     ) -> SandboxRouteResult:
         context_service = ContextService()
         # First turn — the prior-seen set is empty, so dedupe is a no-op.
@@ -284,14 +273,6 @@ class SandboxSession(BaseSandboxService):
             wrapped = f"{resumed_context}\n\n{wrapped}"
 
         system_prompt = PromptService(self.team, self.user).build()
-
-        # Only forward a caller-selected model / reasoning effort, so an unset selection keeps
-        # `Task.create_and_run`'s own defaults instead of being clobbered by an explicit `None`.
-        runtime_selection: dict[str, str] = {}
-        if model is not None:
-            runtime_selection["model"] = model
-        if reasoning_effort is not None:
-            runtime_selection["reasoning_effort"] = reasoning_effort
 
         created = tasks_facade.create_and_run_task(
             team=self.team,
@@ -306,7 +287,6 @@ class SandboxSession(BaseSandboxService):
             inactivity_timeout_seconds=SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             # Defer the workflow so the initial run state can carry the PostHog AI keys.
             start_workflow=False,
-            **runtime_selection,
         )
 
         run_dto = created.latest_run
@@ -443,8 +423,6 @@ class SandboxSession(BaseSandboxService):
         trace_id: str | None,
         attached_context: list[AttachedContext],
         initial_permission_mode: InitialPermissionMode,
-        model: str | None = None,
-        reasoning_effort: str | None = None,
     ) -> SandboxRouteResult:
         """Follow-up after the current Run reached a terminal status.
 
@@ -484,12 +462,6 @@ class SandboxSession(BaseSandboxService):
                 "initial_permission_mode": initial_permission_mode,
                 "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
-            # Same non-None guard as the first-message path: an unset selection must not overwrite
-            # `Task.create_and_run`'s runtime defaults with an explicit `None`.
-            if model is not None:
-                extra_state["model"] = model
-            if reasoning_effort is not None:
-                extra_state["reasoning_effort"] = reasoning_effort
             # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
             snapshot_external_id = (run.state or {}).get("snapshot_external_id")
             if snapshot_external_id:

@@ -111,22 +111,6 @@ class TestOpenSandboxMessage(APIBaseTest):
         _, kwargs = m_car.call_args
         assert kwargs["repository"] == "posthog/posthog-js"
 
-    def test_first_message_forwards_model_and_reasoning_effort(self):
-        # If `_handle_first_message` stops forwarding these, a caller-selected model/effort would
-        # silently fall back to `Task.create_and_run`'s runtime default.
-        task, _ = self._stub_task()
-        car, workflow, sysprompt = self._patches(task)
-        with car as m_car, workflow, sysprompt:
-            self._service().open(
-                {"content": "fix the SDK", "trace_id": "t"},
-                model="claude-sonnet-5",
-                reasoning_effort="high",
-            )
-
-        _, kwargs = m_car.call_args
-        assert kwargs["model"] == "claude-sonnet-5"
-        assert kwargs["reasoning_effort"] == "high"
-
     def test_first_message_honors_initial_permission_mode(self):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)
@@ -299,29 +283,6 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert m_workflow.call_args.kwargs["run_id"] == str(new_run.id)
         # The resumed agent keeps the same write scopes as the first message.
         assert m_workflow.call_args.kwargs["posthog_mcp_scopes"] == "full"
-
-    def test_terminal_followup_seeds_model_and_reasoning_effort(self):
-        # If `_handle_terminal_resume` stops seeding these into `extra_state`, a caller-selected
-        # model/effort would silently be dropped when resuming after a terminal Run.
-        task, run = self._stub_task()
-        run.status = TaskRun.Status.COMPLETED
-        run.save(update_fields=["status"])
-        self._attach_task(task)
-
-        with (
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
-            patch.object(PromptService, "build", return_value=SYS_PROMPT),
-        ):
-            self._service().open(
-                {"content": "resume please", "trace_id": "trace-3"},
-                model="claude-sonnet-5",
-                reasoning_effort="high",
-            )
-
-        new_run = task.runs.order_by("-created_at").first()
-        assert new_run is not None
-        assert new_run.state["model"] == "claude-sonnet-5"
-        assert new_run.state["reasoning_effort"] == "high"
 
     def test_dedupes_entities_named_in_prior_run_state(self):
         task, run = self._stub_task()

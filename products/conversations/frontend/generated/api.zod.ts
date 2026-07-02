@@ -141,25 +141,6 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation."
             ),
-        model: zod
-            .string()
-            .nullish()
-            .describe(
-                "LLM model identifier for the sandbox agent's Claude runtime. Omit or null to use the runtime default. Only applied when this request creates a new Run (first message or resume after a terminal Run) — ignored for a follow-up onto an in-progress Run."
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Reasoning effort to request for `model`, when that model exposes an effort control. Requires `model` to be set; validated together against the model's supported efforts.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max"
-            ),
     })
     .describe(
         'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
