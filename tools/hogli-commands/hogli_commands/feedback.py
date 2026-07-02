@@ -100,7 +100,9 @@ def _send(message: str, category: str | None, context: dict[str, Any]) -> tuple[
     if not api_key:
         return False, "no telemetry API key configured, so there is nowhere to send feedback"
 
-    props: dict[str, Any] = {"$process_person_profile": False, "message": message, **context}
+    # context first, then the command's invariants, so no context key can override
+    # the anonymity flag or the message.
+    props: dict[str, Any] = {**context, "$process_person_profile": False, "message": message}
     if category:
         props["category"] = category
 

@@ -63,13 +63,20 @@ def test_opt_out_uses_ephemeral_distinct_id(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_send_without_api_key_never_posts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("POSTHOG_TELEMETRY_API_KEY", raising=False)
     monkeypatch.setattr(feedback, "_endpoint", lambda: ("https://us.i.posthog.com", ""))
     with patch.object(feedback.requests, "post") as post:
         ok, err = feedback._send("hi", None, {})
     assert ok is False
     assert "no telemetry API key" in err
     post.assert_not_called()
+
+
+def test_send_returns_error_on_network_failure(isolated_config: None) -> None:
+    # A failed POST must surface as (False, msg) so the CLI exits non-zero, not crash.
+    with patch.object(feedback.requests, "post", side_effect=feedback.requests.exceptions.Timeout("boom")):
+        ok, err = feedback._send("hi", None, {})
+    assert ok is False
+    assert err
 
 
 @pytest.mark.parametrize(
@@ -95,18 +102,24 @@ def test_interactive_confirm_gate(monkeypatch: pytest.MonkeyPatch, answer: str, 
     [
         ("http://env.example", "http://manifest.example", "http://env.example"),
         (None, "http://manifest.example", "http://manifest.example"),
+        (None, None, feedback._DEFAULT_HOST),
     ],
-    ids=["env_override_wins", "manifest_fallback"],
+    ids=["env_override_wins", "manifest_fallback", "default_host_fallback"],
 )
 def test_endpoint_host_precedence(
-    monkeypatch: pytest.MonkeyPatch, env_host: str | None, manifest_host: str, expected: str
+    monkeypatch: pytest.MonkeyPatch, env_host: str | None, manifest_host: str | None, expected: str
 ) -> None:
     if env_host is None:
         monkeypatch.delenv("POSTHOG_TELEMETRY_HOST", raising=False)
     else:
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", env_host)
     monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "phc_test")
+    # Omit the host key entirely when manifest_host is None so the `.get(..., default)`
+    # fallback is exercised, rather than storing an explicit None that shadows it.
+    telemetry_cfg: dict[str, str] = {"api_key": "phc_manifest"}
+    if manifest_host is not None:
+        telemetry_cfg["host"] = manifest_host
     with patch.object(feedback, "get_manifest") as gm:
-        gm.return_value.config = {"telemetry": {"host": manifest_host, "api_key": "phc_manifest"}}
+        gm.return_value.config = {"telemetry": telemetry_cfg}
         host, _ = feedback._endpoint()
     assert host == expected
