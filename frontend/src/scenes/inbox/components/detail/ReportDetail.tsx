@@ -35,7 +35,12 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import {
+    hasKnownSourceProduct,
+    knownSourceProductEntries,
+    SourceProductIconRow,
+    sourceProductsTooltipTitle,
+} from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
@@ -160,7 +165,7 @@ function MetaSourceStack({
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
-        <Tooltip title={`Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`}>
+        <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
                 <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
                 <span>

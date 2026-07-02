@@ -52,10 +52,15 @@ export function SignalReportPriorityBadge({
         </span>
     )
 
-    const meaning = PRIORITY_MEANING[priority]
-    const genericLine = `${priority} · ${meaning.label} priority – ${meaning.description}`
+    // The API passes priority strings through from agent-written artefacts, so a malformed or
+    // legacy value can fall outside P0–P4 despite the type — degrade to a plain chip, don't crash.
+    const meaning: { label: string; description: string } | undefined = PRIORITY_MEANING[priority]
+    const genericLine = meaning ? `${priority} · ${meaning.label} priority – ${meaning.description}` : null
 
     if (!explanation?.trim()) {
+        if (!genericLine) {
+            return chip
+        }
         // No per-report rationale: still explain what the code means, so P0–P4 is never a mystery.
         return (
             <Tooltip title={genericLine}>
@@ -68,7 +73,7 @@ export function SignalReportPriorityBadge({
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <div className="font-semibold">{genericLine}</div>
+                    {genericLine ? <div className="font-semibold">{genericLine}</div> : null}
                     <div>{explanation}</div>
                 </div>
             }

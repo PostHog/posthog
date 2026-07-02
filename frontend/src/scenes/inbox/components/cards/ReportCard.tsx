@@ -20,7 +20,12 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import {
+    hasKnownSourceProduct,
+    knownSourceProductEntries,
+    SourceProductIconRow,
+    sourceProductsTooltipTitle,
+} from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -57,7 +62,7 @@ export function InboxCardSourceMeta({
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
-        <Tooltip title={`Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`}>
+        <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
                 <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
                 <span>
