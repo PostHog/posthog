@@ -60,17 +60,21 @@ class HogFunctionType(models.TextChoices):
     WAREHOUSE_SOURCE_WEBHOOK = "warehouse_source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
+    TRANSFORMATION_LOG = "transformation_log"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
+    HogFunctionType.TRANSFORMATION_LOG,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.SOURCE_WEBHOOK,
     HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
+# Types that run sequentially during ingestion and are ordered by execution_order
+TYPES_WITH_EXECUTION_ORDER = (HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG)
 
 
 class HogFunction(FileSystemSyncMixin, UUIDTModel):
@@ -144,6 +148,9 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.TRANSFORMATION_LOG:
+            folder = "Unfiled/Transformations"
+            href = f"/functions/{self.pk}/configuration"
         elif self.type == HogFunctionType.SOURCE_WEBHOOK:
             folder = "Unfiled/Sources"
             href = f"/functions/{self.pk}/configuration"

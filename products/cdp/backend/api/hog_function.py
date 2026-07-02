@@ -43,6 +43,7 @@ from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
+    TYPES_WITH_EXECUTION_ORDER,
     TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunction,
     HogFunctionState,
@@ -55,6 +56,19 @@ from products.cdp.backend.models.plugin import TranspilerError
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
 # Maximum number of transformation functions per team
 MAX_TRANSFORMATIONS_PER_TEAM = 20
+# Log transformations execute per log record; volume is orders of magnitude higher than
+# events, so the enabled cap starts much lower.
+MAX_LOG_TRANSFORMATIONS_PER_TEAM = 5
+
+# Per-type caps on *enabled* functions of types that run in the ingestion hot path
+MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE = {
+    HogFunctionType.TRANSFORMATION: MAX_TRANSFORMATIONS_PER_TEAM,
+    HogFunctionType.TRANSFORMATION_LOG: MAX_LOG_TRANSFORMATIONS_PER_TEAM,
+}
+
+# Gates creation of log transformations while the feature rolls out; sync with
+# FEATURE_FLAGS.LOGS_TRANSFORMATIONS on the frontend
+LOGS_TRANSFORMATIONS_FEATURE_FLAG = "logs-transformations"
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -124,7 +138,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         choices=HogFunctionType.choices,
         required=False,
         allow_null=True,
-        help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.",
+        help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.",
     )
     inputs_schema = serializers.ListField(
         child=InputsSchemaItemSerializer(required=True),
@@ -316,22 +330,40 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
+        # Existing functions keep working (and can be updated/disabled) if the flag is
+        # later turned off; only creation is gated.
+        if is_create and hog_type == HogFunctionType.TRANSFORMATION_LOG:
+            if not posthoganalytics.feature_enabled(
+                LOGS_TRANSFORMATIONS_FEATURE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise serializers.ValidationError({"type": "Log transformations are not enabled for this team."})
+
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
-        if hog_type == "transformation" and attrs.get("enabled", False):
+        enabled_cap = MAX_ENABLED_FUNCTIONS_PER_TEAM_BY_TYPE.get(hog_type)
+        if enabled_cap is not None and attrs.get("enabled", False):
             # Don't apply the limit for updates where the function was already enabled
             apply_limit = is_create or (isinstance(self.instance, HogFunction) and not self.instance.enabled)
 
             if apply_limit:
-                # Count enabled and non-deleted transformations
+                # Count enabled and non-deleted functions of the same type
                 transformation_count = HogFunction.objects.filter(
-                    team=team, type="transformation", deleted=False, enabled=True
+                    team=team, type=hog_type, deleted=False, enabled=True
                 ).count()
 
-                if transformation_count >= MAX_TRANSFORMATIONS_PER_TEAM:
+                if transformation_count >= enabled_cap:
                     raise serializers.ValidationError(
                         {
-                            "type": f"Maximum of {MAX_TRANSFORMATIONS_PER_TEAM} enabled transformation functions allowed per team. Please contact support if you need this limit increased, or disable some existing transformations."
+                            "type": f"Maximum of {enabled_cap} enabled {humanize_hog_function_type(hog_type)} functions allowed per team. Please contact support if you need this limit increased, or disable some existing ones."
                         }
                     )
 
@@ -408,14 +440,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
             validated_data["hog_function_template"] = db_template
 
-        # Handle execution_order for transformation type
-        if validated_data.get("type") == "transformation":
+        # Handle execution_order for types that run sequentially during ingestion
+        if validated_data.get("type") in TYPES_WITH_EXECUTION_ORDER:
             requested_order = validated_data.get("execution_order")
 
             # For transformations, we need to determine the execution_order
             if requested_order is None:
                 # If no order specified, add at the end
-                highest_order = self._get_highest_execution_order(validated_data["team"].id)
+                highest_order = self._get_highest_execution_order(validated_data["team"].id, validated_data["type"])
                 validated_data["execution_order"] = highest_order + 1
 
             # Create the function with the execution_order
@@ -424,10 +456,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # For non-transformation types, just create normally
             return super().create(validated_data=validated_data)
 
-    def _get_highest_execution_order(self, team_id: int) -> int:
-        """Get the highest execution_order for transformations in a team."""
+    def _get_highest_execution_order(self, team_id: int, hog_type: str) -> int:
+        """Get the highest execution_order among functions of the same type in a team."""
         highest_order = (
-            HogFunction.objects.filter(team_id=team_id, type="transformation", deleted=False)
+            HogFunction.objects.filter(team_id=team_id, type=hog_type, deleted=False)
             .order_by("-execution_order")
             .values_list("execution_order", flat=True)
             .first()
@@ -436,7 +468,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
         # Handle undeletion or re-enabling by placing at the end when needed
-        if instance.type == "transformation" and (
+        if instance.type in TYPES_WITH_EXECUTION_ORDER and (
             (instance.deleted and validated_data.get("deleted") is False)
             or (
                 not instance.enabled
@@ -444,7 +476,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 and "execution_order" not in validated_data
             )
         ):
-            highest_order = self._get_highest_execution_order(instance.team_id)
+            highest_order = self._get_highest_execution_order(instance.team_id, instance.type)
             validated_data["execution_order"] = highest_order + 1
 
         # Standard update
@@ -753,7 +785,7 @@ class HogFunctionViewSet(
             functions = {
                 str(f.id): f
                 for f in HogFunction.objects.filter(
-                    id__in=function_ids, team=team, type="transformation", deleted=False
+                    id__in=function_ids, team=team, type__in=TYPES_WITH_EXECUTION_ORDER, deleted=False
                 )
             }
 
@@ -761,6 +793,12 @@ class HogFunctionViewSet(
             missing_ids = set(function_ids) - set(functions.keys())
             if missing_ids:
                 raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
+
+            # execution_order is scoped per type, so one rearrange request must stay within one type
+            types = {f.type for f in functions.values()}
+            if len(types) > 1:
+                raise exceptions.ValidationError("Cannot rearrange functions of different types in one request")
+            hog_type = types.pop()
 
             # Update orders and create activity logs
             from django.contrib.auth.models import AnonymousUser
@@ -803,7 +841,7 @@ class HogFunctionViewSet(
                     function.save(update_fields=["execution_order", "updated_at"])
 
         # Get final ordered list in a single query
-        transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
+        transformations = HogFunction.objects.filter(team=team, type=hog_type, deleted=False).order_by(
             "execution_order"
         )
 

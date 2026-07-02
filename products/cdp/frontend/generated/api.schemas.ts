@@ -241,6 +241,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `warehouse_source_webhook` - Warehouse Source Webhook
  * * `site_app` - Site App
  * * `transformation` - Transformation
+ * * `transformation_log` - Transformation Log
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -252,6 +253,7 @@ export const HogFunctionTypeEnumApi = {
     WarehouseSourceWebhook: 'warehouse_source_webhook',
     SiteApp: 'site_app',
     Transformation: 'transformation',
+    TransformationLog: 'transformation_log',
 } as const
 
 /**
@@ -375,7 +377,7 @@ export interface MappingsApi {
 
 export interface HogFunctionApi {
     readonly id: string
-    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
      *
      * * `destination` - Destination
      * * `site_destination` - Site Destination
@@ -383,7 +385,8 @@ export interface HogFunctionApi {
      * * `source_webhook` - Source Webhook
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
-     * * `transformation` - Transformation */
+     * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -452,7 +455,7 @@ export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 export interface PatchedHogFunctionApi {
     readonly id?: string
-    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
      *
      * * `destination` - Destination
      * * `site_destination` - Site Destination
@@ -460,7 +463,8 @@ export interface PatchedHogFunctionApi {
      * * `source_webhook` - Source Webhook
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
-     * * `transformation` - Transformation */
+     * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.

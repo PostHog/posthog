@@ -15,7 +15,11 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 from products.actions.backend.models.action import Action
-from products.cdp.backend.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+from products.cdp.backend.api.hog_function import (
+    MAX_HOG_CODE_SIZE_BYTES,
+    MAX_LOG_TRANSFORMATIONS_PER_TEAM,
+    MAX_TRANSFORMATIONS_PER_TEAM,
+)
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
@@ -2622,3 +2626,190 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["error"] == "Backfills are only supported for event-sourced destinations."
+
+
+class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self.mock_feature_enabled = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create_log_transformation(self, **kwargs):
+        data = {
+            "name": "Log transformation",
+            "type": "transformation_log",
+            "hog": "return record",
+            "enabled": False,
+            **kwargs,
+        }
+        return self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=data)
+
+    def test_create_log_transformation(self):
+        response = self._create_log_transformation()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["type"] == "transformation_log"
+        assert response.json()["execution_order"] == 1
+        assert self.mock_feature_enabled.call_args[0][0] == "logs-transformations"
+
+    def test_creation_blocked_without_feature_flag(self):
+        self.mock_feature_enabled.return_value = False
+
+        response = self._create_log_transformation()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Log transformations are not enabled for this team" in response.json()["detail"]
+
+        # The flag does not gate other types
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Event transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_updates_allowed_when_feature_flag_is_off(self):
+        function_id = self._create_log_transformation().json()["id"]
+
+        self.mock_feature_enabled.return_value = False
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"name": "Renamed while flag off"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_execution_order_is_scoped_per_type(self):
+        event_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Event transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+            },
+        )
+        assert event_response.status_code == status.HTTP_201_CREATED, event_response.json()
+        assert event_response.json()["execution_order"] == 1
+
+        # The first log transformation starts its own ordering rather than continuing
+        # the event transformations' sequence
+        log_response = self._create_log_transformation()
+        assert log_response.status_code == status.HTTP_201_CREATED, log_response.json()
+        assert log_response.json()["execution_order"] == 1
+
+        second_log_response = self._create_log_transformation(name="Second log transformation")
+        assert second_log_response.status_code == status.HTTP_201_CREATED
+        assert second_log_response.json()["execution_order"] == 2
+
+    def test_limits_enabled_log_transformations_per_team(self):
+        for i in range(MAX_LOG_TRANSFORMATIONS_PER_TEAM):
+            response = self._create_log_transformation(name=f"Enabled log transformation {i}", enabled=True)
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self._create_log_transformation(name="One too many", enabled=True)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            f"Maximum of {MAX_LOG_TRANSFORMATIONS_PER_TEAM} enabled transformation log functions"
+            in response.json()["detail"]
+        )
+
+        # Disabled ones can still be created at the limit
+        response = self._create_log_transformation(name="Disabled is fine", enabled=False)
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # The cap is per type: enabled event transformations are not blocked by it
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Event transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": True,
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("with_event_filter", {"events": [{"id": "$pageview", "type": "events", "order": 0}]}, 400),
+            ("empty", {}, 201),
+        ]
+    )
+    def test_filters_rejected_unless_empty(self, _name, filters, expected_status):
+        response = self._create_log_transformation(filters=filters)
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("fetch", "fetch('https://example.com')\nreturn record"),
+            ("postHogCapture", "postHogCapture({})\nreturn record"),
+            ("event_global", "return event"),
+            ("person_global", "let e := person.properties.email\nreturn record"),
+        ]
+    )
+    def test_rejects_async_functions_and_unavailable_globals_in_hog_code(self, _name, hog):
+        response = self._create_log_transformation(hog=hog)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_allows_locals_loops_and_lambdas_in_hog_code(self):
+        response = self._create_log_transformation(
+            hog=(
+                "fun redact(value) { return replaceAll(value, 'x', 'y') }\n"
+                "let rec := record\n"
+                "for (let key, value in rec.attributes) {\n"
+                "    rec.attributes[key] := redact(value)\n"
+                "}\n"
+                "let mapped := arrayMap(x -> x, [1, 2])\n"
+                "return rec"
+            )
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rejects_inputs_referencing_event_globals(self):
+        response = self._create_log_transformation(
+            inputs_schema=[{"key": "eid", "type": "string", "required": False}],
+            inputs={"eid": {"value": "event = {event.uuid}"}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Variable not available in log transformations: event" in response.json()["detail"]
+
+    def test_allows_inputs_referencing_record_globals(self):
+        response = self._create_log_transformation(
+            inputs_schema=[{"key": "svc", "type": "string", "required": False}],
+            inputs={"svc": {"value": "service = {record.service_name}"}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rearrange_log_transformations(self):
+        first = self._create_log_transformation(name="A", enabled=True).json()
+        second = self._create_log_transformation(name="B", enabled=True).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {first["id"]: 2, second["id"]: 1}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()
+        assert [f["id"] for f in results] == [second["id"], first["id"]]
+        assert [f["execution_order"] for f in results] == [1, 2]
+
+    def test_rearrange_rejects_mixed_types(self):
+        log_function = self._create_log_transformation(name="A", enabled=True).json()
+        event_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"name": "Event transformation", "type": "transformation", "hog": "return event"},
+        )
+        assert event_response.status_code == status.HTTP_201_CREATED, event_response.json()
+        event_function = event_response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {log_function["id"]: 1, event_function["id"]: 2}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "different types" in response.json()["detail"]
