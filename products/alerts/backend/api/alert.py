@@ -270,7 +270,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: real time (every 2 minutes, Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
