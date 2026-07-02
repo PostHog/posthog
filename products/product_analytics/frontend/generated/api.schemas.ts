@@ -180,7 +180,7 @@ export interface ElementStatsApi {
     /** Number of events matching this element chain */
     count: number
     /**
-     * Always null; retained for backwards compatibility
+     * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
      * @nullable
      */
     hash: string | null
