@@ -189,6 +189,10 @@ def evaluate_and_record_billing_alert(
             locked_alert.last_checked_at = now
             locked_alert.next_check_at = now + timedelta(hours=locked_alert.check_interval_hours)
             locked_alert.consecutive_failures = outcome.consecutive_failures
+            # outcome.update_last_notified_at is deliberately not consumed: billing's
+            # cooldown clock starts when a notification actually sends, so the dispatch
+            # path in notifications.py owns last_notified_at (and rolls it back on
+            # send failure).
             locked_alert.save(
                 update_fields=[
                     "state",

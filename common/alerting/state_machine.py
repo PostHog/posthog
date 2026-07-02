@@ -31,6 +31,7 @@ MAX_CONSECUTIVE_FAILURES = 5
 class AlertState(StrEnum):
     NOT_FIRING = "not_firing"
     FIRING = "firing"
+    # Input-only: accepted from adopters whose models persist it, never produced here.
     PENDING_RESOLVE = "pending_resolve"
     ERRORED = "errored"
     SNOOZED = "snoozed"
@@ -99,8 +100,8 @@ class CheckInput:
     """Normalized result of one domain evaluation — all the machine needs to know."""
 
     threshold_breached: bool
-    # Evaluation couldn't reach a verdict (e.g. source data not settled yet):
-    # state is left unchanged and no notification is emitted.
+    # Evaluation couldn't reach a verdict (e.g. source data not settled yet): state
+    # and failure counter are left unchanged and no notification is emitted.
     is_inconclusive: bool = False
     error_message: str | None = None
     is_transient_error: bool = False
@@ -172,7 +173,8 @@ def evaluate_alert_check(
     snapshot: AlertSnapshot,
     check: CheckInput,
     now: datetime,
-    policy: AlertPolicy = LOGS_ALERT_POLICY,
+    *,
+    policy: AlertPolicy,
 ) -> AlertCheckOutcome:
     """Decide the transition for one scheduled/manual check.
 
@@ -201,7 +203,7 @@ def evaluate_alert_check(
         return AlertCheckOutcome(
             new_state=snapshot.state,
             notification=NotificationAction.NONE,
-            consecutive_failures=0,
+            consecutive_failures=snapshot.consecutive_failures,
             update_last_notified_at=False,
             error_message=None,
         )
@@ -255,6 +257,8 @@ def evaluate_alert_check(
     update_last_notified_at = False
     if notification != NotificationAction.NONE:
         if notification == NotificationAction.FIRE:
+            # Raw state, not effective_state: a snooze-expiry refire counts as an
+            # initial fire, so it's only gated when the policy gates initial fires.
             gated = policy.cooldown_gates_initial_fire or snapshot.state == AlertState.FIRING
         else:
             gated = policy.cooldown_gates_resolve
@@ -277,7 +281,7 @@ def evaluate_alert_failure(
     *,
     error_message: str,
     is_transient_error: bool = False,
-    policy: AlertPolicy = LOGS_ALERT_POLICY,
+    policy: AlertPolicy,
 ) -> AlertCheckOutcome:
     """Decide the transition for a failed evaluation (query error, upstream outage, ...).
 

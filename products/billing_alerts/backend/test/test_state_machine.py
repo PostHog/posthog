@@ -145,6 +145,19 @@ class TestBillingAlertPolicyContract(TestCase):
         assert outcome.notification == expected_notification
         assert outcome.consecutive_failures == 0
 
+    def test_inconclusive_preserves_consecutive_failures(self) -> None:
+        # An inconclusive verdict while ERRORED must not reset the failure counter,
+        # or BROKEN escalation gets silently delayed.
+        outcome = evaluate_alert_check(
+            _snapshot(ERRORED, consecutive_failures=3),
+            _check(breached=False, inconclusive=True),
+            NOW,
+            policy=BILLING_ALERT_POLICY,
+        )
+        assert outcome.new_state == ERRORED
+        assert outcome.notification == NotificationAction.NONE
+        assert outcome.consecutive_failures == 3
+
     @parameterized.expand(
         [
             # Transient errors count toward BROKEN for billing (unlike logs).
