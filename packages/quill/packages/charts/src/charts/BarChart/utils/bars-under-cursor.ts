@@ -1,4 +1,4 @@
-import { computeBarAtIndex } from '../../../core/bar-layout'
+import { computeBarAtIndex, computeBarTrackRect } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
@@ -44,6 +44,30 @@ export function cursorOutsideBarFillExtent(
     return isHorizontal
         ? point.x < bar.x || point.x > bar.x + bar.width
         : point.y < bar.y || point.y > bar.y + bar.height
+}
+
+/** True when the cursor sits beyond a series' per-bar track ceiling — the blank, inert region above a
+ *  capped `trackData` track (a funnel compare bar's volume gap). False when the series has no ceiling
+ *  at this bar (the track spans the whole axis). Callers establish band-axis containment and that the
+ *  cursor is already outside the bar's own fill before calling. */
+export function cursorBeyondTrackCeiling(
+    series: { trackData?: number[] },
+    bar: BarRect,
+    scales: BarScaleSet,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    const ceiling = series.trackData?.[bar.dataIndex]
+    if (ceiling == null) {
+        return false
+    }
+    const ceilingPixel = scales.value(ceiling)
+    if (!isFinite(ceilingPixel)) {
+        return false
+    }
+    // Track grows from the value baseline (range start) to the ceiling; beyond it is the blank gap.
+    const [axisBaseline = 0] = scales.value.range()
+    return !barContainsPoint(computeBarTrackRect(bar, axisBaseline, ceilingPixel, isHorizontal), point)
 }
 
 export interface BarsAtCursorArgs {

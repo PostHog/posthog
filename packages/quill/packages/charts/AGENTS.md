@@ -43,6 +43,7 @@ const series: Series[] = [
 
 - `key` (React key + stacking identity), `label` (legend/tooltip), `data` are required.
 - Line-only options: `points`, `stroke.pattern` (dashes/projections), `fill.opacity` / `fill.gradient` (area), `fill.lowerData` (ribbon).
+- Bar-only options: `bars` (per-bar `color`/`label`/`meta` overrides); `trackData` (grouped + `bars.track` only) caps each bar's "share of a whole" track at a per-bar ceiling in value units — the track fills only to `trackData[i]` and the region beyond is a blank, non-interactive gap (no track highlight, no click). Funnel compare uses it to draw a shorter period's volume gap as empty space rather than drop-off.
 - `yAxisId` scales a series against a second axis; `meta` carries arbitrary data into tooltips.
 
 ## Sizing

@@ -59,6 +59,29 @@ export const WithBarTrack: Story = {
     },
 }
 
+export const WithBarTrackCeiling: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Per-bar `trackData` caps each track at a ceiling (funnel compare's entry level): the "previous"
+        // series fills its track only up to 70, leaving the region above blank — the volume gap — instead
+        // of drawing it as drop-off. "Current" has no ceiling, so its track spans the full axis.
+        const series: Series[] = [
+            { key: 'current', label: 'Current', color: '', data: [100, 60, 40] },
+            { key: 'previous', label: 'Previous', color: '', data: [70, 45, 30], trackData: [70, 70, 70] },
+        ]
+        const config: BarChartConfig = {
+            barLayout: 'grouped',
+            showGrid: true,
+            bars: { track: true, cornerRadius: 6, valueDomain: [0, 100] },
+        }
+        return (
+            <Stage>
+                <BarChart series={series} labels={['Step 1', 'Step 2', 'Step 3']} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()

@@ -46,6 +46,13 @@ export interface Series<Meta = unknown> {
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
      *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
     bars?: { color?: string; label?: string; meta?: Meta }[]
+    /** Grouped bar charts with `bars.track` only: per-bar ceiling (in value-axis units) for the
+     *  "share of a whole" track. The hatched track fills only up to `trackData[i]` instead of the
+     *  whole axis, and the region beyond it is a blank, non-interactive gap — no track highlight, no
+     *  click (`onPointClick` passes through). Used by funnel compare to show a shorter period's
+     *  volume gap as empty space rather than drop-off. Omit (or leave an entry undefined) for the
+     *  default full-axis track. */
+    trackData?: number[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
