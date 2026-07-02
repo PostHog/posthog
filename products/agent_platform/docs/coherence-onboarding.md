@@ -139,98 +139,32 @@ Each node service is its own root and ships a `coherence.config.json`:
 }
 ```
 
-Run: `node /tmp/coherence/dist/cli.js <command>` from that root.
+Set `testMatch`: without it a runner like `vitest -t` exits 0 even when the name matched
+nothing, and a deleted oracle stays green.
 
-## Workflow
+The harness is not wired into this repo's CI (a personal-repo tool, local-only for now). The
+gate is a workflow rule: **before committing changes under
+`products/agent_platform/services/agent-*`, run `node <coherence-cli> verify` in each service
+you touched.** The declared invariants live in the `*.spec.md` next to the code: read the
+ones in any directory you edit; they are the checklist of what your change must not break,
+and each names the oracle (an ordinary vitest/pytest test that runs in CI regardless) that
+will catch you.
 
-1. `onboard` — bootstrap: derives structure, drafts a spec, emits why-from-history jobs.
-2. Author `<Name>.spec.md` in the folder that is the node. Grammar: `# Name`,
-   one-line intent, `## invariants` (bullet list), `## works when` (claims),
-   `## why`.
-3. `verify` — runs claims + the `## invariants` anchoring gate + coverage.
-4. **Validate by defect injection** (see below) — the step that actually matters.
-5. CI: `verify --staged` (edit-loop) + `verify` + `log --strict` (blocks a PR
-   that silently drops a boundary).
+## Command reference
 
-### Version pin
-
-Use `daniloc/coherence` at commit `a2a6399` or later. Earlier mains lack four
-things this repo's specs depend on: `it.each` domain recognition, domain-floor
-detection, the NOT-FOUND hard-fail on `via test` claims, and Python support
-(`language: "python"` — the Django backend has its own config + spec).
-
-### The local gate (this repo, today)
-
-`verify` is not wired into this repo's CI — the harness is a personal-repo tool,
-deliberately local-only for now. The gate is therefore a workflow rule: **before
-committing changes under `products/agent_platform/services/agent-*`, run
-`node <coherence-cli> verify` in each service you touched** (every `agent-*`
-service ships a `coherence.config.json`). The declared invariants live in the
-`*.spec.md` files next to the code — read the ones in any directory you edit;
-they are the checklist of what your change must not break, and each points at
-the oracle that will catch you in CI (the oracles themselves are ordinary
-vitest/pytest tests and run there regardless).
-
-### Claim grammar (the part to get right)
-
-- `typechecks` / `X exists` / `X imports Y` — structural, instant.
-- `passes test "<name>"` — executable; shells `config.test` + `<name>`.
-- `boundary "<inv>" at <symbol> [via test|guard "<oracle>"]` — the ratchet.
-  `via test` ⟹ the oracle must be a **live-domain totality** (loops an imported
-  SSOT / call result / the anchor symbol). `via guard` ⟹ a **source-property**
-  check (a grep-style assertion with no enumerable domain).
-- Any invariant in `## invariants` **must** be anchored by a `boundary` claim or
-  coverage FAILS ("can't ship a half-boundary").
-
-## Traps that will bite you (all hit during the eval)
-
-1. **`via test "<name>"` must name a `describe` block, NOT an `it()`.** The
-   meta-oracle (`oracle-domain.ts`) locates the oracle by `describe` title. Point
-   it at an `it()` name and it resolves **not-found → silently falls through to
-   the runner** — the meta-oracle goes inert and never tells you the oracle is
-   weak. **Name the `describe` after the invariant.**
-2. **Oracle names are regex.** `via test` runs `vitest -t "<name>"`, and `-t` is
-   a regex. Parentheses/brackets in a test name become regex groups and can match
-   **nothing** — which shows as `0 passed` / "matched no run", _not_ a failure.
-   Keep boundary-oracle `describe` titles free of regex metacharacters.
-3. **A green boundary is NOT proof the invariant holds.** The oracle can test a
-   _proxy_. Real example here: the connection-owner IDOR oracle was a **fake-pool
-   unit test asserting the owner arg was _passed_** — it stayed green while the
-   SQL `WHERE owner` predicate was deleted and the IDOR reopened. Anchor
-   boundaries to oracles that exercise the **real enforcement** (real DB, real
-   dispatch), not a correlate. The fix was a temp-table test running the actual
-   `SELECT` against two owners (`mcp-connection-store.sql.test.ts`).
-4. **The meta-oracle checks anatomy, not semantics.** It verifies the oracle
-   _iterates a live domain_; it **cannot** tell that the assertion exercises the
-   real mechanism vs a proxy. Passing the meta-oracle ≠ testing the right thing.
-5. **`decompose` / `drift` are degenerate with one node.** They need a real
-   multi-node spec tree to say anything; a single component reads as trivially
-   100% local.
-6. Whole-suite `-t` is fine for DB-backed oracles: vitest skips `beforeAll` for
-   non-matching files, so only the matched oracle's services spin up.
-
-## Validate boundaries by defect injection (the discipline)
-
-**Do not trust a green `verify`.** For every boundary, prove the oracle bites:
-
-> Revert the fix (or inject the violation the invariant forbids) → confirm the
-> oracle goes **RED** → restore. If it stays green, the oracle tests a proxy —
-> rewrite it against the real enforcement.
-
-This is the only method that tests _semantics_. The layered defense is
-`oracle → meta-oracle → defect injection`, each catching what the layer below can
-be fooled about; the injection is ground truth. For a real impact read, inject a
-_fair_ set — in-domain violations **plus** out-of-domain logic bugs (to measure
-blind spots) **plus** benign changes (to measure false alarms) — and score which
-go red. Coherence catches boundary-class regressions; it catches nothing outside
-its declared boundaries, and a green run can lull you on exactly those.
-
-## The graded ladder (match rigor to consequence)
-
-`enshrined` (unsafe state unrepresentable in types — e.g. a capability split) >
-`totality-checked` (`via test`, live-domain oracle) > `guard` (`via guard`,
-source-property) > `convention` (memory/doc — the state to leave). Push boundaries
-_up_; don't over-enshrine (that's its own inner-platform pathology).
+- `verify [--fast|--staged|--since <ref>]`: run claims + boundary anchoring + coverage.
+  `--staged`/`--since` scope to changed components; `--fast` skips executable/live claims.
+- `log [--strict]`: the temporal ledger of which invariants/boundaries a diff added, removed,
+  or rewired. `--strict` exits nonzero on a *loss*, so a PR can't silently drop a guard.
+- `decompose`: LOCALITY report, how much co-change stays inside one component (three-graph
+  agreement). Advisory.
+- `drift`: decompose's derivative, is the agent converging (one concern, one home) or
+  decohering (concerns smearing)? Names the hot seam. Advisory.
+- `scaffold <boundary|component|invariant> <name>`: emits the complete shape so you can't
+  ship a half-boundary (the gradient flip).
+- `why-lint [--check]`: flags `## why` prose that re-states an anchored mechanism, and
+  invariants/paragraphs left un-anchored.
+- `onboard` · `graph` · `overview` · `docs [--check]`: bootstrap and doc generation.
 
 ## Honest limits
 
