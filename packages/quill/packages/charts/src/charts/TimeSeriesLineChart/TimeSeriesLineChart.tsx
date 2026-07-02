@@ -29,7 +29,7 @@ import {
     type MovingAverageConfig,
     type TrendLineConfig,
 } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeriesChrome } from '../utils/use-time-series-chrome'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
@@ -114,7 +114,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     )
 
     const { xTickFormatter, yTickFormatter, legendProps, chartSeries, valueLabelsConfig, valueLabelFormatter } =
-        useTimeSeriesChrome(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
+        useTimeSeries(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
 
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,

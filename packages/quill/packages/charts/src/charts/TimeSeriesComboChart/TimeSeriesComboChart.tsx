@@ -24,7 +24,7 @@ import {
 } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeriesChrome } from '../utils/use-time-series-chrome'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
@@ -106,7 +106,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         chartSeries,
         valueLabelsConfig,
         valueLabelFormatter,
-    } = useTimeSeriesChrome(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
 
     const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 

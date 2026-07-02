@@ -13,7 +13,7 @@ import {
 } from '../../utils/use-axis-formatters'
 import { resolveValueLabelsConfig, useSeriesWithValueLabelAllowlist, type ValueLabelsConfig } from './use-value-labels'
 
-export interface TimeSeriesChromeConfig {
+export interface UseTimeSeriesConfig {
     xAxis?: XAxisConfig
     /** The primary y-axis config — drives the default y-tick and value-label formatters. */
     yAxis?: YAxisConfig
@@ -21,7 +21,7 @@ export interface TimeSeriesChromeConfig {
     legend?: ChartLegendConfig
 }
 
-export interface TimeSeriesChrome<Meta> {
+export interface UseTimeSeriesResult<Meta> {
     xTickFormatter: ((value: string, index: number) => string | null) | undefined
     yTickFormatter: ((value: number) => string) | undefined
     /** Spread onto the wrapping `<ChartLegend>`. */
@@ -37,18 +37,18 @@ export interface TimeSeriesChrome<Meta> {
     valueLabelFormatter: ValueLabelFormatter | undefined
 }
 
-/** The shared chrome preamble of the TimeSeries* wrappers — date-aware x ticks, y ticks, the
+/** The shared preamble of the TimeSeries* wrappers — date-aware x ticks, y ticks, the
  *  built-in click-to-toggle legend, and value-label config — kept in one place so the line/bar/
  *  combo wrappers can't drift. Legend toggling works off the raw `series` so the legend lists the
  *  user's series (not derived trend lines / CI bands); hidden ones flow onward already excluded.
  *  Chart-specific concerns (scales, layouts, derived series, goal-line resolution) stay in each
  *  wrapper. */
-export function useTimeSeriesChrome<Meta>(
+export function useTimeSeries<Meta>(
     series: Series<Meta>[],
     labels: string[],
     theme: ChartTheme,
-    config: TimeSeriesChromeConfig
-): TimeSeriesChrome<Meta> {
+    config: UseTimeSeriesConfig
+): UseTimeSeriesResult<Meta> {
     const { xAxis, yAxis, valueLabels, legend } = config
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -68,7 +68,7 @@ export function useTimeSeriesChrome<Meta>(
 }
 
 /** Goal lines resolved against the series they should scale with — the drawn (post-derived)
- *  series for the line chart, the chrome series for bar/combo. `valueDomain` extends the value
+ *  series for the line chart, the hook's `chartSeries` for bar/combo. `valueDomain` extends the value
  *  axis to cover goal lines outside the data range, so an off-scale goal still renders on-plot;
  *  both results are referentially stable so they don't re-trigger scale recomputation. */
 export function useGoalLines<Meta>(

@@ -24,7 +24,7 @@ import {
 } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeriesChrome } from '../utils/use-time-series-chrome'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesBarChartConfig {
@@ -111,7 +111,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         chartSeries,
         valueLabelsConfig,
         valueLabelFormatter,
-    } = useTimeSeriesChrome(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
