@@ -217,6 +217,51 @@ export class HogExecutorService {
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
+    /**
+     * For mapping destinations the per-mapping inputs (e.g. the Google Ads
+     * `gclid`) are resolved only for mappings whose filters match the event —
+     * see `buildHogFunctionInvocations`, which merges `mapping.inputs` when it
+     * first builds the invocation. The rerun path re-enqueues invocations with
+     * `inputs` stripped and keeps no record of which mapping produced them, so
+     * a plain rebuild against the top-level config drops those inputs entirely
+     * and any function guarding on them (e.g. `if (empty(inputs.gclid))`)
+     * early-exits. Re-match the mappings here against the (current) config to
+     * rebuild the additional inputs before the executor resolves them.
+     *
+     * When several mappings match one event the original produced a separate
+     * invocation per mapping; the stored row can't be tied back to a single
+     * one, so we merge all matching mappings' inputs — exact for the common
+     * single-mapping case and strictly better than dropping them.
+     */
+    private async resolveMappingInputs(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<HogFunctionType['inputs'] | undefined> {
+        const mappings = hogFunction.mappings
+        if (!mappings || mappings.length === 0) {
+            return undefined
+        }
+
+        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+        let merged: HogFunctionType['inputs'] | undefined
+
+        for (const mapping of mappings) {
+            if (!mapping.inputs) {
+                continue
+            }
+            const { match } = await filterFunctionInstrumented({
+                fn: hogFunction,
+                filters: mapping.filters,
+                filterGlobals,
+            })
+            if (match) {
+                merged = { ...(merged ?? {}), ...mapping.inputs }
+            }
+        }
+
+        return merged
+    }
+
     async buildHogFunctionInvocations(
         hogFunctions: HogFunctionType[],
         triggerGlobals: HogFunctionInvocationGlobals
@@ -516,9 +561,17 @@ export class HogExecutorService {
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
-                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                    // Mapping destinations need their per-mapping inputs
+                    // re-merged here — they aren't part of the top-level config
+                    // and were stripped from the rerun blob.
+                    const additionalInputs = await this.resolveMappingInputs(
                         invocation.hogFunction,
                         invocation.state.globals
+                    )
+                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                        invocation.hogFunction,
+                        invocation.state.globals,
+                        additionalInputs
                     )
                 }
             } catch (e) {
