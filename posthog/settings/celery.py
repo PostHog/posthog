@@ -28,7 +28,15 @@ CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new pe
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
+# Retry the broker connection on startup instead of dying if Redis is briefly unreachable
+# (e.g. during a pod restart / deploy). Also silences Celery's 5.x deprecation warning for the unset default.
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
+# RedBeatScheduler.setup_schedule hits Redis (smembers) before the beat loop starts, using redbeat's own
+# connection — not the broker one above. Without retry_period that connection has no retry, so a momentary
+# Redis blip during a deploy crashes beat with ConnectionError. Setting retry_period makes redbeat wrap its
+# connection in a retrying proxy (exponential backoff, capped total wait) so it reconnects instead of dying.
+REDBEAT_REDIS_OPTIONS = {"retry_period": 60}
 
 if TEST:
     import celery
