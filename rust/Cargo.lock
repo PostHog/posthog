@@ -8932,6 +8932,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-json",
+ "zstd",
 ]
 
 [[package]]

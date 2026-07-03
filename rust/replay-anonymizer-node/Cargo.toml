@@ -34,6 +34,9 @@ mlhog-bench = []
 # so a codec regression can't hide by round-tripping through itself.
 flate2 = { workspace = true }
 serde_json = { workspace = true }
+# zstd: the compression_bench example compares candidate cv re-compression codecs; nothing in
+# the shipped scrubber uses it.
+zstd = { workspace = true }
 
 [[example]]
 name = "anonymize_bench"
@@ -47,3 +50,7 @@ path = "dev/prod_bench.rs"
 name = "mlhog_bench"
 path = "dev/mlhog_bench.rs"
 required-features = ["mlhog-bench"]
+
+[[example]]
+name = "compression_bench"
+path = "dev/compression_bench.rs"

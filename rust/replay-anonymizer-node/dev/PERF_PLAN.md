@@ -148,11 +148,48 @@ bounds checks that `chars()`'s internals avoid. Reverted to per-char with an exa
    (`decompress_string`/`compress_bytes` transcode ~7.5%, plus part of simd `parse_str`). The
    structural fix is extending the byte walk to compressed events themselves: unescape the cv
    string straight off the wire span into gzip bytes (mlhog-style `latin1_from_json`), skipping
-   the UTF-8 `String` materialization and the event-tree parse of the wrapper. Biggest remaining
-   engineering item.
+   the UTF-8 `String` materialization and the event-tree parse of the wrapper. **Done** —
+   `bytewalk::latin1_from_wire`/`write_latin1_json_string` plus compressed routes in
+   `scrub_data_bytes` mirroring `route_data`: corpus average 5.94 -> 5.59 ms/msg (81 MB/s), and
+   tree-routed messages fell 206 -> 41 (compressed events no longer force the tree). Pinned by a
+   dedicated cv differential (every cv shape, stream-vs-tree, verified to fail on an injected
+   wire-writer bug) and an all-256-byte codec round-trip test.
 3. `skip_string` ~10% — SWAR structural skipping; fundamental to walking, already tuned.
 4. Outer unescape (`next_backslash` + `unescape_in_place`) ~6%; gunzip ~4.5% (was ~3x that under
    flate2); remaining `max_bracket_depth` ~2.5% is the guards ahead of tree-route/scratch parses.
+
+### cv re-compression codec measurements (`dev/compression_bench.rs`)
+
+Measured on the decompressed cv payloads extracted from the prod corpus (153k payloads / 589 MB
+full, or an even-stride 1k sample — both give the same relative picture; M4, single thread).
+Full-corpus table:
+
+| codec               | compress MB/s | decompress MB/s | ratio |
+| ------------------- | ------------- | --------------- | ----- |
+| gzip (libdeflate) 1 | 369           | 1628            | 0.169 |
+| gzip (libdeflate) 3 | 267           | 1663            | 0.162 |
+| gzip (libdeflate) 6 | 184           | 1671            | 0.149 |
+| gzip (libdeflate) 9 | 78            | 1632            | 0.146 |
+| zstd 1              | 958           | 2628            | 0.149 |
+| zstd 3              | 843           | 2609            | 0.143 |
+| zstd 6              | 293           | 2857            | 0.129 |
+| zstd 12             | 99            | 3070            | 0.123 |
+| lz4 block           | 1351          | 6120            | 0.232 |
+
+Conclusions:
+
+- **zstd level 1 equals gzip level 6's ratio at ~5x the compress speed** (and ~1.6x the decompress
+  speed for the consumer); zstd 3 beats the ratio at ~4.5x. Since compression of changed payloads
+  is the single largest pipeline cost, re-emitting changed cv payloads as zstd is the biggest
+  remaining lever — the SDK input stays gzip (we always decode gzip), only the re-emitted format
+  changes. It needs a format marker (e.g. a new `cv` version value) and support in the one
+  consumer, the MLHog prep loader — a coordinated but small change, deliberately not made
+  unilaterally here.
+- Staying gzip: level 3 is ~1.45x compress speed for ~9% more storage, level 1 ~2x for ~13% more.
+  Real but far less attractive than the format switch.
+- The corpus median cv payload decompresses to **2 bytes** (`[]` — the SDK gzips even empty
+  mutation sub-field arrays); volume, and therefore cost, is concentrated in the large snapshot
+  payloads.
 
 Provenance checks on the corpus (it is the *output* of the TS scrubber, so know the biases):
 
