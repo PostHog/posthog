@@ -107,6 +107,23 @@ describe('MessageAssetsService', () => {
 
             expect(row).toBeNull()
         })
+
+        it('substitutes a placeholder body when the rendered HTML exceeds the Kafka message-size budget', () => {
+            // 5 MiB of 'a' — comfortably over the 4 MiB threshold. If we let this through the
+            // producer would blow up mid-flush, take the whole batch's Promise.all with it, and
+            // the "View email" chip would 404 for every recipient in that batch.
+            const oversized = 'a'.repeat(5 * 1024 * 1024)
+
+            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams({ html: oversized }))
+
+            expect(row).not.toBeNull()
+            expect(row!.html).not.toContain('a'.repeat(1024))
+            expect(row!.html).toContain('Email too large to capture')
+            // Everything else on the row must be preserved so the tab shows the correct
+            // recipient/subject/timing even when the body itself was too big.
+            expect(row!.recipient).toBe('recipient@example.com')
+            expect(row!.subject).toBe('Welcome aboard')
+        })
     })
 
     describe('queueInvocationResults + flush', () => {

@@ -23,6 +23,11 @@ const counterMessageAssetsFailed = new Counter({
     help: 'Asset captures that failed at Kafka produce and were dropped. Best-effort like logs/metrics — watch this counter to size the gap between sends and Assets-tab rows.',
 })
 
+const counterMessageAssetsTruncated = new Counter({
+    name: 'cdp_message_assets_truncated',
+    help: 'Sent-email assets whose rendered body exceeded the Kafka message-size budget. A placeholder is captured so the "View email" chip still works, but the original body is not viewable.',
+})
+
 const messageAssetsPendingRows = new Gauge({
     name: 'cdp_message_assets_pending_rows',
     help: 'Message-asset rows queued in-memory waiting for the next flush. Resets to 0 after each flush.',
@@ -56,6 +61,19 @@ const HTML_ESCAPE: Record<string, string> = {
 const wrapPlainTextAsHtml = (text: string): string => {
     const escaped = text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
     return `<!doctype html><meta charset="utf-8"><pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;padding:1rem">${escaped}</pre>`
+}
+
+// The CDP Kafka producer caps message size at 6 MB in prod (1 MB elsewhere) but SES accepts
+// up to 10 MB. In the gap the send succeeds and the log-line token is already emitted, so an
+// oversized row that dropped at flush time would make the "View email" chip 404. Worse: since
+// flush is a single Promise.all, one oversized row blows up the entire batch and every
+// unrelated row in it gets swallowed too. Substitute a small placeholder body when we cross
+// the safe budget — the row still lands, the chip works, and the batch is unaffected.
+const MAX_HTML_BYTES = 4 * 1024 * 1024
+
+const oversizedPlaceholderHtml = (bytes: number): string => {
+    const mb = (bytes / 1024 / 1024).toFixed(1)
+    return `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email too large to capture</h3><p style="margin:0">The rendered email was ${mb}&nbsp;MB, which exceeds the ${MAX_HTML_BYTES / 1024 / 1024}&nbsp;MB capture limit. The send itself succeeded — this placeholder is stored so the &ldquo;View email&rdquo; link works, but the original body is not viewable here.</p></div>`
 }
 
 /**
@@ -93,6 +111,12 @@ export class MessageAssetsService {
         if (!body) {
             return null
         }
+        const bodyBytes = Buffer.byteLength(body, 'utf8')
+        let html = body
+        if (bodyBytes > MAX_HTML_BYTES) {
+            counterMessageAssetsTruncated.inc()
+            html = oversizedPlaceholderHtml(bodyBytes)
+        }
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -109,7 +133,7 @@ export class MessageAssetsService {
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
-            html: body,
+            html,
         }
     }
 
