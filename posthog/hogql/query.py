@@ -74,7 +74,7 @@ class HogQLQueryExecutor:
     placeholders: Optional[dict[str, ast.Expr]] = None
     variables: Optional[dict[str, HogQLVariable]] = None
     workload: Workload = Workload.DEFAULT
-    ch_user: Optional[ClickHouseUser] = None
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     settings: Optional[HogQLGlobalSettings] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY

@@ -268,7 +268,7 @@ def sync_execute(
     team_id: Optional[int] = None,
     readonly=False,
     sync_client: Optional[SyncClient] = None,
-    ch_user: Optional[ClickHouseUser] = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     external_tables: Optional[list[ClickHouseExternalTable]] = None,
 ):
     """
@@ -303,8 +303,8 @@ def sync_execute(
     team_id (Optional[int]): Optional team ID used to customize query behavior.
     readonly (bool): Specifies whether the query intends to modify data. Default is False.
     sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
-    ch_user (Optional[ClickHouseUser]): The user context for the query execution. Defaults to
-        ClickHouseUser.DEFAULT when omitted.
+    ch_user (ClickHouseUser): The user context for the query execution. Defaults to
+        ClickHouseUser.DEFAULT.
     external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
         sent alongside the query instead of inlined.
 
@@ -319,8 +319,6 @@ def sync_execute(
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
         logger.warning("workload is None", stacktrace=traceback.format_stack())
-    if ch_user is None:
-        ch_user = ClickHouseUser.DEFAULT
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
