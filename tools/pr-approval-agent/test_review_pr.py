@@ -244,3 +244,40 @@ def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPa
 
     output = pipeline.to_dict()
     assert output["final_verdict"] == "WAIT"
+
+
+@pytest.mark.parametrize(
+    "files, expected_flags",
+    [
+        pytest.param(
+            ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py"],
+            [],
+            id="connector-only-pr-not-flagged",
+        ),
+        pytest.param(
+            [
+                "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py",
+                "posthog/api/foo.py",
+            ],
+            ["auth", "billing"],
+            id="mixed-pr-keeps-flags",
+        ),
+    ],
+)
+def test_title_flags_respect_exempt_paths(
+    monkeypatch: pytest.MonkeyPatch, files: list[str], expected_flags: list[str]
+) -> None:
+    # A connector-only PR legitimately says "stripe"/"oauth" in its title;
+    # flagging it re-creates the friction the connector path exemption
+    # exists to remove.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.title = "fix(stripe): refresh oauth token before sync"
+    pr.files = [{"filename": f, "additions": 2, "deletions": 1, "status": "M"} for f in files]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["title_scrutiny_flags"] == expected_flags

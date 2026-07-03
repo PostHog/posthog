@@ -431,6 +431,16 @@ def _is_exempt_path(category: str, path: str) -> bool:
     return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
+def category_fully_exempt(category: str, files: list[str]) -> bool:
+    """True when every changed file is exempt for this category.
+
+    Used to suppress title scrutiny flags on connector-only PRs: a Stripe
+    source fix legitimately says "stripe"/"oauth" in its title, and flagging
+    it re-creates the friction the path exemption exists to remove.
+    """
+    return bool(files) and all(_is_exempt_path(category, f) for f in files)
+
+
 def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
     """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()

@@ -30,6 +30,7 @@ from gates import (
     MAX_FILES,
     MAX_LINES,
     assign_tier,
+    category_fully_exempt,
     classify_files,
     detect_deny_categories,
     detect_ownership,
@@ -314,7 +315,11 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
-        title_flags = [c for c in detect_title_scrutiny_flags(pr.title) if c not in deny]
+        title_flags = [
+            c
+            for c in detect_title_scrutiny_flags(pr.title)
+            if c not in deny and not category_fully_exempt(c, file_paths)
+        ]
         allow_only = is_allow_listed_only(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
