@@ -23,6 +23,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..feature_flags import is_sentiment_evaluations_enabled
@@ -463,18 +464,21 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
         """Return the provider key the evaluation will use after this update."""
+        team = self.context["get_team"]()
         model_config_data = data.get("model_configuration")
         if model_config_data is not None:
             provider_key_id = model_config_data.get("provider_key_id")
-            if not provider_key_id:
-                return None
-            return LLMProviderKey.objects.filter(
-                id=provider_key_id,
-                team=self.context["get_team"](),
-            ).first()
-        if self.instance and self.instance.model_configuration:
-            return self.instance.model_configuration.provider_key
-        return None
+            provider = model_config_data.get("provider")
+        elif self.instance and self.instance.model_configuration:
+            provider_key_id = self.instance.model_configuration.provider_key_id
+            provider = self.instance.model_configuration.provider
+        else:
+            return None
+
+        if provider_key_id:
+            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        config = EvaluationConfig.objects.filter(team=team).first()
+        return active_key_fallback(config, provider) if config and provider else None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
