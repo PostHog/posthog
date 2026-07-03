@@ -122,9 +122,18 @@ mod tests {
     fn trims_surrounding_whitespace() {
         // A stray newline in a copied API key must be normalized away, not cause a
         // team-lookup miss and silent event loss.
-        assert_eq!(validate_token("phc_hellothere\n").unwrap(), "phc_hellothere");
-        assert_eq!(validate_token("  phc_hellothere  ").unwrap(), "phc_hellothere");
-        assert_eq!(validate_token("\tphc_hellothere\r\n").unwrap(), "phc_hellothere");
+        assert_eq!(
+            validate_token("phc_hellothere\n").unwrap(),
+            "phc_hellothere"
+        );
+        assert_eq!(
+            validate_token("  phc_hellothere  ").unwrap(),
+            "phc_hellothere"
+        );
+        assert_eq!(
+            validate_token("\tphc_hellothere\r\n").unwrap(),
+            "phc_hellothere"
+        );
     }
 
     #[test]
