@@ -90,6 +90,7 @@ describe('customPropertyDefinitionsLogic', () => {
         } as any
         initKeaTests()
         userLogic.mount()
+        jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
     it('loads definitions on mount', async () => {
@@ -123,12 +124,24 @@ describe('customPropertyDefinitionsLogic', () => {
         })
     })
 
-    it('derives the manual source mode when editing a definition without a source', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        await expectLogic(logic, () => logic.actions.openEditModal(buildDefinition())).toFinishAllListeners()
-        expect(logic.values.customPropertyForm.sourceMode).toBe('manual')
-    })
+    it.each([
+        [
+            'workflow references',
+            { references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }] },
+            'workflow',
+        ],
+        ['no source or references', {}, 'manual'],
+    ] as [string, Partial<CustomPropertyDefinitionApi>, string][])(
+        'derives the source mode when editing a definition with %s',
+        async (_, overrides, expectedMode) => {
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () =>
+                logic.actions.openEditModal(buildDefinition(overrides))
+            ).toFinishAllListeners()
+            expect(logic.values.customPropertyForm.sourceMode).toBe(expectedMode)
+        }
+    )
 
     it('creates a definition, reloads, and closes the modal', async () => {
         useMocks(defaultMocks())
@@ -289,96 +302,51 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(sourceDeleted).toBe(true)
     })
 
-    it('hydrates the source modal form when configuring an existing source', async () => {
+    it('fails the workflow CTA with a field error when the name is missing', async () => {
         useMocks(defaultMocks())
         mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition({ source: buildSource() })))
-            .toDispatchActions(['loadSavedQueries', 'loadSavedQueriesSuccess'])
-            .toFinishAllListeners()
+        logic.actions.openCreateModal()
 
-        expect(logic.values.sourceModalVisible).toBe(true)
-        expect(logic.values.customPropertySourceForm).toEqual({
-            savedQuery: 'view-1',
-            sourceColumn: 'mrr',
-            keyColumn: 'org_id',
-            isEnabled: true,
-        })
-    })
-
-    it('exposes the selected view columns for the source modal pickers', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition())).toDispatchActions([
-            'loadSavedQueriesSuccess',
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertyFailure',
+            'setCustomPropertyFormManualErrors',
         ])
-        logic.actions.setCustomPropertySourceFormValue('savedQuery', 'view-1')
-        expect(logic.values.sourceModalColumns).toEqual(['org_id', 'mrr'])
+        expect(window.open).not.toHaveBeenCalled()
     })
 
-    it('creates a source from the source modal', async () => {
-        let postedBody: Record<string, any> | null = null
+    it('creates the property and opens the new-workflow editor', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openCreateModal()
+        logic.actions.setCustomPropertyFormValues({ name: 'Health score', sourceMode: 'workflow' })
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            // The definition must be created first — the workflow action references it by id.
+            'setEditingDefinition',
+            'createWorkflowForPropertySuccess',
+        ])
+        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
+    })
+
+    it('opens the editor without re-creating an already-existing property', async () => {
+        let definitionCreated = false
         useMocks({
             ...defaultMocks(),
             post: {
                 ...defaultMocks().post,
-                [SOURCES_URL]: async ({ request }) => {
-                    postedBody = (await request.json()) as Record<string, any>
-                    return buildSource()
+                [DEFINITIONS_URL]: () => {
+                    definitionCreated = true
+                    return buildDefinition({ id: 'def-2' })
                 },
             },
         })
         mountLogic()
-        logic.actions.openSourceModal(buildDefinition())
-        logic.actions.setCustomPropertySourceFormValues({
-            savedQuery: 'view-1',
-            sourceColumn: 'mrr',
-            keyColumn: 'org_id',
-            isEnabled: true,
-        })
+        logic.actions.openEditModal(buildDefinition())
 
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
-            'loadDefinitions',
-            'closeSourceModal',
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertySuccess',
         ])
-        expect(postedBody).toEqual({
-            definition: 'def-1',
-            saved_query: 'view-1',
-            source_column: 'mrr',
-            key_column: 'org_id',
-            is_enabled: true,
-        })
-    })
-
-    it('updates an existing source from the source modal without the create-only fields', async () => {
-        let patchedBody: Record<string, any> | null = null
-        useMocks({
-            ...defaultMocks(),
-            patch: {
-                ...defaultMocks().patch,
-                [SOURCE_URL]: async ({ request }) => {
-                    patchedBody = (await request.json()) as Record<string, any>
-                    return buildSource()
-                },
-            },
-        })
-        mountLogic()
-        logic.actions.openSourceModal(buildDefinition({ source: buildSource() }))
-        logic.actions.setCustomPropertySourceFormValue('isEnabled', false)
-
-        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
-            'submitCustomPropertySourceFormSuccess',
-        ])
-        expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
-    })
-
-    it('removes a source and closes the source modal', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        const definition = buildDefinition({ source: buildSource() })
-        await expectLogic(logic, () => logic.actions.removeSource({ definition })).toDispatchActions([
-            'removeSourceSuccess',
-            'closeSourceModal',
-        ])
+        expect(definitionCreated).toBe(false)
+        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
     })
 })

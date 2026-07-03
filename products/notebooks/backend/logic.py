@@ -6,6 +6,7 @@ facade, which maps them to framework-free contracts. Nothing outside the product
 should import this module — cross-product callers go through ``facade.api``.
 """
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -237,3 +238,36 @@ def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
         return False
     notebook.delete()
     return True
+
+
+def list_team_account_notes(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[ResourceNotebook], int]:
+    """Team-wide account notes: internal notebooks linked to any account, newest-modified first.
+
+    ``account_ids`` restricts to the given accounts (callers pass the caller-accessible set —
+    a lazy ``values_list`` queryset compiles to a SQL subquery). ``search`` is full-text over
+    notebook title/content plus substring over the linked account's name. Returns
+    ``(page, total_count)``.
+    """
+    queryset = ResourceNotebook.objects.filter(
+        account__isnull=False,
+        notebook__team_id=team_id,
+        notebook__deleted=False,
+        notebook__visibility=Notebook.Visibility.INTERNAL,
+    ).select_related("notebook", "account")
+    if account_ids is not None:
+        queryset = queryset.filter(account_id__in=account_ids)
+    if search:
+        queryset = queryset.filter(
+            Q(notebook__title__search=search)
+            | Q(notebook__text_content__search=search)
+            | Q(account__name__icontains=search)
+        )
+    queryset = queryset.order_by("-notebook__last_modified_at")
+    return list(queryset[offset : offset + limit]), queryset.count()
