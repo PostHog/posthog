@@ -23,6 +23,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { QuarantineTestModal } from '../components/QuarantineTestModal'
+import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
     QuarantineEntryRow,
@@ -47,14 +48,14 @@ function LifecycleTag({ lifecycle }: { lifecycle: QuarantineLifecycle }): JSX.El
             return <LemonTag type="warning">Expiring soon</LemonTag>
         case 'in_grace':
             return (
-                <Tooltip title="Expired, but inside the 7-day grace — the quarantine check only warns for now.">
+                <Tooltip title="Expired, but inside the 7-day grace period. The quarantine check only warns for now.">
                     <LemonTag type="warning">In grace</LemonTag>
                 </Tooltip>
             )
         default:
             return (
-                <Tooltip title="Expired beyond the grace period — the quarantine check workflow fails until it is removed or re-triaged.">
-                    <LemonTag type="danger">Overdue — blocks CI</LemonTag>
+                <Tooltip title="Expired beyond the grace period. The quarantine check workflow fails until the entry is removed or re-triaged.">
+                    <LemonTag type="danger">Overdue · blocks CI</LemonTag>
                 </Tooltip>
             )
     }
@@ -152,6 +153,10 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         />
     )
 
+    // Rendered on every data-bearing branch: the quarantine file is per-repo, so multi-source teams
+    // need the source picker here too — including on the wrong-repo empty states.
+    const scopeBar = <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
+
     // Production with no GitHub source and no local checkout: the endpoint 400s, same as the other tabs.
     if (quarantineLoadFailed) {
         return <ConnectGitHubSource />
@@ -161,25 +166,28 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
     // parse_errors set — surface those instead of the "no file" explainer, which only fits a true 404.
     if (quarantine && !quarantine.available && quarantine.parseErrors.length > 0) {
         return (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
-                <IconShieldLock className="size-8 text-tertiary" />
-                <div className="text-lg font-semibold">Couldn't read the quarantine file</div>
-                <div className="w-full max-w-xl">
-                    <LemonBanner type="warning">
-                        <ul className="ml-4 list-disc text-left">
-                            {quarantine.parseErrors.map((error, index) => (
-                                <li key={index} className="font-mono text-xs">
-                                    {error}
-                                </li>
-                            ))}
-                        </ul>
-                    </LemonBanner>
+            <div className="flex flex-col gap-4">
+                {scopeBar}
+                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
+                    <IconShieldLock className="size-8 text-tertiary" />
+                    <div className="text-lg font-semibold">Couldn't read the quarantine file</div>
+                    <div className="w-full max-w-xl">
+                        <LemonBanner type="warning">
+                            <ul className="ml-4 list-disc text-left">
+                                {quarantine.parseErrors.map((error, index) => (
+                                    <li key={index} className="font-mono text-xs">
+                                        {error}
+                                    </li>
+                                ))}
+                            </ul>
+                        </LemonBanner>
+                    </div>
+                    {quarantine.repoFullName && (
+                        <p className="text-sm text-secondary">
+                            Repository: <span className="font-mono">{quarantine.repoFullName}</span>
+                        </p>
+                    )}
                 </div>
-                {quarantine.repoFullName && (
-                    <p className="text-sm text-secondary">
-                        Repository: <span className="font-mono">{quarantine.repoFullName}</span>
-                    </p>
-                )}
             </div>
         )
     }
@@ -187,20 +195,23 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
     // A file that does not exist is a normal state, not an error — offer to start one.
     if (quarantine && !quarantine.available) {
         return (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
-                <IconShieldLock className="size-8 text-tertiary" />
-                <div className="text-lg font-semibold">No test quarantine yet</div>
-                <p className="max-w-xl text-sm text-secondary">
-                    {quarantine.repoFullName
-                        ? `${quarantine.repoFullName} has no .test_quarantine.json. `
-                        : 'This repo has no .test_quarantine.json. '}
-                    Quarantine masks a flaky test in CI with a hard expiry, so it stops blocking merges while its owner
-                    fixes it. The first quarantine opens a PR that creates the file.
-                </p>
-                <LemonButton type="primary" onClick={openNewQuarantine} data-attr="eng-analytics-quarantine-open">
-                    Quarantine a test
-                </LemonButton>
-                {modalElement}
+            <div className="flex flex-col gap-4">
+                {scopeBar}
+                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
+                    <IconShieldLock className="size-8 text-tertiary" />
+                    <div className="text-lg font-semibold">No test quarantine yet</div>
+                    <p className="max-w-xl text-sm text-secondary">
+                        {quarantine.repoFullName
+                            ? `${quarantine.repoFullName} has no .test_quarantine.json. `
+                            : 'This repo has no .test_quarantine.json. '}
+                        Quarantine masks a flaky test in CI with a hard expiry, so it stops blocking merges while its
+                        owner fixes it. The first quarantine opens a PR that creates the file.
+                    </p>
+                    <LemonButton type="primary" onClick={openNewQuarantine} data-attr="eng-analytics-quarantine-open">
+                        Quarantine a test
+                    </LemonButton>
+                    {modalElement}
+                </div>
             </div>
         )
     }
@@ -219,7 +230,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             {row.selectorKind}
                         </LemonTag>
                         {row.runner !== 'pytest' && (
-                            <Tooltip title="No enforcement adapter yet — entry is informational.">
+                            <Tooltip title="No enforcement adapter yet. This entry is informational.">
                                 <LemonTag type="muted" size="small">
                                     {row.runner}
                                 </LemonTag>
@@ -320,6 +331,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {scopeBar}
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
                     <h3 className="m-0 text-base font-semibold">Quarantine register</h3>
@@ -464,7 +476,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No quarantined tests — nothing is masked right now.'
+                        'No quarantined tests. Nothing is masked right now.'
                     )
                 }
                 nouns={['quarantined test', 'quarantined tests']}
@@ -472,8 +484,8 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
 
             <div className="text-xs text-tertiary">
                 Quarantine is checked into <span className="font-mono">.test_quarantine.json</span> and enforced by CI.
-                Quarantining, extending, or removing opens a pull request — the file stays the source of truth. A merged
-                edit only affects CI runs that start after it lands.
+                Quarantining, extending, or removing opens a pull request, so the file stays the source of truth. A
+                merged edit only affects CI runs that start after it lands.
             </div>
             {modalElement}
         </div>

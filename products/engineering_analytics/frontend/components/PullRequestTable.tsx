@@ -1,17 +1,17 @@
-// The PR list table, shared by the main PR list (Overview tab) and the author page (scoped to one
-// author). Only the author column and default sort differ per caller.
+// Shared by the repo hub and the PR list. Author renders as plain metadata and links nowhere
+// in-product (attribution, never a unit of analysis — see SPEC §2).
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
@@ -26,6 +26,17 @@ function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
     ).url
 }
 
+/** How long the PR has been (or was) open, in the shared hours/days headline format.
+ *  Null for closed-unmerged PRs: the list carries no closed_at, so their open time is unknown. */
+function openTimeOf(row: PullRequestRow): { seconds: number; label: string } | null {
+    const end = row.mergedAt ?? (row.state === 'open' ? dayjs().toISOString() : null)
+    if (!end) {
+        return null
+    }
+    const seconds = dayjs(end).diff(dayjs(row.createdAt), 'second')
+    return { seconds, label: compactHoursLabel(seconds) }
+}
+
 export interface PullRequestTableProps {
     rows: PullRequestRow[]
     loading: boolean
@@ -33,9 +44,8 @@ export interface PullRequestTableProps {
     sourceId: string | null
     /** Show the pushes / re-runs / CI cost columns. */
     costLensEnabled: boolean
-    /** Author column is redundant on the author page (every row is the same author) — hide it there. */
-    showAuthor?: boolean
-    defaultSorting?: { columnKey: string; order: 1 | -1 }
+    /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
+    pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
 }
@@ -45,8 +55,7 @@ export function PullRequestTable({
     loading,
     sourceId,
     costLensEnabled,
-    showAuthor = true,
-    defaultSorting,
+    pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
 }: PullRequestTableProps): JSX.Element {
@@ -56,18 +65,15 @@ export function PullRequestTable({
             key: 'title',
             render: (_, row) => (
                 <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2">
-                        <PullRequestStateTag state={row.state} isDraft={row.isDraft} />
-                        <Link to={detailUrlOf(row, sourceId)} className="font-medium">
-                            {row.title}
-                        </Link>
-                    </div>
+                    <Link to={detailUrlOf(row, sourceId)} className="font-medium">
+                        {row.title}
+                    </Link>
                     <div className="flex items-center gap-1.5 text-xs text-secondary">
                         <Link
                             to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
                             target="_blank"
                             targetBlankIcon
-                            className="font-mono text-secondary"
+                            className="font-mono text-[11px] text-tertiary"
                         >
                             {row.repoOwner}/{row.repoName} #{row.number}
                         </Link>
@@ -81,61 +87,39 @@ export function PullRequestTable({
             ),
         },
         {
-            title: 'CI',
-            key: 'ci',
-            width: 190,
-            render: (_, row) => <CIStatusTag rollup={row} />,
+            title: 'State',
+            key: 'state',
+            width: 104,
+            render: (_, row) => <PullRequestStateTag state={row.state} isDraft={row.isDraft} />,
         },
-        ...(showAuthor
-            ? ([
-                  {
-                      title: 'Author',
-                      key: 'author',
-                      width: 190,
-                      render: (_, row) => (
-                          <div className="flex items-center gap-1.5">
-                              {row.authorAvatarUrl && (
-                                  <img src={row.authorAvatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
-                              )}
-                              <Link
-                                  to={
-                                      combineUrl(
-                                          urls.engineeringAnalyticsAuthor(row.authorHandle),
-                                          sourceId ? { source: sourceId } : {}
-                                      ).url
-                                  }
-                                  className="text-xs"
-                              >
-                                  {row.authorHandle}
-                              </Link>
-                              {row.isBot && <LemonTag type="muted">bot</LemonTag>}
-                          </div>
-                      ),
-                  },
-              ] as LemonTableColumns<PullRequestRow>)
-            : []),
         {
-            title: 'Opened',
-            key: 'age',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            title: 'Author',
+            key: 'author',
+            width: 170,
             render: (_, row) => (
-                <span className="text-xs whitespace-nowrap">
-                    <TZLabel time={row.createdAt} />
-                </span>
+                <div className="flex items-center gap-1.5">
+                    {row.authorAvatarUrl && (
+                        <img src={row.authorAvatarUrl} alt="" className="size-5 shrink-0 rounded-full" />
+                    )}
+                    <span className="text-xs font-medium">{row.authorHandle}</span>
+                    {row.isBot && <LemonTag type="muted">bot</LemonTag>}
+                </div>
             ),
         },
         {
-            title: 'Open→merge',
-            key: 'openToMerge',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
+            title: 'CI',
+            key: 'ci',
+            width: 190,
             render: (_, row) => (
-                <span className="text-xs whitespace-nowrap text-secondary">
-                    {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
-                </span>
+                <div className="flex flex-col gap-0.5">
+                    <CIStatusTag rollup={row} />
+                    {row.failingWorkflows.length > 0 && (
+                        <span className="text-[10.5px] leading-tight text-tertiary">
+                            {row.failingWorkflows.slice(0, 3).join(' · ')}
+                            {row.failingWorkflows.length > 3 && ` +${row.failingWorkflows.length - 3}`}
+                        </span>
+                    )}
+                </div>
             ),
         },
         ...(costLensEnabled
@@ -143,25 +127,19 @@ export function PullRequestTable({
                   {
                       title: 'Pushes',
                       key: 'pushes',
-                      width: 90,
+                      width: 100,
                       align: 'right',
                       tooltip:
-                          'Distinct head commits that triggered CI for this PR (all-time, not windowed). Fork PRs are unattributed.',
+                          'Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.',
                       sorter: (a, b) => a.pushes - b.pushes,
                       render: (_, row) => (
-                          <span className="text-xs tabular-nums">{humanFriendlyNumber(row.pushes)}</span>
-                      ),
-                  },
-                  {
-                      title: 'Re-runs',
-                      key: 'rerunCycles',
-                      width: 90,
-                      align: 'right',
-                      tooltip: 'Workflow runs on this PR that were a 2nd+ attempt (a re-run).',
-                      sorter: (a, b) => a.rerunCycles - b.rerunCycles,
-                      render: (_, row) => (
-                          <span className="text-xs tabular-nums">
-                              {row.rerunCycles > 0 ? humanFriendlyNumber(row.rerunCycles) : '—'}
+                          <span className="text-xs tabular-nums whitespace-nowrap">
+                              {humanFriendlyNumber(row.pushes)}
+                              {row.rerunCycles > 0 && (
+                                  <LemonTag type="warning" className="ml-1.5">
+                                      +{row.rerunCycles}
+                                  </LemonTag>
+                              )}
                           </span>
                       ),
                   },
@@ -179,6 +157,19 @@ export function PullRequestTable({
                   },
               ] as LemonTableColumns<PullRequestRow>)
             : []),
+        {
+            title: 'Open time',
+            key: 'age',
+            width: 100,
+            align: 'right',
+            tooltip: 'How long the pull request has been open (or was, until it merged).',
+            sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
+            render: (_, row) => (
+                <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
+                    <span className="text-xs tabular-nums whitespace-nowrap">{openTimeOf(row)?.label ?? '—'}</span>
+                </Tooltip>
+            ),
+        },
     ]
 
     return (
@@ -189,11 +180,10 @@ export function PullRequestTable({
             dataSource={rows}
             rowKey={prKeyOf}
             loading={loading}
-            defaultSorting={defaultSorting}
             onRow={(row) => {
                 const detailUrl = detailUrlOf(row, sourceId)
                 return {
-                    // Inner links (#id → GitHub, author → author page) keep their own behavior.
+                    // Inner links (#id → GitHub) keep their own behavior.
                     onClick: (e: React.MouseEvent) => {
                         if ((e.target as HTMLElement).closest('a, button')) {
                             return
@@ -214,8 +204,8 @@ export function PullRequestTable({
                 }
             }}
             useURLForSorting={false}
-            pagination={{ pageSize: 50 }}
-            emptyState={emptyState ?? 'No pull requests yet — they show up as soon as CI events arrive.'}
+            pagination={{ pageSize }}
+            emptyState={emptyState ?? "No pull requests yet. They'll appear once the GitHub source syncs."}
             nouns={['pull request', 'pull requests']}
         />
     )
