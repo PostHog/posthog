@@ -38,6 +38,8 @@ export interface TimeSeriesComboChartConfig {
     showCrosshair?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
     showAxisLines?: boolean
+    /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -84,6 +86,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         showCrosshair,
         showAxisLines,
+        curve,
         tooltip: tooltipConfig,
         legend,
         trendLines,
@@ -114,6 +117,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid,
         showAxisLines,
+        curve,
         showCrosshair,
         defaultSeriesType,
         barLayout,

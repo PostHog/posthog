@@ -1,4 +1,4 @@
-import { scaleLinear, scalePoint } from 'd3-scale'
+import { type ScaleLinear, scaleLinear, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
 import {
@@ -8,6 +8,7 @@ import {
     drawArea,
     drawGrid,
     drawLine,
+    drawLineSeriesLayer,
     drawSelectionRect,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
@@ -20,9 +21,14 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         stroke: jest.fn(),
         fill: jest.fn(),
         closePath: jest.fn(),
+        bezierCurveTo: jest.fn(),
         arc: jest.fn(),
         fillRect: jest.fn(),
         strokeRect: jest.fn(),
+        rect: jest.fn(),
+        save: jest.fn(),
+        clip: jest.fn(),
+        restore: jest.fn(),
         setLineDash: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
@@ -127,6 +133,68 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawLine — monotone smoothing and yFloor', () => {
+        it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30, 60] })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(3)
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+        })
+
+        it('keeps every bezier control point within the data extremes (no overshoot past a peak)', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 10] })
+            const drawCtx = { ...makeDrawContext(ctx, labels), smooth: true }
+            drawLine(drawCtx, series)
+            const pointYs = [10, 90, 10].map((v) => drawCtx.yScale(v))
+            const [minY, maxY] = [Math.min(...pointYs), Math.max(...pointYs)]
+            const cpYs = ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY])
+            expect(Math.min(...cpYs)).toBeGreaterThanOrEqual(minY)
+            expect(Math.max(...cpYs)).toBeLessThanOrEqual(maxY)
+        })
+
+        it('splits the smooth curve into separate subpaths at gaps', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's1', data: [10, 20, 50, 70, 90] })
+            drawLine({ ...makeDrawContextWithGaps(ctx, labels, new Set([50])), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(2)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([{ smooth: false }, { smooth: true }])(
+            'clamps drawn y coordinates to yFloor (smooth: $smooth)',
+            ({ smooth }) => {
+                const ctx = mockCanvasContext()
+                const labels = ['a', 'b', 'c']
+                const series = makeSeries({ key: 's1', data: [0, 80, 0] })
+                const drawCtx = makeDrawContext(ctx, labels)
+                const yFloor = drawCtx.yScale(0) - 1
+                drawLine({ ...drawCtx, smooth, yFloor }, series)
+                const drawnYs = [
+                    ...ctx.moveTo.mock.calls.map(([, y]) => y),
+                    ...ctx.lineTo.mock.calls.map(([, y]) => y),
+                    ...ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY]),
+                ]
+                expect(drawnYs.length).toBeGreaterThan(0)
+                expect(Math.max(...drawnYs)).toBeLessThanOrEqual(yFloor)
+            }
+        )
+
+        it('smooths both area edges with bezier segments so stacked bottoms match the curve below', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30], fill: { opacity: 0.5 } })
+            drawArea({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(4)
+            expect(ctx.fill).toHaveBeenCalled()
         })
     })
 
@@ -364,6 +432,21 @@ describe('hog-charts canvas-renderer', () => {
             })
             drawLine(makeDrawContext(ctx, ['a', 'b']), series)
             // fromIndex 0 alone would be a single whole-line dashed stroke; the fraction path splits it.
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+            expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+        })
+
+        it.each([
+            { name: 'two points', data: [10, 90], labels: ['a', 'b'] },
+            { name: 'three points (leading segment stays curved)', data: [10, 40, 90], labels: ['a', 'b', 'c'] },
+        ])('$name, smooth → tail follows the curve as a bezier, never a straight chord', ({ data, labels }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, stroke: { partial: { fromFraction: 0.5 } } })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            // The straight-line branch would emit lineTo for the split bridge and the tail; the smooth
+            // split draws both the solid body and the dashed tail as bezier segments instead.
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+            expect(ctx.bezierCurveTo).toHaveBeenCalled()
             expect(ctx.beginPath).toHaveBeenCalledTimes(2)
             expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
         })
@@ -904,5 +987,27 @@ describe('hog-charts canvas-renderer', () => {
             )
             expect(ctx.fillRect).not.toHaveBeenCalled()
         })
+    })
+
+    describe('drawLineSeriesLayer — clipLeftEdge', () => {
+        const labels = ['a', 'b', 'c']
+        const series = [makeSeries({ key: 's1', data: [10, 50, 90] })]
+        const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+        const yScale = scaleLinear().domain([0, 100]).range([368, 16])
+        const resolveYScale = (): ScaleLinear<number, number> => yScale
+
+        it.each([
+            { clipLeftEdge: true, expectedLeft: Math.round(dimensions.plotLeft), expectedWidth: dimensions.width - Math.round(dimensions.plotLeft) },
+            { clipLeftEdge: false, expectedLeft: 0, expectedWidth: dimensions.width },
+        ])(
+            'passes left=$expectedLeft width=$expectedWidth to ctx.rect when clipLeftEdge=$clipLeftEdge',
+            ({ clipLeftEdge, expectedLeft, expectedWidth }) => {
+                const ctx = mockCanvasContext()
+                drawLineSeriesLayer({ ctx, dimensions, labels, series, xScale, resolveYScale, clipLeftEdge })
+                const rectCall = ctx.rect.mock.calls[0]
+                expect(rectCall[0]).toBe(expectedLeft)
+                expect(rectCall[2]).toBe(expectedWidth)
+            }
+        )
     })
 })
