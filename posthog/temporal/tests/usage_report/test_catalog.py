@@ -5,17 +5,26 @@ real ClickHouse — the same fused SQL the workflow executes, asserted on a
 fresh team. A wrong condition, a broken dedup expression, or a boundary
 off-by-one in `compiler.py` fails here with the metric and case named.
 
-The parity test pins the fused scan against the legacy per-metric queries
-on identical data; it exists for the v1→v2 migration window and dies with v1.
+The parity tests pin the fused scan against the legacy per-metric queries
+on identical data — a fixed catalog-case union plus Hypothesis-generated
+event batches; they exist for the v1→v2 migration window and die with v1.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from hypothesis import (
+    given,
+    settings,
+    strategies as st,
+)
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.util import create_event
 from posthog.tasks.usage_report import (
@@ -28,6 +37,15 @@ from posthog.temporal.usage_report.compiler import run_events_family
 
 PERIOD_START = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
 PERIOD_END = datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC)
+
+# The legacy query each catalog metric replaces. Extend when porting more
+# metrics; dies with v1.
+LEGACY_EQUIVALENTS: dict[str, Callable[[datetime, datetime], list[Any]]] = {
+    "event_count_in_period": lambda b, e: get_teams_with_billable_event_count_in_period(b, e, count_distinct=True),
+    "enhanced_persons_event_count_in_period": lambda b,
+    e: get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True),
+    "event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period,
+}
 
 
 def _insert(team: Team, fixtures: tuple[EventFixture, ...], distinct_id: str) -> None:
@@ -70,27 +88,69 @@ class TestEventsCatalogCases(ClickhouseTestMixin, BaseTest):
         assert _team_value(results, metric_name, team.id) == case.expect, case.note
 
 
+def _assert_parity_for_team(team_id: int) -> None:
+    compiled = run_events_family(PERIOD_START, PERIOD_END)
+    for metric_name, legacy_fn in LEGACY_EQUIVALENTS.items():
+        legacy_rows = legacy_fn(PERIOD_START, PERIOD_END)
+        assert _team_value(compiled, metric_name, team_id) == dict(legacy_rows).get(team_id, 0), (
+            f"Fused scan and legacy query disagree on {metric_name}"
+        )
+
+
 class TestEventsFamilyLegacyParity(ClickhouseTestMixin, BaseTest):
-    def test_compiled_family_matches_legacy_queries(self) -> None:
+    def test_compiled_family_matches_legacy_on_catalog_cases(self) -> None:
         team = Team.objects.create(organization=self.organization)
         for index, metric in enumerate(EVENTS_METRICS):
             for case in metric.cases:
                 _insert(team, case.given, distinct_id=f"parity-{index}")
 
-        compiled = run_events_family(PERIOD_START, PERIOD_END)
-        legacy = {
-            "event_count_in_period": get_teams_with_billable_event_count_in_period(
-                PERIOD_START, PERIOD_END, count_distinct=True
-            ),
-            "enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
-                PERIOD_START, PERIOD_END, count_distinct=True
-            ),
-            "event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
-                PERIOD_START, PERIOD_END
-            ),
-        }
+        _assert_parity_for_team(team.id)
 
-        for metric_name, legacy_rows in legacy.items():
-            assert _team_value(compiled, metric_name, team.id) == dict(legacy_rows).get(team.id, 0), (
-                f"Fused scan and legacy query disagree on {metric_name}"
-            )
+
+# Pools are boundary-heavy on purpose: period edges, every exclusion
+# category, duplicate uuids, empty-string group values, and free-text event
+# names that must count as billable.
+_fixture_strategy = st.builds(
+    EventFixture,
+    event=st.one_of(
+        st.sampled_from(
+            [
+                "$pageview",
+                "checkout",
+                "$feature_flag_called",
+                "survey sent",
+                "$exception",
+                "$ai_generation",
+                "$conversations_loaded",
+            ]
+        ),
+        st.text(
+            alphabet=st.characters(blacklist_characters="\0", blacklist_categories=["Cs"]), min_size=1, max_size=20
+        ),
+    ),
+    person_mode=st.sampled_from(["full", "propertyless", "force_upgrade"]),
+    at_hours=st.sampled_from([-3.0, 0.0, 6.0, 12.0, 23.99, 24.0, 30.0]),
+    dup=st.sampled_from([None, None, "a", "b"]),
+    properties=st.sampled_from([{}, {"$group_0": "org:1"}, {"$group_1": ""}, {"$group_4": "acct:9"}]),
+)
+
+
+class TestEventsFamilyPropertyParity(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The groups metric counts raw rows, so a background merge collapsing
+        # duplicate uuids between the compiled and legacy runs would flake
+        # the comparison. Same guard as the legacy usage-report tests.
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+    # `derandomize` keeps the explored examples fixed so CI is deterministic;
+    # a fresh team per example isolates ClickHouse state across examples
+    # (setUp does not re-run per example under `@given`).
+    @given(fixtures=st.lists(_fixture_strategy, min_size=0, max_size=12))
+    @settings(max_examples=20, derandomize=True, deadline=None)
+    def test_fused_scan_matches_legacy_for_generated_events(self, fixtures: list[EventFixture]) -> None:
+        team = Team.objects.create(organization=self.organization)
+        _insert(team, tuple(fixtures), distinct_id="pbt")
+
+        _assert_parity_for_team(team.id)
