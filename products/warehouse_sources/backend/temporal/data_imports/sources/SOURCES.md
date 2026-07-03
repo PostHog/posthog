@@ -248,6 +248,7 @@ the row lists both.
 | persona                 | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
 | pexels                  | HTTP                        | requests                                                        | ✅                          |
+| picqer                  | HTTP                        | requests                                                        | ✅                          |
 | pingdom                 | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
 | pipedrive               | HTTP                        | requests                                                        | ✅                          |
@@ -580,7 +581,6 @@ doesn't conflict with concurrent PRs.
 - persona
 - pexels
 - phyllo
-- picqer
 - pipeliner
 - pivotal_tracker
 - piwik
