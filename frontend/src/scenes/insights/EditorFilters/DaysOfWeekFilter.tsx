@@ -6,11 +6,15 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { TrendsQuery } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
-
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { DAY_LABELS, WEEKDAYS, daysOfWeekLabel, getEffectiveDaysOfWeek } from './daysOfWeekFilterUtils'
+import {
+    ALL_DAY_NUMBERS,
+    DAY_LABELS,
+    WEEKDAYS,
+    computeDaysOfWeekUpdate,
+    daysOfWeekLabel,
+    getEffectiveDaysOfWeek,
+} from './daysOfWeekFilterUtils'
 
 export function DaysOfWeekFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -21,13 +25,7 @@ export function DaysOfWeekFilter(): JSX.Element {
     const selectedDays = getEffectiveDaysOfWeek(dateRange, trendsFilter)
 
     const setDays = (days: number[]): void => {
-        const daysOfWeek = days.length === 0 || days.length === 7 ? null : [...days].sort((a, b) => a - b)
-        const update: Partial<TrendsQuery> = { dateRange: { ...dateRange, daysOfWeek } }
-        // daysOfWeek supersedes the legacy display-only weekend toggle
-        if (isTrendsQuery(querySource) && querySource.trendsFilter?.hideWeekends) {
-            update.trendsFilter = { ...querySource.trendsFilter, hideWeekends: undefined }
-        }
-        updateQuerySource(update)
+        updateQuerySource(computeDaysOfWeekUpdate(days, querySource, dateRange))
     }
 
     const toggleDay = (day: number): void => {
@@ -41,7 +39,7 @@ export function DaysOfWeekFilter(): JSX.Element {
             overlay={
                 <div className="p-2 deprecated-space-y-2">
                     <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5, 6, 7].map((day) => (
+                        {ALL_DAY_NUMBERS.map((day) => (
                             <LemonButton
                                 key={day}
                                 size="xsmall"
