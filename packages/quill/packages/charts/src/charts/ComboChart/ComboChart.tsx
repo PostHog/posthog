@@ -1,7 +1,7 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter, roundOuterStackCaps } from '../../core/bar-layout'
+import { applyOuterStackCaps, bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
@@ -218,13 +218,12 @@ function ComboChartInner<Meta = unknown>({
             })
             // Stacked cap rounding is re-resolved per band from the laid-out rects, so breakdown
             // and diverging stacks round their actual outer segments.
-            if (barLayout !== 'grouped') {
-                roundOuterStackCaps(
-                    barLayers.flatMap((layer) => layer.bars),
-                    false,
-                    comboScales.value(0)
-                )
-            }
+            applyOuterStackCaps(
+                barLayers.flatMap((layer) => layer.bars.map((bar) => ({ bar, yAxisId: layer.series.yAxisId }))),
+                comboScales,
+                false,
+                barLayout
+            )
             for (const { series: s, bars } of barLayers) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
@@ -328,13 +327,12 @@ function ComboChartInner<Meta = unknown>({
                 hoveredBars.push({ series: s, bar })
             }
             // Match the static layer's per-band cap resolution so highlights round the same corners.
-            if (barLayout !== 'grouped') {
-                roundOuterStackCaps(
-                    hoveredBars.map((h) => h.bar),
-                    false,
-                    comboScales.value(0)
-                )
-            }
+            applyOuterStackCaps(
+                hoveredBars.map((h) => ({ bar: h.bar, yAxisId: h.series.yAxisId })),
+                comboScales,
+                false,
+                barLayout
+            )
             for (const { series: s, bar } of hoveredBars) {
                 const barColor = barColorAt(s, bar.dataIndex)
                 const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
