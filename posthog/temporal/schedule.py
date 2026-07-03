@@ -617,10 +617,14 @@ async def create_finalize_usage_reports_schedule(client: Client):
     Reports *yesterday* (`day_offset=1`) once the day is complete — its
     pointer carries `report_completeness="complete"`, billing's signal that
     the numbers are final for that date.
-    02:45 leaves ~2.75 hours for ingestion lag after midnight, gives the
-    01:45 intraday slot a full hour to finish (the two schedules' SKIP
-    policies don't see each other, so spacing is the only concurrency
-    control), and stays ahead of the legacy Celery run at 03:45 UTC. Unlike
+    02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
+    of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
+    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    runs rather than clearing them by an hour, and the two schedules' SKIP
+    policies don't see each other. A brief overlap is harmless: every run
+    writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
+    reports yesterday while the intraday runs report today, so overlapping
+    runs touch distinct data and at worst add concurrent query load. Unlike
     the intraday schedule this run has no later slot to supersede it, so the
     retry policy keeps re-running it across the day (5m, 10m, ... capped at
     2h) until it succeeds. Anything longer than that is a manual backfill:
