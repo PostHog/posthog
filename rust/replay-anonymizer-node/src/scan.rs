@@ -27,30 +27,106 @@ pub fn skip_ws(bytes: &[u8], mut pos: usize) -> usize {
     pos
 }
 
+/// True when the little-endian 8-byte word contains a `"` or `\` byte (the classic SWAR
+/// zero-byte test), letting scanners consume 8 bytes per step with no memchr per-call setup.
+#[inline]
+fn word_has_quote_or_backslash(word: u64) -> bool {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    let q = word ^ (LO * b'"' as u64);
+    let b = word ^ (LO * b'\\' as u64);
+    ((q.wrapping_sub(LO) & !q) | (b.wrapping_sub(LO) & !b)) & HI != 0
+}
+
+#[inline]
+fn word_has_backslash(word: u64) -> bool {
+    const LO: u64 = 0x0101_0101_0101_0101;
+    const HI: u64 = 0x8080_8080_8080_8080;
+    let b = word ^ (LO * b'\\' as u64);
+    b.wrapping_sub(LO) & !b & HI != 0
+}
+
+#[inline]
+fn read_word(bytes: &[u8], pos: usize) -> u64 {
+    u64::from_le_bytes(bytes[pos..pos + 8].try_into().expect("8 bytes"))
+}
+
+/// Position of the next `\` in `bytes[pos..end]`, or `end`. Same SWAR-then-memchr shape as
+/// [`skip_string`], for the unescapers' clean-run scans.
+#[inline]
+fn next_backslash(bytes: &[u8], mut pos: usize, end: usize) -> usize {
+    let mut words = 0u32;
+    while pos + 8 <= end && words < 4 {
+        if word_has_backslash(read_word(bytes, pos)) {
+            while bytes[pos] != b'\\' {
+                pos += 1;
+            }
+            return pos;
+        }
+        pos += 8;
+        words += 1;
+    }
+    if words == 4 {
+        return memchr::memchr(b'\\', &bytes[pos..end]).map_or(end, |j| pos + j);
+    }
+    while pos < end {
+        if bytes[pos] == b'\\' {
+            return pos;
+        }
+        pos += 1;
+    }
+    end
+}
+
 /// `start` must be at an opening quote; returns the position just past the closing quote.
-/// DOM JSON is mostly 5-20 byte strings, where memchr's per-call setup costs more than the scan
-/// itself — so the first bytes are walked directly, with memchr jumps for the long tail (blobs,
-/// base64 bodies).
+/// Each stretch is scanned SWAR-first (8-byte words, no per-call setup), escalating to memchr only
+/// after 32 clean bytes: DOM JSON is mostly 5-20 byte strings and JSON-in-JSON has an escape every
+/// ~15 bytes, so memchr-per-hop would be all setup — while long clean runs (blobs, base64 bodies)
+/// still get real SIMD jumps.
 pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&b'"'));
     let mut pos = start + 1;
-    let fast_end = (pos + 24).min(bytes.len());
-    while pos < fast_end {
-        match bytes[pos] {
-            b'"' => return Ok(pos + 1),
-            b'\\' => pos += 2, // skip the escape and its payload byte
-            _ => pos += 1,
+    'stretch: while pos < bytes.len() {
+        let mut words = 0u32;
+        while pos + 8 <= bytes.len() && words < 4 {
+            if word_has_quote_or_backslash(read_word(bytes, pos)) {
+                let word_end = pos + 8;
+                while pos < word_end {
+                    match bytes[pos] {
+                        b'"' => return Ok(pos + 1),
+                        b'\\' => {
+                            pos += 2; // skip the escape and its payload byte
+                            continue 'stretch;
+                        }
+                        _ => pos += 1,
+                    }
+                }
+                continue 'stretch;
+            }
+            pos += 8;
+            words += 1;
         }
-    }
-    while pos < bytes.len() {
-        let Some(i) = memchr::memchr2(b'\\', b'"', &bytes[pos..]) else {
-            break;
-        };
-        let at = pos + i;
-        if bytes[at] == b'"' {
-            return Ok(at + 1);
+        if words == 4 {
+            // 32 clean bytes: a long run, worth memchr's setup.
+            let Some(i) = memchr::memchr2(b'\\', b'"', &bytes[pos..]) else {
+                break;
+            };
+            let at = pos + i;
+            if bytes[at] == b'"' {
+                return Ok(at + 1);
+            }
+            pos = at + 2;
+            continue 'stretch;
         }
-        pos = at + 2;
+        // Tail: fewer than 8 bytes left.
+        while pos < bytes.len() {
+            match bytes[pos] {
+                b'"' => return Ok(pos + 1),
+                b'\\' => pos += 2,
+                _ => pos += 1,
+            }
+        }
+        break;
     }
     Err(ScanError("unterminated string"))
 }
@@ -303,11 +379,12 @@ pub fn unescape<'b>(bytes: &'b [u8], span: Span) -> Result<std::borrow::Cow<'b, 
     let mut out = Vec::with_capacity(inner.len());
     let mut i = 0;
     while i < inner.len() {
-        let b = inner[i];
-        if b != b'\\' {
-            out.push(b);
-            i += 1;
-            continue;
+        // Bulk-copy the clean run up to the next escape: one slice push per run, not per byte.
+        let run_start = i;
+        i = next_backslash(inner, i, inner.len());
+        out.extend_from_slice(&inner[run_start..i]);
+        if i >= inner.len() {
+            break;
         }
         let esc = *inner.get(i + 1).ok_or(ScanError("truncated escape"))?;
         i += 2;
@@ -321,28 +398,8 @@ pub fn unescape<'b>(bytes: &'b [u8], span: Span) -> Result<std::borrow::Cow<'b, 
             b'r' => out.push(b'\r'),
             b't' => out.push(b'\t'),
             b'u' => {
-                let cp = hex4(inner, i)?;
-                i += 4;
-                let ch = if (0xD800..0xDC00).contains(&cp) {
-                    // High surrogate: pair it with the following \uXXXX low surrogate.
-                    if inner.get(i) == Some(&b'\\') && inner.get(i + 1) == Some(&b'u') {
-                        let low = hex4(inner, i + 2)?;
-                        if (0xDC00..0xE000).contains(&low) {
-                            i += 6;
-                            let c = 0x10000 + ((cp as u32 - 0xD800) << 10) + (low as u32 - 0xDC00);
-                            char::from_u32(c).ok_or(ScanError("invalid surrogate pair"))?
-                        } else {
-                            char::REPLACEMENT_CHARACTER
-                        }
-                    } else {
-                        char::REPLACEMENT_CHARACTER
-                    }
-                } else if (0xDC00..0xE000).contains(&cp) {
-                    // Lone low surrogate.
-                    char::REPLACEMENT_CHARACTER
-                } else {
-                    char::from_u32(cp as u32).ok_or(ScanError("invalid codepoint"))?
-                };
+                let (ch, consumed) = decode_unicode(inner, i)?;
+                i += consumed;
                 let mut buf = [0u8; 4];
                 out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
             }
@@ -352,6 +409,88 @@ pub fn unescape<'b>(bytes: &'b [u8], span: Span) -> Result<std::borrow::Cow<'b, 
     String::from_utf8(out)
         .map(std::borrow::Cow::Owned)
         .map_err(|_| ScanError("invalid utf-8 in string"))
+}
+
+/// Decode the `XXXX` (possibly a surrogate pair `XXXX\uYYYY`) after a `\u`, `at` pointing at the
+/// first hex digit. Returns the char and how many bytes were consumed.
+fn decode_unicode(bytes: &[u8], at: usize) -> Result<(char, usize)> {
+    let cp = hex4(bytes, at)?;
+    if (0xD800..0xDC00).contains(&cp) {
+        // High surrogate: pair it with the following \uXXXX low surrogate.
+        if bytes.get(at + 4) == Some(&b'\\') && bytes.get(at + 5) == Some(&b'u') {
+            let low = hex4(bytes, at + 6)?;
+            if (0xDC00..0xE000).contains(&low) {
+                let c = 0x10000 + ((cp as u32 - 0xD800) << 10) + (low as u32 - 0xDC00);
+                let ch = char::from_u32(c).ok_or(ScanError("invalid surrogate pair"))?;
+                return Ok((ch, 10));
+            }
+        }
+        return Ok((char::REPLACEMENT_CHARACTER, 4));
+    }
+    if (0xDC00..0xE000).contains(&cp) {
+        // Lone low surrogate.
+        return Ok((char::REPLACEMENT_CHARACTER, 4));
+    }
+    char::from_u32(cp as u32)
+        .map(|ch| (ch, 4))
+        .ok_or(ScanError("invalid codepoint"))
+}
+
+/// Unescape a JSON string span (including quotes) *in place*: decoded bytes are written over the
+/// span's own start (an unescaped string is never longer than its escaped form, so the write cursor
+/// trails the read cursor). Returns the decoded byte length, starting at `span.0 + 1`.
+///
+/// The buffer past the decoded bytes is left as scrap — callers must treat the span as consumed.
+/// The decoded bytes are NOT validated as UTF-8; callers that need a `str` must check.
+pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<usize> {
+    let raw_len = span.1.checked_sub(span.0).ok_or(ScanError("bad span"))?;
+    if raw_len < 2 || bytes.get(span.0) != Some(&b'"') || bytes.get(span.1 - 1) != Some(&b'"') {
+        return Err(ScanError("not a string span"));
+    }
+    let (start, end) = (span.0 + 1, span.1 - 1);
+    let Some(first) = memchr::memchr(b'\\', &bytes[start..end]) else {
+        return Ok(end - start); // escape-free: the bytes are already in place
+    };
+    let mut rd = start + first;
+    let mut wr = rd;
+    while rd < end {
+        if bytes[rd] != b'\\' {
+            // Clean run: locate its end, then one copy_within.
+            let run_start = rd;
+            rd = next_backslash(bytes, rd, end);
+            bytes.copy_within(run_start..rd, wr);
+            wr += rd - run_start;
+            continue;
+        }
+        if rd + 1 >= end {
+            return Err(ScanError("truncated escape"));
+        }
+        let esc = bytes[rd + 1];
+        rd += 2;
+        let simple = match esc {
+            b'"' => b'"',
+            b'\\' => b'\\',
+            b'/' => b'/',
+            b'b' => 0x08,
+            b'f' => 0x0c,
+            b'n' => b'\n',
+            b'r' => b'\r',
+            b't' => b'\t',
+            b'u' => {
+                let (ch, consumed) = decode_unicode(&bytes[..end], rd)?;
+                rd += consumed;
+                let mut buf = [0u8; 4];
+                let encoded = ch.encode_utf8(&mut buf).as_bytes();
+                bytes[wr..wr + encoded.len()].copy_from_slice(encoded);
+                wr += encoded.len();
+                continue;
+            }
+            _ => return Err(ScanError("bad escape")),
+        };
+        bytes[wr] = simple;
+        wr += 1;
+    }
+    Ok(wr - start)
 }
 
 fn hex4(bytes: &[u8], at: usize) -> Result<u16> {

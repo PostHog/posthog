@@ -22,6 +22,8 @@
 //! is an error — the caller drops (or DLQs) the message rather than letting un-anonymized bytes
 //! through.
 
+use std::borrow::Cow;
+
 use serde::Serialize;
 use simd_json::borrowed::Value;
 use simd_json::prelude::Writable;
@@ -133,8 +135,111 @@ pub struct AnonymizedMessage {
 }
 
 /// Anonymize a decompressed replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`).
-/// The buffer is scratch space — simd-json unescapes strings in place while parsing the outer object.
+/// The buffer is scratch space — the fallback parse unescapes strings in place.
+///
+/// The envelope is scanned, not parsed: a full parse funnels the multi-MB `data` string through
+/// simd-json's tape just to unescape it, where the scan locates the two values and unescapes `data`
+/// in one memchr-accelerated pass. Anything the scanner can't prove out (escaped or duplicate keys,
+/// structural surprises) falls back to the parse, which also owns failure classification — so
+/// dlq/drop reasons for malformed payloads come out exactly as before.
 pub fn anonymize_kafka_payload(
+    allow: &AllowLists,
+    payload: &mut [u8],
+) -> SResult<AnonymizedMessage> {
+    if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
+        // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
+        let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
+            return anonymize_kafka_payload_via_parse(allow, payload);
+        };
+        let distinct_id = distinct_id.into_owned();
+        // Point of no return: the in-place unescape consumes the buffer, so failures past here are
+        // classified directly (as the parse would have: undecodable data -> invalid JSON), never
+        // retried against the now-rewritten bytes.
+        let len = scan::unescape_in_place(payload, data_span)
+            .map_err(|e| Failure::new(FailKind::InvalidJson, format!("data string: {}", e.0)))?;
+        let inner = &payload[data_span.0 + 1..data_span.0 + 1 + len];
+        // The parse it replaces validated the whole payload's UTF-8; the scan path must not let
+        // invalid bytes flow through pass-through events into the output.
+        if std::str::from_utf8(inner).is_err() {
+            return Err(Failure::new(
+                FailKind::InvalidJson,
+                "invalid utf-8 in data string",
+            ));
+        }
+        return anonymize_snapshot_data(allow, &distinct_id, inner);
+    }
+    anonymize_kafka_payload_via_parse(allow, payload)
+}
+
+/// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
+/// the full parse decide": escaped/duplicate/missing keys, non-string values, or any structural
+/// anomaly.
+///
+/// One pass: entries are walked directly (no up-front root-span location, which would scan the
+/// multi-MB `data` value a second time).
+fn scan_outer_envelope(payload: &[u8]) -> Option<(Span, Span)> {
+    let mut pos = scan::skip_ws(payload, 0);
+    if payload.get(pos) != Some(&b'{') {
+        return None;
+    }
+    pos += 1;
+    let mut distinct_id: Option<Span> = None;
+    let mut data: Option<Span> = None;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(payload, pos);
+        // At an entry boundary a `}` can only be the object's close (a key must start with `"`).
+        if payload.get(pos) == Some(&b'}') {
+            pos += 1;
+            break;
+        }
+        if !first {
+            if payload.get(pos) != Some(&b',') {
+                return None;
+            }
+            pos = scan::skip_ws(payload, pos + 1);
+        }
+        first = false;
+        if payload.get(pos) != Some(&b'"') {
+            return None;
+        }
+        let key_end = scan::skip_string(payload, pos).ok()?;
+        let key = &payload[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            return None;
+        }
+        pos = scan::skip_ws(payload, key_end);
+        if payload.get(pos) != Some(&b':') {
+            return None;
+        }
+        let value = scan::locate_value(payload, pos + 1).ok()?;
+        match key {
+            // Duplicates bail to the parse so its semantics keep applying.
+            b"distinct_id" => {
+                if distinct_id.replace(value).is_some() {
+                    return None;
+                }
+            }
+            b"data" => {
+                if data.replace(value).is_some() {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        pos = value.1;
+    }
+    if scan::skip_ws(payload, pos) != payload.len() {
+        return None;
+    }
+    let (distinct_id, data) = (distinct_id?, data?);
+    if !scan::is_string(payload, distinct_id) || !scan::is_string(payload, data) {
+        return None;
+    }
+    Some((distinct_id, data))
+}
+
+fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {

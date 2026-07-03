@@ -204,21 +204,23 @@ pub fn max_bracket_depth(json: &[u8]) -> usize {
         match json[pos] {
             b'"' => {
                 pos += 1;
-                // Bytewise prefix before memchr, same rationale as `scan::skip_string`: most DOM
-                // strings are shorter than memchr's per-call setup is worth.
-                let fast_end = (pos + 24).min(json.len());
-                let mut closed = false;
-                while pos < fast_end {
-                    match json[pos] {
-                        b'"' => {
-                            closed = true;
-                            break;
+                // Bytewise stretches with memchr escalation after 24 clean bytes, same rationale as
+                // `scan::skip_string`: short and escape-dense strings don't amortize memchr's setup.
+                'stretch: while pos < json.len() {
+                    let fast_end = (pos + 24).min(json.len());
+                    while pos < fast_end {
+                        match json[pos] {
+                            b'"' => break 'stretch,
+                            b'\\' => {
+                                pos += 2;
+                                continue 'stretch;
+                            }
+                            _ => pos += 1,
                         }
-                        b'\\' => pos += 2,
-                        _ => pos += 1,
                     }
-                }
-                while !closed && pos < json.len() {
+                    if pos >= json.len() {
+                        break;
+                    }
                     let Some(i) = memchr::memchr2(b'\\', b'"', &json[pos..]) else {
                         pos = json.len();
                         break;
