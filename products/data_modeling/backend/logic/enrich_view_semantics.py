@@ -462,6 +462,15 @@ def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
     if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
         return
 
+    # Gate on the same feature-flag + AI-processing approval the activity enforces, so a save in a team
+    # where enrichment is off (or unapproved) never enqueues a workflow. The activity re-checks both as
+    # the source of truth.
+    team = saved_query.team
+    if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
+        return
+    if team.organization.is_ai_data_processing_approved is not True:
+        return
+
     # The serializer saves inside transaction.atomic(), so dispatch must wait for commit; on_commit runs
     # immediately when no transaction is open.
     from functools import partial  # noqa: PLC0415 — trivial, keep it next to the only use
