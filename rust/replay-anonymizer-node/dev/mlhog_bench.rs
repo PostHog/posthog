@@ -76,6 +76,11 @@ fn main() {
             );
         }
         bench_lines("mousemove-heavy", &ctx, &lines);
+        let items: Vec<serde_json::Value> = lines
+            .iter()
+            .map(|l| serde_json::from_slice(l).unwrap())
+            .collect();
+        bench_full_contract("mousemove-heavy", &allow, &items);
     }
 
     for label in ["medium", "large"] {
