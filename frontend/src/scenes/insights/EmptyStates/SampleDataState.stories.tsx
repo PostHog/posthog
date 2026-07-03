@@ -57,7 +57,7 @@ export const WizardInstalling: Story = {
         }),
     ],
     render: () => (
-        <div className="h-60 max-w-160 border rounded flex flex-col">
+        <div className="h-60 w-160 border rounded flex flex-col">
             <SampleDataState variant="line" />
         </div>
     ),
@@ -91,7 +91,7 @@ export const WithSetupPullRequest: Story = {
         }),
     ],
     render: () => (
-        <div className="h-60 max-w-160 border rounded flex flex-col">
+        <div className="h-60 w-160 border rounded flex flex-col">
             <SampleDataState variant="line" />
         </div>
     ),
