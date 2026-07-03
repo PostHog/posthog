@@ -133,6 +133,17 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["status"], "no_change")
 
+    def test_dismissed_rewrites_feed_the_next_generation(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+
+        self.client.post(self._suggestions_url("generate/"))
+
+        user_content = self.mock_generate.call_args.kwargs["user_content"]
+        self.assertIn("Previously rejected rewrites", user_content)
+        self.assertIn("Did the user place an order? Only answer yes on an order confirmation.", user_content)
+
     def test_daily_refresh_gates(self) -> None:
         # No ratings at all: nothing to generate from.
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "no_ratings")

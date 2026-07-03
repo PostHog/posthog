@@ -35,6 +35,8 @@ logger = structlog.get_logger(__name__)
 _SUGGESTION_MODEL = "gemini-3.1-flash-lite-preview"
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
+_MAX_DISMISSED_EXAMPLES = 3
+_MAX_DISMISSED_PROMPT_CHARS = 600
 
 _SYSTEM_PROMPT = (
     "You rewrite the instruction prompt of a session-replay scanner so its future results agree with the "
@@ -151,6 +153,27 @@ def _version_trend_lines(scanner: ReplayScanner) -> list[str]:
     return lines
 
 
+def _dismissed_lines(scanner: ReplayScanner) -> list[str]:
+    """Rewrites the team explicitly rejected, so the model doesn't re-propose them."""
+    dismissed = list(
+        ReplayScannerPromptSuggestion.objects.filter(
+            scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.DISMISSED
+        ).order_by("-created_at")[:_MAX_DISMISSED_EXAMPLES]
+    )
+    if not dismissed:
+        return []
+    lines = [
+        "",
+        "Previously rejected rewrites (the team dismissed these; do not propose them again or close variations):",
+    ]
+    for suggestion in dismissed:
+        prompt = suggestion.suggested_prompt
+        if len(prompt) > _MAX_DISMISSED_PROMPT_CHARS:
+            prompt = prompt[:_MAX_DISMISSED_PROMPT_CHARS] + "…"
+        lines.append(f'- """{prompt}"""')
+    return lines
+
+
 def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: list[ReplayObservation]) -> str:
     wrong = [o for o in observations if not _label(o).is_correct]
     right = [o for o in observations if _label(o).is_correct]
@@ -171,6 +194,7 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
         lines.append("")
         lines.append(f"Sessions it got RIGHT ({len(right)}) — keep these passing:")
         lines.extend(_example_line(o) for o in right)
+    lines.extend(_dismissed_lines(scanner))
     lines.extend(_version_trend_lines(scanner))
     return "\n".join(lines)
 
