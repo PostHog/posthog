@@ -65,8 +65,10 @@ export class ConcurrentBatchProcessingPipeline<
 
         for (const resultWithContext of previousResults) {
             if (isOkResult(resultWithContext.result)) {
-                const process = () =>
-                    this.processor.process({ result: resultWithContext.result, context: resultWithContext.context })
+                // Capture the narrowed ok result before the closure, which wouldn't re-narrow it.
+                const okResult = resultWithContext.result
+                const context = resultWithContext.context
+                const process = () => this.processor.process({ result: okResult, context })
                 // p-limit is FIFO, so the head of promiseQueue (pushed first) always acquires a permit
                 // first — it can never park behind a later item, keeping emission order intact.
                 this.promiseQueue.push(this.limit ? this.limit(process) : process())
