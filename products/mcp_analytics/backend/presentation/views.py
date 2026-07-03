@@ -32,6 +32,7 @@ from .serializers import (
     MCPSessionIntentSerializer,
     MCPSessionListQuerySerializer,
     MCPSessionSerializer,
+    MCPSessionToolCallsQuerySerializer,
     MCPToolCallSerializer,
 )
 
@@ -193,31 +194,24 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # get_paginated_response(has_next=...) is visible to the type checker.
         return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=MCPSessionToolCallsQuerySerializer,
+        responses={200: OpenApiResponse(response=MCPToolCallSerializer(many=True))},
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List all $mcp_tool_call events that belong to a given $session_id, in chronological order.",
-        parameters=[
-            OpenApiParameter(
-                name="date_from",
-                type=OpenApiTypes.DATETIME,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Absolute ISO timestamp lower bound for the event scan — pass the session's "
-                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
-                ),
-            ),
-        ],
-        responses={200: MCPToolCallSerializer(many=True)},
+        description="List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.",
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")
-    def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
-        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
-        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""), date_from=date_from)
-        serializer = MCPToolCallSerializer(tool_calls, many=True)
-        # has_next is always false: this returns the whole (capped) call list, not a page.
-        # The field exists because the viewset's paginator shapes the response schema.
-        return Response({"results": serializer.data, "has_next": False})
+    def tool_calls(self, request: ValidatedRequest, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        params = request.validated_query_data
+        page = api.list_mcp_tool_calls(
+            self.team,
+            session_id=str(pk or ""),
+            limit=params["limit"],
+            offset=params["offset"],
+            date_from=params.get("date_from"),
+        )
+        serializer = MCPToolCallSerializer(page.results, many=True)
+        return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_generate_intent",

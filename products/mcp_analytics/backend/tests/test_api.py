@@ -434,9 +434,11 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
             if s.session_id == session_id
         )
-        calls = api.list_mcp_tool_calls(self.team, session_id=session_id, date_from=session.session_start)
+        page = api.list_mcp_tool_calls(
+            self.team, session_id=session_id, limit=500, offset=0, date_from=session.session_start
+        )
 
-        assert [c.tool_name for c in calls] == ["before_window", "in_window"]
+        assert [c.tool_name for c in page.results] == ["before_window", "in_window"]
 
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -541,7 +543,9 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         [
             (
                 "tool_calls",
-                lambda self, sid: [c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid)],
+                lambda self, sid: [
+                    c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid, limit=500, offset=0).results
+                ],
                 ["recent_tool"],
             ),
             (
@@ -571,7 +575,10 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             (
                 "tool_calls",
                 lambda self, sid, df: [
-                    c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid, date_from=df)
+                    c.tool_name
+                    for c in api.list_mcp_tool_calls(
+                        self.team, session_id=sid, limit=500, offset=0, date_from=df
+                    ).results
                 ],
                 ["ancient_tool"],
             ),

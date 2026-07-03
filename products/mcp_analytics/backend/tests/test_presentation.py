@@ -18,7 +18,10 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPInt
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
     MCP_SESSION_LIST_MAX_LIMIT,
+    MCP_TOOL_CALLS_DEFAULT_LIMIT,
+    MCP_TOOL_CALLS_MAX_LIMIT,
     MCPSessionListQuerySerializer,
+    MCPSessionToolCallsQuerySerializer,
 )
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -434,6 +437,44 @@ class TestMCPSessionListQuerySerializer(SimpleTestCase):
         assert serializer.is_valid() is expected_valid, serializer.errors
         if error_field is not None:
             assert error_field in serializer.errors
+
+
+class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_TOOL_CALLS_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("valid_iso", "2026-01-02T03:04:05Z", True),
+            ("unparseable", "not-a-date", None),
+        ]
+    )
+    def test_date_from_is_lenient(self, _name: str, raw: str, expect_datetime: bool | None) -> None:
+        # date_from is a scan-pruning hint: a bad value must fall back to None, not 400 the request.
+        serializer = MCPSessionToolCallsQuerySerializer(data={"date_from": raw})
+        assert serializer.is_valid(), serializer.errors
+        resolved = serializer.validated_data["date_from"]
+        assert isinstance(resolved, datetime) if expect_datetime else resolved is None
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
