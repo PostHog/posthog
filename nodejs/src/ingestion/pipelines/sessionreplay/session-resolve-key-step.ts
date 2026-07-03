@@ -16,9 +16,15 @@ import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipelin
  * (using the retention resolved upstream to set the key's expiry); an allowed existing one fetches it.
  * A session whose key has been deleted is re-tagged `deleted` and carried through too — like blocked, the
  * mark-seen step marks it seen and then drops it, so a deleted session isn't re-counted against the
- * rate limit every batch. A transient keystore failure (KMS/DynamoDB) throws so the retry wrapper can
- * re-run it; the session is never marked seen before its key exists (see {@link createMarkSeenStep}), so
- * a retry regenerates rather than fetching a key that was never generated — which would record cleartext.
+ * rate limit every batch.
+ *
+ * This step is the encryption boundary, so it obeys the integrity rule (rule 2 — see {@link SessionTracker}
+ * class doc): it FAILS HARD rather than ever producing a keyless recording. A transient keystore failure
+ * (KMS/DynamoDB) throws so the retry wrapper re-runs it. And because the session is never marked seen
+ * before its key is durably generated (see {@link createMarkSeenStep}), a retry regenerates the key
+ * rather than fetching one that was never created — which would record cleartext. The upstream
+ * {@link createTrackAndGateStep} guarantees the new-vs-existing input here is correct or absent (its
+ * hasSeen also fails hard), so this step never fetches a key for a genuinely-new session.
  */
 export function createResolveKeyStep<
     T extends {

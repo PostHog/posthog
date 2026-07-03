@@ -1,15 +1,39 @@
 /**
- * Characterization suite for the rate limiter's behavior under Redis failures.
+ * Executable spec for how the session rate limiter behaves under Redis failures.
  *
- * Unlike session-replay-pipeline.test.ts (which mocks the tracker/filter), this builds the real
- * SessionTracker and SessionFilter over an in-memory fake Redis we can fault-inject per operation, so we
- * exercise the actual fail-open/fail-safe logic. Each test drives the real pipeline for one session
- * across two batches — failing one Redis operation on the first batch, healthy on the second — and
- * documents, per session type (allowed / blocked / deleted), how many times the session is counted as
- * new (i.e. passed to SessionFilter.handleNewSessions, which consumes a rate-limit token).
+ * ## The two principles this suite enforces
  *
- * These assertions pin down CURRENT behavior. They are not a statement of desired behavior — we'll use
- * them to decide how each case should be handled.
+ *   1. RATE LIMITING IS BEST-EFFORT. On a failure it may UNDER-count a session (let it through
+ *      un-limited) but must NEVER OVER-count (charge the same session twice). Rate-limiting ops fail
+ *      open.
+ *   2. ENCRYPTION KEY INTEGRITY IS NON-NEGOTIABLE. Anything that could record without a key (cleartext)
+ *      or switch a session's key mid-stream must FAIL HARD — throw and let the retry re-run — never
+ *      guess.
+ *
+ * These pull in opposite directions on the one signal that serves both — "has this session been seen?"
+ * — which decides both whether to rate-limit AND whether to generate vs fetch the encryption key. Rule 2
+ * is stricter, so it wins there. That gives the per-op policy this suite locks in:
+ *
+ *   | Redis op                     | drives                         | policy                         |
+ *   |------------------------------|--------------------------------|--------------------------------|
+ *   | tracker hasSeen (MGET)       | key generate-vs-fetch + count  | FAIL HARD (throw → retry)      |
+ *   | tracker markSeen (pipeline)  | seen persistence (count only)  | fail open (under-count)        |
+ *   | filter isBlocked (MGET)      | drop-if-blocked (count only)   | fail open (under-block)        |
+ *   | filter blockSessions (pipe)  | block persistence (count only) | fail open (under-block)        |
+ *
+ * ## What the tests do
+ *
+ * Unlike session-replay-pipeline.test.ts (which mocks the tracker/filter), this builds the REAL
+ * SessionTracker and SessionFilter over an in-memory fake Redis we can fault-inject per operation, so it
+ * exercises the actual fail-open / fail-hard logic. "Counted as new" means the session was passed to
+ * SessionFilter.handleNewSessions (which consumes a rate-limit token); the invariant is exactly once per
+ * session — allowed, blocked AND deleted alike.
+ *
+ * - baseline: every session type counted once.
+ * - transient failure (fails once, recovers): counting is unaffected — a fail-open op is masked, a
+ *   fail-hard op (hasSeen) is retried and recovers. Each test also asserts the fault actually fired.
+ * - sustained outage (fails every batch): documents the degradation direction — hasSeen throws (fail
+ *   hard, reprocess on recovery) while the fail-open ops keep flowing but under-enforce and don't persist.
  */
 import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'

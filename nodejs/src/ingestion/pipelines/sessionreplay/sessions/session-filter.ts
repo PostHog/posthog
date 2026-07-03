@@ -33,6 +33,16 @@ export interface SessionFilterConfig {
  *
  * The blocklist is persisted in Redis with an in-memory LRU cache
  * to minimize Redis round-trips.
+ *
+ * ## Failure policy
+ *
+ * This class only does rate limiting — it never influences the encryption key — so every Redis op here
+ * follows rule 1 (see {@link SessionTracker}'s class doc): fail OPEN. On a Redis error we degrade toward
+ * under-counting / under-blocking (letting sessions through), never toward over-counting or halting the
+ * pipeline. Concretely: {@link isBlocked} assumes not-blocked, {@link blockSessions} keeps the block in
+ * the local cache but doesn't persist it, and the in-memory token bucket in {@link handleNewSessions}
+ * needs no Redis at all. Contrast the tracker's {@link SessionTracker.hasSeen}, which is key-integrity
+ * critical and therefore fails hard.
  */
 export class SessionFilter {
     private readonly keyPrefix = '@posthog/replay/session-blocked'
@@ -63,8 +73,9 @@ export class SessionFilter {
      * Block sessions so all their future messages are dropped, persisting the whole set to Redis in
      * one pipelined round trip.
      *
-     * Fails open: if Redis is unavailable, the sessions aren't persisted to the blocklist but are
-     * still blocked locally for this consumer.
+     * Fails open (rate-limiting rule 1): if Redis is unavailable, the sessions aren't persisted to the
+     * blocklist but are still blocked locally for this consumer. The worst case is under-blocking on
+     * other consumers — never over-counting, and never halting.
      *
      * @param sessions - The sessions to block
      */
@@ -105,7 +116,8 @@ export class SessionFilter {
      * Check which of the given sessions are blocked. Local-cache hits are answered without Redis; the
      * remaining sessions are checked in a single MGET.
      *
-     * Fails open: if Redis is unavailable, the unknown sessions are assumed not blocked.
+     * Fails open (rate-limiting rule 1): if Redis is unavailable, the unknown sessions are assumed not
+     * blocked, so a rate-limited session may slip through and record — under-enforcement, never halting.
      *
      * @returns a map keyed by `(teamId, sessionId)` — true if blocked, false otherwise
      */

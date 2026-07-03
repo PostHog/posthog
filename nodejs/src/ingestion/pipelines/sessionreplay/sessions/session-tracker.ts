@@ -23,6 +23,22 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
  * An in-memory LRU cache fronts Redis. Kafka partitions by session id, so the same session always
  * hits the same consumer, which makes the local cache effective and the split safe from cross-consumer
  * races.
+ *
+ * ## Failure policy
+ *
+ * The two methods degrade in opposite directions because they answer different questions, and the
+ * pipeline holds two non-negotiable rules:
+ *   1. Rate limiting is best-effort — on failure it may UNDER-count (let a session through un-limited)
+ *      but must never OVER-count. Failing open is fine.
+ *   2. Anything that could corrupt encryption — recording without a key (cleartext), or switching a
+ *      session's key mid-stream — must FAIL HARD (throw and let the retry re-run), never guess.
+ *
+ * {@link hasSeen} answers "new or existing?", which the record path uses BOTH to rate-limit (rule 1)
+ * AND to decide generate-vs-fetch of the encryption key (rule 2). Because a wrong answer there records
+ * cleartext or switches keys, rule 2 wins: hasSeen fails hard. {@link markSeen} only persists the seen
+ * flag; if it's lost the session is treated as new again next batch, but the key store is idempotent
+ * (same key, no cleartext, no switch), so there's no integrity risk — it fails open under rule 1, with
+ * the local cache masking the loss on this consumer.
  */
 export class SessionTracker {
     private readonly keyPrefix = '@posthog/replay/session-seen'
@@ -105,8 +121,11 @@ export class SessionTracker {
      * key has been durably generated, so a failure before the key exists leaves the session unseen and
      * the retry regenerates.
      *
-     * Fails open: if Redis is unavailable the marks aren't persisted, but the local cache still records
-     * them for this consumer (the same session stays on this consumer via partition affinity).
+     * Fails open (rate-limiting rule 1 — see the class doc): if Redis is unavailable the marks aren't
+     * persisted, but the local cache still records them for this consumer (the same session stays on this
+     * consumer via partition affinity). A lost mark can only make the session look new again later, which
+     * the idempotent key store handles without any cleartext/key-switch — so there's no integrity reason
+     * to fail hard here, and doing so would needlessly halt on a fire-and-forget write.
      */
     public async markSeen(sessions: SessionSet): Promise<void> {
         if (sessions.size === 0) {

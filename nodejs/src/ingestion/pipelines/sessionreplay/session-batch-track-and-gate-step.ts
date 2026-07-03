@@ -24,6 +24,13 @@ import { SessionTracker } from './sessions/session-tracker'
  * them) to the mark-seen step, which marks every new session seen in one place and only then drops the
  * blocked ones. Marking a blocked session seen keeps it from being re-counted against the budget next
  * batch; dropping it only after mark-seen (rather than here) is what lets that marking be centralized.
+ *
+ * Redis failure policy (see {@link SessionTracker} and {@link SessionFilter} class docs): the two rules
+ * split this step's Redis calls. {@link SessionTracker.hasSeen} decides generate-vs-fetch of the
+ * encryption key, so it FAILS HARD — a Redis error throws and this whole step is retried by its wrapper
+ * (which is safe: hasSeen runs first, before any token is consumed, so a retry can't double-charge). The
+ * filter calls ({@link SessionFilter.handleNewSessions}/{@link SessionFilter.isBlocked}) are pure rate
+ * limiting and fail open, so a Redis blip there under-limits rather than halting.
  */
 export function createTrackAndGateStep<
     T extends {
