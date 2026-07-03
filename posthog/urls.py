@@ -205,21 +205,29 @@ def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
 
 
 @ensure_csrf_cookie
+def _render_home(request, *args, **kwargs):
+    return render_template("index.html", request)
+
+
 def home(request, *args, **kwargs):
+    """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
+    cross-region redirect before rendering so `app.posthog.com` visitors land on their
+    logged-in region (see `app_region_redirect`)."""
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
-    return render_template("index.html", request)
+    return _render_home(request, *args, **kwargs)
 
 
 def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
     """Catch-all entrypoint for authenticated frontend routes. The cross-region redirect
     runs before `login_required` so `app.posthog.com` deep links reach the right region
-    without a detour through the login page (see `app_region_redirect`)."""
+    without a detour through the login page (see `app_region_redirect`). It wraps
+    `_render_home` rather than `home` so the redirect check runs exactly once per request."""
     region_redirect = app_region_redirect(request)
     if region_redirect is not None:
         return region_redirect
-    return login_required(home)(request, *args, **kwargs)
+    return login_required(_render_home)(request, *args, **kwargs)
 
 
 _CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}

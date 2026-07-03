@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.urls import region_host_from_current_instance
 
 
@@ -54,6 +55,15 @@ class TestUrls(APIBaseTest):
         response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("/login", response["Location"])
+
+    def test_app_host_deep_link_without_region_cookie_falls_back_to_us_when_redirect_app_to_us(self):
+        # With no region cookie, REDIRECT_APP_TO_US routes app.posthog.com to US before the auth gate.
+        self.client.logout()
+        self.client.cookies.pop("ph_current_instance", None)
+        with override_instance_config("REDIRECT_APP_TO_US", True):
+            response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://us.posthog.com/organization/billing")
 
     def test_integration_connect_redirect_authenticated(self):
         response = self.client.get(
