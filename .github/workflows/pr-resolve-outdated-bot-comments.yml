@@ -26,6 +26,11 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
+            - name: Checkout scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts
+
             - name: Resolve outdated bot threads
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -89,3 +94,17 @@ jobs:
                         }
                       }' -f id="$thread_id" || echo "::warning::failed to resolve thread $thread_id"
                   done
+
+            # Sibling concern to the thread resolver above: bots that post a NEW top-level
+            # comment or review per push (instead of updating in place) bury the human
+            # conversation. Collapse all but the newest of each kind as outdated.
+            - name: Minimize superseded bot comments
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if [ -f .github/scripts/minimize-superseded-comments.mjs ]; then
+                      node .github/scripts/minimize-superseded-comments.mjs
+                  else
+                      echo "Skipping — script not present on this checkout"
+                  fi
