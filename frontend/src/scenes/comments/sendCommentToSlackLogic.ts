@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { CommentType } from '~/types'
@@ -12,7 +13,7 @@ import type { sendCommentToSlackLogicType } from './sendCommentToSlackLogicType'
 
 export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
     path(['scenes', 'comments', 'sendCommentToSlackLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
     actions({
         openModal: (comment: CommentType) => ({ comment }),
         closeModal: true,
@@ -21,7 +22,7 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
         setChannel: (channel: string | null) => ({ channel }),
         submit: true,
         submitSuccess: true,
-        submitFailure: true,
+        submitFailure: (detail: string | null = null) => ({ detail }),
     }),
     reducers({
         comment: [
@@ -64,26 +65,29 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
     }),
     listeners(({ actions, values }) => ({
         submit: async () => {
-            const { comment, integrationId, channelId, currentTeamId } = values
-            if (!comment || !integrationId || !channelId || !currentTeamId) {
+            const { comment, integrationId, channelId, currentProjectId } = values
+            if (!comment || !integrationId || !channelId || !currentProjectId) {
                 actions.submitFailure()
                 return
             }
             try {
-                await commentsSendToSlackCreate(String(currentTeamId), comment.id, {
+                // The comments API is project-scoped — currentTeamId diverges from the project id
+                // for non-default environments and 404s.
+                await commentsSendToSlackCreate(String(currentProjectId), comment.id, {
                     integration_id: integrationId,
                     channel_id: channelId,
                 })
                 actions.submitSuccess()
-            } catch {
-                actions.submitFailure()
+            } catch (e) {
+                // Surface the backend's actionable detail (bot not in channel, integration missing…)
+                actions.submitFailure(e instanceof ApiError ? e.detail : null)
             }
         },
         submitSuccess: () => {
             lemonToast.success('Discussion sent to Slack')
         },
-        submitFailure: () => {
-            lemonToast.error('Could not send the discussion to Slack')
+        submitFailure: ({ detail }) => {
+            lemonToast.error(detail || 'Could not send the discussion to Slack')
         },
     })),
 ])

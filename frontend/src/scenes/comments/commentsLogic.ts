@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
@@ -47,7 +47,6 @@ const FOOTER_COMPOSER_TARGET = 'footer'
 export interface commentsLogicValues {
     meFirstMembers: OrganizationMemberType[] // membersLogic
     currentProjectId: number | string // teamLogic
-    currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     commentContexts: Record<string, string>
     comments: CommentType[] | null
@@ -351,14 +350,7 @@ export const commentsLogic = kea<commentsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
         ],
-        values: [
-            userLogic,
-            ['user'],
-            membersLogic,
-            ['meFirstMembers'],
-            teamLogic,
-            ['currentProjectId', 'currentTeamId'],
-        ],
+        values: [userLogic, ['user'], membersLogic, ['meFirstMembers'], teamLogic, ['currentProjectId']],
     })),
 
     actions({
@@ -399,6 +391,9 @@ export const commentsLogic = kea<commentsLogicType>([
                 setComposerSendToSlack: (_, { enabled }) => enabled,
                 // Reset the toggle after a send so it doesn't stick across comments.
                 sendComposedContentSuccess: () => false,
+                // Replies never mirror from the composer and the toggle is hidden while replying —
+                // leaving it on would demand a Slack channel for a plain reply and mislabel the button.
+                setReplyingComment: (state, { commentId }) => (commentId ? false : state),
             },
         ],
         composerSlackIntegrationId: [
@@ -596,21 +591,42 @@ export const commentsLogic = kea<commentsLogicType>([
                         !asTask &&
                         values.composerSlackIntegrationId &&
                         slackChannelId &&
-                        values.currentTeamId
+                        values.currentProjectId
                     ) {
+                        let sentToSlack = false
                         try {
-                            await commentsSendToSlackCreate(String(values.currentTeamId), newComment.id, {
+                            // The comments API is project-scoped — currentTeamId diverges from the
+                            // project id for non-default environments and 404s.
+                            await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
                                 integration_id: values.composerSlackIntegrationId,
                                 channel_id: slackChannelId,
                             })
+                            sentToSlack = true
                             lemonToast.success('Discussion sent to Slack')
+                        } catch (e) {
+                            // Surface the backend's actionable detail (bot not in channel, integration
+                            // missing…) rather than a blanket failure.
+                            const detail = e instanceof ApiError ? e.detail : null
+                            lemonToast.error(
+                                detail
+                                    ? `Comment added, but sending to Slack failed: ${detail}`
+                                    : 'Comment added, but sending to Slack failed'
+                            )
+                        }
+                        if (sentToSlack) {
                             // Refetch and return the fresh list so the new comment shows its tracked-in-Slack
                             // state. We can't dispatch loadComments() here — it writes the same `comments`
                             // loader value this handler returns, and our return would supersede its result.
-                            const response = await api.comments.list({ scope: props.scope, item_id: props.item_id })
-                            return response.results
-                        } catch {
-                            lemonToast.error('Comment added, but sending to Slack failed')
+                            // A refetch failure isn't a Slack failure: fall through to the optimistic append.
+                            try {
+                                const response = await api.comments.list({
+                                    scope: props.scope,
+                                    item_id: props.item_id,
+                                })
+                                return response.results
+                            } catch {
+                                // fall through
+                            }
                         }
                     }
 

@@ -11,6 +11,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
@@ -43,7 +44,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
         setComposerSlackChannel,
     } = useActions(commentsLogic(props))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { slackIntegrations } = useValues(integrationsLogic)
+    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
     // Toggling a brand-new top-level comment straight to Slack; replies sync automatically.
     const showSlackToggle = !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
@@ -98,9 +99,10 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
+                // Same guard as the primary button — otherwise the shortcut silently posts a
+                // plain comment while "Send to Slack" is toggled on without a channel picked.
                 onPressCmdEnter={() => {
-                    // The send buttons are disabled when empty - the shortcut must not bypass that
-                    if (!isEmpty) {
+                    if (!primaryDisabledReason && !isSendingComment) {
                         sendComposedContent(false)
                     }
                 }}
@@ -119,7 +121,13 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                 }
             />
             {composerSendToSlack ? (
-                !slackIntegrations?.length ? (
+                // Integrations load async on mount — don't flash "not configured" at users who
+                // have Slack set up.
+                !slackIntegrations?.length && integrationsLoading ? (
+                    <div className="flex justify-center p-2">
+                        <Spinner />
+                    </div>
+                ) : !slackIntegrations?.length ? (
                     <SlackNotConfiguredBanner />
                 ) : (
                     <div className="flex flex-col gap-2 rounded border border-border p-2">
@@ -159,7 +167,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                         loading={isSendingComment}
                         disabledReason={
                             composerSendToSlack
-                                ? 'Turn off "Send to Slack" to add a task'
+                                ? 'Turn off the Slack toggle to add a task'
                                 : isEmpty
                                   ? 'No message'
                                   : null
