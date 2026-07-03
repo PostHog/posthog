@@ -123,7 +123,14 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             ? 'Continue the conversation with the agent working on this report'
             : 'Ask the agent about this report',
         onClick: () => {
-            captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
+            // `has_existing_task` splits the two Discuss paths (jump into an existing run vs. kick
+            // off a fresh research task) without needing a second event type.
+            captureInboxReportAction({
+                report,
+                actionType: 'discuss',
+                surface: 'detail_pane',
+                extra: { has_existing_task: !!primaryTask },
+            })
             if (primaryTask) {
                 router.actions.push(urls.taskDetail(primaryTask.task.id))
                 return
