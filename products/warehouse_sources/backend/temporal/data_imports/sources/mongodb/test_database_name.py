@@ -168,6 +168,26 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_server_selection_timeout_not_reported(self, mock_get_collections, mock_capture):
+        from pymongo.errors import ServerSelectionTimeoutError
+
+        # An Atlas TLS handshake rejection: the cluster is unreachable for the whole selection
+        # window (paused, IP not allowlisted, TLS rejected). Host/port are redacted — matching a
+        # real customer value here would leak it. This is an upstream problem, not our bug.
+        mock_get_collections.side_effect = ServerSelectionTimeoutError(
+            "SSL handshake failed: <redacted-host>:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] "
+            "tlsv1 alert internal error, Topology Description: <TopologyDescription ...>"
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_UNREACHABLE_MESSAGE
+        mock_capture.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
     def test_unexpected_error_is_reported(self, mock_get_collections, mock_capture):
         mock_get_collections.side_effect = Exception("some-internal-driver-detail")
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})

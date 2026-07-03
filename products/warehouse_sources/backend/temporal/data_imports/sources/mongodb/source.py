@@ -231,8 +231,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,
-            # which is distinct from an allowlist/reachability problem.
-            capture_exception(e)
+            # which is distinct from an allowlist/reachability problem. Server selection only times
+            # out on an upstream connectivity problem the user must fix (cluster paused, IP not
+            # allowlisted, host unresolved, TLS handshake rejected) — never our bug — and we already
+            # return an actionable message for it, so don't report it as error-tracking noise.
             message = str(e)
             if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
