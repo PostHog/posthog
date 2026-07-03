@@ -104,6 +104,7 @@ import {
     serializeMarkdownNotebookComponent,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
@@ -1845,6 +1846,17 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
+
+            // `notebook opened` is a human/browser open — capture once per mount. This listener
+            // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
+            // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
+            if (!cache.hasCapturedOpen) {
+                const openedEvent = buildNotebookOpenedEvent(values.notebook, values.user, values.isShared)
+                if (openedEvent) {
+                    cache.hasCapturedOpen = true
+                    posthog.capture('notebook opened', openedEvent)
+                }
+            }
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
