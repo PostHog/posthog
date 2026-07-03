@@ -52,6 +52,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
 
+// metadata rows for sent message assets (rendered emails stored in object storage)
+export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
+
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`

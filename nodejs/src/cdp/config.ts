@@ -5,6 +5,7 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 } from '~/common/config/kafka-topics'
 import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
@@ -104,6 +105,12 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
+    // Message assets: rendered emails snapshotted to object storage + a metadata
+    // row in the message_assets ClickHouse table, surfaced in the workflow
+    // "Assets" tab. Capture is a global ops kill-switch, not a per-team toggle.
+    MESSAGE_ASSETS_TOPIC: string
+    MESSAGE_ASSETS_PRODUCER: CdpProducerName
+    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -227,6 +234,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        MESSAGE_ASSETS_TOPIC: KAFKA_MESSAGE_ASSETS,
+        // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
+        // consumes message_assets from the warpstream_cyclotron named collection.
+        MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,

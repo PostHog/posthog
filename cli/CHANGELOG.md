@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.8.0 — 2026-07-03
+
+### Minor changes
+
+- [066d914497](https://github.com/PostHog/posthog/commit/066d9144970955eaf366ff2a8be818460c6ad759) `symbol-sets upload` now also accepts Apple `.dSYM` bundles, packaging them through the same path as `dsym upload` (uppercase UUID chunk_ids, `AppleDsym` container). A single `posthog-cli symbol-sets upload --directory <dir>` run uploads both Linux ELF debug symbols and macOS dSYMs, so native symbol uploads no longer need a different command per platform. The dSYM branch shells out to `dwarfdump` (Xcode, macOS-only); when it is unavailable the bundle is reported and skipped while ELF symbols in the same directory still upload. The standalone `dsym upload` command is unchanged. — Thanks @cat-ph!
+
 ## 0.7.34 — 2026-06-30
 
 ### Patch changes

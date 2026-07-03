@@ -50,6 +50,7 @@ the row lists both.
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
+| alpha_vantage           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads              | HTTP                        | requests                                                        | ✅                          |
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
@@ -92,6 +93,7 @@ the row lists both.
 | chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk              | HTTP                        | requests                                                        | ✅                          |
+| chargify                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
 | churnkey                | HTTP                        | requests                                                        | ✅                          |
 | coda                    | HTTP                        | requests                                                        | ✅                          |
@@ -133,6 +135,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
 | freshservice            | HTTP                        | requests                                                        | ✅                          |
@@ -141,6 +144,7 @@ the row lists both.
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
+| eventzilla              | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
@@ -153,9 +157,11 @@ the row lists both.
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
+| float_app               | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
+| gainsight_px            | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
@@ -204,6 +210,7 @@ the row lists both.
 | linear                  | HTTP                        | requests                                                        | ✅                          |
 | lever                   | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| linkrunner              | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite              | HTTP                        | requests                                                        | ✅                          |
@@ -360,7 +367,6 @@ doesn't conflict with concurrent PRs.
 - airops
 - akeneo
 - alpaca_broker_api
-- alpha_vantage
 - amazon_ads
 - amazon_cloudwatch
 - amazon_eventbridge
@@ -391,7 +397,6 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chargify
 - chatwoot
 - chift
 - chorus
@@ -430,7 +435,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- eventzilla
 - expensify
 - facebook_pages
 - fastbill
@@ -440,17 +444,14 @@ doesn't conflict with concurrent PRs.
 - firebolt
 - flexmail
 - flexport
-- float_app
 - flowlu
 - formbricks
 - freeagent
 - freightview
 - freshbooks
-- freshcaller
 - freshchat
 - freshservice
 - fulcrum
-- gainsight_px
 - gitbook
 - glassfrog
 - gmail
@@ -513,7 +514,6 @@ doesn't conflict with concurrent PRs.
 - liana
 - lightfield
 - linkedin_pages
-- linkrunner
 - linnworks
 - lokalise
 - looker

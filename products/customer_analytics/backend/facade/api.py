@@ -1440,6 +1440,34 @@ def list_account_notebooks(
     ]
 
 
+def list_account_notes_for_view(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+    search: str | None = None,
+) -> tuple[list[contracts.AccountNoteView], int]:
+    """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
+    restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
+    and account name (substring). Returns ``(page, total_count)``."""
+    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    notes, count = notebooks.list_team_account_notes(
+        team_id, account_ids=accessible_account_ids, search=search, offset=offset, limit=limit
+    )
+    return [
+        contracts.AccountNoteView(
+            short_id=note.short_id,
+            title=note.title,
+            created_at=note.created_at,
+            last_modified_at=note.last_modified_at,
+            account_id=note.account_id,
+            account_name=note.account_name,
+        )
+        for note in notes
+    ], count
+
+
 def get_account_notebook(
     team_id: int, account_id: str, short_id: str, user_access_control: "UserAccessControl"
 ) -> contracts.AccountNotebookView | None:
