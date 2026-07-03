@@ -94,6 +94,26 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             return_value=(True, None),
         ),
     ):
+        import sys as _sys
+
+        import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source as _canon
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+            SourceRegistry as _Reg,
+        )
+        from products.warehouse_sources.backend.types import ExternalDataSourceType as _T
+
+        print("DIAG_CANON_IS_MOCK=", _canon.postgres_source is mock_postgres_source)
+        print("DIAG_SRCKEYS=", sorted(k for k in _sys.modules if k.endswith("postgres.source")))
+        print("DIAG_REGKEYS=", sorted(k for k in _sys.modules if k.endswith("common.registry")))
+        _rs = _Reg._sources.get(_T.POSTGRES)
+        print("DIAG_REG_SRC_MODULE=", None if _rs is None else type(_rs).__module__)
+        print("DIAG_REG_CLASS_ID=", id(_Reg))
+        print(
+            "DIAG_SYSPATH_WS=",
+            [p for p in _sys.path if "warehouse_sources" in p or p.endswith("/products") or p == ""],
+        )
+
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
