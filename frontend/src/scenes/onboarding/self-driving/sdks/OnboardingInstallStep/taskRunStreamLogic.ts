@@ -1,8 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
+import { getTasksRunsStreamRetrieveUrl, tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
@@ -13,6 +16,36 @@ export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' 
 // How long a run may sit in `queued` before we call it stalled. Workers normally pick a run up in
 // seconds; minutes of silence means the pipeline isn't running at all.
 export const QUEUED_STALL_MS = 2 * 60 * 1000
+
+// How the stream pulls run updates. `sse` holds a live EventSource; `polling` re-fetches the run's REST
+// snapshot on a fixed interval (GROW-118). Toggled by the `onboarding-wizard-sync-mode` flag; `sse` stays
+// the default when the flag is off or unset.
+export type WizardSyncMode = 'sse' | 'polling'
+
+export const DEFAULT_POLLING_INTERVAL_SECS = 3
+const MIN_POLLING_INTERVAL_SECS = 1
+
+// Resolve the poll cadence from the flag payload's `polling_interval_secs`, falling back to the default
+// and flooring at the minimum so a stray small/negative payload can't hammer the endpoint.
+export function resolvePollingIntervalMs(payload: unknown): number {
+    const raw = (payload as { polling_interval_secs?: unknown } | null)?.polling_interval_secs
+    const secs = typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_POLLING_INTERVAL_SECS
+    return Math.max(MIN_POLLING_INTERVAL_SECS, secs) * 1000
+}
+
+// Project the REST run snapshot onto the same shape the SSE `task_run_state` events carry, so polling and
+// streaming feed `taskRunStateUpdated` identically and the rest of the logic stays mode-agnostic.
+export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStreamState {
+    return {
+        status: dto.status,
+        stage: dto.stage ?? null,
+        output: (dto.output as { pr_url?: string | null } | null) ?? null,
+        branch: dto.branch ?? null,
+        error_message: dto.error_message ?? null,
+        updated_at: dto.updated_at ?? '',
+        completed_at: dto.completed_at ?? null,
+    }
+}
 
 /**
  * Shapes of the SSE payloads the task-run stream pushes (see the tasks stream view). These are stream
@@ -155,13 +188,26 @@ const reportedTerminalRuns = new Set<string>()
  * Data events (`task_run_state`, `_posthog/progress` notifications) arrive unnamed via `onmessage`;
  * `stream-end` closes the stream; rotation (`end`) and transient drops are handled by EventSource's
  * native reconnect (it replays the `Last-Event-ID` cursor the server stamps on every event).
+ *
+ * When the `onboarding-wizard-sync-mode` flag resolves to `polling` (GROW-118), the EventSource is
+ * replaced by an interval that re-fetches the run's REST snapshot and feeds it through the same
+ * `taskRunStateUpdated` action. Polling carries run state only — `_posthog/progress` step
+ * notifications are stream-borne, so the step timeline stays empty and surfaces degrade to the
+ * coarse run status. The interval comes from the flag payload's `polling_interval_secs`.
  */
 export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     props({} as TaskRunStreamLogicProps),
     key((props) => props.runId),
     path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], activeCloudRunLogic, ['activeCloudRun']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            activeCloudRunLogic,
+            ['activeCloudRun'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [onboardingEventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
     })),
     actions({
@@ -267,6 +313,57 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 return
             }
 
+            // Mode is sampled once per connect — a mid-run flag flip applies on the next (re)connect,
+            // not live, which keeps the transport swap trivially safe.
+            const syncMode: WizardSyncMode =
+                values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE] === 'polling' ? 'polling' : 'sse'
+
+            if (syncMode === 'polling') {
+                const intervalMs = resolvePollingIntervalMs(
+                    getFeatureFlagPayload(FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE)
+                )
+                cache.disposables.add((): (() => void) => {
+                    let cancelled = false
+                    let inFlight = false
+                    const poll = async (): Promise<void> => {
+                        // Skip a tick rather than stacking requests when the server responds slower
+                        // than the poll cadence.
+                        if (inFlight) {
+                            return
+                        }
+                        inFlight = true
+                        try {
+                            const dto = await tasksRunsRetrieve(String(projectId), props.taskId, props.runId)
+                            if (cancelled) {
+                                return
+                            }
+                            // Only on first open / recovery from error — not every tick.
+                            if (values.connectionStatus !== 'open') {
+                                actions.connectionOpened()
+                            }
+                            actions.taskRunStateUpdated(taskRunDetailToStreamState(dto))
+                            if (isTerminalStatus(dto.status)) {
+                                actions.streamCompleted()
+                                cache.disposables.dispose('task-run-sync')
+                            }
+                        } catch (err) {
+                            if (!cancelled) {
+                                actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
+                            }
+                        } finally {
+                            inFlight = false
+                        }
+                    }
+                    void poll()
+                    const timer = window.setInterval(() => void poll(), intervalMs)
+                    return () => {
+                        cancelled = true
+                        clearInterval(timer)
+                    }
+                }, 'task-run-sync')
+                return
+            }
+
             cache.disposables.add((): (() => void) => {
                 const url = getTasksRunsStreamRetrieveUrl(String(projectId), props.taskId, props.runId)
                 const eventSource = new EventSource(url, { withCredentials: true })
@@ -300,10 +397,10 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 }
 
                 return () => eventSource.close()
-            }, 'event-source')
+            }, 'task-run-sync')
         },
         disconnect: () => {
-            cache.disposables.dispose('event-source')
+            cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
         },
     })),
