@@ -2467,8 +2467,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
-                    actions.createTab(String(searchParams.open_query))
+                    // kea-router decodes JSON-shaped URL values to objects — a node here carries
+                    // visualization settings (display, chartSettings) alongside the SQL
+                    const openQueryNode =
+                        typeof searchParams.open_query === 'object'
+                            ? toDataVisualizationNode(searchParams.open_query)
+                            : undefined
+                    if (openQueryNode) {
+                        actions.createTab(openQueryNode.source.query || '')
+                        actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
+                        if (!outputTabFromUrl) {
+                            actions.setActiveTab(OutputTab.Visualization)
+                        }
+                        actions.runQuery()
+                    } else {
+                        // kea-router also decodes numeric values; coerce so queryInput stays a string
+                        actions.createTab(String(searchParams.open_query))
+                    }
                     tabAdded = true
                 } else if (
                     hashParams.q &&
