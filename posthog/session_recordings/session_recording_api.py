@@ -132,8 +132,9 @@ from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
-# Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per bulk action.
-MAX_RECORDINGS_PER_BULK_ACTION = 100
+MAX_RECORDINGS_PER_BULK_ACTION = 20
+# Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
+MAX_RECORDINGS_PER_BULK_DELETE = 100
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -540,12 +541,13 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         return data
 
 
+# Schema-only; enforcement stays in the view to preserve the pre-existing error contract.
 class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
     session_recording_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
-        max_length=MAX_RECORDINGS_PER_BULK_ACTION,
-        help_text=f"Session IDs of the recordings to delete (max {MAX_RECORDINGS_PER_BULK_ACTION} per call).",
+        max_length=MAX_RECORDINGS_PER_BULK_DELETE,
+        help_text=f"Session IDs of the recordings to delete (max {MAX_RECORDINGS_PER_BULK_DELETE} per call).",
     )
     date_from = serializers.CharField(
         required=False,
@@ -1128,11 +1130,7 @@ class SessionRecordingViewSet(
     )
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Bulk delete recordings via recording-api (crypto-shredding).
-
-        Accepts optional date_from parameter to optimize ClickHouse query performance by limiting the search range.
-        If not provided, defaults to the team's retention period to ensure all recordings can be found.
-        """
+        """Bulk delete recordings via recording-api (crypto-shredding)."""
 
         session_recording_ids = request.data.get("session_recording_ids", [])
         date_from = request.data.get("date_from", None)
@@ -1140,9 +1138,9 @@ class SessionRecordingViewSet(
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_DELETE:
             raise exceptions.ValidationError(
-                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_DELETE} recordings at once"
             )
 
         if not date_from:
