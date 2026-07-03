@@ -33,7 +33,7 @@ describe('ImproveFromLabelsButton', () => {
                         outcome: 'Verdict: yes',
                         reasoning: 'completed payment',
                         isCorrect: true,
-                        feedback: '',
+                        feedback: 'correctly caught the confirmation page',
                     },
                 ],
             })
@@ -42,6 +42,8 @@ describe('ImproveFromLabelsButton', () => {
             expect(message).toContain('Sessions it got WRONG (1)')
             expect(message).toContain('What it should be: should be yes')
             expect(message).toContain('Sessions it got RIGHT (1)')
+            // Feedback is optional on thumbs-up sessions too, carried as a note.
+            expect(message).toContain('Note: correctly caught the confirmation page')
             expect(message).toContain('rewrite the scanner prompt')
             // Session IDs let PostHog AI look up and summarize the recordings for more context.
             expect(message).toContain('Session sess-wrong')
