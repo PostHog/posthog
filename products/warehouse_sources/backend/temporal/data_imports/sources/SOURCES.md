@@ -133,6 +133,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
 | freshservice            | HTTP                        | requests                                                        | ✅                          |
@@ -448,7 +449,6 @@ doesn't conflict with concurrent PRs.
 - freeagent
 - freightview
 - freshbooks
-- freshcaller
 - freshchat
 - freshservice
 - fulcrum
