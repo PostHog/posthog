@@ -385,7 +385,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     }
                                 />
                                 <Menu.Item
-                                    onClick={toggleZenMode}
+                                    onClick={() => toggleZenMode('help_menu')}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="more-menu-zen-mode-button">
                                             <IconExpand45 />
