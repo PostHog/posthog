@@ -3949,6 +3949,15 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_unknown_source_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "GoogleAds-"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Unknown source_type 'GoogleAds-'"
+
     def test_database_schema_stripe_credentials(self):
         with (
             patch(
