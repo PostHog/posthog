@@ -2866,7 +2866,9 @@ def duckling_events_full_backfill_sensor(
     """Full historical events backfill — monthly partitions, enqueued round-robin under a bounded queue.
 
     Monthly partitions (``{team_id}_{YYYY-MM}``) keep the partition count down; each one
-    backfills all days in its month.
+    backfills all days in its month. Only COMPLETE historical months are enqueued — the
+    current, in-progress month is left to the daily backfill sensor, so a team whose earliest
+    event is only in the current month gets no full-backfill partition at all.
 
     Enqueue strategy, decoupled from execution (which the duckling_events_v1 concurrency
     limit throttles to a handful of concurrent runs to protect ClickHouse):
@@ -2886,7 +2888,13 @@ def duckling_events_full_backfill_sensor(
     the partition key, so re-ticks and restarts never double-enqueue. Any cursor written by
     the previous serial implementation is simply ignored (safe rollback either way).
     """
-    yesterday = (timezone.now() - timedelta(days=1)).date()
+    # Full backfill covers only COMPLETE historical months, up to the end of last month. The
+    # current, in-progress month is owned by the daily backfill sensor (which fills it in
+    # day-by-day), so emitting a whole-month partition for it is redundant — it re-DELETEs and
+    # re-registers exactly the days the daily runs are handling, racing them under DuckLake's
+    # per-table OCC (that conflict is why the current-month monthly partition goes red while the
+    # daily partitions succeed).
+    last_month_end = timezone.now().date().replace(day=1) - timedelta(days=1)
 
     backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
@@ -2915,10 +2923,12 @@ def duckling_events_full_backfill_sensor(
     per_team_remaining: list[list[str]] = []
     for bf in backfills:
         earliest = bf.earliest_event_date
-        if earliest is None or earliest > yesterday:
-            # Unresolved this tick, or no-history sentinel / brand-new team (nothing historical yet).
+        if earliest is None or earliest > last_month_end:
+            # Unresolved this tick, no-history sentinel, or a team whose earliest event is only
+            # in the current month — no complete month to full-backfill (the daily sensor owns
+            # the current month), so skip it.
             continue
-        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, yesterday)]
+        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, last_month_end)]
         remaining = [k for k in keys if k not in existing]
         if remaining:
             per_team_remaining.append(remaining)

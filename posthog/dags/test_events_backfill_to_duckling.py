@@ -772,14 +772,38 @@ class TestFullBackfillSensorEarliestDate:
     def test_round_robin_interleaves_teams(self):
         # Two teams with the same range → emission alternates team by month index, so the
         # FIFO queue drains both fairly rather than finishing team 1's whole history first.
+        # The current month (2020-03) is excluded — it's the daily sensor's job.
         backfills = [self._bf(1), self._bf(2)]
         result, _ = self._run_full_sensor(
             backfills, now=datetime(2020, 3, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
         )
         keys = [rr.partition_key for rr in result.run_requests]
-        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02", "1_2020-03", "2_2020-03"]
+        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02"]
         # Every full-backfill run is tagged so the next tick's in-flight count excludes daily runs.
         assert all(rr.tags.get("duckling_backfill_type") == "full" for rr in result.run_requests)
+
+    def test_excludes_current_in_progress_month(self):
+        # The full backfill stops at the end of last month; the current, in-progress month
+        # (2020-03) is owned by the daily sensor and must never be emitted as a monthly
+        # partition (it would race the daily runs for the same team-days).
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-01", "1_2020-02"]
+        assert "1_2020-03" not in keys
+
+    def test_team_with_only_current_month_history_gets_nothing(self):
+        # A team whose earliest event is in the current month has no complete month to
+        # full-backfill, so the sensor emits nothing for it — the daily sensor covers it.
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 3, 2))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        assert result.run_requests == []
 
     def test_skips_existing_partitions(self):
         result, _ = self._run_full_sensor(
@@ -790,7 +814,7 @@ class TestFullBackfillSensorEarliestDate:
         )
         keys = [rr.partition_key for rr in result.run_requests]
         assert "1_2020-01" not in keys
-        assert keys == ["1_2020-02", "1_2020-03"]
+        assert keys == ["1_2020-02"]
 
     def test_does_not_requery_cached_earliest(self):
         result, mock_ge = self._run_full_sensor(
@@ -799,7 +823,7 @@ class TestFullBackfillSensorEarliestDate:
             get_earliest=None,
         )
         mock_ge.assert_not_called()
-        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01", "1_2020-02"]
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01"]
 
     def test_caps_earliest_lookups_per_tick(self):
         # 7 unresolved teams, cap is 5 → only 5 ClickHouse lookups this tick; the other two
