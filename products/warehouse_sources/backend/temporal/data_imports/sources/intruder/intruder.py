@@ -5,6 +5,7 @@ from typing import Any
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -51,7 +52,9 @@ def validate_credentials(access_token: str) -> bool:
     # returns 200 regardless of whether the token is valid.
     url = f"{INTRUDER_BASE_URL}/targets/"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), params={"limit": 1}, timeout=10)
+        response = make_tracked_session(redact_values=(access_token,)).get(
+            url, headers=_get_headers(access_token), params={"limit": 1}, timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -156,8 +159,10 @@ def get_rows(
     config = INTRUDER_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
     # One session reused across every page (and, for the fan-out, every issue) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. `retry=Retry(total=0)` disables the
+    # adapter's own retries so tenacity in `_fetch_page` is the single retry authority;
+    # `redact_values` masks the bearer token in logged URLs and captured samples.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(access_token,))
 
     if config.fan_out_over_issues:
         yield from _get_occurrence_rows(session, headers, logger, resumable_source_manager)

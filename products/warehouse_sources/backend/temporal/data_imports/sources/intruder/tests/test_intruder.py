@@ -257,6 +257,46 @@ class TestValidateCredentials:
             assert validate_credentials("token") is False
 
 
+class TestSessionHardening:
+    def test_validate_credentials_redacts_token(self, monkeypatch: Any) -> None:
+        # Dropping redact_values would leak the bearer token into logged URLs / captured samples.
+        captured: dict[str, Any] = {}
+
+        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            response = requests.Response()
+            response.status_code = 200
+            session = MagicMock()
+            session.get.return_value = response
+            return session
+
+        monkeypatch.setattr(intruder, "make_tracked_session", fake_session)
+        validate_credentials("secret-token")
+        assert captured.get("redact_values") == ("secret-token",)
+
+    def test_get_rows_redacts_token_and_disables_adapter_retries(self, monkeypatch: Any) -> None:
+        # tenacity in `_fetch_page` is the single retry authority; the adapter must not stack its own.
+        captured: dict[str, Any] = {}
+
+        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(intruder, "make_tracked_session", fake_session)
+        monkeypatch.setattr(intruder, "_fetch_page", lambda *a, **k: {"results": [], "next": None})
+
+        list(
+            get_rows(
+                access_token="secret-token",
+                endpoint="targets",
+                logger=MagicMock(),
+                resumable_source_manager=cast(ResumableSourceManager[IntruderResumeConfig], _FakeResumableManager()),
+            )
+        )
+        assert captured.get("redact_values") == ("secret-token",)
+        assert captured.get("retry") is not None and captured["retry"].total == 0
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [
