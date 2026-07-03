@@ -29,13 +29,17 @@ PIPEDRIVE_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     "leads": PipedriveEndpointConfig(name="leads", path="/api/v1/leads", pagination="offset"),
     "users": PipedriveEndpointConfig(name="users", path="/api/v1/users", pagination="offset", partition_key=None),
     "deal_fields": PipedriveEndpointConfig(
-        name="deal_fields", path="/api/v1/dealFields", pagination="offset", partition_key=None
+        name="deal_fields", path="/api/v1/dealFields", pagination="offset", primary_key="key", partition_key=None
     ),
     "person_fields": PipedriveEndpointConfig(
-        name="person_fields", path="/api/v1/personFields", pagination="offset", partition_key=None
+        name="person_fields", path="/api/v1/personFields", pagination="offset", primary_key="key", partition_key=None
     ),
     "organization_fields": PipedriveEndpointConfig(
-        name="organization_fields", path="/api/v1/organizationFields", pagination="offset", partition_key=None
+        name="organization_fields",
+        path="/api/v1/organizationFields",
+        pagination="offset",
+        primary_key="key",
+        partition_key=None,
     ),
 }
 

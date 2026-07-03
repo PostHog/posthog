@@ -204,19 +204,25 @@ class TestGetRows:
 
 class TestPipedriveSource:
     @pytest.mark.parametrize(
-        "endpoint, expected_partition_keys, expected_mode",
+        "endpoint, expected_primary_keys, expected_partition_keys, expected_mode",
         [
-            ("deals", ["add_time"], "datetime"),
-            ("activities", ["add_time"], "datetime"),
-            ("users", None, None),
-            ("deal_fields", None, None),
+            ("deals", ["id"], ["add_time"], "datetime"),
+            ("activities", ["id"], ["add_time"], "datetime"),
+            ("users", ["id"], None, None),
+            ("deal_fields", ["key"], None, None),
+            ("person_fields", ["key"], None, None),
+            ("organization_fields", ["key"], None, None),
         ],
     )
     def test_source_response_partitioning(
-        self, endpoint: str, expected_partition_keys: list[str] | None, expected_mode: str | None
+        self,
+        endpoint: str,
+        expected_primary_keys: list[str],
+        expected_partition_keys: list[str] | None,
+        expected_mode: str | None,
     ) -> None:
         response = pipedrive_source("acme", "token", endpoint, mock.MagicMock(), mock.MagicMock())
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_partition_keys
         assert response.partition_mode == expected_mode
