@@ -51,6 +51,26 @@ class TestClosePrWhenReportDismissed(BaseTest):
             reason=expected_reason,
         )
 
+    def test_full_save_on_dismiss_enqueues_close_task(self):
+        report = self._create_report()
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                report.transition_to(SignalReport.Status.SUPPRESSED)
+                report.save()
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id),
+            team_id=self.team.id,
+            reason="suppressed",
+        )
+
+    def test_full_save_without_status_change_does_not_enqueue(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                report.title = "edited"
+                report.save()
+        mock_task.delay.assert_not_called()
+
     def test_born_suppressed_report_does_not_enqueue(self):
         with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):

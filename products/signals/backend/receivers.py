@@ -47,7 +47,9 @@ def _pr_close_reason(
         # Reports born SUPPRESSED by the scout safety/actionability judge never surfaced a PR.
         return None
     # React only to the save that performed the transition, not later edits.
-    if update_fields is None or "status" not in update_fields:
+    if update_fields is not None and "status" not in update_fields:
+        return None
+    if prior_status is None or prior_status == instance.status:
         return None
 
     if instance.status == SignalReport.Status.SUPPRESSED:
