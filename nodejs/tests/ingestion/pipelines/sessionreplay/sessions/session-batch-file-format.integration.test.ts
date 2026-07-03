@@ -247,7 +247,7 @@ describe('session recording integration', () => {
         }
 
         // Flush and get metadata
-        const metadata = await recorder.flush()
+        const metadata = await recorder.flushToStorage()
 
         // Verify we got all sessions
         expect(metadata).toHaveLength(3)

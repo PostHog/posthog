@@ -238,7 +238,7 @@ describe('session recording encryption integration', () => {
 
         const message = createMessage(sessionId, teamId, originalEvents)
         await recordMessage(message)
-        const metadata = await recorder.flush()
+        const metadata = await recorder.flushToStorage()
 
         expect(metadata).toHaveLength(1)
         const blockMetadata = metadata[0]
@@ -275,7 +275,7 @@ describe('session recording encryption integration', () => {
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Block 1</div>' } } },
         ])
         await recordMessage(message1)
-        const metadata1 = await recorder.flush()
+        const metadata1 = await recorder.flushToStorage()
 
         const encryptedBlock1 = readEncryptedBlockFromBatch(metadata1[0])
         const nonce1 = encryptedBlock1.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
@@ -296,7 +296,7 @@ describe('session recording encryption integration', () => {
             { type: EventType.IncrementalSnapshot, data: { source: 2, mutations: [{ id: 2 }] } },
         ])
         await recordMessage(message2)
-        const metadata2 = await recorder.flush()
+        const metadata2 = await recorder.flushToStorage()
 
         const encryptedBlock2 = readEncryptedBlockFromBatch(metadata2[0])
         const nonce2 = encryptedBlock2.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
@@ -321,7 +321,7 @@ describe('session recording encryption integration', () => {
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Secret</div>' } } },
         ])
         await recordMessage(message)
-        const metadata = await recorder.flush()
+        const metadata = await recorder.flushToStorage()
 
         const encryptedBlock = readEncryptedBlockFromBatch(metadata[0])
 
@@ -348,7 +348,7 @@ describe('session recording encryption integration', () => {
             await recordMessage(message)
         }
 
-        const metadata = await recorder.flush()
+        const metadata = await recorder.flushToStorage()
         expect(metadata).toHaveLength(3)
 
         for (const block of metadata) {
