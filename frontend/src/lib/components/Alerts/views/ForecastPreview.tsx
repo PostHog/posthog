@@ -9,6 +9,7 @@ import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
 import { ForecastSimulateResponseApi, VerdictEnumApi } from 'products/alerts/frontend/generated/api.schemas'
 
+import { findFirstCrossing } from './forecastPreviewUtils'
 import { formatSimDate } from './SimulationSummary'
 
 Chart.register(annotationPlugin)
@@ -23,20 +24,6 @@ const FIT_QUALITY_COPY: Record<VerdictEnumApi, { type: 'success' | 'warning' | '
 
 function formatPercent(value: number | null): string | null {
     return value == null ? null : `${Math.round(value * 100)}%`
-}
-
-/** Index into `forecast_yhat` of the first point that crosses a threshold bound, or null if none does. */
-function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresholdBounds | null): number | null {
-    if (!bounds || (bounds.lower == null && bounds.upper == null)) {
-        return null
-    }
-    for (let i = 0; i < forecastYhat.length; i++) {
-        const value = forecastYhat[i]
-        if ((bounds.upper != null && value > bounds.upper) || (bounds.lower != null && value < bounds.lower)) {
-            return i
-        }
-    }
-    return null
 }
 
 /** For band-deviation mode there's no threshold to cross — fall back to the nearest forecast band
@@ -236,7 +223,7 @@ export function ForecastPreview({
                 ) : outsideNearBand == null ? (
                     <span>Not enough data to assess the expected range</span>
                 ) : (
-                    <span>Latest value is {outsideNearBand ? 'outside' : 'inside'} the expected range</span>
+                    <span>Latest value is {outsideNearBand ? 'outside' : 'near'} its forecasted range</span>
                 )}
             </div>
         </div>

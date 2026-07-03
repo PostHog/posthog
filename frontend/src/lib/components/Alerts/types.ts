@@ -54,6 +54,9 @@ export const supportsAnomalyDetection = (config: AlertConfig | null | undefined)
 /** Forecasting needs a plain time series with enough history: trends only in v1 (no SQL, no funnels). */
 export const supportsForecast = (config: AlertConfig | null | undefined): boolean => isTrendsAlertConfig(config)
 
+/** Which evaluation strategy the alert editor is configuring. */
+export type AlertMode = 'detector' | 'threshold' | 'forecast'
+
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
 /** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */

@@ -261,8 +261,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        // Cleared directly off the raw `clearSimulation` action (not via the loaders' Success dance)
-        // so it doesn't collide with `simulationResult`'s own loader, which reacts to the same action.
+        // Cleared directly off the raw `clearSimulation` action (not via the loaders' Success dance).
+        // kea-loaders reuses the first-registered `clearSimulationSuccess` action creator across every
+        // loader keyed on the same trigger action — a second `clearSimulation` entry in this file's
+        // `loaders()` block would silently no-op (its payload would carry `simulationResult`, not
+        // `forecastSimulationResult`, so this reducer would receive `undefined`). Verified by re-adding
+        // it: `forecastSimulationResult` then stopped resetting and the "clearSimulation resets the
+        // forecast simulation result" test failed.
         forecastSimulationResult: [
             null as ForecastSimulateResponseApi | null,
             {
@@ -749,7 +754,33 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
+            simulateForecastSuccess: ({ forecastSimulationResult }) => {
+                // simulateForecast returns null early for non-forecast alerts (no API call),
+                // so null here means nothing actually ran — skip the event.
+                if (!forecastSimulationResult) {
+                    return
+                }
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: true,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    fit_quality_verdict: forecastSimulationResult.fit_quality.verdict,
+                    forecast_points: forecastSimulationResult.forecast_dates.length,
+                })
+            },
             simulateForecastFailure: ({ error }) => {
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: false,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    error: error ?? 'Unknown error',
+                })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }

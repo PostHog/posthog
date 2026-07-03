@@ -15,13 +15,18 @@ const HORIZON_UNIT: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.MONTHLY]: 'months',
 }
 
+/** Default lookahead window for a "predicted to breach" forecast, in calculation-interval units. */
+const DEFAULT_HORIZON = 7
+/** Default forecast uncertainty band width — the "Wider" option, which fires only on clear deviations. */
+const DEFAULT_INTERVAL_WIDTH = 0.95
+
 export function getDefaultForecastConfig(): ForecastConfig {
     return {
         type: 'ForecastConfig',
         engine: ForecastEngineType.PROPHET,
         condition: ForecastConditionType.FUTURE_BREACH,
-        horizon: 7,
-        interval_width: 0.95,
+        horizon: DEFAULT_HORIZON,
+        interval_width: DEFAULT_INTERVAL_WIDTH,
     }
 }
 
@@ -63,8 +68,8 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         data-attr="alertForm-forecast-horizon"
                         min={1}
                         max={30}
-                        value={config.horizon ?? 7}
-                        onChange={(horizon) => onChange({ ...config, horizon: horizon ?? 7 })}
+                        value={config.horizon ?? DEFAULT_HORIZON}
+                        onChange={(horizon) => onChange({ ...config, horizon: horizon ?? DEFAULT_HORIZON })}
                     />
                     <span>{unit}</span>
                 </>
@@ -73,7 +78,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
             <LemonSegmentedButton
                 size="small"
                 data-attr="alertForm-forecast-interval-width"
-                value={config.interval_width ?? 0.95}
+                value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
                 onChange={(interval_width) => onChange({ ...config, interval_width })}
                 options={[
                     {
@@ -81,7 +86,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         label: 'Narrower',
                         tooltip: 'More sensitive — fires on smaller deviations, more noise.',
                     },
-                    { value: 0.95, label: 'Wider', tooltip: 'Fires only on clear deviations.' },
+                    { value: DEFAULT_INTERVAL_WIDTH, label: 'Wider', tooltip: 'Fires only on clear deviations.' },
                 ]}
             />
         </div>
