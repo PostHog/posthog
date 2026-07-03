@@ -15,11 +15,13 @@ from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
-    SAMPLE_RATE_PRECISION,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
 )
-from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    ESTIMATE_WINDOW_DAYS,
+    estimate_scanner_session_volume,
+)
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -34,6 +36,7 @@ def _make_query(**kwargs) -> ScannerCandidateQuery:
         query=kwargs.pop("query", RecordingsQuery()),
         last_swept_at=kwargs.pop("last_swept_at", _NOW - dt.timedelta(hours=1)),
         sampling_rate=kwargs.pop("sampling_rate", 1.0),
+        sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
         **kwargs,
     )
 
@@ -109,23 +112,37 @@ def test_sampling_predicate_passthrough_at_full_rate():
     assert q._sampling_predicate() is None
 
 
-def test_sampling_predicate_emits_false_at_zero():
-    q = _make_query(sampling_rate=0.0)
+@pytest.mark.parametrize("rate", [0.0, 0.00004])
+def test_sampling_predicate_emits_false_below_one_bucket(rate):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.Constant) and expr.value is False
 
 
-def test_sampling_predicate_emits_modulo_compare_at_partial_rate():
-    q = _make_query(sampling_rate=0.25)
+@pytest.mark.parametrize(
+    "rate, expected_threshold",
+    [
+        (0.25, 2500),
+        # 0.29 * 10_000 is 2899.999… in floats; truncation used to shave a bucket.
+        (0.29, 2900),
+        (0.0001, 1),
+    ],
+)
+def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_threshold):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.CompareOperation)
     assert expr.op == ast.CompareOperationOp.Lt
     assert isinstance(expr.right, ast.Constant)
-    assert expr.right.value == int(0.25 * SAMPLE_RATE_PRECISION)
+    assert expr.right.value == expected_threshold
     modulo = expr.left
     assert isinstance(modulo, ast.Call) and modulo.name == "modulo"
     city = modulo.args[0]
     assert isinstance(city, ast.Call) and city.name == "cityHash64"
+    concat = city.args[0]
+    assert isinstance(concat, ast.Call) and concat.name == "concat"
+    # The per-scanner salt makes scanners draw independent samples instead of the identical session subset.
+    assert isinstance(concat.args[1], ast.Constant) and concat.args[1].value == "scanner-1"
 
 
 # Integration: actual ClickHouse query.
@@ -381,6 +398,40 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
+    def test_volume_estimate_window_is_exactly_30_days(self, team) -> None:
+        # A relative "-30d" date_from truncates to start-of-day, counting up to 31 days against the /30 divisor.
+        bound = _NOW - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
+        self._produce(
+            team.id,
+            "same-day-but-outside",
+            bound - dt.timedelta(hours=6, seconds=60),
+            bound - dt.timedelta(hours=6),
+            active_milliseconds=30_000,
+        )
+        self._produce(
+            team.id,
+            "inside",
+            _NOW - dt.timedelta(days=2),
+            _NOW - dt.timedelta(days=2) + dt.timedelta(seconds=60),
+            active_milliseconds=30_000,
+        )
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_divisor_stays_full_for_old_but_quiet_teams(self, team) -> None:
+        # The bounded earliest-recording probe must not shrink the divisor for teams older than the window.
+        old = _NOW - dt.timedelta(days=40)
+        self._produce(team.id, "old-session", old, old + dt.timedelta(seconds=60), active_milliseconds=30_000)
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 0
+        assert estimate.effective_window_days == ESTIMATE_WINDOW_DAYS
+
+    @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
         # test_account_filters are exclusion-style — the operator picks the accounts to drop.
         team.test_account_filters = [
@@ -554,6 +605,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         last_swept_at: dt.datetime,
         query: RecordingsQuery | None = None,
         sampling_rate: float = 1.0,
+        sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
     ):
@@ -562,6 +614,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             query=query if query is not None else RecordingsQuery(),
             last_swept_at=last_swept_at,
             sampling_rate=sampling_rate,
+            sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
         ).run()

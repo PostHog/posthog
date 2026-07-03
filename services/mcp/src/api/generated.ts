@@ -32690,28 +32690,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-    } as const;
-
-    /**
-     * * `google` - Google
-     */
-    export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
-
-
-    export const ScannerProviderEnum = {
-      Google: 'google',
-    } as const;
-
-    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -32726,15 +32704,10 @@ export namespace Schemas {
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
-      /** Concrete model that ran the observation.
-       *
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-      model: ScannerModelEnum;
-      /** Concrete provider that ran the observation.
-       *
-       * * `google` - Google */
-      provider: ScannerProviderEnum;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
       /** Whether the observation was run with Signal emission enabled. */
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
@@ -32768,7 +32741,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -32819,6 +32792,28 @@ export namespace Schemas {
       results: ReplayObservation[];
     }
 
+    /**
+     * * `google` - Google
+     */
+    export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
+
+
+    export const ScannerProviderEnum = {
+      Google: 'google',
+    } as const;
+
+    /**
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+    } as const;
+
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -32826,7 +32821,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Free-form description shown in the scanner management UI. */
+      /**
+         * Free-form description shown in the scanner management UI.
+         * @maxLength 1000
+         */
       description?: string;
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
@@ -32840,7 +32838,7 @@ export namespace Schemas {
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
-         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
          * @minimum 0
          * @maximum 1
          */
@@ -40463,7 +40461,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Free-form description shown in the scanner management UI. */
+      /**
+         * Free-form description shown in the scanner management UI.
+         * @maxLength 1000
+         */
       description?: string;
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
@@ -40477,7 +40478,7 @@ export namespace Schemas {
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
-         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
          * @minimum 0
          * @maximum 1
          */
@@ -59845,7 +59846,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -59899,7 +59900,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -67543,7 +67544,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
@@ -67597,7 +67598,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string;
     /**
