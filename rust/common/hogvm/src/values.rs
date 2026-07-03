@@ -130,8 +130,15 @@ impl HogValue {
 
         match lit {
             HogLiteral::Object(map) => {
-                let key: &str = chain[0].deref(heap)?.try_as()?;
-                let Some(found) = map.get(key) else {
+                // The reference VM keys objects with whatever scalar the program used (a JS Map),
+                // and integer keys are common (`{96: 'x'}`). We store string keys, so coerce
+                // numbers to their string form for lookup, matching the construction-time coercion.
+                let key_lit = chain[0].deref(heap)?;
+                let found = match key_lit {
+                    HogLiteral::Number(n) => map.get(&num_key_string(n)),
+                    _ => map.get(key_lit.try_as::<str>()?),
+                };
+                let Some(found) = found else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
@@ -817,6 +824,14 @@ impl Display for Closure {
 /// `ExecutionContext::execute_native_function_call` correctly maps the return
 /// value of the native function call to the VM's memory space, making values
 /// constructed with this method safe to return from native extensions.
+// The string form a numeric object key coerces to, shared by dict construction and lookup.
+pub(crate) fn num_key_string(n: &Num) -> String {
+    match n {
+        Num::Integer(i) => i.to_string(),
+        Num::Float(f) => format!("{f}"),
+    }
+}
+
 pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
     if depth > MAX_JSON_SERDE_DEPTH {
         return Err(VmError::OutOfResource(
