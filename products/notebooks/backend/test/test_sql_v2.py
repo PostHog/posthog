@@ -374,6 +374,8 @@ class TestSQLV2Activities(APIBaseTest):
         self.assertIn("/run", mock_post.call_args.args[0])
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["code"], "select 1")
+        # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
+        self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
         short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
         self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
@@ -525,6 +527,55 @@ class TestSQLV2KernelPackage(SimpleTestCase):
             kernel_runner.execute_run(payload)
         self.assertEqual(delivered["status"], "error")
         self.assertEqual(delivered["error"], "no such table")
+
+    def _run_and_cache(self, run_id: str, rows_returned: int, cache_limit: int = 300):
+        payload = {
+            "run_id": run_id,
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+            "data_plane_url": "u",
+            "data_plane_token": "t",
+            "page_limit": 50,
+            "cache_limit": cache_limit,
+        }
+        mock_fetch = patch(
+            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
+        )
+        with mock_fetch as fetch:
+            result = kernel_runner._build_envelope(payload)
+        return payload, result, fetch
+
+    def test_pages_within_the_cache_never_requery(self):
+        # The whole point of the cache: paging must not re-run the query on ClickHouse.
+        payload, result, _ = self._run_and_cache("r-cache-1", rows_returned=301)
+        self.assertEqual(len(result["first_page"]), 50)
+        self.assertTrue(result["has_more"])
+        with patch("products.notebooks.backend.kernel.data_plane.fetch_query_page") as fetch:
+            page = kernel_runner.fetch_page({**payload, "offset": 250, "limit": 50})
+        fetch.assert_not_called()
+        self.assertEqual(page["rows"][0], [250])
+        self.assertEqual(len(page["rows"]), 50)
+        self.assertTrue(page["has_more"])  # cache is incomplete — more rows exist beyond it
+
+    def test_page_beyond_incomplete_cache_falls_back_to_requery(self):
+        payload, _result, _ = self._run_and_cache("r-cache-2", rows_returned=301)
+        with patch(
+            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(10)], [["n", "Int64"]]),
+        ) as fetch:
+            kernel_runner.fetch_page({**payload, "offset": 290, "limit": 50})
+        self.assertEqual(fetch.call_args.kwargs["offset"], 290)
+
+    def test_complete_cache_reports_no_more_rows(self):
+        payload, result, _ = self._run_and_cache("r-cache-3", rows_returned=120)
+        self.assertTrue(result["has_more"])  # 120 rows > the 50-row first page
+        with patch("products.notebooks.backend.kernel.data_plane.fetch_query_page") as fetch:
+            page = kernel_runner.fetch_page({**payload, "offset": 100, "limit": 50})
+        fetch.assert_not_called()
+        self.assertEqual(len(page["rows"]), 20)
+        self.assertFalse(page["has_more"])
 
     @parameterized.expand(
         [

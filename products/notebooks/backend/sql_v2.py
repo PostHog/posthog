@@ -37,9 +37,11 @@ _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
 _DATA_PLANE_TOKEN_SALT = "notebooks.sql_v2.data_plane"
 _DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 3600
 
-# Rows in the display page the kernel fetches for a run. Paging beyond it re-queries
-# ClickHouse (push-to-CH: a displayed HogQL node is never fully materialized).
+# Rows in the display page the run envelope carries to the UI.
 DISPLAY_PAGE_LIMIT = 50
+# Rows the kernel fetches and caches per run. Pages within the cache are local slices
+# (no ClickHouse re-query); paging beyond it falls back to a LIMIT/OFFSET re-query.
+RESULT_CACHE_ROWS = 300
 
 # The container port the sandbox already exposes (mapped to a host port at create
 # time). Mirrors docker_sandbox.AGENT_SERVER_PORT (47821) and
@@ -261,6 +263,7 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
             "data_plane_url": build_data_plane_url(),
             "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
             "page_limit": DISPLAY_PAGE_LIMIT,
+            "cache_limit": RESULT_CACHE_ROWS,
         },
         headers={"Authorization": f"Bearer {command_token}"},
         timeout=_RUN_POST_TIMEOUT_SECONDS,
