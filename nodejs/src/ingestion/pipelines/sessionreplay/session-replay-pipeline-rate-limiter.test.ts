@@ -47,24 +47,39 @@ const BLOCK_PREFIX = '@posthog/replay/session-blocked'
 
 type FakeRedisOp = 'mget' | 'exec'
 
+type FaultSpec = { op: FakeRedisOp; keyPrefix: string } | null
+
 /** Minimal in-memory Redis supporting the tracker/filter access patterns, with per-op fault injection. */
 class FakeRedis {
     public store = new Map<string, string>()
-    private failOnce: { op: FakeRedisOp; keyPrefix: string } | null = null
+    private failOnce: FaultSpec = null
+    private failEvery: FaultSpec = null
 
     /** Make the next matching operation (touching a key with the given prefix) throw exactly once. */
     failNext(op: FakeRedisOp, keyPrefix: string): void {
         this.failOnce = { op, keyPrefix }
     }
 
-    /** True while an armed fault hasn't fired yet — lets tests assert the injected failure was exercised. */
+    /** Make every matching operation throw — a sustained outage of that op, until cleared. */
+    failAlways(op: FakeRedisOp, keyPrefix: string): void {
+        this.failEvery = { op, keyPrefix }
+    }
+
+    /** True while an armed one-shot fault hasn't fired yet — lets tests assert the failure was exercised. */
     hasPendingFailure(): boolean {
         return this.failOnce !== null
     }
 
+    private matches(spec: FaultSpec, op: FakeRedisOp, keys: string[]): boolean {
+        return spec !== null && spec.op === op && keys.some((k) => k.startsWith(spec.keyPrefix))
+    }
+
     private maybeFail(op: FakeRedisOp, keys: string[]): void {
-        if (this.failOnce && this.failOnce.op === op && keys.some((k) => k.startsWith(this.failOnce!.keyPrefix))) {
+        if (this.matches(this.failOnce, op, keys)) {
             this.failOnce = null
+            throw new Error(`fake redis ${op} failed`)
+        }
+        if (this.matches(this.failEvery, op, keys)) {
             throw new Error(`fake redis ${op} failed`)
         }
     }
@@ -250,6 +265,14 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
 
     const timesCountedAsNew = (sessionId: string): number => countedSessions.filter((s) => s === sessionId).length
 
+    // A key is resolved only for sessions that pass the block check; a dropped (blocked) session skips it.
+    const keyWasResolvedFor = (sessionId: string): boolean =>
+        keyStore.generateKey.mock.calls.some((c) => c[0] === sessionId) ||
+        keyStore.getKey.mock.calls.some((c) => c[0] === sessionId)
+
+    const blockKey = (sessionId: string): string => `${BLOCK_PREFIX}:${TEAM_ID}:${sessionId}`
+    const seenKey = (sessionId: string): string => `${SEEN_PREFIX}:${TEAM_ID}:${sessionId}`
+
     beforeEach(() => {
         jest.clearAllMocks()
         redis = new FakeRedis()
@@ -364,13 +387,72 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     // isn't persisted to Redis, but the local cache records it, so the session is still dropped and
     // marked seen on this consumer — counted once.
     describe('when the blockSessions write (filter pipeline) fails on the first batch', () => {
-        it('a newly rate-limited session is counted as new 1 time', async () => {
+        it('a newly rate-limited session is counted once, dropped locally, but the block is not persisted', async () => {
             useBucketCapacity(0) // force the session to be rate-limited so blockSessions runs
 
             await runBatch('rate-limited', 1, 'blockSessions')
             await runBatch('rate-limited', 2)
 
             expect(timesCountedAsNew('rate-limited')).toBe(1)
+            // Fail-open write path: still blocked on this consumer (local cache → key never resolved) but
+            // not durable in Redis.
+            expect(keyWasResolvedFor('rate-limited')).toBe(false)
+            expect(redis.store.has(blockKey('rate-limited'))).toBe(false)
+        })
+    })
+
+    // Sustained outages: the op fails on EVERY batch, across many batches. Documents how the fail-open /
+    // fail-safe defaults behave when Redis stays down — the direction each degrades in, and that it
+    // doesn't drift over time.
+    describe('sustained outage (op fails on every batch)', () => {
+        const BATCHES = 6
+        const runBatches = async (sessionId: string): Promise<void> => {
+            for (let offset = 1; offset <= BATCHES; offset++) {
+                await runBatch(sessionId, offset)
+            }
+        }
+
+        it('hasSeen down: sessions are never counted as new — rate limiting is bypassed entirely', async () => {
+            redis.failAlways('mget', SEEN_PREFIX)
+            setUpSessionType('allowed', 'a')
+
+            await runBatches('a')
+
+            // Fail-safe assumes seen, so nothing is ever classified new → the rate limiter never runs.
+            expect(timesCountedAsNew('a')).toBe(0)
+        })
+
+        it('markSeen down: the mark never reaches Redis, but the local cache keeps counting at once', async () => {
+            redis.failAlways('exec', SEEN_PREFIX)
+            setUpSessionType('allowed', 'a')
+
+            await runBatches('a')
+
+            expect(timesCountedAsNew('a')).toBe(1)
+            // Seen state is masked in the local cache only — nothing persisted for other consumers.
+            expect(redis.store.has(seenKey('a'))).toBe(false)
+        })
+
+        it('isBlocked down: an already-blocked session leaks past the block every batch; counting once', async () => {
+            redis.failAlways('mget', BLOCK_PREFIX)
+            setUpSessionType('blocked', 'a') // pre-seeded block flag that isBlocked can no longer read
+
+            await runBatches('a')
+
+            // Assumed not-blocked → key resolved (heads to recording) instead of dropped; counted once.
+            expect(keyWasResolvedFor('a')).toBe(true)
+            expect(timesCountedAsNew('a')).toBe(1)
+        })
+
+        it('blockSessions down: rate-limited sessions are counted once but never durably blocked', async () => {
+            useBucketCapacity(0)
+            redis.failAlways('exec', BLOCK_PREFIX)
+
+            await runBatches('rate-limited')
+
+            expect(timesCountedAsNew('rate-limited')).toBe(1)
+            expect(keyWasResolvedFor('rate-limited')).toBe(false)
+            expect(redis.store.has(blockKey('rate-limited'))).toBe(false)
         })
     })
 })
