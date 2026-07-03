@@ -59,11 +59,12 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
 
 # Calibrated 2026-07-02 against slo_operation_completed (alert_check, prod, last 7d, n=884k):
 # p50=2.1s  p95=10.1s  p99=23.3s  max=358.8s (~6 min)
-# workflow_execution gives ~1 min headroom over observed max;
-# evaluate_start_to_close covers p99 with room for the 2-retry budget.
+# evaluate_start_to_close covers p99 with room for the 2-retry budget;
+# activity_schedule_to_close = start_to_close x max_attempts + backoff + queue-wait buffer;
+# workflow_execution gives ~1 min headroom over the activity budget.
 _REAL_TIME_TIMEOUTS = AlertTimeouts(
-    workflow_execution=dt.timedelta(minutes=7),
-    activity_schedule_to_close=dt.timedelta(minutes=6),
+    workflow_execution=dt.timedelta(minutes=8),
+    activity_schedule_to_close=dt.timedelta(minutes=7),
     evaluate_start_to_close=dt.timedelta(minutes=3),
     evaluate_retry_policy=_REAL_TIME_EVALUATE_RETRY_POLICY,
     heartbeat_timeout=dt.timedelta(seconds=90),
