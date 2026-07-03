@@ -93,13 +93,12 @@ describe('SessionTracker', () => {
             expect(mockRedisClient.mget).toHaveBeenCalledTimes(2)
         })
 
-        it('fails safe by assuming unknown sessions are seen on a Redis error', async () => {
+        it('fails hard by throwing on a Redis error so the caller retries instead of guessing', async () => {
             mockRedisClient.mget = jest.fn().mockRejectedValue(new Error('Redis down'))
 
-            const result = await sessionTracker.hasSeen(sessionSet([1, 'a']))
-
-            // Assuming "seen" means we won't regenerate a key or re-consume the new-session budget.
-            expect(result.get(1, 'a')).toBe(true)
+            // hasSeen drives the key generate-vs-get decision, so it must not guess "seen" (which would
+            // record cleartext / switch keys). It throws for the step's retry wrapper to re-run.
+            await expect(sessionTracker.hasSeen(sessionSet([1, 'a']))).rejects.toThrow('Redis down')
             expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalled()
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
         })

@@ -45,8 +45,11 @@ export class SessionTracker {
      * {@link markSeen} after a session's key has been generated. Local-cache hits are answered without
      * Redis; the remaining sessions are checked in a single MGET.
      *
-     * Fails safe: on a Redis error the unknown sessions are assumed to HAVE been seen, so a transient
-     * outage doesn't cause a key to be regenerated or the new-session budget to be re-consumed.
+     * Fails hard: on a Redis error this throws so the caller's retry wrapper re-runs. hasSeen decides
+     * whether a session generates a new key or fetches its existing one, so a wrong answer would record
+     * cleartext (new session fetched as existing → no key) or switch a session's key mid-outage. Guessing
+     * would corrupt encryption; halting until Redis recovers is the safe degradation. (Rate limiting can
+     * tolerate a wrong answer — key integrity can't — so the stricter requirement wins here.)
      *
      * @returns a map keyed by `(teamId, sessionId)` — true if seen before, false if new
      */
@@ -84,12 +87,11 @@ export class SessionTracker {
             }
             return result
         } catch (error) {
+            // Hard-fail: rethrow so the step's retry re-runs rather than guessing "seen" and risking a
+            // keyless (cleartext) recording or a mid-session key switch.
             logger.error('session_tracker_has_seen_redis_error', { error: String(error) })
             SessionBatchMetrics.incrementSessionTrackerRedisErrors()
-            for (const { teamId, sessionId } of misses) {
-                result.set(teamId, sessionId, true)
-            }
-            return result
+            throw error
         } finally {
             if (client) {
                 await this.redisPool.release(client)

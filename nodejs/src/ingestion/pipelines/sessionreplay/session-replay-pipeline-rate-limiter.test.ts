@@ -331,9 +331,9 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         })
     })
 
-    // hasSeen fails safe (assume seen), so every session in that batch is treated as existing and none
-    // are counted as new — rate limiting is effectively skipped for that batch.
-    describe('when the hasSeen read (tracker MGET) fails on the first batch', () => {
+    // hasSeen fails hard (throws), so the step's retry wrapper re-runs it — a transient blip recovers on
+    // the retry and counting is unaffected (rather than guessing "seen" and risking a keyless recording).
+    describe('when the hasSeen read (tracker MGET) fails once then recovers on retry', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
             ['blocked', 1],
@@ -412,13 +412,13 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             }
         }
 
-        it('hasSeen down: sessions are never counted as new — rate limiting is bypassed entirely', async () => {
+        it('hasSeen down: the batch fails hard (throws) rather than guessing — nothing is counted', async () => {
             redis.failAlways('mget', SEEN_PREFIX)
             setUpSessionType('allowed', 'a')
 
-            await runBatches('a')
-
-            // Fail-safe assumes seen, so nothing is ever classified new → the rate limiter never runs.
+            // Fail-hard: retries exhaust and the batch throws, so the consumer reprocesses when Redis
+            // recovers instead of recording keyless. hasSeen runs before counting, so nothing is counted.
+            await expect(runBatch('a', 1)).rejects.toThrow()
             expect(timesCountedAsNew('a')).toBe(0)
         })
 
