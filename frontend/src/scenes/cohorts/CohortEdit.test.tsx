@@ -490,4 +490,44 @@ describe('cohortEditLogic', () => {
             }
         )
     })
+
+    describe('locked type and populate-from controls on existing cohorts', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('renders locked controls as read-only text with a visible explanation, not a dead-click dropdown', async () => {
+            const cohortId = 10
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Static Cohort',
+                        is_static: true,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // The explanations are always visible (previously only surfaced in a disabled-dropdown hover tooltip)
+            expect(
+                await screen.findByText('Create a new cohort to use a different type of cohort.')
+            ).toBeInTheDocument()
+            expect(
+                screen.getByText('Create a new cohort to change how a static cohort is populated.')
+            ).toBeInTheDocument()
+
+            // The locked controls are read-only text, not interactive select buttons (the dead click):
+            // a LemonSelect would render the data-attr onto a <button>
+            expect(document.querySelector('[data-attr="cohort-type"]')?.tagName).not.toBe('BUTTON')
+            expect(document.querySelector('[data-attr="static-cohort-mode"]')?.tagName).not.toBe('BUTTON')
+        })
+    })
 })

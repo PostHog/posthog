@@ -20,7 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
@@ -52,6 +52,30 @@ import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
+
+const POPULATE_FROM_OPTIONS: { label: string; value: StaticCohortMode }[] = [
+    { label: 'Criteria · One-time snapshot', value: 'criteria' },
+    { label: 'Upload or add people', value: 'people' },
+]
+
+/** A read-only rendering of a locked field: the current value plus a clearly-visible explanation
+ * of why it can't be changed. Used in place of a disabled dropdown, which reads as a dead click. */
+function LockedFieldValue({
+    label,
+    explanation,
+    dataAttr,
+}: {
+    label: string
+    explanation: string
+    dataAttr?: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-y-1" data-attr={dataAttr}>
+            <span className="font-medium">{label}</span>
+            <span className="text-secondary text-xs max-w-prose">{explanation}</span>
+        </div>
+    )
+}
 
 function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Element | null {
     const sections = [
@@ -387,24 +411,31 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             >
                                 <div className="flex gap-4 flex-wrap">
                                     <div className={cn('flex-1 flex flex-col gap-y-4')}>
-                                        <LemonField name="is_static" label={null}>
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    disabledReason={
-                                                        isNewCohort
-                                                            ? null
-                                                            : 'Create a new cohort to use a different type of cohort.'
-                                                    }
-                                                    options={COHORT_TYPE_OPTIONS}
-                                                    value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                                    onChange={(cohortType) => {
-                                                        onChange(cohortType === CohortTypeEnum.Static)
-                                                    }}
-                                                    fullWidth
-                                                    data-attr="cohort-type"
-                                                />
-                                            )}
-                                        </LemonField>
+                                        {isNewCohort ? (
+                                            <LemonField name="is_static" label={null}>
+                                                {({ value, onChange }) => (
+                                                    <LemonSelect
+                                                        options={COHORT_TYPE_OPTIONS}
+                                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                                        onChange={(cohortType) => {
+                                                            onChange(cohortType === CohortTypeEnum.Static)
+                                                        }}
+                                                        fullWidth
+                                                        data-attr="cohort-type"
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        ) : (
+                                            <LockedFieldValue
+                                                label={
+                                                    cohort.is_static
+                                                        ? 'Static · Updated manually'
+                                                        : 'Dynamic · Updates automatically'
+                                                }
+                                                explanation="Create a new cohort to use a different type of cohort."
+                                                dataAttr="cohort-type"
+                                            />
+                                        )}
 
                                         {cohort.is_static && (
                                             <div className="flex flex-col gap-y-2">
@@ -414,27 +445,25 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
                                                         : 'Manually add people via CSV upload or by selecting them individually.'}
                                                 </p>
-                                                <LemonSelect
-                                                    disabledReason={
-                                                        isNewCohort
-                                                            ? undefined
-                                                            : 'Create a new cohort to change how a static cohort is populated.'
-                                                    }
-                                                    options={[
-                                                        {
-                                                            label: 'Criteria · One-time snapshot',
-                                                            value: 'criteria' as const,
-                                                        },
-                                                        {
-                                                            label: 'Upload or add people',
-                                                            value: 'people' as const,
-                                                        },
-                                                    ]}
-                                                    value={staticCohortMode}
-                                                    onChange={(value) => setStaticCohortMode(value)}
-                                                    fullWidth
-                                                    data-attr="static-cohort-mode"
-                                                />
+                                                {isNewCohort ? (
+                                                    <LemonSelect
+                                                        options={POPULATE_FROM_OPTIONS}
+                                                        value={staticCohortMode}
+                                                        onChange={(value) => setStaticCohortMode(value)}
+                                                        fullWidth
+                                                        data-attr="static-cohort-mode"
+                                                    />
+                                                ) : (
+                                                    <LockedFieldValue
+                                                        label={
+                                                            POPULATE_FROM_OPTIONS.find(
+                                                                (option) => option.value === staticCohortMode
+                                                            )?.label ?? ''
+                                                        }
+                                                        explanation="Create a new cohort to change how a static cohort is populated."
+                                                        dataAttr="static-cohort-mode"
+                                                    />
+                                                )}
                                             </div>
                                         )}
 
@@ -557,7 +586,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         {/* TODO: @adamleithp Allow users to download a template CSV file */}
                                         {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                         {/* TODO: @adamleithp Render the csv file and validate it */}
-                                        {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
                                         <LemonField name="csv" data-attr="cohort-csv">
                                             {({ onChange }) => (
                                                 <LemonFileInput
