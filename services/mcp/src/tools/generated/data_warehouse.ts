@@ -180,6 +180,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -285,6 +288,9 @@ const viewMaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -330,6 +336,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -395,6 +404,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -444,6 +456,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
