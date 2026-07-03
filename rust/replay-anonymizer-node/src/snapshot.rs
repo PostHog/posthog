@@ -377,10 +377,9 @@ pub fn anonymize_snapshot_data_opts(
     inner: &mut [u8],
     opts: AnonymizeOpts,
 ) -> SResult<AnonymizedMessage> {
-    // JSON.parse on the TS side dies on pathological nesting too (stack overflow -> caught ->
-    // received_non_snapshot_message); the guard keeps the recursive parse/walk off the thread stack.
-    reject_if_too_deep(inner, "snapshot event json")
-        .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
+    // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
+    // past its limit, and every recursive parse below is preceded by a span-local
+    // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
     let ctx = Ctx::new(allow);
     match scan_envelope(inner)? {
         Scanned::Envelope(env) => {
@@ -1027,6 +1026,8 @@ fn process_event_at(
     // dedupes duplicate keys, so re-serializing from the parsed tree guarantees no shadowed
     // duplicate content inside `data` survives in the raw bytes. Later events sit entirely past
     // `end`, so a consumed span is never re-read.
+    reject_if_too_deep(&inner[data.0..data.1], "snapshot event json")
+        .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
     let use_scratch = !sink.mutated && (data.1 - data.0) <= sink.scratch_budget;
     if use_scratch {
         sink.scratch_budget -= data.1 - data.0;
@@ -1202,6 +1203,8 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
 /// Full-parse fallback for a single event whose bytes the scanner cannot prove safe (escaped or
 /// duplicate keys): parse, scrub, and re-serialize the whole event, normalizing like JSON.parse.
 fn process_event_via_tree(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SResult<()> {
+    reject_if_too_deep(&inner[span.0..span.1], "snapshot event json")
+        .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
     let mut scratch = inner[span.0..span.1].to_vec();
     let mut event =
         parse_untrusted(&mut scratch).map_err(|e| non_snapshot(format!("event: {e}")))?;
@@ -1253,6 +1256,10 @@ fn anonymize_via_tree_mut(
     distinct_id: &str,
     inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
+    // JSON.parse on the TS side dies on pathological nesting too (stack overflow -> caught ->
+    // received_non_snapshot_message); the guard keeps the recursive parse/walk off the thread stack.
+    reject_if_too_deep(inner, "snapshot event json")
+        .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
     let inner_len = inner.len();
     let mut root =
         parse_untrusted(inner).map_err(|e| non_snapshot(format!("event json: {e}")))?;

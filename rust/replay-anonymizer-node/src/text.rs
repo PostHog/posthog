@@ -55,10 +55,7 @@ pub fn redact_emails(input: &str) -> Option<String> {
 }
 
 fn find_at(bytes: &[u8], from: usize) -> Option<usize> {
-    bytes[from..]
-        .iter()
-        .position(|&b| b == b'@')
-        .map(|i| from + i)
+    memchr::memchr(b'@', &bytes[from..]).map(|i| from + i)
 }
 
 /// Longest `end` in `(domain_start, scan_end]` where the domain ends with `.` + >=2 letters, else None.
@@ -129,13 +126,20 @@ fn tokenize_scrub(allow: &AllowLists, text: &str) -> Option<String> {
         if i >= bytes.len() {
             break;
         }
-        // Word run.
+        // Word run; numeric-token shape is classified in the same scan.
         let word_start = i;
+        let mut saw_digit = false;
+        let mut numericish = true; // only digits and . , - + so far
         while i < bytes.len() {
             let b = bytes[i];
             if b < 0x80 {
                 if !is_ascii_word_byte(b) {
                     break;
+                }
+                if b.is_ascii_digit() {
+                    saw_digit = true;
+                } else if !matches!(b, b'.' | b',' | b'-' | b'+') {
+                    numericish = false;
                 }
                 i += 1;
             } else {
@@ -143,10 +147,17 @@ fn tokenize_scrub(allow: &AllowLists, text: &str) -> Option<String> {
                 if !is_word_char(c) {
                     break;
                 }
+                numericish = false;
                 i += c.len_utf8();
             }
         }
-        emit_word(allow, &text[word_start..i], &mut out, &mut changed);
+        emit_word(
+            allow,
+            &text[word_start..i],
+            saw_digit && numericish,
+            &mut out,
+            &mut changed,
+        );
     }
     if changed {
         Some(out)
@@ -169,8 +180,8 @@ fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '\'' || c == '\u{2019}'
 }
 
-fn emit_word(allow: &AllowLists, word: &str, out: &mut String, changed: &mut bool) {
-    if is_numeric_token(word) {
+fn emit_word(allow: &AllowLists, word: &str, numeric: bool, out: &mut String, changed: &mut bool) {
+    if numeric {
         push_redacted(word, NUMBER_CHAR, out);
         *changed = true;
     } else if word_is_allowed(allow, word) {
@@ -202,7 +213,12 @@ fn word_is_allowed(allow: &AllowLists, word: &str) -> bool {
     if allow.text_contains(word) {
         return true;
     }
-    if word.contains('\u{2019}') {
+    // Possessive/quote forms all end in `s`, `'` or `\u{2019}` (whose UTF-8 ends 0x99) — anything
+    // else can't match below, so the suffix machinery is skipped for the typical redacted word.
+    if !matches!(word.as_bytes().last(), Some(b's') | Some(b'\'') | Some(0x99)) {
+        return false;
+    }
+    if !word.is_ascii() && word.contains('\u{2019}') {
         let normalized = word.replace('\u{2019}', "'");
         if allow.text_contains(&normalized) {
             return true;
@@ -232,14 +248,3 @@ fn strip_possessive(word: &str) -> Option<&str> {
     None
 }
 
-fn is_numeric_token(word: &str) -> bool {
-    let mut saw_digit = false;
-    for c in word.chars() {
-        if c.is_ascii_digit() {
-            saw_digit = true;
-        } else if !matches!(c, '.' | ',' | '-' | '+') {
-            return false;
-        }
-    }
-    saw_digit
-}

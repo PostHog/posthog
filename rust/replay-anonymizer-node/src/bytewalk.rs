@@ -43,10 +43,28 @@ const MAX_OBJECT_KEYS: usize = 32;
 /// Marker: this event must be handled by the parse instead.
 struct Fallback;
 
+/// First 8 bytes of a key as a comparable word (shorter keys zero-padded).
+#[inline]
+fn key_prefix(key: &[u8]) -> u64 {
+    let mut buf = [0u8; 8];
+    let n = key.len().min(8);
+    buf[..n].copy_from_slice(&key[..n]);
+    u64::from_le_bytes(buf)
+}
+
+/// Recursion bound for the walk (one count per nested container; real DOM nesting is ~25). Beyond
+/// this the event declines to the parse path, whose own span-local depth guard fails it closed —
+/// deliberately far below the parse guard's 1024 because walk frames are larger than parse frames.
+const MAX_WALK_DEPTH: usize = 256;
+
 struct Walker<'c, 'a> {
     ctx: &'c Ctx<'c>,
     bytes: &'a [u8],
     changed: bool,
+    depth: usize,
+    /// Duplicate-key scratch shared across the recursion: each object checks its own frame
+    /// (`base..`), so there is no per-object array to zero.
+    seen: Vec<(Span, u64)>,
 }
 
 type FieldFn<'w, 'c, 'a> = dyn FnMut(&mut Walker<'c, 'a>, Span, usize, &mut Vec<u8>) -> Option<usize> + 'w;
@@ -69,6 +87,8 @@ pub fn scrub_data_bytes(
         ctx,
         bytes,
         changed: false,
+        depth: 0,
+        seen: Vec::with_capacity(64),
     };
     let end = match (ty, source) {
         (Some(TYPE_FULL_SNAPSHOT), _) => w.walk_object(
@@ -112,12 +132,29 @@ impl<'c, 'a> Walker<'c, 'a> {
         out: &mut Vec<u8>,
         field: &mut FieldFn<'_, 'c, 'a>,
     ) -> Option<usize> {
+        if self.depth >= MAX_WALK_DEPTH {
+            return None;
+        }
+        self.depth += 1;
+        let base = self.seen.len();
+        let result = self.walk_object_inner(base, start, out, field);
+        self.seen.truncate(base);
+        self.depth -= 1;
+        result
+    }
+
+    fn walk_object_inner(
+        &mut self,
+        base: usize,
+        start: usize,
+        out: &mut Vec<u8>,
+        field: &mut FieldFn<'_, 'c, 'a>,
+    ) -> Option<usize> {
         let bytes = self.bytes;
         if bytes.get(start) != Some(&b'{') {
             return None;
         }
         out.push(b'{');
-        let mut seen: [Span; MAX_OBJECT_KEYS] = [(0, 0); MAX_OBJECT_KEYS];
         let mut nkeys = 0usize;
         let mut pos = start + 1;
         let mut first = true;
@@ -143,13 +180,17 @@ impl<'c, 'a> Walker<'c, 'a> {
             if raw_key.contains(&b'\\') || nkeys >= MAX_OBJECT_KEYS {
                 return None;
             }
-            if seen[..nkeys]
-                .iter()
-                .any(|prior| &bytes[prior.0..prior.1] == raw_key)
-            {
+            // Duplicate detection compares (len, 8-byte prefix) first — rrweb keys are short, so
+            // the full memcmp only runs for same-length same-prefix pairs.
+            let prefix = key_prefix(raw_key);
+            if self.seen[base..].iter().any(|(prior, prior_prefix)| {
+                *prior_prefix == prefix
+                    && prior.1 - prior.0 == raw_key.len()
+                    && (raw_key.len() <= 8 || &bytes[prior.0..prior.1] == raw_key)
+            }) {
                 return None;
             }
-            seen[nkeys] = key;
+            self.seen.push((key, prefix));
             nkeys += 1;
             if nkeys > 1 {
                 out.push(b',');
@@ -167,6 +208,21 @@ impl<'c, 'a> Walker<'c, 'a> {
 
     /// Emit-walk the array at `start`, items via `item`. Returns the position past the `]`.
     fn walk_array(
+        &mut self,
+        start: usize,
+        out: &mut Vec<u8>,
+        item: &mut dyn FnMut(&mut Walker<'c, 'a>, usize, &mut Vec<u8>) -> Option<usize>,
+    ) -> Option<usize> {
+        if self.depth >= MAX_WALK_DEPTH {
+            return None;
+        }
+        self.depth += 1;
+        let result = self.walk_array_inner(start, out, item);
+        self.depth -= 1;
+        result
+    }
+
+    fn walk_array_inner(
         &mut self,
         start: usize,
         out: &mut Vec<u8>,
