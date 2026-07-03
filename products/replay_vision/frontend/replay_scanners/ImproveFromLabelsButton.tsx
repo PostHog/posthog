@@ -15,6 +15,7 @@ import { readReasoning } from '../utils/observation'
 import type { improveFromLabelsLogicType } from './ImproveFromLabelsButtonType'
 
 export interface LabeledExample {
+    sessionId: string
     outcome: string | null
     reasoning: string | null
     isCorrect: boolean
@@ -59,7 +60,7 @@ export function buildImproveFromLabelsMessage({
         lines.push('', `Sessions it got WRONG (${wrong.length}) — fix these:`)
         for (const e of wrong) {
             lines.push(
-                `- Scanner output: ${e.outcome ?? 'n/a'}` +
+                `- Session ${e.sessionId}. Scanner output: ${e.outcome ?? 'n/a'}` +
                     (e.feedback ? `. What it should be: ${e.feedback}` : '') +
                     (e.reasoning ? `. Its reasoning: ${truncateReasoning(e.reasoning)}` : '')
             )
@@ -69,12 +70,15 @@ export function buildImproveFromLabelsMessage({
         lines.push('', `Sessions it got RIGHT (${correct.length}) — keep these passing:`)
         for (const e of correct) {
             lines.push(
-                `- Scanner output: ${e.outcome ?? 'n/a'}` +
+                `- Session ${e.sessionId}. Scanner output: ${e.outcome ?? 'n/a'}` +
                     (e.reasoning ? `. Its reasoning: ${truncateReasoning(e.reasoning)}` : '')
             )
         }
     }
     lines.push(
+        '',
+        "If a session's feedback and the scanner output seem to disagree or you need more context, you can look " +
+            'up and summarize that session recording by its session ID to check what actually happened.',
         '',
         'Please rewrite the scanner prompt so it keeps the correct cases right and fixes the wrong ones using the ' +
             'feedback. Explain what you changed and why, then give me the full updated prompt I can paste into the scanner.'
@@ -127,6 +131,7 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
                     }
                     return [
                         {
+                            sessionId: observation.session_id,
                             outcome: describeObservationOutcome(observation),
                             reasoning: readReasoning(observation),
                             isCorrect: label.is_correct,

@@ -470,6 +470,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         scannerName={scannerName}
                                         scannerType={scannerType}
                                         prompt={prompt}
+                                        sessionId={observation.session_id}
                                         outcome={describeObservationOutcome(observation)}
                                         reasoning={reasoning}
                                     />

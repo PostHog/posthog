@@ -18,12 +18,19 @@ describe('ImproveFromLabelsButton', () => {
                 prompt: 'Did the user abandon checkout?',
                 examples: [
                     {
+                        sessionId: 'sess-wrong',
                         outcome: 'Verdict: no',
                         reasoning: 'closed the tab',
                         isCorrect: false,
                         feedback: 'should be yes',
                     },
-                    { outcome: 'Verdict: yes', reasoning: 'completed payment', isCorrect: true, feedback: '' },
+                    {
+                        sessionId: 'sess-right',
+                        outcome: 'Verdict: yes',
+                        reasoning: 'completed payment',
+                        isCorrect: true,
+                        feedback: '',
+                    },
                 ],
             })
 
@@ -32,6 +39,9 @@ describe('ImproveFromLabelsButton', () => {
             expect(message).toContain('What it should be: should be yes')
             expect(message).toContain('Sessions it got RIGHT (1)')
             expect(message).toContain('rewrite the scanner prompt')
+            // Session IDs let PostHog AI look up and summarize the recordings for more context.
+            expect(message).toContain('Session sess-wrong')
+            expect(message).toContain('Session sess-right')
             // Recording-derived text is flagged as untrusted to PostHog AI.
             expect(message).toContain('untrusted data')
         })
@@ -42,7 +52,15 @@ describe('ImproveFromLabelsButton', () => {
                 scannerName: 's',
                 scannerType: 'monitor',
                 prompt: 'p',
-                examples: [{ outcome: 'Verdict: no', reasoning: longReasoning, isCorrect: false, feedback: 'fix' }],
+                examples: [
+                    {
+                        sessionId: 'sess-1',
+                        outcome: 'Verdict: no',
+                        reasoning: longReasoning,
+                        isCorrect: false,
+                        feedback: 'fix',
+                    },
+                ],
             })
 
             expect(message).not.toContain(longReasoning)
@@ -54,7 +72,9 @@ describe('ImproveFromLabelsButton', () => {
                 scannerName: 's',
                 scannerType: 'monitor',
                 prompt: 'p',
-                examples: [{ outcome: 'Verdict: yes', reasoning: null, isCorrect: true, feedback: '' }],
+                examples: [
+                    { sessionId: 'sess-1', outcome: 'Verdict: yes', reasoning: null, isCorrect: true, feedback: '' },
+                ],
             })
 
             expect(message).not.toContain('got WRONG')
@@ -80,6 +100,7 @@ describe('ImproveFromLabelsButton', () => {
             ;(visionScannersObservationsList as jest.Mock).mockResolvedValue({
                 results: [
                     {
+                        session_id: 'sess-wrong',
                         label: { is_correct: false, feedback: 'should be yes' },
                         scanner_result: { model_output: { verdict: 'no', reasoning: 'closed the tab' } },
                     },
@@ -94,6 +115,7 @@ describe('ImproveFromLabelsButton', () => {
             // No leading "!" — the message is seeded as a draft, not auto-run.
             expect(options.startsWith('!')).toBe(false)
             expect(options).toContain('Sessions it got WRONG (1)')
+            expect(options).toContain('Session sess-wrong')
             expect(options).toContain('should be yes')
         })
 

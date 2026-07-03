@@ -28,11 +28,12 @@ describe('ImproveScannerPromptButton', () => {
     })
 
     describe('buildImproveScannerPromptMessage', () => {
-        it('includes the prompt, outcome, reasoning and a rewrite instruction', () => {
+        it('includes the prompt, outcome, reasoning, session ID and a rewrite instruction', () => {
             const message = buildImproveScannerPromptMessage({
                 scannerName: 'Checkout drop-off',
                 scannerType: 'monitor',
                 prompt: 'Did the user abandon checkout?',
+                sessionId: 'sess-1',
                 outcome: 'Verdict: no',
                 reasoning: 'The user closed the tab on the payment step.',
             })
@@ -43,6 +44,8 @@ describe('ImproveScannerPromptButton', () => {
             expect(message).toContain('Result on this session: Verdict: no')
             expect(message).toContain("Model's reasoning: The user closed the tab on the payment step.")
             expect(message).toContain('rewrite the scanner prompt')
+            // The session ID lets PostHog AI look up and summarize the recording for more context.
+            expect(message).toContain('Session ID: sess-1')
             // Recording-derived text is flagged as untrusted to PostHog AI.
             expect(message).toContain('untrusted data')
         })
@@ -52,6 +55,7 @@ describe('ImproveScannerPromptButton', () => {
                 scannerName: 'Session summary',
                 scannerType: 'summarizer',
                 prompt: 'Summarize the user goal.',
+                sessionId: 'sess-1',
             })
 
             expect(message).not.toContain('Result on this session:')
@@ -76,6 +80,7 @@ describe('ImproveScannerPromptButton', () => {
                         scannerName="Checkout drop-off"
                         scannerType="monitor"
                         prompt="Did the user abandon checkout?"
+                        sessionId="sess-1"
                         outcome="Verdict: no"
                         reasoning="The user closed the tab on the payment step."
                     />
