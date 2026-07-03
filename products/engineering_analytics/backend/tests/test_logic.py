@@ -272,6 +272,7 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            ["E2E CI"],
             5,
             2,
         )
@@ -288,6 +289,7 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
 
@@ -312,6 +314,7 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            list[str](),
             0,
             0,
         )
@@ -324,18 +327,20 @@ class TestEndpointMapping(BaseTest):
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
-        # completed_count, latest_failed, latest_conclusion.
+        # completed_count, latest_failed, latest_conclusion, rerun_cycles.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success"),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success", 3),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, ""),
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, "", 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
         bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows)]):
+        # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
+        prev_rows = [("PostHog", "posthog", "CI", 0.95)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
@@ -343,6 +348,9 @@ class TestEndpointMapping(BaseTest):
         assert items[0].granularity == "day"
         assert items[0].latest_run_failed is False
         assert items[0].latest_run_conclusion == "success"
+        assert items[0].rerun_cycles == 3
+        assert items[0].success_rate_prev == 0.95
+        assert items[1].success_rate_prev is None
         # The series spans the whole window, zero-filled except the bucket with runs.
         assert len(items[0].buckets) >= 30
         seeded_bucket = next(entry for entry in items[0].buckets if entry.run_count > 0)
@@ -874,6 +882,44 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # A repo with no such workflow yields an empty list (not an error).
         assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []
 
+    def test_workflow_run_activity_projects_and_windows(self) -> None:
+        # The chart endpoint returns compact per-run points over the window, newest first, with the
+        # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    8101, "CI", "sha-a", "completed", "failure", _ago(2), _ago(2), pr_number=80, head_branch="feat"
+                ),
+                _run_row(8102, "CI", "sha-b", "completed", "success", _ago(1), _ago(1)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", _ago(1), _ago(1)),
+                # Older than the default -30d window — excluded unless the caller widens it.
+                _run_row(8104, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+            ],
+        )
+        activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        assert [p.run_id for p in activity.points] == [8102, 8101]  # only CI runs in window, newest first
+        assert activity.truncated is False
+        assert activity.limit == 2000
+        # Each field maps to the right column — guards a wrong unpack order in _to_point.
+        newest, failed = activity.points
+        assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
+        assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
+        assert all(p.run_started_at is not None for p in activity.points)
+
+        # Widening the window pulls in the older run.
+        wide = api.get_workflow_run_activity(
+            team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
+        )
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+
     def test_workflow_detail_branch_filter(self) -> None:
         # The workflow detail page's runs list and runner-cost breakdown must honor the same branch scope
         # as the Workflows tab — without it, drilling in from a branch-scoped tab widened back to every
@@ -921,6 +967,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             for c in api.get_workflow_runner_costs(team=self.team, repo=repo, workflow_name=workflow, branch="main")
         )
         assert (all_jobs, main_jobs) == (3, 2)
+
+        # The activity chart honors the same branch scope as the runs list, so it can't plot other
+        # branches' runs under an applied branch filter.
+        all_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow)
+        assert {p.run_id for p in all_activity.points} == {8501, 8502, 8503}
+        main_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow, branch="main")
+        assert {p.run_id for p in main_activity.points} == {8501, 8502}
 
     def test_pr_runs_span_all_commits(self) -> None:
         # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.

@@ -720,6 +720,30 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
+            "permission denied for schema extensions",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for schema extensions",
+        ],
+    )
+    def test_permission_denied_for_schema_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permission-denied-for-schema error should be non-retryable: {error_msg}"
+
+    def test_permission_denied_for_schema_returns_usage_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "permission denied for schema extensions"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied-for-schema error should surface an actionable message"
+        # The schema-USAGE message must win over the generic table-SELECT message and advise USAGE
+        # rather than the misleading "GRANT SELECT ON <table>".
+        assert "USAGE" in friendly[0]
+        assert "GRANT SELECT" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'ObjectNotInPrerequisiteState: materialized view "mv_dayplan_blocks" has not been populated',
@@ -750,6 +774,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'user mapping not found for user "svc_role", server "remote_server"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'UndefinedObject: user mapping not found for user "svc_role", server "remote_server"',
+        ],
+    )
+    def test_missing_fdw_user_mapping_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing FDW user mapping error should be non-retryable: {error_msg}"
+
+    def test_missing_fdw_user_mapping_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'user mapping not found for user "svc_role", server "remote_server"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing FDW user mapping error should surface an actionable message"
+        assert "CREATE USER MAPPING" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1069,6 +1114,12 @@ class TestIsConnectionDroppedError:
             # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
             # reconnect once a session returns a connection to the pool.
             psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
+            # Supavisor loses the backend socket mid-session (idle cull, restart, failover) and, once
+            # the client is past auth, surfaces it as an XX000 InternalError_ "Internal error
+            # (authenticated): :closed" — ":closed" being the Erlang gen_tcp peer-closed reason. No
+            # error code, so it's matched on the full phrase including the ":closed" reason; same
+            # transient class as the pooler drops above and recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
@@ -1109,6 +1160,10 @@ class TestIsConnectionDroppedError:
             # non-recoverable — the InternalError_ match is scoped to the known pooler codes
             # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
+            # The Supavisor authenticated-state match is scoped to the ":closed" socket-drop reason.
+            # Any other "Internal error (authenticated): ..." reason could be a permanent pooler or
+            # protocol failure that must surface immediately, so it must NOT be treated as a drop.
+            psycopg.errors.InternalError_("Internal error (authenticated): :protocol_error"),
             # libpq's bare English "Connection refused" is a permanent wrong-host/port
             # misconfiguration (non-retryable in source.py) and must NOT be confused with Supavisor's
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain

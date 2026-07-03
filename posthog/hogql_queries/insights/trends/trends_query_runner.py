@@ -775,7 +775,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=[series.series for series in self.series], user=self.user
+            )
 
         return None
 

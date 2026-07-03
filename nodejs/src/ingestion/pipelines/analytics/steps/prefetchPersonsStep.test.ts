@@ -48,4 +48,14 @@ describe('prefetchPersonsStep', () => {
         ])
         expect(storeB.prefetchPersons).toHaveBeenCalledWith([{ teamId: 4, distinctId: 'user-b', batchId: 2 }])
     })
+
+    it('passes events through without prefetching when disabled', async () => {
+        const store = createStore(1)
+        const step = prefetchPersonsStep<TestInput>(false)
+
+        const results = await step([createInput('user-a', 3, store), createInput('user-b', 4, store)])
+
+        expect(results.map((result) => result.type)).toEqual([PipelineResultType.OK, PipelineResultType.OK])
+        expect(store.prefetchPersons).not.toHaveBeenCalled()
+    })
 })

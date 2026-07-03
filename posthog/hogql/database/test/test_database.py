@@ -22,6 +22,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
@@ -41,6 +42,7 @@ from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
+    DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
     LazyJoin,
@@ -1667,6 +1669,200 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert person_id_field.chain == ["events_data", "person_id"]
 
         prepare_and_print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+
+    def test_data_warehouse_events_modifier_remaps_timestamp_over_existing_column(self):
+        # A warehouse table can have its own DateTime column literally named `timestamp` (e.g. an
+        # ingestion timestamp) while the series is configured to use a different event-time column.
+        # The configured timestamp_field must win: `timestamp` should resolve to the configured column,
+        # not the table's own `timestamp`, so queries don't silently bucket/filter on the wrong column.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="decoy_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "event_time": "DateTime64(3, 'UTC')",
+                "timestamp": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="decoy_table",
+                    id_field="id",
+                    timestamp_field="event_time",
+                    distinct_id_field="id",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        timestamp_field = db.get_table("decoy_table").fields["timestamp"]
+        assert isinstance(timestamp_field, ExpressionField)
+        assert isinstance(timestamp_field.expr, ast.Field)
+        assert timestamp_field.expr.chain == ["event_time"]
+
+    def test_data_warehouse_events_modifier_keeps_existing_timestamp_column_when_configured(self):
+        # When the configured timestamp_field is `timestamp` itself, the table's own DateTime column
+        # should be used directly rather than wrapped in a remapping expression.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_timestamp_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_timestamp_table",
+                    id_field="id",
+                    timestamp_field="timestamp",
+                    distinct_id_field="id",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        timestamp_field = db.get_table("native_timestamp_table").fields["timestamp"]
+        assert isinstance(timestamp_field, DateTimeDatabaseField)
+
+    @parameterized.expand(
+        [
+            ("id", "real_id"),
+            ("distinct_id", "real_distinct_id"),
+        ]
+    )
+    def test_data_warehouse_events_modifier_remaps_identity_field_over_existing_column(
+        self, virtual_field: str, configured_column: str
+    ):
+        # A warehouse table can have its own column literally named `id` / `distinct_id` while the
+        # series is configured to use a different column. The configured `id_field` / `distinct_id_field`
+        # must win, so the virtual field resolves to the configured column rather than the table's own
+        # decoy column (which would otherwise be selected silently).
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="decoy_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "real_id": "String",
+                "real_distinct_id": "String",
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="decoy_identity_table",
+                    id_field="real_id",
+                    distinct_id_field="real_distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("decoy_identity_table").fields[virtual_field]
+        assert isinstance(field, ExpressionField)
+        assert isinstance(field.expr, ast.Field)
+        assert field.expr.chain == [configured_column]
+
+    @parameterized.expand(
+        [
+            ("id",),
+            ("distinct_id",),
+        ]
+    )
+    def test_data_warehouse_events_modifier_keeps_existing_identity_column_when_configured(self, virtual_field: str):
+        # When the configured field name equals the virtual field name, the table's own column is used
+        # directly rather than wrapped in a remapping expression.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_identity_table",
+                    id_field="id",
+                    distinct_id_field="distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("native_identity_table").fields[virtual_field]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
+        assert isinstance(field, StringDatabaseField)
+
+    def test_data_warehouse_events_modifier_keeps_existing_person_id_column(self):
+        # Unlike id/distinct_id/timestamp, person_id has no configured field on the modifier to remap
+        # from, and a native `person_id` column is treated as authoritative (e.g. an already-resolved
+        # person UUID). It must win over the distinct_id-derived fallback rather than being overridden.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_person_id_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "user_id": "String",
+                "person_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_person_id_table",
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        person_id_field = db.get_table("native_person_id_table").fields["person_id"]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
+        assert isinstance(person_id_field, StringDatabaseField)
 
     def test_data_warehouse_events_modifiers_with_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(

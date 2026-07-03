@@ -48,7 +48,7 @@ export class StateManager {
             // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
             // normalize at the boundary — downstream code treats these as arrays.
             return {
-                scopes,
+                scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
             }

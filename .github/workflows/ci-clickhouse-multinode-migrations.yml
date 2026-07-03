@@ -57,7 +57,7 @@ jobs:
             PRIME_POSTGRES_FROM: schema.sql.gz
             # Pinned chschema build used by the live-schema convergence gate
             # (verify-live.sh). Keep in sync with posthog/clickhouse/hcl/bin/hclexp.
-            HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-c0affa0' }}
+            HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-deff440' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -118,19 +118,20 @@ jobs:
                       # result and the graceful fallback to `migrate` below.
                       BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
                   fi
-                  if [ -n "$BASE_SHA" ]; then
-                      echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
-                  else
-                      echo "key=" >> "$GITHUB_OUTPUT"
-                      echo "::notice::base SHA not found — Postgres schema cache will be skipped"
-                  fi
+                  # Always emit a key so the restore runs; when the exact branch-point
+                  # SHA is unknown, the bare prefix lets restore-keys fall back to the
+                  # most recent cached master schema (any valid schema works — the smoke
+                  # only needs Postgres bootable, migrate_clickhouse doesn't touch it).
+                  echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
 
             - name: Restore Postgres schema cache
-              if: steps.schema-key.outputs.key != ''
+              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      posthog-schema-master-
 
             - name: Log in to ghcr.io
               uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0

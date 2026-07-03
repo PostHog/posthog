@@ -1,5 +1,5 @@
 import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
-import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import type { Series, TimeInterval, TimeSeriesBarChartConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
@@ -101,7 +101,9 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     tooltip?: TimeSeriesBarChartConfig['tooltip']
 }
 
-export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsBarTimeSeriesConfig(
+    opts: BuildTrendsBarTimeSeriesConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,

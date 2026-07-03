@@ -4109,11 +4109,20 @@ export interface ExperimentEventExposureConfig extends Node {
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
-// These are intentionally simplified versions of the full query types.
-// The full types (EventsNode, ExperimentMeanMetric, …) pull in
-// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
-// schema via inline expansion. These slim types use EventPropertyFilter
-// directly, keeping the generated schema compact.
+// Simplified versions of the full query types: they drop the nested
+// metric/node machinery (EventsNode, ExperimentMeanMetric, …) the
+// create/update payloads never need.
+//
+// Property-filter typing is intentionally asymmetric. AnyPropertyFilter is
+// an 18-subtype union that the OpenAPI/MCP codegen inlines (not $ref's) at
+// every use site, so each use expands the generated schema.
+//  - Exposure config uses AnyPropertyFilter: targeting exposure by
+//    person/group/cohort is a real case the runtime validator already
+//    accepts, and EventPropertyFilter[] silently dropped those filters.
+//  - Metric event sources keep EventPropertyFilter[]: the source is inlined
+//    across every metric field (source, numerator, denominator, start/
+//    completion event) in every experiment tool, so widening it multiplies
+//    the expansion — not worth it until metrics need non-event filters.
 
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
@@ -4247,8 +4256,8 @@ export interface ExperimentApiExposureConfig {
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: integer
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilter[]
+    /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+    properties: AnyPropertyFilter[]
 }
 
 /** Exposure criteria for experiment API payloads. */
@@ -6891,6 +6900,7 @@ export const externalDataSources = [
     'InforNexus',
     'Insightful',
     'Insightly',
+    'Instantly',
     'Instatus',
     'Intruder',
     'Invoiced',
@@ -7193,6 +7203,14 @@ export const externalDataSources = [
     'AppLovin',
     'Baserow',
     'Plunk',
+    'Dub',
+    'AirOps',
+    'Podium',
+    'Loops',
+    'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

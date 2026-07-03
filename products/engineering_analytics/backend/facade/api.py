@@ -26,14 +26,19 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    RepoOverview,
+    RunFailureLogs,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
+    WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -138,6 +143,27 @@ def list_workflow_runs(
     )
 
 
+def get_workflow_run_activity(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunActivity:
+    return logic.build_workflow_run_activity(
+        curated=_authorized_source(team, source_id, user_access_control),
+        repo=repo,
+        workflow_name=workflow_name,
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
+    )
+
+
 def get_workflow_runner_costs(
     *,
     team: Team,
@@ -232,3 +258,64 @@ def request_quarantine(
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineRequestResult:
     return logic.request_quarantine(team=team, request=request, user_access_control=user_access_control)
+
+
+def get_repo_overview(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> RepoOverview:
+    return logic.build_repo_overview(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def list_master_failures(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[MasterFailureGroup]:
+    return logic.build_master_failures(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
+    )
+
+
+def get_run_failure_logs(
+    *,
+    team: Team,
+    run_id: int,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> RunFailureLogs:
+    return logic.build_run_failure_logs(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+
+
+def list_job_aggregates(
+    *,
+    team: Team,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowJobAggregate]:
+    return logic.build_job_aggregates(
+        curated=_authorized_source(team, source_id, user_access_control),
+        workflow_name=workflow_name,
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
+    )

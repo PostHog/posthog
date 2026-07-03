@@ -4958,43 +4958,6 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
-class ExperimentApiExposureConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str | None = Field(
-        default=None,
-        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
-    )
-    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
-    kind: Kind1 | None = Field(
-        default=None,
-        description=(
-            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
-        ),
-    )
-    properties: list[EventPropertyFilter] = Field(
-        ...,
-        description="Event property filters. Pass an empty array if no filters needed.",
-    )
-
-
-class ExperimentApiExposureCriteria(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    exposure_config: ExperimentApiExposureConfig | None = None
-    filterTestAccounts: bool | None = None
-    multiple_variant_handling: MultipleVariantHandling | None = Field(
-        default=None,
-        description=(
-            "How to handle entities exposed to multiple variants. 'exclude' (default)"
-            " drops them from the analysis; 'first_seen' assigns them to the variant"
-            " from their earliest exposure."
-        ),
-    )
-
-
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9926,6 +9889,184 @@ class AssistantTrendsQuery(BaseModel):
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
+    )
+
+
+class AssistantWebAnalyticsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown = Field(
+        ...,
+        description=(
+            "Required. Property to break down the table by. The full enum covers"
+            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
+            " marketing/source (UTM source/medium/campaign/term/content, channel,"
+            " referring domain), audience/device (browser, OS, device type, viewport),"
+            " and geography (country, region, city, timezone, language). Path-style"
+            " breakdowns pair naturally with `includeBounceRate` /"
+            " `includeAvgTimeOnPage`."
+        ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    includeAvgTimeOnPage: bool | None = Field(
+        default=False,
+        description=(
+            "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path."
+        ),
+    )
+    includeBounceRate: bool | None = Field(
+        default=False,
+        description=("Add a bounce-rate column. Most useful with a path-style breakdown."),
+    )
+    includeHost: bool | None = Field(
+        default=False,
+        description=(
+            "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`,"
+            " `PreviousPage`), concatenate host + pathname so the same path on"
+            " different hosts is counted separately."
+        ),
+    )
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for"
+            " more. Hard ceiling enforced at the wrapper."
+        ),
+    )
+    offset: conint(ge=0) | None = Field(default=None, description="Pagination offset.")
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
     )
 
 
@@ -15734,6 +15875,67 @@ class EventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries."
+        ),
+    )
+
+
+class ExperimentApiExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
+    properties: list[
+        EventPropertyFilter
+        | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | SpanPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
+    ] = Field(
+        ...,
+        description=(
+            "Property filters (event, person, and other supported types). Pass an empty array if no filters needed."
+        ),
+    )
+
+
+class ExperimentApiExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: ExperimentApiExposureConfig | None = None
+    filterTestAccounts: bool | None = None
+    multiple_variant_handling: MultipleVariantHandling | None = Field(
+        default=None,
+        description=(
+            "How to handle entities exposed to multiple variants. 'exclude' (default)"
+            " drops them from the analysis; 'first_seen' assigns them to the variant"
+            " from their earliest exposure."
         ),
     )
 

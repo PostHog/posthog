@@ -45,6 +45,8 @@ export interface SignalReport {
     already_addressed?: boolean | null
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
+    /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
+    scout_name?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
@@ -125,6 +127,17 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     config: 'Configuration',
 }
 
+/** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
+export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
+    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
+    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+    'not-actionable':
+        'Reports judged not actionable – too vague, missing supporting evidence, or describing expected behavior.',
+    runs: 'Project-wide list of agent runs, for debugging.',
+    archived: 'Reports you archived. You can restore them to the inbox at any time.',
+    config: 'Set up signal sources, scouts, and how autonomously agents can act.',
+}
+
 /**
  * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
  * narrow for the right-hand setup rail (see `AgentSetupColumn`); on wide viewports the rail
@@ -136,10 +149,10 @@ export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
 
 /**
- * Tabs only visible to staff users (internal). Non-staff see Pull requests + Reports.
- * Not-actionable reports and the project-wide Runs debug view are internal.
+ * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
+ * triage surface; everything else (including Runs) is public to any team member.
  */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
@@ -196,6 +209,29 @@ export interface SignalTeamConfig {
     autostart_base_branches?: Record<string, string>
     created_at?: string
     updated_at?: string
+}
+
+// ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
+
+/** Whether a run-shaped task came from a headless scout or the signals pipeline. */
+export type SignalRunKind = 'scout' | 'signal'
+
+/**
+ * One row in the Runs tab. Not a backend resource — `inboxSceneLogic` composes these from two
+ * existing endpoints: scout runs (`signals/scout/runs`, kind `scout`) and signal-pipeline tasks
+ * (`tasks?origin_product=signal_report`, kind `signal`), merged newest-first. Rows link out to the
+ * standalone Tasks scene (`/tasks/{task_id}`).
+ */
+export interface SignalRun {
+    task_id: string
+    kind: SignalRunKind
+    /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */
+    title: string
+    /** Latest run status, or null if unknown. Shares `TaskRunStatus` values. */
+    status: SignalScoutRunStatus | null
+    /** Signal runs: the inbox report this run belongs to, for linking to it. Null for scouts. */
+    report_id: string | null
+    created_at: string
 }
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────

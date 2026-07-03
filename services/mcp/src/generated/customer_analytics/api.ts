@@ -317,7 +317,7 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -363,7 +363,7 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
