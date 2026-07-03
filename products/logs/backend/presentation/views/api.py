@@ -50,7 +50,12 @@ from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
-from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.logs_query_runner import (
+    MAX_CUSTOM_COLUMNS,
+    CachedLogsQueryResponse,
+    LogsQueryResponse,
+    LogsQueryRunner,
+)
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
@@ -63,9 +68,6 @@ __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSampling
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
-# Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
-# bounded by the query's max_execution_time / max_memory_usage; this just caps how many run at once.
-MAX_CUSTOM_COLUMNS = 50
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -1345,6 +1347,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        custom_columns = query_data.get("customColumns") or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            return Response(
+                {"error": f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         columns = request.data.get("columns") or []
         filename = self._generate_export_filename(query_data)

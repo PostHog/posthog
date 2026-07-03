@@ -34,6 +34,13 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+# Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
+# bounded by the query's max_execution_time / max_memory_usage; this just caps how many run at once.
+# Enforced in the runner so every LogsQuery entry point (interactive query endpoint and the
+# server-side CSV export worker) is bounded, not just the interactive one.
+MAX_CUSTOM_COLUMNS = 50
+
+
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
     """
     SELECT min(partition_checkpoint) FROM (
@@ -559,8 +566,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         return [canonical_key(text) for text in self.query.customColumns or []]
 
     def _custom_column_selects(self) -> list[ast.Expr]:
+        custom_columns = self.query.customColumns or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            raise QueryError(f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})")
         selects: list[ast.Expr] = []
-        for text, alias in zip(self.query.customColumns or [], self._custom_column_aliases):
+        for text, alias in zip(custom_columns, self._custom_column_aliases):
             try:
                 expr = column_to_expr(text)
             except (ValueError, ExposedHogQLError) as e:

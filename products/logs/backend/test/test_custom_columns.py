@@ -5,10 +5,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import DateRange, LogsQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.column_expressions import canonical_key
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import MAX_CUSTOM_COLUMNS, LogsQueryRunner
 
 # The shipped fixture log is timestamped 2025-12-16, service_name "argo-rollouts",
 # severity "info", with resource_attributes["k8s.container.name"] = "argo-rollouts-dashboard".
@@ -62,3 +64,10 @@ class TestLogsCustomColumns(ClickhouseTestMixin, APIBaseTest):
         response = self._run([])
         self.assertIsNone(response.columns)
         self.assertEqual(len(response.results), 1)
+
+    def test_too_many_custom_columns_rejected_by_runner(self):
+        # The cap is enforced in the runner so every LogsQuery entry point is bounded — including
+        # the CSV export worker, which copies query_data straight into a LogsQuery without the
+        # interactive endpoint's 400 check. Exceeding the cap must fail before the query runs.
+        with self.assertRaises(QueryError):
+            self._run(["service_name"] * (MAX_CUSTOM_COLUMNS + 1))
