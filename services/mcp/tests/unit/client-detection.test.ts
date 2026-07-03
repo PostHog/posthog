@@ -37,6 +37,7 @@ describe('isCliModeEnabledClient', () => {
             ['amp-mcp-client'],
             ['poke'],
             ['grok'],
+            ['ando-mcp-gateway'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })

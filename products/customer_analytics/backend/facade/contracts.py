@@ -317,6 +317,20 @@ class AccountNotebookView:
     last_modified_by: UserBasicInfo | None = None
 
 
+@dataclass(frozen=True)
+class AccountNoteView:
+    """A row of the team-wide account-notes list: an internal notebook plus the account it's
+    linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
+    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+
+    short_id: str
+    title: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    account_id: UUID
+    account_name: str
+
+
 # --- Presentation wave: input contracts for the CRUD write paths ---
 
 

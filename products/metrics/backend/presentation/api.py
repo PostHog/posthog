@@ -381,8 +381,17 @@ class _MetricEventSampleSerializer(serializers.Serializer):
     metric_type = serializers.CharField(
         help_text="OTel metric type: gauge, sum, histogram, summary, or exponential_histogram."
     )
-    value = serializers.FloatField(help_text="The emitted value.")
+    value = serializers.FloatField(
+        help_text="The emitted value. For histogram/summary points this is the distribution sum; pair with count."
+    )
+    count = serializers.IntegerField(
+        help_text="Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries."
+    )
     unit = serializers.CharField(help_text="Unit of the value, if any.")
+    aggregation_temporality = serializers.CharField(
+        help_text="For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges."
+    )
+    is_monotonic = serializers.BooleanField(help_text="True for monotonically increasing counters.")
     service_name = serializers.CharField(help_text="Service that emitted the metric.")
     trace_id = serializers.CharField(
         help_text="Trace this emission belongs to; empty if none. Use it to pivot to the trace.",

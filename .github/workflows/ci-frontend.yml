@@ -359,7 +359,7 @@ jobs:
               with:
                   filter: blob:none
 
-            # compressed-size-action below checks out the base branch mid-job, which
+            # The bundle-size build below git-resets to the base branch mid-job, which
             # removes this repo's local actions from the workspace — a local
             # ./.github/actions/pnpm-install would then fail in its post phase. Use
             # inline cache steps (remote actions, no workspace-dependent post) sharing
@@ -403,32 +403,55 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
-            - name: Check frontend bundle size
-              uses: preactjs/compressed-size-action@66325aad6443cb7cf89c4bfcd414aea2367cda94 # v2.9.1
-              with:
-                  build-script: '--filter=@posthog/frontend build:with-report'
-                  install-script: 'pnpm --filter=@posthog/frontend... install'
-                  compression: 'none'
-                  # dist-report/ carries the source bundle (posthog-app, exporter, …) and source
-                  # path in the filename, so strip-hash yields a deterministic identity. dist/ has
-                  # cross-bundle basename collisions that cause phantom size changes.
-                  pattern: 'frontend/dist-report/**/*.js'
-                  # Shared chunk hashes change every build, ignore those
-                  exclude: '{**/_chunks/chunk*.js}'
-                  # Only show large changes
-                  minimum-change-threshold: 1000
-                  order-by: 'Size:desc'
-                  strip-hash: "-[A-Za-z0-9]{8}\\.js$"
+            # Vendored replacement for preactjs/compressed-size-action: build the PR branch,
+            # then git-reset to the base branch and rebuild so the bundle-size and eager-graph
+            # reports (both written by build:with-report) get a vs-base baseline. The base
+            # build runs LAST in the same workspace, so the plain report filenames hold the
+            # base numbers while the sha-suffixed ones hold the PR build's — the post scripts
+            # pick the PR report by sha and treat the plain file as the base. Reports are
+            # untracked, so they survive `git reset --hard` onto the base tree. A failing base
+            # build (build:with-report runs the eager-graph check in --report-only) must never
+            # abort the job for every open PR, so budgets are enforced warn-only further down.
+            - name: Build frontend (bundle-size + eager-graph report)
+              run: pnpm --filter=@posthog/frontend build:with-report
 
-            # The eager graph check runs in --report-only mode inside build:with-report
-            # (compressed-size-action runs that for the PR AND base builds — a failing
-            # base build must not abort the action for every open PR). These steps post
-            # the sticky PR comment and warn on budget breaches from the PR build's report,
-            # which carries the checkout sha in its filename because the base build
-            # overwrites the plain one. After compressed-size-action the tree is on the
-            # BASE branch, so guard for the scripts' absence (also covers branches
-            # predating the check).
-            - name: Post eager graph comment
+            # Measured before the base build overwrites dist/. Untracked, so it survives the
+            # git reset --hard onto the base tree; the dist-size section reads it back.
+            - name: Measure PR dist size
+              run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
+
+            - name: Build base branch for size comparison
+              # A broken base build (install/esbuild — which --report-only does not cover) must
+              # only cost the vs-base delta, never redden every open PR's job. The comment steps
+              # below already degrade to "no base measurement" when the base reports are absent.
+              continue-on-error: true
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch -n origin "$BASE_SHA"
+                  git reset --hard "$BASE_SHA"
+                  pnpm --filter=@posthog/frontend... install
+                  pnpm --filter=@posthog/frontend build:with-report
+                  du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
+
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # After the base build the tree is on the BASE branch, so guard for the scripts'
+            # absence (also covers branches predating a check). Budgets are surfaced
+            # warn-only further down.
+            - name: Clean up legacy per-check CI comments
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — eager graph
               if: always() && github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
@@ -436,7 +459,29 @@ jobs:
                   if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
                       node frontend/bin/post-eager-graph-comment.mjs
                   else
-                      echo "Skipping eager graph comment — script not present on this checkout"
+                      echo "Skipping eager graph section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — bundle size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
+                      node frontend/bin/post-bundle-size-comment.mjs
+                  else
+                      echo "Skipping bundle size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — dist size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
+                      node frontend/bin/post-dist-size-comment.mjs
+                  else
+                      echo "Skipping dist size section — script not present on this checkout"
                   fi
 
             - name: Check eager graph budgets (warn only)
@@ -461,8 +506,12 @@ jobs:
 
             - name: Calculate dist folder size
               id: dist-size
+              # After the base build the workspace's dist/ holds the BASE branch's build, so
+              # read back the PR measurement taken before it — the captured metric must be
+              # the PR's size. The du fallback covers runs where that file wasn't written
+              # (dist/ is still the PR's own build then).
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
                   echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
 
@@ -576,7 +625,7 @@ jobs:
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs, master push, and merge_group it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -594,7 +643,10 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 2
+                  # Keep shard runtime well under timeout-minutes: the EE suite at 2
+                  # shards ran 13-15 min on the 2-worker config and regularly died at
+                  # the 15-min timeout, failing the whole run.
+                  SHARD_COUNT: 4
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
               run: |
@@ -616,7 +668,9 @@ jobs:
                           --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
-                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
                   fi
 
     calculate-running-time:

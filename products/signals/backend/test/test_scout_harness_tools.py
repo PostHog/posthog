@@ -852,6 +852,8 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
 
     assert result.emitted is False
     assert result.skipped_reason == "ai_processing_not_approved"
+    # The skip must carry an actionable next step so the scout isn't blocked with a dead end.
+    assert result.remediation and "AI data processing" in result.remediation
     mock_emit.assert_not_called()
 
 
