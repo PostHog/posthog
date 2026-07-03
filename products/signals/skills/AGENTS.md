@@ -123,14 +123,26 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   Reads the `sessions` table for per-channel volume diverging from
   seasonality-aligned baselines (same 24h window 7/14 days back), attribution
   breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
-  entry-path bounce steps and traffic cliffs, 404 spikes (via the project's own
-  not-found event, discovered by name), and per-path web vitals p75 regressions. Its
+  entry-path bounce steps and traffic cliffs, and 404 spikes (via the project's own
+  not-found event, discovered by name). Its
   discriminator is segment-vs-aggregate divergence — one channel/path/referrer
   stepping away from its own baseline while totals hold is signal; the whole site
   moving together is baseline. On the **report channel** (`emit_report` /
   `edit_report`): files each dated, segment-named divergence as a 1:1 inbox report,
   editing the live report while the divergence persists. Whole-site metric anomalies
-  on watched dashboards are the anomaly-detection scout's territory.
+  on watched dashboards are the anomaly-detection scout's territory; page-performance
+  is the web-vitals scout's.
+- `signals-scout-web-vitals/` — Core Web Vitals watcher. Reads each page's p75
+  LCP / INP / CLS / FCP from `$web_vitals` against the absolute Google thresholds
+  (good / needs-improvement / poor) _and_ against its own history: pages standing in
+  the poor band (the absolute view the relative scouts miss), pages crossing a band
+  boundary after a deploy (dated against a daily series), and sharp in-band
+  regressions. Its discriminator is band-placement on a volume-stable percentile,
+  with a page-scoped-vs-site-wide second axis (one page is code/content; all pages
+  together is a population / CDN / third-party shift). Every finding carries a
+  metric-specific cause hypothesis and a concrete remediation (bundled
+  `references/remediation.md`). Vitals-capture _absence_ is the health-checks scout's
+  territory, not this one's.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift

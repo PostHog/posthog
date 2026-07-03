@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -26,8 +26,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     name: str
     scanner_type: ScannerType
     scanner_version: int = Field(ge=1)
-    model: ScannerModel
-    provider: ScannerProvider
+    # Plain strings, not live enums: retiring a ScannerModel/ScannerProvider member must not break old-row loads.
+    model: str
+    provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
 
@@ -221,16 +222,6 @@ class EmbedObservationInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_id: UUID
     model_output: AnyScannerOutput
-
-
-class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
-    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
-
-    team_id: int
-    session_id: str
-    observation_id: UUID
-    summarizer_output: SummarizerOutput
 
 
 class EmitClassifierTagsInputs(BaseModel, frozen=True):

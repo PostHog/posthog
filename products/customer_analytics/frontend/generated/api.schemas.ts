@@ -8,6 +8,36 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * A team-wide account note — an internal notebook linked to a Customer analytics account.
+ */
+export interface AccountNoteApi {
+    /** URL-safe short ID of the notebook. */
+    readonly short_id: string
+    /**
+     * Title of the note.
+     * @nullable
+     */
+    readonly title: string | null
+    /** When the note was created. */
+    readonly created_at: string
+    /** When the note was last modified. */
+    readonly last_modified_at: string
+    /** UUID of the account this note is linked to. */
+    readonly account_id: string
+    /** Name of the account this note is linked to. */
+    readonly account_name: string
+}
+
+export interface PaginatedAccountNoteListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountNoteApi[]
+}
+
+/**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
@@ -703,6 +733,21 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+export type AccountNotesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Full-text search across note title and content, plus substring match on account name.
+     */
+    search?: string
 }
 
 export type AccountsListParams = {

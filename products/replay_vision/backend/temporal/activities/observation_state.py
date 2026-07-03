@@ -1,4 +1,5 @@
-from collections.abc import Container
+from collections.abc import Callable, Container
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -51,29 +52,50 @@ def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> N
     )
 
 
+def mark_observation_terminal(
+    *,
+    observation_id: UUID,
+    status: ObservationStatus,
+    error_reason: str,
+    scanner_type: str,
+    valid_kinds: Container[str],
+    count_kind: Callable[[str], None],
+) -> bool:
+    """Flip pending/running → `status` and record metrics/logs; idempotent no-op against already-terminal rows."""
+    updated = ReplayObservation.objects.filter(
+        pk=observation_id,
+        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
+    ).update(
+        status=status,
+        error_reason=error_reason,
+        completed_at=timezone.now(),
+    )
+    if not updated:
+        return False  # No state transition — retry against an already-terminal row.
+    kind = _kind_from_error_reason(error_reason, valid_kinds)
+    REPLAY_VISION_OBSERVATIONS.labels(status=status.value, scanner_type=scanner_type).inc()
+    count_kind(kind)
+    logger.info(
+        f"replay_vision.observation.{status.value}",
+        observation_id=str(observation_id),
+        scanner_type=scanner_type,
+        kind=kind,
+        error_reason=error_reason,
+    )
+    return True
+
+
 @activity.defn
 @track_activity()
 def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> None:
     """Flip pending/running → failed. Idempotent: FAILED is not in the source filter."""
-    updated = ReplayObservation.objects.filter(
-        pk=inputs.observation_id,
-        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
-    ).update(
+    mark_observation_terminal(
+        observation_id=inputs.observation_id,
         status=ObservationStatus.FAILED,
         error_reason=inputs.error_reason,
-        completed_at=timezone.now(),
-    )
-    if not updated:
-        return  # No state transition — retry against an already-terminal row.
-    kind = _kind_from_error_reason(inputs.error_reason, _FAILURE_KIND_VALUES)
-    REPLAY_VISION_OBSERVATIONS.labels(status="failed", scanner_type=inputs.scanner_type).inc()
-    REPLAY_VISION_FAILURE_KINDS.labels(kind=kind, scanner_type=inputs.scanner_type).inc()
-    logger.info(
-        "replay_vision.observation.failed",
-        observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
-        kind=kind,
-        error_reason=inputs.error_reason,
+        valid_kinds=_FAILURE_KIND_VALUES,
+        count_kind=lambda kind: REPLAY_VISION_FAILURE_KINDS.labels(kind=kind, scanner_type=inputs.scanner_type).inc(),
     )
 
 
@@ -81,25 +103,13 @@ def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> Non
 @track_activity()
 def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs) -> None:
     """Flip pending/running → ineligible. Idempotent: INELIGIBLE is not in the source filter."""
-    updated = ReplayObservation.objects.filter(
-        pk=inputs.observation_id,
-        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
-    ).update(
+    mark_observation_terminal(
+        observation_id=inputs.observation_id,
         status=ObservationStatus.INELIGIBLE,
         error_reason=inputs.error_reason,
-        completed_at=timezone.now(),
-    )
-    if not updated:
-        return  # No state transition — retry against an already-terminal row.
-    kind = _kind_from_error_reason(inputs.error_reason, _INELIGIBLE_KIND_VALUES)
-    REPLAY_VISION_OBSERVATIONS.labels(status="ineligible", scanner_type=inputs.scanner_type).inc()
-    REPLAY_VISION_INELIGIBLE_KINDS.labels(kind=kind).inc()
-    logger.info(
-        "replay_vision.observation.ineligible",
-        observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
-        kind=kind,
-        error_reason=inputs.error_reason,
+        valid_kinds=_INELIGIBLE_KIND_VALUES,
+        count_kind=lambda kind: REPLAY_VISION_INELIGIBLE_KINDS.labels(kind=kind).inc(),
     )
 
 

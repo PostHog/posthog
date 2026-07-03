@@ -46,6 +46,7 @@ import {
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
@@ -107,6 +108,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
                     }
                     withIcon
                 />
+                {ticket.identity_verified === false && <IdentityBadge verified={false} iconOnly />}
             </div>
         ),
     },
