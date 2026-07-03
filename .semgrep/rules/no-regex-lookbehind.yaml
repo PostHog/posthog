@@ -14,3 +14,16 @@ rules:
       patterns:
           - pattern: /.../
           - pattern-regex: '\(\?<'
+      paths:
+          # Only browser-shipped app code. Node scripts, services, and test/story files run in
+          # environments that support lookbehind, so the crash does not apply to them.
+          include:
+              - '/frontend/**'
+          exclude:
+              - '/frontend/bin/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+              - '**/*.stories.ts'
+              - '**/*.stories.tsx'
