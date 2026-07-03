@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settin
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n"
 
+# `_fetch_page` is wrapped by tenacity's @retry; call the underlying function directly so a
+# retryable status raises immediately instead of sleeping through the backoff schedule.
+_fetch_undecorated = _fetch_page.__wrapped__  # type: ignore[attr-defined]
+
 
 def _make_manager(resume_state: N8nResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
@@ -76,21 +80,21 @@ class TestFetchPage:
         session = mock.MagicMock()
         session.get.return_value = _response({}, status_code=status_code)
         with pytest.raises(N8nRetryableError):
-            _fetch_page.__wrapped__(session, "https://x", {}, mock.MagicMock())
+            _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
 
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
     def test_client_errors_raise_for_status(self, status_code):
         session = mock.MagicMock()
         resp = _response({}, status_code=status_code)
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
         session.get.return_value = resp
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, "https://x", {}, mock.MagicMock())
+            _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
 
     def test_non_dict_body_is_wrapped_in_data(self):
         session = mock.MagicMock()
         session.get.return_value = _response([{"id": "1"}])
-        body = _fetch_page.__wrapped__(session, "https://x", {}, mock.MagicMock())
+        body = _fetch_undecorated(session, "https://x", {}, mock.MagicMock())
         assert body == {"data": [{"id": "1"}]}
 
 

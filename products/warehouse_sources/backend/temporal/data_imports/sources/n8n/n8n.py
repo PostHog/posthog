@@ -130,6 +130,7 @@ def get_rows(
     session = _get_session(api_key)
 
     base_params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
+    endpoint_url = f"{_base_url(host)}{config.path}"
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor: Optional[str] = resume_config.next_cursor if resume_config is not None else None
@@ -141,9 +142,10 @@ def get_rows(
         if cursor:
             params["cursor"] = cursor
 
-        data = _fetch_page(session, _build_url(f"{_base_url(host)}{config.path}", params), headers, logger)
+        data = _fetch_page(session, _build_url(endpoint_url, params), headers, logger)
 
-        items = data.get("data", [])
+        # `data` is the required envelope field; fail fast if a 200 response ever omits it.
+        items = data["data"]
         next_cursor = data.get("nextCursor")
 
         if items:
