@@ -46,18 +46,19 @@ class EmitBackfillSignalInput:
 def _backfill_order_by(team: "Team") -> str:
     """Pick the backfill sort order for this team from the experiment variant.
 
-    Control (or flag service unavailable) keeps recency ordering; the test variant
-    ranks issues by the number of distinct users impacted.
+    The experiment is aggregated at the project (team) level, so the flag is
+    evaluated with the team's group — keyed the same way (`team.uuid`) as the
+    `pr_merged` events the experiment measures. Control (or an unavailable flag
+    service) keeps recency ordering; the test variant ranks issues by the number
+    of distinct users impacted. Evaluating the flag also records the team's
+    experiment exposure via `$feature_flag_called`.
     """
+    from posthog.event_usage import groups
+
     variant = posthoganalytics.get_feature_flag(
         SIGNALS_ET_BACKFILL_SORT_FLAG,
         str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id), "uuid": str(team.uuid)},
-        },
-        send_feature_flag_events=False,
+        groups=groups(team=team),
     )
     return ORDER_BY_USERS_IMPACTED if variant == "test" else ORDER_BY_RECENCY
 
