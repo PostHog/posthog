@@ -83,6 +83,12 @@ export interface SessionRecordingIngesterCollaborators {
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
     createPipeline?: SessionReplayPipelineFactory
+    /**
+     * Namespaces this ingester's session tracker/filter Redis keys. Leave unset for the main lane; a
+     * secondary lane (the ML mirror) must set it so it doesn't share seen/block state with the main lane
+     * (which would let it mark a session seen without the main key and cause a cleartext recording).
+     */
+    redisKeyNamespace?: string
 }
 
 export class SessionRecordingIngester {
@@ -202,7 +208,9 @@ export class SessionRecordingIngester {
 
         this.sessionTracker = new SessionTracker(
             this.redisPool,
-            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS,
+            undefined,
+            collaborators.redisKeyNamespace
         )
         this.sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
@@ -211,6 +219,7 @@ export class SessionRecordingIngester {
             blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
             filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
             localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+            keyNamespace: collaborators.redisKeyNamespace,
         })
 
         const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'

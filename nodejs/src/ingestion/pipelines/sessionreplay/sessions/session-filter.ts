@@ -20,6 +20,12 @@ export interface SessionFilterConfig {
     filterEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
+    /**
+     * Optional Redis key namespace. Omit for the main lane (keeps the prefix exactly
+     * `@posthog/replay/session-blocked`). A secondary pipeline (e.g. the ML mirror) must pass its own
+     * namespace so its blocklist doesn't collide with the main lane's.
+     */
+    keyNamespace?: string
 }
 
 /**
@@ -45,7 +51,7 @@ export interface SessionFilterConfig {
  * critical and therefore fails hard.
  */
 export class SessionFilter {
-    private readonly keyPrefix = '@posthog/replay/session-blocked'
+    private readonly keyPrefix: string
 
     // In-memory cache to avoid hitting Redis for every message
     // Since Kafka partitions by session ID, the same session always hits the same consumer
@@ -58,6 +64,9 @@ export class SessionFilter {
     private readonly filterEnabled: boolean
 
     constructor(config: SessionFilterConfig) {
+        this.keyPrefix = config.keyNamespace
+            ? `@posthog/replay/${config.keyNamespace}/session-blocked`
+            : '@posthog/replay/session-blocked'
         this.redisPool = config.redisPool
         this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
         this.blockingEnabled = config.blockingEnabled

@@ -41,15 +41,24 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
  * the local cache masking the loss on this consumer.
  */
 export class SessionTracker {
-    private readonly keyPrefix = '@posthog/replay/session-seen'
+    private readonly keyPrefix: string
 
     private readonly localCache: LRUCache<string, true>
 
+    /**
+     * @param keyNamespace - Optional Redis key namespace. Omit (the default) for the main lane — this
+     *   keeps the key prefix exactly `@posthog/replay/session-seen` so existing sessions aren't seen as
+     *   new. A secondary pipeline (e.g. the ML mirror) MUST pass its own namespace so it doesn't share
+     *   seen-state with the main lane; otherwise it can mark a session seen without the main lane's key
+     *   and cause a cleartext recording there.
+     */
     constructor(
         private readonly redisPool: RedisPool,
         localCacheTtlMs: number,
-        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
+        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE,
+        keyNamespace?: string
     ) {
+        this.keyPrefix = keyNamespace ? `@posthog/replay/${keyNamespace}/session-seen` : '@posthog/replay/session-seen'
         this.localCache = new LRUCache({
             max: localCacheMaxSize,
             ttl: localCacheTtlMs,

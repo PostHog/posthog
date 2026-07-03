@@ -121,6 +121,19 @@ describe('SessionTracker', () => {
             expect(mockPipeline.set).not.toHaveBeenCalled()
         })
 
+        it('namespaces the Redis keys when a key namespace is given, isolating it from the main lane', async () => {
+            const namespaced = new SessionTracker(mockRedisPool, 5 * 60 * 1000, undefined, 'ml-mirror')
+
+            await namespaced.markSeen(sessionSet([1, 'a']))
+
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/ml-mirror/session-seen:1:a',
+                '1',
+                'EX',
+                TTL_SECONDS
+            )
+        })
+
         it('fails open on a pipeline error', async () => {
             mockPipeline.exec = jest.fn().mockRejectedValue(new Error('Redis down'))
 

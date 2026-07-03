@@ -80,6 +80,28 @@ describe('SessionFilter', () => {
             expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
         })
 
+        it('namespaces the block key when a key namespace is given, isolating it from the main lane', async () => {
+            mockConsume.mockReturnValue(false)
+            const namespaced = new SessionFilter({
+                redisPool: mockRedisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 5 * 60 * 1000,
+                keyNamespace: 'ml-mirror',
+            })
+
+            await namespaced.handleNewSessions(sessionSet([1, 'session-123']))
+
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/ml-mirror/session-blocked:1:session-123',
+                '1',
+                'EX',
+                48 * 60 * 60
+            )
+        })
+
         it('should increment metrics when blocking a session', async () => {
             mockConsume.mockReturnValue(false)
 
