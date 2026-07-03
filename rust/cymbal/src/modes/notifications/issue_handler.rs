@@ -115,9 +115,8 @@ pub async fn handle_issue_spiking(
         issue: issue_snapshot,
         event_properties,
     } = issue;
-    let issue = issue_from_notification(meta.team_id, issue_id, issue_snapshot);
 
-    persist_spike_event(
+    let issue_exists = persist_spike_event(
         context,
         meta.notification_id,
         meta.team_id,
@@ -126,6 +125,18 @@ pub async fn handle_issue_spiking(
         current_bucket_value,
     )
     .await?;
+    if !issue_exists {
+        warn!(
+            notification_id = %meta.notification_id,
+            team_id = meta.team_id,
+            issue_id = %issue_id,
+            "dropping spike notification for missing issue"
+        );
+        return Ok(());
+    }
+
+    let issue = issue_from_notification(meta.team_id, issue_id, issue_snapshot);
+
     send_issue_spiking_internal_event(
         &context.cyclotron_producer,
         &context.internal_events_topic,
@@ -168,12 +179,17 @@ async fn persist_spike_event(
     issue_id: Uuid,
     computed_baseline: f64,
     current_bucket_value: f64,
-) -> Result<(), UnhandledError> {
+) -> Result<bool, UnhandledError> {
     let now = Utc::now();
-    sqlx::query(
-        r#"INSERT INTO posthog_errortrackingspikeevent
+    let result = sqlx::query(
+        r#"WITH existing_issue AS (
+               SELECT 1 FROM posthog_errortrackingissue
+               WHERE team_id = $2 AND id = $3
+               FOR KEY SHARE
+           )
+           INSERT INTO posthog_errortrackingspikeevent
            (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           SELECT $1, $2, $3, $4, $5, $6 FROM existing_issue
            ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(notification_id)
@@ -185,7 +201,21 @@ async fn persist_spike_event(
     .execute(&context.posthog_pool)
     .await?;
 
-    Ok(())
+    if result.rows_affected() > 0 {
+        return Ok(true);
+    }
+
+    let issue_exists: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM posthog_errortrackingissue WHERE team_id = $1 AND id = $2
+        )"#,
+    )
+    .bind(team_id)
+    .bind(issue_id)
+    .fetch_one(&context.posthog_pool)
+    .await?;
+
+    Ok(issue_exists)
 }
 
 fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> DateTime<Utc> {
