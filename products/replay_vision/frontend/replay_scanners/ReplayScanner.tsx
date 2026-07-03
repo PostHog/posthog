@@ -22,6 +22,7 @@ import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { VisionActionsTab } from './components/VisionActionsTab'
@@ -107,6 +108,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 </div>
                             </div>
                         ),
+                    },
+                    {
+                        key: 'quality',
+                        label: 'Quality',
+                        content: <ScannerQualityTab scannerId={scannerId} />,
                     },
                     {
                         key: 'on-demand',

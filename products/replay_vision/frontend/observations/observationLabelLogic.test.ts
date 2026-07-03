@@ -1,41 +1,34 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { expectLogic } from 'kea-test-utils'
-
 import { initKeaTests } from '~/test/init'
 
-import { visionObservationsLabelCreate, visionObservationsRetrieve } from '../generated/api'
-import { replayObservationLogic } from './replayObservationLogic'
-import { replayObservationSceneLogic } from './replayObservationSceneLogic'
+import { visionObservationsLabelCreate } from '../generated/api'
+import { observationLabelLogic } from './observationLabelLogic'
 
 jest.mock('../generated/api', () => ({
-    visionObservationsRetrieve: jest.fn(),
     visionObservationsLabelCreate: jest.fn(),
     visionObservationsLabelDestroy: jest.fn(),
 }))
 
 const TEAM_ID = String(MOCK_DEFAULT_TEAM.id)
-const OBSERVATION = {
-    id: 'obs-1',
-    scanner_id: 'scan-1',
-    status: 'succeeded',
-    label: { id: 'label-1', is_correct: false, feedback: 'old feedback' },
-}
 
-describe('replayObservationLogic feedback autosave', () => {
-    let logic: ReturnType<typeof replayObservationLogic.build>
+describe('observationLabelLogic feedback autosave', () => {
+    let logic: ReturnType<typeof observationLabelLogic.build>
+    let onChange: jest.Mock
 
-    beforeEach(async () => {
+    beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
-        replayObservationSceneLogic.mount()
-        ;(visionObservationsRetrieve as jest.Mock).mockResolvedValue(OBSERVATION)
         ;(visionObservationsLabelCreate as jest.Mock).mockImplementation((_team, _id, body) =>
-            Promise.resolve({ id: 'label-1', ...body })
+            Promise.resolve({ ...body })
         )
-        logic = replayObservationLogic({ id: 'obs-1' })
+        onChange = jest.fn()
+        logic = observationLabelLogic({
+            observationId: 'obs-1',
+            initialLabel: { is_correct: false, feedback: 'old feedback' },
+            onChange,
+        })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
         jest.useFakeTimers()
     })
 
@@ -44,7 +37,7 @@ describe('replayObservationLogic feedback autosave', () => {
         logic?.unmount()
     })
 
-    it('autosaves edited feedback after the debounce', async () => {
+    it('autosaves edited feedback after the debounce and notifies onChange', async () => {
         logic.actions.setFeedbackDraft('scanner missed the refund step')
         await jest.advanceTimersByTimeAsync(900)
 
@@ -53,11 +46,12 @@ describe('replayObservationLogic feedback autosave', () => {
             is_correct: false,
             feedback: 'scanner missed the refund step',
         })
+        expect(onChange).toHaveBeenCalledWith({ is_correct: false, feedback: 'scanner missed the refund step' })
     })
 
-    it('a Correct click during the debounce wins over the pending autosave', async () => {
+    it('a thumbs-up click during the debounce wins over the pending autosave', async () => {
         logic.actions.setFeedbackDraft('scanner missed the refund step')
-        logic.actions.setLabel(true, '')
+        logic.actions.rate(true, '')
         await jest.advanceTimersByTimeAsync(900)
 
         expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
