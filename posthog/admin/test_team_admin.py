@@ -1,5 +1,5 @@
 import hashlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from freezegun import freeze_time
@@ -22,6 +22,7 @@ from posthog.llm.gateway_internal_client import (
     Wallet,
 )
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import FakePersonHogClient
 
 
 def _attach_messages(request) -> None:
@@ -511,3 +512,70 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         with self.assertRaises(ValidationError):
             self._form(Decimal("5"), instance=child).clean_llm_gateway_overspend_allowance_usd()
+
+
+class TestTeamAdminEditGroupTypeMappingView(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.edit_url = f"/admin/posthog/team/{self.team.pk}/group-type-mapping/0/edit/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        self.fake_client = FakePersonHogClient()
+        self.fake_client.add_group_type_mapping(
+            project_id=self.team.project_id,
+            team_id=self.team.pk,
+            group_type="organization",
+            group_type_index=0,
+        )
+        client_patcher = patch("posthog.admin.admins.team_admin.get_personhog_client", return_value=self.fake_client)
+        client_patcher.start()
+        self.addCleanup(client_patcher.stop)
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.edit_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+    def _post(self, created_at: str):
+        http_request = self.factory.post(
+            self.edit_url,
+            {"name_singular": "org", "name_plural": "orgs", "default_columns": "", "created_at": created_at},
+        )
+        http_request.user = self.user
+        _attach_messages(http_request)
+        return self.admin.edit_group_type_mapping_view(http_request, str(self.team.pk), 0)
+
+    @parameterized.expand(
+        [
+            ("set", "2026-01-15 10:30:00", int(datetime(2026, 1, 15, 10, 30, tzinfo=UTC).timestamp() * 1000)),
+            ("blank_keeps_unchanged", "", None),
+        ]
+    )
+    def test_post_updates_created_at_via_personhog(self, _name: str, created_at_raw: str, expected_millis) -> None:
+        response = self._post(created_at_raw)
+
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        if expected_millis is None:
+            assert "created_at" not in update_request.update_mask
+        else:
+            assert "created_at" in update_request.update_mask
+            assert update_request.created_at == expected_millis
+
+    def test_post_invalid_created_at_redirects_without_updating(self) -> None:
+        response = self._post("not-a-datetime")
+
+        assert response.status_code == 302
+        assert response["Location"] == self.edit_url
+        assert not any(c.method == "update_group_type_mapping" for c in self.fake_client.calls)
