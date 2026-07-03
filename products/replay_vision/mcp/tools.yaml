@@ -32,10 +32,39 @@ tools:
         enabled: false
     vision-observations-label-create:
         operation: vision_observations_label_create
-        enabled: false
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Rate a scanner observation
+        description: >
+            Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the
+            scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written
+            `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last
+            write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the
+            quality-over-time chart and the AI prompt recommendations. Find observation IDs via
+            `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list`
+            for a session.
+        feature_flag: replay-vision
     vision-observations-label-destroy:
         operation: vision_observations_label_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove a scanner observation rating
+        description: >
+            Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it
+            to unrated. Team-wide: this clears the rating for everyone.
+        feature_flag: replay-vision
     vision-observations-list:
         operation: vision_observations_list
         enabled: true

@@ -3,6 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    VisionObservationsLabelCreateBody,
+    VisionObservationsLabelCreateParams,
+    VisionObservationsLabelDestroyParams,
     VisionObservationsListQueryParams,
     VisionObservationsRetrieveParams,
     VisionScannersCreateBody,
@@ -20,6 +23,49 @@ import {
 } from '@/generated/replay_vision/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const VisionObservationsLabelCreateSchema = VisionObservationsLabelCreateParams.omit({ project_id: true }).extend(
+    VisionObservationsLabelCreateBody.shape
+)
+
+const visionObservationsLabelCreate = (): ToolBase<
+    typeof VisionObservationsLabelCreateSchema,
+    Schemas.ReplayObservationLabel
+> => ({
+    name: 'vision-observations-label-create',
+    schema: VisionObservationsLabelCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsLabelCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.is_correct !== undefined) {
+            body['is_correct'] = params.is_correct
+        }
+        if (params.feedback !== undefined) {
+            body['feedback'] = params.feedback
+        }
+        const result = await context.api.request<Schemas.ReplayObservationLabel>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/label/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionObservationsLabelDestroySchema = VisionObservationsLabelDestroyParams.omit({ project_id: true })
+
+const visionObservationsLabelDestroy = (): ToolBase<typeof VisionObservationsLabelDestroySchema, unknown> => ({
+    name: 'vision-observations-label-destroy',
+    schema: VisionObservationsLabelDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsLabelDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/label/`,
+        })
+        return result
+    },
+})
 
 const VisionObservationsListSchema = VisionObservationsListQueryParams
 
@@ -335,6 +381,8 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'vision-observations-label-create': visionObservationsLabelCreate,
+    'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
     'vision-observations-retrieve': visionObservationsRetrieve,
     'vision-quota-retrieve': visionQuotaRetrieve,
