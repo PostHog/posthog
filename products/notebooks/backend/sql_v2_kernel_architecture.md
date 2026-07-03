@@ -78,14 +78,13 @@ Runs execute **one at a time** in arrival order (a kernel has one namespace; con
 New backend endpoint, the counterpart of the callback:
 
 ```text
-POST /internal/notebooks/<short_id>/data_plane/query
-Authorization: Bearer <data-plane token>
-{ "query": "<HogQL>", "limit"?, "offset"? }
-→ 200, Content-Type: application/vnd.apache.arrow.stream (RecordBatch stream)
+POST /internal/notebooks/data_plane/query/          → 202 { "query_id" }   (validate + enqueue)
+GET  /internal/notebooks/data_plane/query/<id>/     → 202 while running,
+Authorization: Bearer <data-plane token>              200 Arrow IPC stream when complete
 ```
 
 - **Auth**: a signed data-plane token, same `django.core.signing` pattern as the callback token, scoped `(notebook, team)`, minted per run and delivered inside the `/run` payload. TTL must exceed the run watchdog. Hardening later swaps both for RS256 JWTs (Code's `sandbox_event_ingest` pattern), unchanged wire shape.
-- **Execution**: the endpoint runs the HogQL through the normal HogQL layer (access controls apply), against ClickHouse — or DuckLake for warehouse sources (Journey 6) — and writes Arrow record batches into the streaming HTTP response as they arrive. No object storage, no buffering the full result server-side.
+- **Execution**: the endpoint validates the HogQL, then enqueues it on the **async query manager** — the same Celery-backed path insights and the SQL editor use — so no web worker ever waits on ClickHouse. The kernel polls the status route; the Celery query worker runs the HogQL layer (access controls apply) against ClickHouse — or DuckLake for warehouse sources (Journey 6) — and the completed result returns as Arrow on the poll. Large materializations that outgrow the manager's Redis-resident results will need a streaming variant of this endpoint (direct execution, record batches into the response) — that's a later, additive change.
 - **Client side**: the kernel-server issues the request with `requests(..., stream=True)` and feeds `response.raw` into `pyarrow.ipc.open_stream`, writing batches straight into an Arrow IPC **file** under `/data/frames/<query_hash>.arrow`. Peak memory is one record batch, regardless of result size.
 
 Two uses of the same endpoint:

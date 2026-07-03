@@ -442,8 +442,22 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def _token(self, short_id: str | None = None) -> str:
         return mint_data_plane_token(short_id or self.notebook.short_id, self.team.id, self.user.id)
 
+    def _get_status(self, query_id: str, token: str | None = None):
+        return self.client.get(
+            f"{self.URL}{query_id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token or self._token()}",
+        )
+
+    def _run_to_completion(self, body: dict):
+        # Celery is eager in tests, so the enqueue executes inline and the first
+        # status poll is already terminal — the same protocol the kernel follows.
+        response = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 202, response.content)
+        query_id = response.json()["query_id"]
+        return self._get_status(query_id)
+
     def test_runs_query_and_returns_arrow(self):
-        response = self._post({"query": "select 1 as answer"}, token=self._token())
+        response = self._run_to_completion({"query": "select 1 as answer"})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response["Content-Type"], "application/vnd.apache.arrow.stream")
         columns, rows, types = decode_arrow_stream(response.content)
@@ -454,10 +468,20 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertIn("Int", types[0][1])
 
     def test_outer_limit_and_offset_cap_the_page(self):
-        response = self._post({"query": "select number from numbers(10)", "limit": 3, "offset": 2}, token=self._token())
+        response = self._run_to_completion({"query": "select number from numbers(10)", "limit": 3, "offset": 2})
         self.assertEqual(response.status_code, 200, response.content)
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
+
+    def test_execution_error_surfaces_through_status(self):
+        # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
+        response = self._run_to_completion({"query": "select nonexistent_column from events"})
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertTrue(response.json()["error"])
+
+    def test_status_rejects_bad_auth_and_unknown_query(self):
+        self.assertEqual(self.client.get(f"{self.URL}deadbeef/").status_code, 401)
+        self.assertEqual(self._get_status("deadbeef").status_code, 404)
 
     def test_hogql_error_is_surfaced(self):
         response = self._post({"query": "select ceci n'est pas une query"}, token=self._token())
@@ -595,6 +619,41 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertEqual(mock_fetch.call_args.kwargs["offset"], 10)
         self.assertEqual(page["has_more"], expected_has_more)
         self.assertEqual(len(page["rows"]), expected_rows)
+
+    def test_kernel_polls_until_the_arrow_result_arrives(self):
+        # The kernel must follow the enqueue → poll protocol: accept the 202 query_id,
+        # keep polling through "running" responses, and decode the eventual Arrow 200.
+        from products.notebooks.backend.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False  # keep readable after the with-block, like a drained HTTP response
+
+        arrow_bytes = _rows_to_arrow_bytes(["n"], [(7,)], [["n", "Int64"]])
+        responses = iter(
+            [
+                _FakeResponse("application/json", b'{"query_id": "q1"}'),
+                _FakeResponse("application/json", b'{"status": "running"}'),
+                _FakeResponse("application/vnd.apache.arrow.stream", arrow_bytes),
+            ]
+        )
+        polled_urls: list[str] = []
+
+        def fake_urlopen(request, timeout=None):
+            polled_urls.append(request.full_url)
+            return next(responses)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(kernel_data_plane.time, "sleep"),
+        ):
+            columns, rows, _types = kernel_data_plane.fetch_query_page("http://backend/dp", "t", "select 1", limit=5)
+        self.assertEqual((columns, rows), (["n"], [(7,)]))
+        self.assertEqual(polled_urls[1:], ["http://backend/dp/q1/", "http://backend/dp/q1/"])
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()
