@@ -93,7 +93,12 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
                     }
-                    if (!event.repeat && !(hotkey.willHandleEvent && (event.metaKey || event.ctrlKey))) {
+                    // posthog is uninitialized in the toolbar bundle on customer sites; capturing there only warns in the customer's console
+                    if (
+                        posthog.__loaded &&
+                        !event.repeat &&
+                        !(hotkey.willHandleEvent && (event.metaKey || event.ctrlKey))
+                    ) {
                         posthog.capture('keybind triggered', {
                             keybind: formatTriggeredKeybind(event, normalizedKey),
                             mechanism: 'hotkey',
