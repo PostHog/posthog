@@ -574,6 +574,14 @@ class EstimateRequestSerializer(serializers.Serializer):
             "double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
         ),
     )
+    moments_config = _MomentsConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Proposed moments scope config. When set, the estimate counts moments (focus-event occurrences, "
+            "capped per session) instead of whole sessions. Omit (or null) for recording scope."
+        ),
+    )
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -581,6 +589,14 @@ class EstimateRequestSerializer(serializers.Serializer):
         except PydanticValidationError:
             raise serializers.ValidationError("Recording filter is invalid.")
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
+
+    def validate_moments_config(self, value: Any) -> Any:
+        if value is None:
+            return None
+        message = _moments_config_error_message(value)
+        if message is not None:
+            raise serializers.ValidationError(message)
+        return value
 
 
 class ScannerTypeStatsSerializer(serializers.Serializer):
@@ -626,6 +642,13 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text="Distinct sessions matching the query within the 30-day lookback, before sampling.",
+    )
+    matched_moments_in_window = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Moments (focus-event occurrences, capped per session) within the lookback, before sampling. "
+            "Null for recording-scoped estimates."
+        ),
     )
     window_days = serializers.IntegerField(
         help_text=(
@@ -808,6 +831,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+        if scanner.scan_scope == ScannerScanScope.MOMENTS:
+            # TODO(moments): resolve the session's focus-event occurrences and fan out per-moment workflows.
+            raise serializers.ValidationError(
+                {"session_id": "On-demand observation is not yet supported for moments-scoped scanners."}
+            )
 
         snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
         if snapshot.exhausted:
@@ -899,7 +927,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
+        raw_moments_config = body.validated_data.get("moments_config")
+        moments_config = MomentsConfig.model_validate(raw_moments_config) if raw_moments_config else None
+
+        estimate = estimate_scanner_session_volume(
+            team=self.team, query=recordings_query, moments_config=moments_config
+        )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
         # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this
@@ -912,6 +945,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             EstimateResponseSerializer(
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
+                    "matched_moments_in_window": estimate.matched_moments,
                     "window_days": estimate.effective_window_days,
                     "estimated_observations_per_month": observations_per_month,
                     "other_enabled_scanners_monthly": other_enabled_scanners_monthly,

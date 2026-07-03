@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from products.replay_vision.backend.moments import CoalescedMoment
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 
 
@@ -27,6 +28,8 @@ class CountInFlightAppliesInputs(BaseModel, frozen=True):
 class CandidateSessionPayload(BaseModel, frozen=True):
     session_id: str = Field(min_length=1, max_length=MAX_SESSION_ID_LENGTH)
     session_end: dt.datetime
+    # Coalesced and capped moments for moments-scoped scanners; empty for recording scope.
+    moments: list[CoalescedMoment] = Field(default_factory=list)
 
 
 class FindScannerCandidatesOutput(BaseModel, frozen=True):

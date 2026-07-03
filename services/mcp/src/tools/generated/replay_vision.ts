@@ -167,6 +167,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         if (params.scanner_id !== undefined) {
             body['scanner_id'] = params.scanner_id
         }
+        if (params.moments_config !== undefined) {
+            body['moments_config'] = params.moments_config
+        }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,

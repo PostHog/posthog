@@ -43,6 +43,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerScanScope,
     ScannerType,
 )
+from products.replay_vision.backend.moments import MAX_MOMENTS_PER_SESSION, CoalescedMoment, MomentOccurrence
+from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
@@ -61,6 +63,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -91,6 +94,7 @@ from products.replay_vision.backend.temporal.state import (
     get_data_class_from_redis,
     store_data_in_redis,
 )
+from products.replay_vision.backend.temporal.sweep_types import FindScannerCandidatesInputs
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
     CleanupGeminiFileInputs,
@@ -170,6 +174,50 @@ def _make_observation(scanner: ReplayScanner, **overrides) -> ReplayObservation:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestFindScannerCandidatesMomentsDispatch:
+    def test_divides_headroom_and_caps_coalesced_moments(self) -> None:
+        # The caller's limit is child-workflow headroom; without the division a moments batch can
+        # overshoot the in-flight cap 5x, and without the cap one chatty session floods the quota.
+        scanner = _make_scanner(
+            scan_scope=ScannerScanScope.MOMENTS,
+            moments_config={"events": [{"event": "checkout_error"}], "before_seconds": 60, "after_seconds": 60},
+        )
+        session_end = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+        # Far apart so nothing merges: MAX_MOMENTS_PER_SESSION + 2 distinct moments before the cap.
+        occurrences = [
+            MomentOccurrence(
+                uuid=f"0197a000-0000-7000-8000-00000000000{i}",
+                timestamp=session_end - dt.timedelta(hours=2) + dt.timedelta(minutes=10 * i),
+                event="checkout_error",
+            )
+            for i in range(MAX_MOMENTS_PER_SESSION + 2)
+        ]
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as query_cls:
+            query_cls.return_value.run.return_value = [
+                CandidateSession(session_id="sess-1", session_end=session_end, occurrences=occurrences)
+            ]
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=50)
+            )
+
+        kwargs = query_cls.call_args.kwargs
+        assert kwargs["candidate_limit"] == 50 // MAX_MOMENTS_PER_SESSION
+        assert kwargs["moments_config"] is not None
+        moments = result.candidates[0].moments
+        assert len(moments) == MAX_MOMENTS_PER_SESSION
+        assert len({m.anchor_uuid for m in moments}) == MAX_MOMENTS_PER_SESSION
+
+    def test_moments_scope_without_config_is_non_retryable(self) -> None:
+        scanner = _make_scanner(scan_scope=ScannerScanScope.MOMENTS, moments_config=None)
+        with pytest.raises(ApplicationError, match="no moments_config"):
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=50)
+            )
+
+
+@pytest.mark.django_db(transaction=True)
 class TestCreateObservationActivity:
     def test_creates_row_in_pending_with_workflow_id_and_snapshot(self) -> None:
         scanner = _make_scanner()
@@ -221,6 +269,47 @@ class TestCreateObservationActivity:
         assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
+
+    def test_persists_moment_and_dedups_per_anchor(self) -> None:
+        scanner = _make_scanner()
+        anchor_ts = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+        moment = CoalescedMoment(
+            anchor_uuid="0197a000-0000-7000-8000-000000000001",
+            anchor_event="checkout_error",
+            anchor_timestamp=anchor_ts,
+            window_start=anchor_ts - dt.timedelta(seconds=60),
+            window_end=anchor_ts + dt.timedelta(seconds=60),
+            occurrence_count=3,
+        )
+
+        def create(moment: CoalescedMoment, workflow_id: str) -> CreateObservationOutput:
+            return create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-moment",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id=workflow_id,
+                    moment=moment,
+                )
+            )
+
+        first = create(moment, "wf-moment-1")
+        assert first.was_created is True
+        observation = ReplayObservation.objects.get(id=first.observation_id)
+        assert observation.moment_key == moment.anchor_uuid
+        assert observation.moment_event_name == "checkout_error"
+        assert observation.moment_event_timestamp == anchor_ts
+        assert observation.coalesced_event_count == 3
+
+        # Same anchor from a different workflow dedups; a different anchor in the same session is a new row.
+        duplicate = create(moment, "wf-moment-2")
+        assert duplicate.was_created is False
+        assert duplicate.observation_id == first.observation_id
+        other = create(moment.model_copy(update={"anchor_uuid": "0197a000-0000-7000-8000-000000000002"}), "wf-moment-3")
+        assert other.was_created is True
+        assert other.observation_id != first.observation_id
 
     def test_returns_existing_observation_on_unique_conflict(self) -> None:
         scanner = _make_scanner()

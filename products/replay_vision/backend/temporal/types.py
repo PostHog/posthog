@@ -7,7 +7,7 @@ from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerScanScope, ScannerType
-from products.replay_vision.backend.moments import MomentsConfig
+from products.replay_vision.backend.moments import CoalescedMoment, MomentsConfig
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -62,6 +62,8 @@ class ApplyScannerInputs(BaseModel, frozen=True):
     team_id: int
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None = None
+    # The moment to observe for moments-scoped scanners; None means the whole recording.
+    moment: CoalescedMoment | None = None
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
@@ -71,6 +73,7 @@ class CreateObservationInputs(BaseModel, frozen=True):
     triggered_by: ObservationTrigger
     triggered_by_user_id: int | None
     workflow_id: str
+    moment: CoalescedMoment | None = None
 
 
 class CreateObservationOutput(BaseModel, frozen=True):

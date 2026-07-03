@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -11,6 +12,13 @@ DEFAULT_AFTER_SECONDS = 60
 
 # Bounds the OR fan-out in the candidate query and keeps the config UI sane.
 MAX_MOMENT_EVENTS = 10
+
+# Occurrence windows closer than this are merged into one clip even without overlapping.
+MOMENT_MERGE_GAP_SECONDS = 5
+# Merging stops extending a clip past this; a longer chain of occurrences starts a new moment.
+MAX_MOMENT_CLIP_SECONDS = 600
+# Caps observations (and quota units) a single session can produce per sweep of one scanner.
+MAX_MOMENTS_PER_SESSION = 5
 
 
 class MomentEvent(BaseModel, frozen=True):
@@ -42,3 +50,81 @@ class MomentsConfig(BaseModel, frozen=True):
     after_seconds: int = Field(
         default=DEFAULT_AFTER_SECONDS, ge=MIN_MOMENT_WINDOW_SECONDS, le=MAX_MOMENT_WINDOW_SECONDS
     )
+
+
+class MomentOccurrence(BaseModel, frozen=True):
+    """One focus-event occurrence in a session, as returned by the candidate query."""
+
+    uuid: str
+    timestamp: dt.datetime
+    event: str
+
+
+class CoalescedMoment(BaseModel, frozen=True):
+    """One dispatchable moment: a merged window around one or more focus-event occurrences."""
+
+    # The first occurrence in the merged group; its uuid is the observation's `moment_key`.
+    anchor_uuid: str
+    anchor_event: str
+    anchor_timestamp: dt.datetime
+    # Absolute (event-time) bounds of the merged clip, pre-clamping; the scan resolves these against
+    # the recording timeline via the anchor's recording-relative offset, not by raw timestamp math.
+    window_start: dt.datetime
+    window_end: dt.datetime
+    occurrence_count: int
+
+
+def coalesce_moments(
+    occurrences: list[MomentOccurrence],
+    *,
+    before_seconds: int,
+    after_seconds: int,
+    merge_gap_seconds: int = MOMENT_MERGE_GAP_SECONDS,
+    max_clip_seconds: int = MAX_MOMENT_CLIP_SECONDS,
+) -> list[CoalescedMoment]:
+    """Merge per-occurrence windows into distinct moments; overlapping or near-adjacent windows become one clip.
+
+    Deterministic for a given occurrence set (sorted by timestamp then uuid) — sweep retries must
+    regenerate identical anchors or Temporal dedup and the DB constraint stop protecting us.
+    Callers cap the result (`MAX_MOMENTS_PER_SESSION`) and account for what they drop.
+    """
+    if not occurrences:
+        return []
+    before = dt.timedelta(seconds=before_seconds)
+    after = dt.timedelta(seconds=after_seconds)
+    gap = dt.timedelta(seconds=merge_gap_seconds)
+    max_clip = dt.timedelta(seconds=max_clip_seconds)
+
+    ordered = sorted(occurrences, key=lambda o: (o.timestamp, o.uuid))
+    moments: list[CoalescedMoment] = []
+    group: list[MomentOccurrence] = [ordered[0]]
+    group_start = ordered[0].timestamp - before
+    group_end = ordered[0].timestamp + after
+
+    def flush() -> None:
+        anchor = group[0]
+        moments.append(
+            CoalescedMoment(
+                anchor_uuid=anchor.uuid,
+                anchor_event=anchor.event,
+                anchor_timestamp=anchor.timestamp,
+                window_start=group_start,
+                window_end=group_end,
+                occurrence_count=len(group),
+            )
+        )
+
+    for occurrence in ordered[1:]:
+        window_start = occurrence.timestamp - before
+        window_end = occurrence.timestamp + after
+        merged_end = max(group_end, window_end)
+        if window_start <= group_end + gap and merged_end - group_start <= max_clip:
+            group.append(occurrence)
+            group_end = merged_end
+        else:
+            flush()
+            group = [occurrence]
+            group_start = window_start
+            group_end = window_end
+    flush()
+    return moments

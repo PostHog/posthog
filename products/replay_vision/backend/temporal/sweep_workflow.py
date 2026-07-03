@@ -150,28 +150,33 @@ class SweepScannerWorkflow(PostHogWorkflow):
             )
 
     async def _start_child(self, inputs: SweepScannerInputs, candidate: CandidateSessionPayload) -> None:
-        try:
-            await wf.start_child_workflow(
-                APPLY_SCANNER_WORKFLOW_NAME,
-                ApplyScannerInputs(
-                    scanner_id=inputs.scanner_id,
-                    session_id=candidate.session_id,
-                    team_id=inputs.team_id,
-                    triggered_by=ObservationTrigger.SCHEDULE,
-                ),
-                id=build_apply_scanner_workflow_id(inputs.scanner_id, candidate.session_id),
-                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                parent_close_policy=wf.ParentClosePolicy.ABANDON,
-                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
-                search_attributes=TypedSearchAttributes(
-                    search_attributes=[
-                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
-                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=candidate.session_id),
-                        SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
-                    ]
-                ),
-            )
-        except WorkflowAlreadyStartedError:
-            # This (scanner, session) is already running — skip.
-            pass
+        # A moments-scoped candidate fans out one child per moment; recording scope is one child per session.
+        for moment in candidate.moments or [None]:
+            try:
+                await wf.start_child_workflow(
+                    APPLY_SCANNER_WORKFLOW_NAME,
+                    ApplyScannerInputs(
+                        scanner_id=inputs.scanner_id,
+                        session_id=candidate.session_id,
+                        team_id=inputs.team_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        moment=moment,
+                    ),
+                    id=build_apply_scanner_workflow_id(
+                        inputs.scanner_id, candidate.session_id, moment.anchor_uuid if moment else ""
+                    ),
+                    task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    parent_close_policy=wf.ParentClosePolicy.ABANDON,
+                    execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
+                    search_attributes=TypedSearchAttributes(
+                        search_attributes=[
+                            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
+                            SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=candidate.session_id),
+                            SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(inputs.scanner_id)),
+                        ]
+                    ),
+                )
+            except WorkflowAlreadyStartedError:
+                # This (scanner, session[, moment]) is already running — skip.
+                pass

@@ -903,6 +903,8 @@ export interface EstimateRequestApi {
      * @nullable
      */
     scanner_id?: string | null
+    /** Proposed moments scope config. When set, the estimate counts moments (focus-event occurrences, capped per session) instead of whole sessions. Omit (or null) for recording scope. */
+    moments_config?: MomentsConfigApi | null
 }
 
 /**
@@ -911,6 +913,11 @@ export interface EstimateRequestApi {
 export interface EstimateResponseApi {
     /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
     matched_sessions_in_window: number
+    /**
+     * Moments (focus-event occurrences, capped per session) within the lookback, before sampling. Null for recording-scoped estimates.
+     * @nullable
+     */
+    matched_moments_in_window: number | null
     /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
     window_days: number
     /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */

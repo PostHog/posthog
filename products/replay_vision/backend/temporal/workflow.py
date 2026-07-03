@@ -209,6 +209,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 triggered_by=inputs.triggered_by,
                 triggered_by_user_id=inputs.triggered_by_user_id,
                 workflow_id=workflow_id,
+                moment=inputs.moment,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_CREATE_OBSERVATION_RETRY,

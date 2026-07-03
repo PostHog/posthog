@@ -20340,6 +20340,41 @@ export namespace Schemas {
       content_hash: string;
     }
 
+    export type MomentEventPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.
+     */
+    export interface MomentEvent {
+      /**
+         * Event name whose occurrences anchor moments.
+         * @maxLength 400
+         */
+      event: string;
+      /** Property filters the occurrence must also match; standard PostHog property filter shapes. */
+      properties?: MomentEventPropertiesItem[];
+    }
+
+    /**
+     * Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.
+     */
+    export interface MomentsConfig {
+      /** Focus events (1-10); a moment is scanned around each occurrence of any of them. */
+      events: MomentEvent[];
+      /**
+         * Clip seconds included before the focus event. Defaults to 60.
+         * @minimum 5
+         * @maximum 300
+         */
+      before_seconds?: number;
+      /**
+         * Clip seconds included after the focus event. Defaults to 60.
+         * @minimum 5
+         * @maximum 300
+         */
+      after_seconds?: number;
+    }
+
     /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
@@ -20357,6 +20392,8 @@ export namespace Schemas {
          * @nullable
          */
       scanner_id?: string | null;
+      /** Proposed moments scope config. When set, the estimate counts moments (focus-event occurrences, capped per session) instead of whole sessions. Omit (or null) for recording scope. */
+      moments_config?: MomentsConfig | null;
     }
 
     /**
@@ -20365,6 +20402,11 @@ export namespace Schemas {
     export interface EstimateResponse {
       /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
       matched_sessions_in_window: number;
+      /**
+         * Moments (focus-event occurrences, capped per session) within the lookback, before sampling. Null for recording-scoped estimates.
+         * @nullable
+         */
+      matched_moments_in_window: number | null;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
       /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
@@ -30027,41 +30069,6 @@ export namespace Schemas {
     export const ModelNameEnum = {
       FeatureFlag: 'FeatureFlag',
     } as const;
-
-    export type MomentEventPropertiesItem = { [key: string]: unknown };
-
-    /**
-     * Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.
-     */
-    export interface MomentEvent {
-      /**
-         * Event name whose occurrences anchor moments.
-         * @maxLength 400
-         */
-      event: string;
-      /** Property filters the occurrence must also match; standard PostHog property filter shapes. */
-      properties?: MomentEventPropertiesItem[];
-    }
-
-    /**
-     * Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.
-     */
-    export interface MomentsConfig {
-      /** Focus events (1-10); a moment is scanned around each occurrence of any of them. */
-      events: MomentEvent[];
-      /**
-         * Clip seconds included before the focus event. Defaults to 60.
-         * @minimum 5
-         * @maximum 300
-         */
-      before_seconds?: number;
-      /**
-         * Clip seconds included after the focus event. Defaults to 60.
-         * @minimum 5
-         * @maximum 300
-         */
-      after_seconds?: number;
-    }
 
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */

@@ -1,7 +1,7 @@
 """Find session recordings a scanner should observe: ended past the watermark and quiet for 35+ minutes."""
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 import structlog
@@ -17,6 +17,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.moments import MomentOccurrence, MomentsConfig
+from products.replay_vision.backend.queries.moment_occurrences import moment_occurrences_subquery
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -40,14 +42,16 @@ DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 
-def eligibility_predicates() -> list[ast.Expr]:
+def eligibility_predicates(*, cap_active_seconds: bool = True) -> list[ast.Expr]:
     # Mirror the scan-time eligibility gate (fetch_session_events) on the same ClickHouse aggregates the scan reads, so
     # too-short/idle/long recordings never become candidates and the volume estimate counts the same eligible set. The
     # scan still re-checks these authoritatively; this only spares the wasted observation + metadata fetch each rejected
     # recording would otherwise cost.
+    # Moments-scoped scanners drop the active-seconds cap: it exists because a whole-session video of an hour-plus
+    # session is unscannable, but a clip of one is fine — that reach into long sessions is the point of moments.
     duration = ast.Field(chain=["duration"])
     active_seconds = ast.Field(chain=["active_seconds"])
-    return [
+    predicates: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
             left=duration,
@@ -58,18 +62,24 @@ def eligibility_predicates() -> list[ast.Expr]:
             left=active_seconds,
             right=ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
         ),
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=active_seconds,
-            right=ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
-        ),
     ]
+    if cap_active_seconds:
+        predicates.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=active_seconds,
+                right=ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+            )
+        )
+    return predicates
 
 
 @dataclass(frozen=True)
 class CandidateSession:
     session_id: str
     session_end: dt.datetime
+    # Populated (non-empty by construction of the INNER JOIN) only for moments-scoped scanners.
+    occurrences: list[MomentOccurrence] = field(default_factory=list)
 
 
 class ScannerCandidateQuery:
@@ -85,6 +95,8 @@ class ScannerCandidateQuery:
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        # Moments scope: candidates additionally need >=1 focus-event occurrence, returned per session.
+        moments_config: MomentsConfig | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -102,6 +114,7 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._moments_config = moments_config
 
         # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)
@@ -113,7 +126,7 @@ class ScannerCandidateQuery:
 
         # Drop recordings the scan would reject anyway (too short / too idle / too long) before they become candidates,
         # then sample the rest — all in the inner HAVING, before outer aggregation.
-        extra_having: list[ast.Expr] = eligibility_predicates()
+        extra_having: list[ast.Expr] = eligibility_predicates(cap_active_seconds=moments_config is None)
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
 
@@ -128,7 +141,24 @@ class ScannerCandidateQuery:
                 query_type="ReplayVisionScannerCandidateQuery",
                 settings=HogQLGlobalSettings(max_execution_time=self._max_execution_time_seconds),
             )
-        return [CandidateSession(session_id=row[0], session_end=row[1]) for row in (response.results or [])]
+        return [
+            CandidateSession(
+                session_id=row[0],
+                session_end=row[1],
+                occurrences=self._parse_occurrences(row[2]) if self._moments_config is not None else [],
+            )
+            for row in (response.results or [])
+        ]
+
+    @staticmethod
+    def _parse_occurrences(raw: object) -> list[MomentOccurrence]:
+        occurrences = []
+        for item in raw if isinstance(raw, list) else []:
+            timestamp, uuid, event = item
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=dt.UTC)
+            occurrences.append(MomentOccurrence(uuid=uuid, timestamp=timestamp, event=event))
+        return occurrences
 
     def get_query(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
@@ -150,12 +180,37 @@ class ScannerCandidateQuery:
             ),
         ]
 
+        select: list[ast.Expr] = [
+            ast.Field(chain=["sessions", "session_id"]),
+            ast.Alias(alias="session_end", expr=ast.Field(chain=["sessions", "end_time"])),
+        ]
+        select_from = ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions")
+        if self._moments_config is not None:
+            # INNER JOIN rather than injecting the focus events into the user's query: it enforces
+            # ">=1 occurrence" without touching the query's own event filters or operand semantics.
+            select.append(ast.Field(chain=["occ", "occurrences"]))
+            select_from.next_join = ast.JoinExpr(
+                join_type="INNER JOIN",
+                table=moment_occurrences_subquery(
+                    team=self._team,
+                    config=self._moments_config,
+                    occurred_after=self._last_swept_at - _PARTITION_LOOKBACK,
+                    aggregate="occurrences",
+                ),
+                alias="occ",
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["sessions", "session_id"]),
+                        right=ast.Field(chain=["occ", "session_id"]),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+
         return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["sessions", "session_id"]),
-                ast.Alias(alias="session_end", expr=ast.Field(chain=["sessions", "end_time"])),
-            ],
-            select_from=ast.JoinExpr(table=cast(ast.SelectQuery, inner), alias="sessions"),
+            select=select,
+            select_from=select_from,
             where=ast.And(exprs=where_exprs),
             order_by=[
                 ast.OrderExpr(expr=ast.Field(chain=["session_end"]), order="ASC"),

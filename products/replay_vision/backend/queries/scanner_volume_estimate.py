@@ -14,6 +14,8 @@ from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.moments import MAX_MOMENTS_PER_SESSION, MomentsConfig
+from products.replay_vision.backend.queries.moment_occurrences import moment_occurrences_subquery
 from products.replay_vision.backend.queries.scanner_candidate_query import eligibility_predicates
 
 # A pathological filter must not be able to hang the estimate request.
@@ -37,10 +39,16 @@ class ScannerVolumeEstimate:
     matched_sessions: int
     # May be smaller than ESTIMATE_WINDOW_DAYS when the team has fewer days of recordings.
     effective_window_days: int
+    # Moments scope only: observation units in the window (per-session occurrences capped, merging approximated).
+    matched_moments: int | None = None
 
 
 def estimate_scanner_session_volume(
-    *, team: Team, query: RecordingsQuery, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
+    moments_config: MomentsConfig | None = None,
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
@@ -48,6 +56,10 @@ def estimate_scanner_session_volume(
     COUNT, so the estimate and the real recordings list agree on what "matches". The team's
     earliest recent recording is fetched in the same round trip via a CROSS JOIN so the
     cost-preview widget never pays for two sequential HogQL queries.
+
+    For moments scope, sessions additionally need >=1 focus-event occurrence, and the unit that
+    projects to observations is moments: `sum(least(occurrences, MAX_MOMENTS_PER_SESSION))` —
+    window merging is approximated by the cap, so the forecast reads "up to".
     """
     now = dt.datetime.now(dt.UTC)
     window_start = now - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
@@ -58,15 +70,49 @@ def estimate_scanner_session_volume(
 
     # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
     inner = SessionRecordingListFromQuery(
-        team=team, query=windowed, extra_having_predicates=eligibility_predicates()
+        team=team,
+        query=windowed,
+        extra_having_predicates=eligibility_predicates(cap_active_seconds=moments_config is None),
     ).get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
     inner.order_by = None
 
-    matched_subquery = ast.SelectQuery(
-        select=[ast.Alias(alias="matched", expr=ast.Call(name="count", args=[]))],
-        select_from=ast.JoinExpr(table=inner, alias="_matched"),
-    )
+    matched_select: list[ast.Expr] = [ast.Alias(alias="matched", expr=ast.Call(name="count", args=[]))]
+    sessions_join = ast.JoinExpr(table=inner, alias="_matched")
+    if moments_config is not None:
+        matched_select.append(
+            ast.Alias(
+                alias="matched_moments",
+                expr=ast.Call(
+                    name="sum",
+                    args=[
+                        ast.Call(
+                            name="least",
+                            args=[
+                                ast.Field(chain=["occ", "occurrence_count"]),
+                                ast.Constant(value=MAX_MOMENTS_PER_SESSION),
+                            ],
+                        )
+                    ],
+                ),
+            )
+        )
+        sessions_join.next_join = ast.JoinExpr(
+            join_type="INNER JOIN",
+            table=moment_occurrences_subquery(
+                team=team, config=moments_config, occurred_after=window_start, aggregate="count"
+            ),
+            alias="occ",
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["_matched", "session_id"]),
+                    right=ast.Field(chain=["occ", "session_id"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
+    matched_subquery = ast.SelectQuery(select=matched_select, select_from=sessions_join)
     earliest_subquery = ast.SelectQuery(
         select=[
             ast.Alias(
@@ -82,11 +128,14 @@ def estimate_scanner_session_volume(
             right=ast.Constant(value=now - dt.timedelta(days=_EARLIEST_PROBE_LOOKBACK_DAYS)),
         ),
     )
+    combined_select: list[ast.Expr] = [
+        ast.Field(chain=["m", "matched"]),
+        ast.Field(chain=["e", "earliest"]),
+    ]
+    if moments_config is not None:
+        combined_select.append(ast.Field(chain=["m", "matched_moments"]))
     combined_query = ast.SelectQuery(
-        select=[
-            ast.Field(chain=["m", "matched"]),
-            ast.Field(chain=["e", "earliest"]),
-        ],
+        select=combined_select,
         select_from=ast.JoinExpr(
             table=matched_subquery,
             alias="m",
@@ -108,16 +157,22 @@ def estimate_scanner_session_volume(
     results = response.results or []
     matched = int(results[0][0]) if results else 0
     earliest = results[0][1] if results else None
+    matched_moments: int | None = None
+    if moments_config is not None:
+        # sum() over zero joined rows yields NULL/0 depending on dialect; normalize to 0.
+        matched_moments = int(results[0][2] or 0) if results else 0
 
     return ScannerVolumeEstimate(
         matched_sessions=matched,
         effective_window_days=_clamp_window_days(earliest),
+        matched_moments=matched_moments,
     )
 
 
 def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate: float) -> int:
-    """Scale matched sessions to a 30-day month and apply the sampling rate."""
-    return round(estimate.matched_sessions / estimate.effective_window_days * ESTIMATE_WINDOW_DAYS * sampling_rate)
+    """Scale matched units (moments when scoped, else sessions) to a 30-day month and apply the sampling rate."""
+    units = estimate.matched_moments if estimate.matched_moments is not None else estimate.matched_sessions
+    return round(units / estimate.effective_window_days * ESTIMATE_WINDOW_DAYS * sampling_rate)
 
 
 def refresh_scanner_estimate(
@@ -125,13 +180,26 @@ def refresh_scanner_estimate(
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
     estimate = estimate_scanner_session_volume(
-        team=scanner.team, query=scanner.recordings_query(), max_execution_seconds=max_execution_seconds
+        team=scanner.team,
+        query=scanner.recordings_query(),
+        max_execution_seconds=max_execution_seconds,
+        moments_config=scanner.moments_config_typed(),
     )
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
+    # JSONField equality against None matches JSON null, not SQL NULL — spell the null case out.
+    moments_guard: dict[str, object] = (
+        {"moments_config__isnull": True}
+        if scanner.moments_config is None
+        else {"moments_config": scanner.moments_config}
+    )
     updated = ReplayScanner.objects.filter(
-        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate
+        pk=scanner.pk,
+        query=scanner.query,
+        sampling_rate=scanner.sampling_rate,
+        scan_scope=scanner.scan_scope,
+        **moments_guard,
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection

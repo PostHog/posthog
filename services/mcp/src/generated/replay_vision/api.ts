@@ -497,6 +497,14 @@ export const visionScannersEstimateCreateBodySamplingRateDefault = 1
 export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
+export const visionScannersEstimateCreateBodyMomentsConfigOneEventsItemEventMax = 400
+
+export const visionScannersEstimateCreateBodyMomentsConfigOneBeforeSecondsMin = 5
+export const visionScannersEstimateCreateBodyMomentsConfigOneBeforeSecondsMax = 300
+
+export const visionScannersEstimateCreateBodyMomentsConfigOneAfterSecondsMin = 5
+export const visionScannersEstimateCreateBodyMomentsConfigOneAfterSecondsMax = 300
+
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
         query: zod
@@ -516,6 +524,55 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
+        moments_config: zod
+            .union([
+                zod
+                    .object({
+                        events: zod
+                            .array(
+                                zod
+                                    .object({
+                                        event: zod
+                                            .string()
+                                            .max(visionScannersEstimateCreateBodyMomentsConfigOneEventsItemEventMax)
+                                            .describe('Event name whose occurrences anchor moments.'),
+                                        properties: zod
+                                            .array(zod.record(zod.string(), zod.unknown()))
+                                            .optional()
+                                            .describe(
+                                                'Property filters the occurrence must also match; standard PostHog property filter shapes.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.'
+                                    )
+                            )
+                            .describe(
+                                'Focus events (1-10); a moment is scanned around each occurrence of any of them.'
+                            ),
+                        before_seconds: zod
+                            .number()
+                            .min(visionScannersEstimateCreateBodyMomentsConfigOneBeforeSecondsMin)
+                            .max(visionScannersEstimateCreateBodyMomentsConfigOneBeforeSecondsMax)
+                            .optional()
+                            .describe('Clip seconds included before the focus event. Defaults to 60.'),
+                        after_seconds: zod
+                            .number()
+                            .min(visionScannersEstimateCreateBodyMomentsConfigOneAfterSecondsMin)
+                            .max(visionScannersEstimateCreateBodyMomentsConfigOneAfterSecondsMax)
+                            .optional()
+                            .describe('Clip seconds included after the focus event. Defaults to 60.'),
+                    })
+                    .describe(
+                        'Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.'
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Proposed moments scope config. When set, the estimate counts moments (focus-event occurrences, capped per session) instead of whole sessions. Omit (or null) for recording scope.'
             ),
     })
     .describe('Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.')

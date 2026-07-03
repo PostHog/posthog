@@ -63,6 +63,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             scanner_type=scanner.scanner_type,
         )
 
+    moment = inputs.moment
     try:
         with transaction.atomic():
             observation = ReplayObservation.objects.create(
@@ -74,12 +75,20 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
                 scanner_snapshot=_build_scanner_snapshot(scanner),
                 triggered_by=inputs.triggered_by,
                 triggered_by_user_id=inputs.triggered_by_user_id,
+                moment_key=moment.anchor_uuid if moment else "",
+                moment_event_name=moment.anchor_event if moment else "",
+                moment_event_timestamp=moment.anchor_timestamp if moment else None,
+                coalesced_event_count=moment.occurrence_count if moment else 0,
             )
     except IntegrityError as e:
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
         if not isinstance(e.__cause__, psycopg.errors.UniqueViolation):
             raise
-        existing = ReplayObservation.objects.filter(scanner_id=inputs.scanner_id, session_id=inputs.session_id).first()
+        existing = ReplayObservation.objects.filter(
+            scanner_id=inputs.scanner_id,
+            session_id=inputs.session_id,
+            moment_key=moment.anchor_uuid if moment else "",
+        ).first()
         if existing is None:
             # Conflicting row was deleted between INSERT and SELECT; let Temporal retry the INSERT.
             raise ApplicationError(

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -1423,6 +1423,20 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
+    def test_observe_rejects_moments_scoped_scanner(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Guards the temporary gate: without it, observe would create a whole-recording observation
+        # for a scanner whose prompt and estimate assume clips.
+        scanner = self._create_scanner(
+            name="moments-scanner",
+            scan_scope=ScannerScanScope.MOMENTS,
+            moments_config={"events": [{"event": "checkout_error"}], "before_seconds": 60, "after_seconds": 60},
+        )
+        resp = self.client.post(self.observe_url(str(scanner.id)), data={"session_id": "sess-1"}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("not yet supported", resp.json()["detail"])
+
     def test_observe_returns_workflow_id_and_starts_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
@@ -1679,18 +1693,20 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     def estimate_url(self) -> str:
         return f"{self.scanners_url}estimate/"
 
-    def _ingest_session(self, *, days_ago: float) -> None:
+    def _ingest_session(self, *, days_ago: float, session_id: str | None = None) -> str:
         # HogQL skips non-UUIDv7 `$session_id` values, so the estimate query would return 0 for them.
+        session_id = session_id or str(uuid7())
         first_timestamp = timezone.now() - timedelta(days=days_ago)
         produce_replay_summary(
             team_id=self.team.pk,
-            session_id=str(uuid7()),
+            session_id=session_id,
             distinct_id="estimate-distinct-id",
             first_timestamp=first_timestamp,
             last_timestamp=first_timestamp + timedelta(minutes=5),
             # Clear the scanner eligibility bounds the estimate applies, so these sessions count.
             active_milliseconds=30_000,
         )
+        return session_id
 
     @parameterized.expand(
         [
@@ -1755,6 +1771,37 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
         self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+
+    def test_estimate_with_moments_config_counts_moments(self) -> None:
+        self._ingest_session(days_ago=40)  # outside the window; pins effective_window_days at the full 30
+        session_id = self._ingest_session(days_ago=2)
+        self._ingest_session(days_ago=2)  # no focus events; matches the query but contributes no moments
+        for minute in range(3):
+            _create_event(
+                team=self.team,
+                event="checkout_error",
+                distinct_id="estimate-distinct-id",
+                timestamp=timezone.now() - timedelta(days=2) + timedelta(minutes=minute),
+                properties={"$session_id": session_id},
+            )
+        flush_persons_and_events()
+
+        resp = self.client.post(
+            self.estimate_url,
+            data={"moments_config": {"events": [{"event": "checkout_error"}]}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        # Moments are the unit that projects to observations; the no-event session is excluded entirely.
+        self.assertEqual(body["matched_moments_in_window"], 3)
+        self.assertEqual(body["matched_sessions_in_window"], 1)
+        self.assertEqual(body["estimated_observations_per_month"], 3)
+
+    def test_estimate_rejects_invalid_moments_config(self) -> None:
+        resp = self.client.post(self.estimate_url, data={"moments_config": {"events": []}}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "moments_config")
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.

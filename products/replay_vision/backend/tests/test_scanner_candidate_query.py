@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
@@ -13,6 +13,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
+from products.replay_vision.backend.moments import MAX_MOMENTS_PER_SESSION, MomentEvent, MomentsConfig
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SETTLE_INTERVAL,
@@ -385,6 +386,79 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = {r.session_id for r in self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))}
         assert results == {"eligible"}
 
+    def _produce_event(self, team, session_id: str, event: str, at: dt.datetime, **properties) -> None:
+        _create_event(
+            team=team,
+            event=event,
+            distinct_id="moment-distinct-id",
+            timestamp=at,
+            properties={"$session_id": session_id, **properties},
+        )
+
+    @pytest.mark.django_db
+    def test_moments_scope_returns_only_sessions_with_matching_occurrences(self, team) -> None:
+        start = _NOW - dt.timedelta(hours=2)
+        end = _NOW - dt.timedelta(minutes=40)
+        self._produce(team.id, "sess-hits", start, end)
+        self._produce(team.id, "sess-no-events", start, end)
+        self._produce(team.id, "sess-wrong-plan", start, end)
+        self._produce_event(team, "sess-hits", "checkout_error", start + dt.timedelta(minutes=5), plan="enterprise")
+        self._produce_event(team, "sess-hits", "checkout_error", start + dt.timedelta(minutes=2), plan="enterprise")
+        self._produce_event(team, "sess-hits", "unrelated_event", start + dt.timedelta(minutes=3), plan="enterprise")
+        self._produce_event(team, "sess-wrong-plan", "checkout_error", start + dt.timedelta(minutes=5), plan="free")
+        flush_persons_and_events()
+
+        config = MomentsConfig(
+            events=[
+                MomentEvent(
+                    event="checkout_error",
+                    properties=[{"key": "plan", "operator": "exact", "value": "enterprise", "type": "event"}],
+                )
+            ]
+        )
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=3), moments_config=config)
+
+        assert [r.session_id for r in results] == ["sess-hits"]
+        occurrences = results[0].occurrences
+        # Sorted by timestamp, matching only the focus event with the required property.
+        assert [o.event for o in occurrences] == ["checkout_error", "checkout_error"]
+        assert occurrences[0].timestamp == start + dt.timedelta(minutes=2)
+        assert occurrences[1].timestamp == start + dt.timedelta(minutes=5)
+        assert all(o.uuid for o in occurrences)
+
+    @pytest.mark.django_db
+    def test_moments_scope_lifts_active_seconds_cap(self, team) -> None:
+        # An hour-plus session is TOO_LONG for whole-recording scans but fine for clips — that reach is the point.
+        start = _NOW - dt.timedelta(hours=3)
+        self._produce(
+            team.id, "sess-marathon", start, start + dt.timedelta(seconds=4200), active_milliseconds=3_700_000
+        )
+        self._produce_event(team, "sess-marathon", "checkout_error", start + dt.timedelta(minutes=30))
+        flush_persons_and_events()
+
+        config = MomentsConfig(events=[MomentEvent(event="checkout_error")])
+        assert self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4)) == []
+        with_moments = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=4), moments_config=config)
+        assert [r.session_id for r in with_moments] == ["sess-marathon"]
+
+    @pytest.mark.django_db
+    def test_volume_estimate_moments_counts_capped_occurrences(self, team) -> None:
+        recent = _NOW - dt.timedelta(days=2)
+        self._produce(team.id, "sess-chatty", recent, recent + dt.timedelta(minutes=30))
+        self._produce(team.id, "sess-single", recent, recent + dt.timedelta(minutes=30))
+        self._produce(team.id, "sess-quiet", recent, recent + dt.timedelta(minutes=30))
+        for i in range(MAX_MOMENTS_PER_SESSION + 2):
+            self._produce_event(team, "sess-chatty", "checkout_error", recent + dt.timedelta(minutes=i))
+        self._produce_event(team, "sess-single", "checkout_error", recent + dt.timedelta(minutes=1))
+        flush_persons_and_events()
+
+        config = MomentsConfig(events=[MomentEvent(event="checkout_error")])
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery(), moments_config=config)
+
+        assert estimate.matched_sessions == 2
+        # Per-session occurrences cap at MAX_MOMENTS_PER_SESSION; the quiet session contributes nothing.
+        assert estimate.matched_moments == MAX_MOMENTS_PER_SESSION + 1
+
     @pytest.mark.django_db
     def test_volume_estimate_counts_only_eligible_recordings(self, team) -> None:
         # The estimate shares eligibility_predicates() with the candidate query, so the forecast counts the same
@@ -608,6 +682,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
+        moments_config: MomentsConfig | None = None,
     ):
         return ScannerCandidateQuery(
             team=team,
@@ -617,4 +692,5 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
+            moments_config=moments_config,
         ).run()

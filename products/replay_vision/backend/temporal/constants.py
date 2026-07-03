@@ -98,9 +98,13 @@ LIST_STALE_ESTIMATES_TIMEOUT = dt.timedelta(seconds=60)
 REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 
 
-def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
-    """Deterministic Temporal workflow id for one (scanner, session) application."""
-    return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
+def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str, moment_key: str = "") -> str:
+    """Deterministic Temporal workflow id for one (scanner, session[, moment]) application.
+
+    Fits the 255-char `workflow_id` column: 28 prefix + 36 scanner + 1 + 128 session + 1 + 36 moment = 230.
+    """
+    base = f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
+    return f"{base}-{moment_key}" if moment_key else base
 
 
 def replay_vision_distinct_id(team_id: int) -> str:

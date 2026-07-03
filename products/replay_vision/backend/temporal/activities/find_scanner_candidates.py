@@ -4,9 +4,16 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerScanScope
+from products.replay_vision.backend.moments import (
+    MAX_MOMENTS_PER_SESSION,
+    CoalescedMoment,
+    MomentsConfig,
+    coalesce_moments,
+)
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
+    CandidateSession,
     ScannerCandidateQuery,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -15,6 +22,20 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
 )
+
+
+def _session_moments(candidate: CandidateSession, config: MomentsConfig) -> list[CoalescedMoment]:
+    moments = coalesce_moments(
+        candidate.occurrences, before_seconds=config.before_seconds, after_seconds=config.after_seconds
+    )
+    if len(moments) > MAX_MOMENTS_PER_SESSION:
+        # Cap visibly, not silently — kept moments are the earliest, matching the deterministic coalescing order.
+        activity.logger.info(
+            "replay_vision.moments_capped",
+            extra={"session_id": candidate.session_id, "dropped": len(moments) - MAX_MOMENTS_PER_SESSION},
+        )
+        moments = moments[:MAX_MOMENTS_PER_SESSION]
+    return moments
 
 
 @activity.defn
@@ -42,7 +63,24 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
+    moments_config: MomentsConfig | None = None
+    if scanner.scan_scope == ScannerScanScope.MOMENTS:
+        try:
+            moments_config = scanner.moments_config_typed()
+        except ValidationError as exc:
+            raise ApplicationError(
+                f"ReplayScanner {inputs.scanner_id} has malformed moments_config: {exc}", non_retryable=True
+            ) from exc
+        if moments_config is None:
+            raise ApplicationError(
+                f"ReplayScanner {inputs.scanner_id} is moments-scoped but has no moments_config", non_retryable=True
+            )
+
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    if moments_config is not None:
+        # The caller's limit is child-workflow headroom; a session can spawn up to MAX_MOMENTS_PER_SESSION
+        # children, so fetch conservatively rather than let one batch overshoot the in-flight cap.
+        limit = max(1, limit // MAX_MOMENTS_PER_SESSION)
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
@@ -51,11 +89,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         sampling_salt=str(scanner.id),
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
+        moments_config=moments_config,
     )
     candidates = candidate_query.run()
 
     return FindScannerCandidatesOutput(
-        candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
+        candidates=[
+            CandidateSessionPayload(
+                session_id=c.session_id,
+                session_end=c.session_end,
+                moments=_session_moments(c, moments_config) if moments_config is not None else [],
+            )
+            for c in candidates
+        ],
         # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
         saturated=len(candidates) == limit,
     )
