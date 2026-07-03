@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
-from posthog.hogql_queries.utils.interval_specs import UnsupportedIntervalError, interval_spec
+from posthog.interval_specs import UnsupportedIntervalError, interval_spec
 
 
 class TestIntervalSpecs(TestCase):
