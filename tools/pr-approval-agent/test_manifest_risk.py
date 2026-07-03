@@ -44,13 +44,6 @@ def _pkg(scripts: str = "", extra: str = "") -> str:
             id="pnpm-config-added",
         ),
         pytest.param(
-            "frontend/package.json",
-            _pkg(),
-            "{not json",
-            True,
-            id="unparseable-fails-closed",
-        ),
-        pytest.param(
             "pyproject.toml",
             "[project]\nname = 'x'\n",
             "[project]\nname = 'x'\n[project.scripts]\nx = 'pkg:main'\n",
@@ -138,6 +131,23 @@ def test_manifest_change_is_risky_structural(path: str, base: str, head: str, ri
     # Over-matching matters too - version bumps hard-denying would undo the
     # manifest calibration entirely.
     assert manifest_change_is_risky(path, base, head, diff_text="") is risky
+
+
+@pytest.mark.parametrize(
+    "path, base, head",
+    [
+        pytest.param("frontend/package.json", _pkg(), "{not json", id="package-json"),
+        pytest.param("pyproject.toml", "[project]\nname = 'x'\n", "[project\nname = 'x'\n", id="pyproject-toml"),
+        pytest.param("Pipfile", "[packages]\n", "[packages\n", id="pipfile"),
+        pytest.param("rust/Cargo.toml", '[package]\nname = "x"\n', '[package\nname = "x"\n', id="cargo-toml"),
+        pytest.param("composer.json", '{"name": "x/x"}', "{not json", id="composer-json"),
+    ],
+)
+def test_manifest_change_is_risky_unparseable_fails_closed(path: str, base: str, head: str) -> None:
+    # Each _STRUCTURAL_RISK_CHECKS entry has its own parse-failure exception
+    # tuple; narrowing any one of them would fail open for that manifest
+    # alone, so every format needs its own fail-closed case, not just json.
+    assert manifest_change_is_risky(path, base, head, diff_text="") is True
 
 
 @pytest.mark.parametrize(

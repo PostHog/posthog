@@ -457,7 +457,7 @@ def test_dependency_ecosystem_names_are_lowercase(ecosystem: str) -> None:
         pytest.param("composer.lock", id="composer-lock"),
     ],
 )
-def test_has_dependency_changes_covers_ecosystem_table_members(path: str) -> None:
+def test_has_dependency_changes_recognizes_uncurated_manifests_and_lockfiles(path: str) -> None:
     # Pins the members that DEPENDENCY_ECOSYSTEMS added beyond the old
     # curated set — a future narrowing of the table should fail here rather
     # than silently stop flagging these as dependency changes.
