@@ -637,11 +637,18 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
             raise ValidationError(str(e))
 
-        organization = self.context["get_organization"]()
-        _validate_every_15_minutes_interval(
-            calculation_interval=calculation_interval,
-            organization=organization,
+        # Only gate the 15-minute add-on when the interval is actually being set or
+        # changed. Partial updates that don't touch calculation_interval (e.g. snoozing)
+        # must not re-validate the stored interval — otherwise a pre-existing 15-minute
+        # alert on an org that later lost (or never had) the add-on could never be updated.
+        calculation_interval_changed = "calculation_interval" in attrs and (
+            self.instance is None or attrs["calculation_interval"] != self.instance.calculation_interval
         )
+        if calculation_interval_changed:
+            _validate_every_15_minutes_interval(
+                calculation_interval=calculation_interval,
+                organization=self.context["get_organization"](),
+            )
 
         # Investigation agent is only supported for detector-based alerts.
         investigation_enabled = attrs.get(

@@ -607,31 +607,39 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: snoozeUntil,
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                try {
+                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                        snoozed_until: snoozeUntil,
+                    })
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    props.onEditSuccess(values.alertForm.id)
+                } catch (error: unknown) {
+                    lemonToast.error(`Error snoozing alert: ${formatSaveError(error)}`)
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: null,
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                try {
+                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                        snoozed_until: null,
+                    })
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    props.onEditSuccess(values.alertForm.id)
+                } catch (error: unknown) {
+                    lemonToast.error(`Error clearing snooze: ${formatSaveError(error)}`)
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()

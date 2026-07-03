@@ -81,7 +81,10 @@ class TestAlert15MinuteInterval(APIBaseTest):
         assert response.json()["name"] == "updated 15 min alert"
         assert response.json()["calculation_interval"] == AlertCalculationInterval.EVERY_15_MINUTES
 
-    def test_patch_existing_every_15_minutes_rejected_after_entitlement_removed(self) -> None:
+    def test_partial_patch_existing_every_15_minutes_allowed_after_entitlement_removed(self) -> None:
+        # A partial update that doesn't touch calculation_interval (e.g. snoozing) must succeed
+        # even once the add-on is gone — otherwise a pre-existing 15-minute alert can never be
+        # snoozed, renamed, or cleared.
         self._enable_high_frequency_alerts()
         create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         alert_id = create_response.json()["id"]
@@ -89,9 +92,29 @@ class TestAlert15MinuteInterval(APIBaseTest):
         self.organization.available_product_features = []
         self.organization.save()
 
+        snooze_response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"snoozed_until": datetime.now(UTC).isoformat()},
+        )
+        assert snooze_response.status_code == status.HTTP_200_OK, snooze_response.content
+
+        clear_response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"snoozed_until": None},
+        )
+        assert clear_response.status_code == status.HTTP_200_OK, clear_response.content
+
+    def test_patch_setting_every_15_minutes_rejected_without_entitlement(self) -> None:
+        # The gate must still fire when calculation_interval is actually being set to 15 minutes.
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        alert_id = create_response.json()["id"]
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{alert_id}",
-            {"name": "still 15 min"},
+            {"calculation_interval": AlertCalculationInterval.EVERY_15_MINUTES},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Boost, Scale, or Enterprise" in str(response.json())
