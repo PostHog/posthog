@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.project import Project
@@ -83,6 +84,11 @@ class TestProductPushCampaignAPI(APIBaseTest):
         """Inaccessible teams should be indistinguishable from nonexistent ones."""
         if AccessControl is None:
             self.skipTest("EE not available")
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         started_at = timezone.now() - timedelta(days=3)
         ProductPushCampaign.objects.create(

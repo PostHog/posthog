@@ -1,3 +1,5 @@
+from typing import cast
+
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -7,7 +9,9 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.products import Products
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
@@ -96,9 +100,14 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 team_id = int(team_id_param)
             except ValueError:
                 raise ValidationError({"team_id": "Must be an integer team id."})
-            team = Team.objects.filter(id=team_id, organization=self.organization).only("id", "project_id").first()
-            if team is None or not self.user_access_control.check_access_level_for_object(team, "member"):
-                raise NotFound({"team_id": "Team not found."})
+            team = Team.objects.filter(id=team_id, organization=self.organization).first()
+            if team is None:
+                raise NotFound("Team not found.")
+            # This is an org-scoped viewset, so the mixin's user_access_control has no team context.
+            # Build a team-scoped one to check per-project access.
+            team_access_control = UserAccessControl(user=cast(User, request.user), team=team)
+            if not team_access_control.check_access_level_for_object(team, "member"):
+                raise NotFound("Team not found.")
             if project_uses_product(team.project_id, campaign.product_key):
                 return Response(status=status.HTTP_204_NO_CONTENT)
 
