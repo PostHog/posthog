@@ -329,7 +329,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         setScreenshotError: ({ error }) => {
             if (error) {
-                posthog.capture('in-app heatmap screenshot failed to display', { error })
+                posthog.capture('in-app heatmap screenshot failed', { error })
             }
         },
         exportHeatmap: () => {
