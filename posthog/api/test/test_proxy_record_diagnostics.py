@@ -251,6 +251,31 @@ class TestCheckLiveEvent(TestCase):
         self.assertEqual(result.status, "passed")
 
 
+class TestCheckCertExpiry(TestCase):
+    @parameterized.expand(
+        [
+            ("cloudflare_path", True, "retry"),
+            ("legacy_path", False, "config"),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.ssl_module.create_default_context")
+    @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
+    def test_expiring_cert_remediation_depends_on_path(
+        self, _name, is_cloudflare, expected_type, _create_conn_mock, ctx_mock
+    ):
+        # An expiring cert triggers the failed branch; the remediation differs by path — a
+        # Cloudflare proxy can safely re-provision (retry), a legacy proxy must not (config),
+        # since retry would migrate it onto Cloudflare and break a working setup.
+        wrapped = ctx_mock.return_value.wrap_socket.return_value.__enter__.return_value
+        wrapped.getpeercert.return_value = {"notAfter": "Jan  1 00:00:00 2000 GMT"}
+
+        result = diagnostics._check_cert_expiry(_record(), is_cloudflare=is_cloudflare)
+
+        self.assertEqual(result.status, "failed")
+        assert result.remediation is not None
+        self.assertEqual(result.remediation.type, expected_type)
+
+
 CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."
 LEGACY_TARGET = "abc.proxy-us.posthog.com."
 
@@ -285,6 +310,30 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertEqual(report.summary.status, "healthy")
         self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "cert_expiry"])
         get_mock.assert_not_called()
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_cname_failure_skips_live_probe(self, ResolverMock, get_mock, post_mock):
+        # SSRF guard: when DNS doesn't confirm the domain points at our managed proxy target,
+        # the live probe must not fire an outbound request to the org-controlled hostname.
+        cname = MagicMock()
+        cname.target.to_text.return_value = "somewhere-else.example.net."
+
+        def resolve_side_effect(name, rdtype):
+            if rdtype == "CNAME":
+                return [cname]
+            raise dns.resolver.NoAnswer()
+
+        ResolverMock.return_value.resolve.side_effect = resolve_side_effect
+        get_mock.return_value = None
+
+        report = diagnostics.diagnose(_record(target=CF_TARGET))
+
+        post_mock.assert_not_called()
+        live_check = next(c for c in report.checks if c.id == "live_event")
+        self.assertEqual(live_check.status, "skipped")
+        self.assertEqual(report.summary.primary_issue, "cname")
 
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
