@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -26,6 +27,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
+    @freeze_time("2026-07-03T12:00:00Z")
     def test_active_returns_the_running_campaign_with_resolved_product_path(self) -> None:
         started_at = timezone.now() - timedelta(days=3)
         campaign = ProductPushCampaign.objects.create(
@@ -46,6 +48,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
         assert data["reason_text"] == "Watch real sessions."
         assert data["product_path"]
 
+    @freeze_time("2026-07-03T12:00:00Z")
     def test_campaign_is_hidden_in_projects_that_already_use_the_product(self) -> None:
         started_at = timezone.now() - timedelta(days=3)
         ProductPushCampaign.objects.create(
@@ -66,6 +69,7 @@ class TestProductPushCampaignAPI(APIBaseTest):
         assert self.client.get(self._url() + "?team_id=99999999").status_code == status.HTTP_400_BAD_REQUEST
         assert self.client.get(self._url() + "?team_id=nope").status_code == status.HTTP_400_BAD_REQUEST
 
+    @freeze_time("2026-07-03T12:00:00Z")
     def test_non_member_cannot_read_another_orgs_campaign(self) -> None:
         other_organization = Organization.objects.create(name="other")
         ProductPushCampaign.objects.create(
