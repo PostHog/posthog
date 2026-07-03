@@ -17,6 +17,7 @@ import re
 import json
 import tomllib
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 # Any change at all to these is execution-bearing — setup.py and Gemfile are
@@ -89,30 +90,29 @@ def _tsconfig_risky_subtree(text: str) -> object:
     return (data.get("extends"), (data.get("compilerOptions") or {}).get("plugins"))
 
 
+# Manifests compared by parsing base/head into a "risky subtree" and diffing
+# that, rather than by diff-line matching (see module docstring). Each entry
+# pairs the extractor with the parse-failure exceptions that must fail closed
+# (return True) for that format.
+_STRUCTURAL_RISK_CHECKS: dict[str, tuple[Callable[[str], object], tuple[type[Exception], ...]]] = {
+    "package.json": (_package_json_risky_subtree, (ValueError,)),
+    "pyproject.toml": (_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "pipfile": (_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "cargo.toml": (_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
+    "composer.json": (_composer_json_risky_subtree, (ValueError,)),
+}
+
+
 def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_text: str) -> bool:
     """True when the manifest change adds/edits/removes execution-bearing config."""
     name = Path(path).name.lower()
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
-    if name == "package.json":
+    if name in _STRUCTURAL_RISK_CHECKS:
+        extractor, fails_closed_on = _STRUCTURAL_RISK_CHECKS[name]
         try:
-            return _package_json_risky_subtree(base_text) != _package_json_risky_subtree(head_text)
-        except ValueError:
-            return True
-    if name in ("pyproject.toml", "pipfile"):
-        try:
-            return _toml_risky_subtree(base_text) != _toml_risky_subtree(head_text)
-        except (tomllib.TOMLDecodeError, ValueError):
-            return True
-    if name == "cargo.toml":
-        try:
-            return _cargo_risky_subtree(base_text) != _cargo_risky_subtree(head_text)
-        except tomllib.TOMLDecodeError:
-            return True
-    if name == "composer.json":
-        try:
-            return _composer_json_risky_subtree(base_text) != _composer_json_risky_subtree(head_text)
-        except ValueError:
+            return extractor(base_text) != extractor(head_text)
+        except fails_closed_on:
             return True
     if name.startswith("tsconfig") and name.endswith(".json"):
         # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
