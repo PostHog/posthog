@@ -47627,6 +47627,35 @@ export namespace Schemas {
 
     export type RetrieveFileDownloadResponse = RetrieveBasicOutput | RetrieveCompletedOutput | RetrieveFailedOutput;
 
+    /**
+     * Summary response for POST /vision/scanners/{id}/observations/retry_failed/.
+     */
+    export interface RetryFailedResponse {
+      /**
+         * Failed observations deleted and re-queued as new workflow runs.
+         * @minimum 0
+         */
+      retried: number;
+      /**
+         * Rows deleted whose workflow start failed; the sessions show as not scanned and can be re-scanned.
+         * @minimum 0
+         */
+      failed_to_start: number;
+      /**
+         * Failed observations left untouched by this batch (batch cap); call again to continue.
+         * @minimum 0
+         */
+      remaining_failed: number;
+    }
+
+    /**
+     * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
+     */
+    export interface RetryResponse {
+      /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
+      workflow_id: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
