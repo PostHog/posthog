@@ -223,10 +223,6 @@ async fn resolve_issue(
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
-        context
-            .fingerprint_cache
-            .insert((team_id, fingerprint.clone()), true)
-            .await;
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
@@ -295,11 +291,6 @@ async fn resolve_issue(
             fingerprint_first_seen = first_seen;
         }
 
-        context
-            .fingerprint_cache
-            .insert((team_id, fingerprint.clone()), true)
-            .await;
-
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
@@ -343,10 +334,6 @@ async fn resolve_issue(
         .await?;
 
         txn.commit().await?;
-        context
-            .fingerprint_cache
-            .insert((team_id, fingerprint.clone()), true)
-            .await;
         drop(conn);
 
         send_issue_created_notification(

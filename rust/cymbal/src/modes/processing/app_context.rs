@@ -61,9 +61,6 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
-    // Positive cache of fingerprints that already exist in PG. The grouping stage uses it to
-    // pick the oldest already-used automatic fingerprint before issue linking runs.
-    pub fingerprint_cache: Cache<(TeamId, String), bool>,
 }
 
 impl Drop for AppContext {
@@ -181,9 +178,6 @@ impl AppContext {
         let issue_cache = CacheBuilder::new(1000)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
-        let fingerprint_cache = CacheBuilder::new(1000)
-            .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
-            .build();
 
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
@@ -208,7 +202,6 @@ impl AppContext {
             rate_limiter_enabled_team_ids,
             symbol_resolver,
             issue_cache,
-            fingerprint_cache,
             remote_resolution,
             remote_resolution_refresh_task,
         })

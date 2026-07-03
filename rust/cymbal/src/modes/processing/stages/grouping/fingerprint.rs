@@ -134,13 +134,18 @@ async fn fingerprint_exists(
     fingerprint: &str,
 ) -> Result<bool, UnhandledError> {
     let cache_key = (team_id, fingerprint.to_string());
-    if ctx.fingerprint_cache.get(&cache_key).await.is_some() {
+    if ctx.issue_cache.get(&cache_key).await.is_some() {
         return Ok(true);
     }
 
-    let exists = IssueFingerprintOverride::exists(&ctx.connection, team_id, fingerprint).await?;
-    if exists {
-        ctx.fingerprint_cache.insert(cache_key, true).await;
-    }
-    Ok(exists)
+    let Some(override_record) =
+        IssueFingerprintOverride::load(&ctx.connection, team_id, fingerprint).await?
+    else {
+        return Ok(false);
+    };
+
+    ctx.issue_cache
+        .insert(cache_key, override_record.issue_id)
+        .await;
+    Ok(true)
 }
