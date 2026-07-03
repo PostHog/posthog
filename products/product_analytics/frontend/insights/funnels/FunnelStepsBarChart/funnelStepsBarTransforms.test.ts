@@ -264,13 +264,4 @@ describe('withFunnelStepsBarInteraction', () => {
 
         expect(config.tooltip).toEqual({ pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' })
     })
-
-    it('adds a static legend for breakdown + compare, independent of the tooltip flag', () => {
-        const config = withFunnelStepsBarInteraction(baseConfig, {
-            isBreakdownCompare: true,
-            quillTooltipEnabled: false,
-        })
-
-        expect(config.legend).toEqual({ show: true, interactive: false })
-    })
 })
