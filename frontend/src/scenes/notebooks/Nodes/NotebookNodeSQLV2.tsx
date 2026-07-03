@@ -13,7 +13,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Result = {
@@ -21,6 +21,7 @@ export type NotebookNodeSQLV2Result = {
     types?: [string, string][]
     row_count: number
     first_page: (string | number | null)[][]
+    has_more?: boolean
 }
 
 export type NotebookNodeSQLV2Attributes = {
@@ -73,10 +74,24 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning, runError } = useValues(dataLogic)
+    const { isRunning, runError, page, pageSize, pageResult, pageLoading } = useValues(dataLogic)
+    const { setPage, setPageSize } = useActions(dataLogic)
 
     const result = attributes.result ?? null
-    const dataframeResult = useMemo(() => (result ? toDataframeResult(result) : null), [result])
+    // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
+    const dataframeResult = useMemo(() => {
+        if (pageResult) {
+            return toDataframeResult({
+                columns: pageResult.columns,
+                row_count: pageResult.rows.length,
+                first_page: pageResult.rows,
+            })
+        }
+        return result ? toDataframeResult(result) : null
+    }, [pageResult, result])
+    const hasMorePages = pageResult
+        ? pageResult.has_more
+        : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
     const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
 
@@ -129,12 +144,13 @@ const Component = ({
                         {activeTab === OutputTab.Results ? (
                             <NotebookDataframeTable
                                 result={dataframeResult}
-                                loading={isRunning}
-                                page={1}
-                                pageSize={Math.max(dataframeResult.rows.length, 1)}
-                                onNextPage={() => {}}
-                                onPreviousPage={() => {}}
-                                onPageSizeChange={() => {}}
+                                loading={isRunning || pageLoading}
+                                page={page}
+                                pageSize={pageSize}
+                                hasMore={hasMorePages}
+                                onNextPage={() => setPage(page + 1)}
+                                onPreviousPage={() => setPage(page - 1)}
+                                onPageSizeChange={setPageSize}
                             />
                         ) : (
                             <div

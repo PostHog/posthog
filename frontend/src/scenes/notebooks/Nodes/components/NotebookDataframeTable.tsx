@@ -11,6 +11,9 @@ type NotebookDataframeTableProps = {
     loading: boolean
     page: number
     pageSize: number
+    /** Unknown-total mode: when set, Next is driven by this flag and no total is shown
+     * (push-to-CH paging can't know the full count without an extra query). */
+    hasMore?: boolean
     onNextPage: () => void
     onPreviousPage: () => void
     onPageSizeChange: (pageSize: number) => void
@@ -40,6 +43,7 @@ export const NotebookDataframeTable = ({
     loading,
     page,
     pageSize,
+    hasMore,
     onNextPage,
     onPreviousPage,
     onPageSizeChange,
@@ -65,11 +69,19 @@ export const NotebookDataframeTable = ({
         )
     }, [page, pageSize, result?.rows])
 
+    const isUnknownTotal = hasMore !== undefined
     const rowCount = result?.rowCount ?? 0
-    const startIndex = rowCount > 0 ? (page - 1) * pageSize + 1 : 0
-    const endIndex = rowCount > 0 ? Math.min(page * pageSize, rowCount) : 0
+    const rowsShown = result?.rows.length ?? 0
+    const startIndex = rowsShown > 0 ? (page - 1) * pageSize + 1 : 0
+    const endIndex = isUnknownTotal
+        ? rowsShown > 0
+            ? startIndex + rowsShown - 1
+            : 0
+        : rowCount > 0
+          ? Math.min(page * pageSize, rowCount)
+          : 0
     const hasPrevious = page > 1
-    const hasNext = endIndex < rowCount
+    const hasNext = isUnknownTotal ? !!hasMore : endIndex < rowCount
     const isInitialLoading = loading && rowCount === 0
     const emptyState = isInitialLoading ? (
         <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted">
@@ -108,7 +120,15 @@ export const NotebookDataframeTable = ({
                     />
                 </div>
                 <div className="flex items-center gap-2 pr-2">
-                    <span>{rowCount === 0 ? 'No rows' : `${startIndex}-${endIndex} of ${rowCount}`}</span>
+                    <span>
+                        {isUnknownTotal
+                            ? rowsShown === 0
+                                ? 'No rows'
+                                : `${startIndex}-${endIndex}`
+                            : rowCount === 0
+                              ? 'No rows'
+                              : `${startIndex}-${endIndex} of ${rowCount}`}
+                    </span>
                     <LemonButton
                         size="small"
                         onClick={onPreviousPage}
