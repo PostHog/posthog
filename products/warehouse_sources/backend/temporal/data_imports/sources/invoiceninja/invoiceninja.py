@@ -81,7 +81,12 @@ def normalize_base_url(base_url: Optional[str]) -> str:
 
 
 def _host_of(base_url: str) -> str:
-    return (urlparse(base_url).hostname or "").lower()
+    # `urlparse` treats a backslash (and its `%5c` encoding) as userinfo, so
+    # `https://127.0.0.1\@example.com` parses as host `example.com` while requests/urllib3 (per the
+    # WHATWG URL rules) treat `\` as a path separator and connect to `127.0.0.1`. Normalize to `/`
+    # first so the host we validate is the host the request actually reaches (SSRF bypass guard).
+    normalized = base_url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
+    return (urlparse(normalized).hostname or "").lower()
 
 
 def _is_https(base_url: str) -> bool:

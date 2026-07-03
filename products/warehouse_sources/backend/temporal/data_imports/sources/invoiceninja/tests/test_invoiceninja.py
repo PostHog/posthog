@@ -57,6 +57,23 @@ class TestNormalizeBaseUrl:
         assert normalize_base_url(raw) == expected
 
 
+class TestHostOf:
+    @pytest.mark.parametrize(
+        "url, expected_host",
+        [
+            ("https://invoices.example.com/api/v1", "invoices.example.com"),
+            # Backslash (and its %5c encoding) is userinfo to urlparse but a path separator to
+            # requests/urllib3 — the host must reflect the address the request actually reaches, or
+            # the SSRF check validates a decoy host while the token goes elsewhere.
+            ("https://127.0.0.1\\@example.com/api/v1", "127.0.0.1"),
+            ("https://127.0.0.1%5c@example.com/api/v1", "127.0.0.1"),
+            ("https://127.0.0.1%5C@example.com/api/v1", "127.0.0.1"),
+        ],
+    )
+    def test_host_reflects_real_connect_target(self, url, expected_host):
+        assert invoiceninja_module._host_of(url) == expected_host
+
+
 class TestValidateCredentials:
     def _patch_session(self, response=None, raises=None):
         session = mock.MagicMock()
