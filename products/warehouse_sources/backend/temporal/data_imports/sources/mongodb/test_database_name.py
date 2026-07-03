@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from pymongo.errors import InvalidURI, OperationFailure
+from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
@@ -65,8 +65,6 @@ class TestMongoValidateCredentialsServerSelection:
     @pytest.mark.parametrize("marker", _DNS_RESOLUTION_FAILURE_MARKERS)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
     def test_dns_resolution_failure_returns_unresolved_message(self, mock_get_collections, marker):
-        from pymongo.errors import ServerSelectionTimeoutError
-
         # The verbose topology-description message pymongo raises when the host doesn't resolve.
         mock_get_collections.side_effect = ServerSelectionTimeoutError(
             f"cluster0.qwi73.mongodb.net:27017: [Errno -5] {marker} "
@@ -82,8 +80,6 @@ class TestMongoValidateCredentialsServerSelection:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
     def test_unreachable_cluster_returns_allowlist_message(self, mock_get_collections):
-        from pymongo.errors import ServerSelectionTimeoutError
-
         mock_get_collections.side_effect = ServerSelectionTimeoutError(
             "No servers found yet, Topology Description: ..."
         )
@@ -150,53 +146,41 @@ class TestMongoValidateCredentialsOperationFailure:
 
 
 class TestMongoValidateCredentialsErrorTrackingNoise:
-    # Unescaped credentials are a user mistake we already surface an actionable message for, so
-    # they must not be reported to error tracking; genuinely unexpected errors still must be.
+    # Errors we already surface an actionable message for are user/upstream problems, not our bug,
+    # so they must not be reported to error tracking; genuinely unexpected errors still must be.
+    # The SSL-handshake host/port here are redacted — matching a real customer value would leak it.
+    @pytest.mark.parametrize(
+        "exc, expected_message, should_capture",
+        [
+            (
+                InvalidURI("Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"),
+                _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
+                False,
+            ),
+            (
+                ServerSelectionTimeoutError(
+                    "SSL handshake failed: <redacted-host>:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] "
+                    "tlsv1 alert internal error, Topology Description: <TopologyDescription ...>"
+                ),
+                _MONGO_UNREACHABLE_MESSAGE,
+                False,
+            ),
+            (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
+        ],
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
-    def test_unescaped_credentials_not_reported(self, mock_get_collections, mock_capture):
-        mock_get_collections.side_effect = InvalidURI(
-            "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"
-        )
+    def test_capture_only_for_unexpected_errors(
+        self, mock_get_collections, mock_capture, exc, expected_message, should_capture
+    ):
+        mock_get_collections.side_effect = exc
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
 
         ok, err = MongoDBSource().validate_credentials(config, team_id=1)
 
         assert ok is False
-        assert err == _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
-        mock_capture.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
-    def test_server_selection_timeout_not_reported(self, mock_get_collections, mock_capture):
-        from pymongo.errors import ServerSelectionTimeoutError
-
-        # An Atlas TLS handshake rejection: the cluster is unreachable for the whole selection
-        # window (paused, IP not allowlisted, TLS rejected). Host/port are redacted — matching a
-        # real customer value here would leak it. This is an upstream problem, not our bug.
-        mock_get_collections.side_effect = ServerSelectionTimeoutError(
-            "SSL handshake failed: <redacted-host>:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] "
-            "tlsv1 alert internal error, Topology Description: <TopologyDescription ...>"
-        )
-        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
-
-        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
-
-        assert ok is False
-        assert err == _MONGO_UNREACHABLE_MESSAGE
-        mock_capture.assert_not_called()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
-    def test_unexpected_error_is_reported(self, mock_get_collections, mock_capture):
-        mock_get_collections.side_effect = Exception("some-internal-driver-detail")
-        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
-
-        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
-
-        assert ok is False
-        assert err == _MONGO_CONNECT_FAILED_MESSAGE
-        mock_capture.assert_called_once()
+        assert err == expected_message
+        assert mock_capture.called is should_capture
 
     # A recognized OperationFailure on listCollections is a user-side credential/permission problem
     # — a missing read role ("not authorized") or bad credentials — that we already surface an
