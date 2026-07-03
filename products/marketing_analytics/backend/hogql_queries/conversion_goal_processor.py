@@ -42,6 +42,12 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
+# Freshness windows for the precompute read path. The Dagster warmer
+# (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
+# exact schedule — otherwise the read path's freshness check would treat warmed rows as stale and
+# recompute them inline, defeating the warm-up.
+PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 logger = structlog.get_logger(__name__)
 
 
@@ -549,7 +555,6 @@ class ConversionGoalProcessor:
         collection through the existing pipeline (all modes). Neither precompute depends on attribution
         mode or window. Returns None if either set of jobs isn't ready — caller falls back.
         """
-        ttl_seconds = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
         window = timedelta(days=self.config.attribution_window_days)
 
         # Touchpoints extend back by the attribution window; conversions only span the query range.
@@ -558,7 +563,7 @@ class ConversionGoalProcessor:
             insert_query=build_touchpoints_precompute_query(),
             time_range_start=date_from - window,
             time_range_end=date_to,
-            ttl_seconds=ttl_seconds,
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
         )
         if not touchpoints_result.ready:
@@ -569,7 +574,7 @@ class ConversionGoalProcessor:
             insert_query=self.build_conversions_precompute_query(),
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=ttl_seconds,
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
         )
         if not conversions_result.ready:
