@@ -39,6 +39,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events
   '''
   /* user_id:0 request:_snapshot_ */
@@ -61,6 +101,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC'))))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC'))))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
@@ -119,6 +199,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_filters[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               '' AS relevant_property_values,
+               lagInFrame('') OVER (
+                                    ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value
   '''
   /* user_id:0 request:_snapshot_ */
@@ -141,6 +261,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
@@ -199,6 +359,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_day_point[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point
   '''
   /* user_id:0 request:_snapshot_ */
@@ -221,6 +421,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 01:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview')))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
@@ -279,6 +519,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_month_point[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-31 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from
   '''
   /* user_id:0 request:_snapshot_ */
@@ -301,6 +581,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-09 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
@@ -359,6 +679,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_before_range[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range
   '''
   /* user_id:0 request:_snapshot_ */
@@ -381,6 +741,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))
@@ -439,6 +839,46 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_breakdown[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), toString(events.person_properties.foo)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), toString(events.person_properties.foo))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_filter_on_series
   '''
   /* user_id:0 request:_snapshot_ */
@@ -461,6 +901,46 @@
                                   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
                count() OVER () AS total_events
         FROM events
+        WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
+     WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
+                                                    or isNotNull(previous_relevant_property_values))))
+  ORDER BY timestamp ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonPropertiesTimeline.test_timeline_with_two_events_in_range_using_filter_on_series[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp AS timestamp,
+         properties AS properties,
+         minus(end_event_number, start_event_number) AS relevant_event_count
+  FROM
+    (SELECT timestamp AS timestamp,
+            properties AS properties,
+            start_event_number AS start_event_number,
+            leadInFrame(start_event_number, 1, plus(total_events, 1)) OVER (
+                                                                            ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString(events.person_properties), path)), arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], arrayConcat(arrayFilter(path -> not(has(['$app_version', '$browser', '$current_url', '$geoip_continent_name', '$geoip_country_code', '$geoip_country_name', '$initial_current_url', '$initial_fbclid', '$initial_gad_source', '$initial_gbraid', '$initial_gclid', '$initial_msclkid', '$initial_pathname', '$initial_referring_domain', '$initial_utm_campaign', '$initial_utm_content', '$initial_utm_medium', '$initial_utm_source', '$initial_utm_term', '$initial_wbraid', '$os_name', '$referring_domain'], path)), JSONAllPaths(events.person_properties)), arrayFilter(path -> notEmpty(path), [if(isNotNull(events.person_properties.`$app_version`), '$app_version', ''), if(isNotNull(events.person_properties.`$browser`), '$browser', ''), if(isNotNull(events.person_properties.`$current_url`), '$current_url', ''), if(isNotNull(events.person_properties.`$geoip_continent_name`), '$geoip_continent_name', ''), if(isNotNull(events.person_properties.`$geoip_country_code`), '$geoip_country_code', ''), if(isNotNull(events.person_properties.`$geoip_country_name`), '$geoip_country_name', ''), if(isNotNull(events.person_properties.`$initial_current_url`), '$initial_current_url', ''), if(isNotNull(events.person_properties.`$initial_fbclid`), '$initial_fbclid', ''), if(isNotNull(events.person_properties.`$initial_gad_source`), '$initial_gad_source', ''), if(isNotNull(events.person_properties.`$initial_gbraid`), '$initial_gbraid', ''), if(isNotNull(events.person_properties.`$initial_gclid`), '$initial_gclid', ''), if(isNotNull(events.person_properties.`$initial_msclkid`), '$initial_msclkid', ''), if(isNotNull(events.person_properties.`$initial_pathname`), '$initial_pathname', ''), if(isNotNull(events.person_properties.`$initial_referring_domain`), '$initial_referring_domain', ''), if(isNotNull(events.person_properties.`$initial_utm_campaign`), '$initial_utm_campaign', ''), if(isNotNull(events.person_properties.`$initial_utm_content`), '$initial_utm_content', ''), if(isNotNull(events.person_properties.`$initial_utm_medium`), '$initial_utm_medium', ''), if(isNotNull(events.person_properties.`$initial_utm_source`), '$initial_utm_source', ''), if(isNotNull(events.person_properties.`$initial_utm_term`), '$initial_utm_term', ''), if(isNotNull(events.person_properties.`$initial_wbraid`), '$initial_wbraid', ''), if(isNotNull(events.person_properties.`$os_name`), '$os_name', ''), if(isNotNull(events.person_properties.`$referring_domain`), '$referring_domain', '')]))))), ','), '}') AS properties,
+               toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), toString(events.person_properties.foo)))))) AS relevant_property_values,
+               lagInFrame(toString(tuple(if(notEquals(toJSONString(events.person_properties.^bar), '{}'), toJSONString(events.person_properties.^bar), if(isNull(events.person_properties.bar), NULL, if(startsWith(dynamicType(events.person_properties.bar), 'DateTime'), replaceOne(toString(events.person_properties.bar), ' ', 'T'), toString(events.person_properties.bar)))), if(notEquals(toJSONString(events.person_properties.^foo), '{}'), toJSONString(events.person_properties.^foo), if(isNull(events.person_properties.foo), NULL, if(startsWith(dynamicType(events.person_properties.foo), 'DateTime'), replaceOne(toString(events.person_properties.foo), ' ', 'T'), toString(events.person_properties.foo))))))) OVER (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+               row_number() OVER (
+                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS start_event_number,
+               count() OVER () AS total_events
+        FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), equals(events.person_id, toUUIDOrNull('12345678-0000-0000-0000-000000000001')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-05 23:59:59.999999', 6, 'UTC')), equals(events.event, '$pageview')))
      WHERE or(equals(start_event_number, 1), ifNull(notEquals(relevant_property_values, previous_relevant_property_values), isNotNull(relevant_property_values)
                                                     or isNotNull(previous_relevant_property_values))))

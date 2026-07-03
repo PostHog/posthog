@@ -1,21 +1,30 @@
 # serializer version: 1
 # name: TestEventTaxonomyQueryRunner.test_event_taxonomy_query_runner
   '''
-  SELECT key,
-         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  SELECT key AS key,
+                arrayMap(item -> item.3, arraySlice(reverse(arraySort(item -> tuple(item.1, item.2, item.3), groupArray(tuple(value_count, latest_seen, value)))), 1, 5)) AS
   values,
-         count(DISTINCT value) AS total_count
+                count(DISTINCT value) AS total_count
   FROM
-    (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
-     FROM events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
-     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-     LIMIT 100) ARRAY
-  JOIN (kv).1 AS key,
-       (kv).2 AS value
-  WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+    (SELECT key,
+            value,
+            count() AS value_count,
+            max(timestamp) AS latest_seen
+     FROM
+       (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+        ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+        LIMIT 100) ARRAY
+     JOIN (kv).1 AS key,
+          (kv).2 AS value
+     WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+     GROUP BY key,
+              value)
   GROUP BY key
-  ORDER BY total_count DESC
+  ORDER BY total_count DESC,
+           key ASC
   LIMIT 501
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -66,23 +75,24 @@
 # name: TestEventTaxonomyQueryRunner.test_property_taxonomy_handles_numeric_property_values
   '''
   SELECT key AS key,
-                arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+                arrayMap(item -> item.3, arraySlice(reverse(arraySort(item -> tuple(item.1, item.2, item.3), groupArray(tuple(value_count, latest_seen, value)))), 1, 5)) AS
   values,
                 count(DISTINCT value) AS total_count
   FROM
     (SELECT key,
             value,
-            count() AS count
+            count() AS value_count,
+            max(timestamp) AS latest_seen
      FROM
-       (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'))] AS kv
+       (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'))] AS kv,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'), ''))) ARRAY
      JOIN (kv).1 AS key,
           (kv).2 AS value
      WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
      GROUP BY key,
-              value
-     ORDER BY count DESC)
+              value)
   GROUP BY key
   ORDER BY total_count DESC,
            key ASC
@@ -141,21 +151,30 @@
 # ---
 # name: TestEventTaxonomyQueryRunner.test_retrieves_action_properties
   '''
-  SELECT key,
-         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  SELECT key AS key,
+                arrayMap(item -> item.3, arraySlice(reverse(arraySort(item -> tuple(item.1, item.2, item.3), groupArray(tuple(value_count, latest_seen, value)))), 1, 5)) AS
   values,
-         count(DISTINCT value) AS total_count
+                count(DISTINCT value) AS total_count
   FROM
-    (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
-     FROM events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
-     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-     LIMIT 100) ARRAY
-  JOIN (kv).1 AS key,
-       (kv).2 AS value
-  WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+    (SELECT key,
+            value,
+            count() AS value_count,
+            max(timestamp) AS latest_seen
+     FROM
+       (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
+        ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+        LIMIT 100) ARRAY
+     JOIN (kv).1 AS key,
+          (kv).2 AS value
+     WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+     GROUP BY key,
+              value)
   GROUP BY key
-  ORDER BY total_count DESC
+  ORDER BY total_count DESC,
+           key ASC
   LIMIT 501
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

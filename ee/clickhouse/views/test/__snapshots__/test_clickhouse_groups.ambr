@@ -50,6 +50,57 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: GroupsViewSetTestCase.test_related_groups[new_events_schema.1]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT tuples.1 AS group_type_index,
+                  tuples.2 AS group_key
+  FROM events_json AS events ARRAY
+  JOIN arrayFilter(x -> notEquals(x.2, ''), [tuple(1, events.properties.`$group_1`)]) AS tuples
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2021-02-09 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')), and(equals(events.properties.`$group_0`, '0::0'), isNotNull(events.properties.`$group_0`)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: GroupsViewSetTestCase.test_related_groups[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT person_distinct_ids.person_id AS person_id
+  FROM
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 99999)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+  WHERE in(person_distinct_ids.distinct_id,
+             (SELECT events.distinct_id AS distinct_id
+              FROM events_json AS events
+              WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2021-02-09 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')), and(equals(events.properties.`$group_0`, '0::0'), isNotNull(events.properties.`$group_0`)))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: GroupsViewSetTestCase.test_related_groups_person
   '''
   /* user_id:0 request:_snapshot_ */
@@ -103,5 +154,34 @@
     AND group_key != ''
     AND pdi.person_id = '01795392-cc00-0003-7dc7-67a694604d72'
   ORDER BY group_key
+  '''
+# ---
+# name: GroupsViewSetTestCase.test_related_groups_person[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT tuples.1 AS group_type_index,
+                  tuples.2 AS group_key
+  FROM events_json AS events
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) ARRAY
+  JOIN arrayFilter(x -> notEquals(x.2, ''), [tuple(0, events.properties.`$group_0`), tuple(1, events.properties.`$group_1`)]) AS tuples
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC')), equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
