@@ -852,9 +852,16 @@ class BigQueryClient:
         """
 
         self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
-
-        result = await self.execute_query(query)
-        return result
+        query_job = make_retryable_with_exponential_backoff(
+            self.execute_query,
+            retryable_exceptions=(BadRequest,),
+            max_attempts=None,
+            # In case BadRequest is raised for other type of errors, we ensure we only
+            # retry forever when it is a contention problem by checking the exception
+            # message
+            is_exception_retryable=_is_contention_exception,
+        )
+        return await query_job(query)
 
     async def merge_into_final_from_stage(
         self,
