@@ -44,9 +44,9 @@ from posthog.temporal.proxy_service.common import (
     activity_send_proxy_created_email,
     activity_update_proxy_record,
     get_grpc_client,
+    is_cloudflare_proxy_by_cname,
     record_exists,
     update_record,
-    use_cloudflare_proxy,
     use_gateway_api,
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
@@ -526,8 +526,12 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy():
+            # Branch on the path this proxy was provisioned on, read from its target_cname,
+            # not the global CLOUDFLARE_PROXY_ENABLED flag. The target_cname was fixed to a
+            # Cloudflare or legacy base when the record was created, so this keeps a retry (or
+            # any re-run) on the proxy's original path — a legacy proxy is never migrated onto
+            # Cloudflare just because the global flag flipped on after it was created.
+            if is_cloudflare_proxy_by_cname(inputs.target_cname):
                 # Cloudflare for SaaS path: Create Custom Hostname and Worker Route
                 cloudflare_inputs = CreateCloudflareProxyInputs(
                     organization_id=inputs.organization_id,
