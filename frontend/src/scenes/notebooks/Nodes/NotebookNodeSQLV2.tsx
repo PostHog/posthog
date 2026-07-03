@@ -32,7 +32,8 @@ export type NotebookNodeSQLV2Attributes = {
     vizQuery?: DataVisualizationNode | null
 }
 
-const VIZ_MIN_HEIGHT = 420
+// Matches the SQL editor output pane's default so charts land at v1-node size.
+const VIZ_MIN_HEIGHT = 350
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -111,9 +112,9 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-sql-v2" className="flex h-full flex-col">
+        <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="space-y-3"
+                className="flex min-h-0 flex-1 flex-col gap-2"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
@@ -121,7 +122,7 @@ const Component = ({
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
                     <>
-                        <div className="px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -142,24 +143,29 @@ const Component = ({
                             />
                         </div>
                         {activeTab === OutputTab.Results ? (
-                            <NotebookDataframeTable
-                                result={dataframeResult}
-                                loading={isRunning || pageLoading}
-                                page={page}
-                                pageSize={pageSize}
-                                hasMore={hasMorePages}
-                                onNextPage={() => setPage(page + 1)}
-                                onPreviousPage={() => setPage(page - 1)}
-                                onPageSizeChange={setPageSize}
-                            />
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                <NotebookDataframeTable
+                                    result={dataframeResult}
+                                    loading={isRunning || pageLoading}
+                                    page={page}
+                                    pageSize={pageSize}
+                                    hasMore={hasMorePages}
+                                    onNextPage={() => setPage(page + 1)}
+                                    onPreviousPage={() => setPage(page - 1)}
+                                    onPageSizeChange={setPageSize}
+                                />
+                            </div>
                         ) : (
                             <div
-                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col"
+                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col overflow-hidden"
                                 onClick={(event) => event.stopPropagation()}
                             >
                                 <Query
                                     // Keyed per run so a fresh envelope re-seeds the cached response.
-                                    uniqueKey={`${nodeId}-viz-${attributes.runId ?? 'initial'}`}
+                                    // The SQLEditor prefix opts into container-governed chart sizing
+                                    // (dataVisualizationLogic.presetChartHeight) — without it charts
+                                    // render at 60vh, dwarfing the node.
+                                    uniqueKey={`SQLEditor-notebook-sqlv2-${nodeId}-${attributes.runId ?? 'initial'}`}
                                     query={vizQuery}
                                     setQuery={(query) => {
                                         // DataVisualization pushes default settings during its render;
@@ -177,7 +183,7 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
                 {attributes.runId ? (
-                    <div className="px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
+                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
                         run_id: {attributes.runId}
                     </div>
                 ) : null}
