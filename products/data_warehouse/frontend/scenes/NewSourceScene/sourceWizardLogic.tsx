@@ -805,65 +805,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return currentStep !== 4 && currentStep !== 5
             },
         ],
-        canGoNext: [
-            (s) => [
-                s.currentStep,
-                s.isManualLinkingSelected,
-                s.databaseSchema,
-                s.isDirectQueryMode,
-                s.webhookStepComplete,
-                s.selectedConnector,
-                s.sourceConnectionDetails,
-            ],
-            (
-                currentStep,
-                isManualLinkingSelected,
-                databaseSchema,
-                isDirectQueryMode,
-                webhookStepComplete,
-                selectedConnector,
-                sourceConnectionDetails
-            ): boolean => {
-                if (isManualLinkingSelected && currentStep === 1) {
-                    return false
-                }
-
-                // GitHub's config leaves the account/token fields optional (they're validated by the
-                // backend), so form validation alone lets a user click Next with nothing linked and
-                // loop on credential errors. Gate the button on a linked integration (or PAT) plus a
-                // selected repository instead.
-                if (currentStep === 2 && selectedConnector?.name === 'Github') {
-                    const payload = ((sourceConnectionDetails as any)?.payload ?? {}) as Record<string, any>
-                    if (!payload.repository) {
-                        return false
-                    }
-                    const authMethod = (payload.auth_method ?? {}) as Record<string, any>
-                    const selection = authMethod.selection ?? 'oauth'
-                    if (selection === 'pat') {
-                        return !!authMethod.personal_access_token
-                    }
-                    return !!authMethod.github_integration_id
-                }
-
-                if (!isManualLinkingSelected && currentStep === 3) {
-                    if (databaseSchema.filter((n) => n.should_sync).length === 0) {
-                        return false
-                    }
-
-                    if (isDirectQueryMode) {
-                        return true
-                    }
-
-                    return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
-                }
-
-                if (currentStep === 4) {
-                    return webhookStepComplete
-                }
-
-                return true
-            },
-        ],
         showSkipButton: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -1830,6 +1771,70 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         },
     })),
+    // Defined after `forms` so `s.sourceConnectionDetails` (a kea-forms value selector) is registered
+    // and composable here — referencing it from the earlier `selectors` block builds before the form
+    // selector exists and resolves to `undefined`.
+    selectors({
+        canGoNext: [
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.databaseSchema,
+                s.isDirectQueryMode,
+                s.webhookStepComplete,
+                s.selectedConnector,
+                s.sourceConnectionDetails,
+            ],
+            (
+                currentStep,
+                isManualLinkingSelected,
+                databaseSchema,
+                isDirectQueryMode,
+                webhookStepComplete,
+                selectedConnector,
+                sourceConnectionDetails
+            ): boolean => {
+                if (isManualLinkingSelected && currentStep === 1) {
+                    return false
+                }
+
+                // GitHub's config leaves the account/token fields optional (they're validated by the
+                // backend), so form validation alone lets a user click Next with nothing linked and
+                // loop on credential errors. Gate the button on a linked integration (or PAT) plus a
+                // selected repository instead.
+                if (currentStep === 2 && selectedConnector?.name === 'Github') {
+                    const payload = ((sourceConnectionDetails as any)?.payload ?? {}) as Record<string, any>
+                    if (!payload.repository) {
+                        return false
+                    }
+                    const authMethod = (payload.auth_method ?? {}) as Record<string, any>
+                    const selection = authMethod.selection ?? 'oauth'
+                    if (selection === 'pat') {
+                        return !!authMethod.personal_access_token
+                    }
+                    return !!authMethod.github_integration_id
+                }
+
+                if (!isManualLinkingSelected && currentStep === 3) {
+                    if (databaseSchema.filter((n) => n.should_sync).length === 0) {
+                        return false
+                    }
+
+                    if (isDirectQueryMode) {
+                        return true
+                    }
+
+                    return databaseSchema.filter((n) => n.should_sync && !n.sync_type).length === 0
+                }
+
+                if (currentStep === 4) {
+                    return webhookStepComplete
+                }
+
+                return true
+            },
+        ],
+    }),
 ])
 
 export const getDatabaseSchemaPayload = (
