@@ -73,7 +73,7 @@ async def connect(
         before_sleep=_log_before_retry,
         reraise=True,
     )
-    client = await retryer(
+    client: Client = await retryer(
         Client.connect,
         target,
         namespace=namespace,
