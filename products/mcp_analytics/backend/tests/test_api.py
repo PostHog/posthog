@@ -525,6 +525,33 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
         assert sessions[0].intent == "Persisted summary."
 
 
+class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=timestamp,
+            properties={"$session_id": session_id, "$mcp_tool_name": tool},
+        )
+
+    def test_has_next_signals_more_pages(self) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        for i, tool in enumerate(["first", "second", "third"]):
+            self._seed_tool_call(session_id, timestamp=start + timedelta(seconds=i), tool=tool)
+
+        # Over-fetch (limit+1) lets the first page know more exists without a count query;
+        # calls come back in chronological order, so the two pages cover all three with no skips.
+        first = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=0, date_from=start)
+        assert [c.tool_name for c in first.results] == ["first", "second"]
+        assert first.has_next is True
+
+        second = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=2, date_from=start)
+        assert [c.tool_name for c in second.results] == ["third"]
+        assert second.has_next is False
+
+
 class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     """The session-detail queries (tool calls and intents alike) bound their scan to
     SESSION_EVENTS_LOOKBACK by default, or to an explicit date_from, so the events sort key can
