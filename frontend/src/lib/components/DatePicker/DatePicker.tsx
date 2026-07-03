@@ -23,9 +23,10 @@ import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lem
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
  *
- * The prop surface is intentionally minimal: trigger-styling props (size, type) and
- * `selectionPeriodLimit` are deliberately omitted until a real caller needs them, rather
- * than re-exposing the wrapped component's full API and losing the decoupling.
+ * Trigger-styling props (`size`, `type`, `className`) are typed and decoupled — the seam
+ * maps them onto whichever button backs the current renderer (LemonButton today, Quill
+ * Button under the flag) rather than re-exposing a raw `buttonProps` pass-through.
+ * `selectionPeriodLimit` stays omitted until a real caller needs it.
  *
  * Controlled visibility is a full trio: pass `visible` plus `onOpen` (fired when the
  * trigger is clicked) and `onClickOutside` / `onClose` (fired when the panel dismisses) so
@@ -58,6 +59,12 @@ export interface DatePickerProps {
     format?: string
     /** Stretch the trigger to fill its container. Defaults to true — the seam owns this default rather than inheriting it from the wrapped trigger. */
     fullWidth?: boolean
+    /** Trigger button size. Mapped to the underlying button per backing renderer. */
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    /** Trigger button style. Mapped to the underlying button per backing renderer (e.g. secondary -> Quill outline). */
+    type?: 'primary' | 'secondary' | 'tertiary'
+    /** Extra class names merged onto the trigger. */
+    className?: string
     /** Disable the trigger and explain why on hover. */
     disabledReason?: string
     /** Externally control popover visibility. Pair with `onOpen` + `onClickOutside`/`onClose`. */
@@ -73,6 +80,14 @@ export interface DatePickerProps {
 
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
 const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
+
+function quillTriggerVariant(type: DatePickerProps['type']): 'primary' | 'outline' | 'default' {
+    return type === 'primary' ? 'primary' : type === 'tertiary' ? 'default' : 'outline'
+}
+
+function quillTriggerSize(size: DatePickerProps['size']): 'default' | 'xs' | 'sm' | 'lg' {
+    return size === 'xsmall' ? 'xs' : size === 'small' ? 'sm' : size === 'large' ? 'lg' : 'default'
+}
 
 function quillCanRender(props: DatePickerProps): boolean {
     return (
@@ -105,6 +120,9 @@ function DatePickerQuill({
     clearable,
     format,
     fullWidth = true,
+    size,
+    type,
+    className,
     disabledReason,
     maxDate,
     'data-attr': dataAttr,
@@ -130,12 +148,15 @@ function DatePickerQuill({
                 <PopoverTrigger
                     render={
                         <Button
-                            variant="outline"
+                            variant={quillTriggerVariant(type)}
+                            size={quillTriggerSize(size)}
                             data-attr={dataAttr}
                             data-quill
                             disabled={!!disabledReason}
                             title={disabledReason}
-                            className={fullWidth ? 'w-full justify-start' : 'justify-start'}
+                            className={[fullWidth ? 'w-full justify-start' : 'justify-start', className]
+                                .filter(Boolean)
+                                .join(' ')}
                         >
                             <IconCalendar />
                             {label}
@@ -182,6 +203,9 @@ function DatePickerLemon({
     clearable,
     format,
     fullWidth = true,
+    size,
+    type,
+    className,
     disabledReason,
     visible,
     onOpen,
@@ -191,6 +215,9 @@ function DatePickerLemon({
 }: DatePickerProps): JSX.Element {
     const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {
         fullWidth,
+        size,
+        type,
+        className,
         disabledReason,
         'data-attr': dataAttr,
     }

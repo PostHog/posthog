@@ -128,6 +128,17 @@ describe('DatePicker', () => {
             expect(within(container).getByText('January 15, 2023')).toBeTruthy()
         })
 
+        it.each<[string, Partial<DatePickerProps>, string]>([
+            ['size small -> sm', { size: 'small' }, 'quill-button--size-sm'],
+            ['type primary -> primary variant', { type: 'primary' }, 'quill-button--variant-primary'],
+            ['type secondary -> outline variant', { type: 'secondary' }, 'quill-button--variant-outline'],
+            ['custom className', { className: 'bg-bg-light' }, 'bg-bg-light'],
+        ])('maps trigger %s onto the Quill button', (_name, props, expectedClass) => {
+            const { container } = renderDatePicker(dayjs('2023-01-15'), props)
+
+            expect(container.querySelector('[data-quill]')?.className).toContain(expectedClass)
+        })
+
         it.each<[string, Partial<DatePickerProps>]>([
             ['hour granularity', { granularity: 'hour' }],
             ['12-hour time', { granularity: 'minute', use24HourFormat: false }],
