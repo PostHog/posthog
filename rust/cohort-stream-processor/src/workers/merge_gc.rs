@@ -15,8 +15,8 @@
 //!   [`crate::merge::redrive`]), not a marker that ages out — GCing it would drop a staged,
 //!   never-produced transfer. It is simply absent from [`GC_CFS`].
 
-// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct `CohortStore`
-// I/O is already off the runtime threads.
+// Sync core run on the blocking pool via `StoreHandle::run_section`, so its direct `CohortStore` I/O
+// is sanctioned.
 #![allow(clippy::disallowed_methods)]
 
 use metrics::counter;

@@ -17,8 +17,8 @@ use crate::store::StoreHandle;
 use crate::sweep::Sweeper;
 
 /// Publishes [`CohortStore::stats_snapshot`](crate::store::CohortStore::stats_snapshot) onto metrics
-/// once per sweep tick, driven by [`run_sweep_loop`](crate::sweep::run_sweep_loop). The snapshot goes
-/// through the [`StoreHandle`] facade so its many RocksDB property reads run off the runtime threads.
+/// once per sweep tick, driven by [`run_sweep_loop`](crate::sweep::run_sweep_loop). Goes through the
+/// [`StoreHandle`] so its many RocksDB property reads run off the runtime threads.
 pub struct StoreStatsSweeper {
     handle: StoreHandle,
 }

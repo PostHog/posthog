@@ -3,8 +3,7 @@
 //! is non-deterministic). Covers a hit, a property change (fingerprint miss), a generation bump
 //! (re-eval, no stale serve), an out-of-order stale event, and a second person.
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::BTreeMap;
@@ -418,7 +417,7 @@ async fn memo_enabled_worker_matches_a_disabled_worker_end_to_end() {
     assert_eq!(on_state, off_state, "cf_stage1 parity");
 }
 
-/// The person-index leaves for `person`, sorted so two runs compare regardless of merge order.
+/// `person`'s person-index leaves, sorted so two runs compare regardless of merge order.
 fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<Vec<u8>> {
     let mut leaves: Vec<Vec<u8>> = store
         .get_person_index(&cohort_stream_processor::store::PersonIndexKey {
@@ -434,28 +433,26 @@ fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<Vec<u8>> {
     leaves
 }
 
-/// An enter → hit → leave sequence for one person, as `(props, offset, ts)` triples.
+/// An enter → hit → leave `(props, offset, ts)` sequence: the middle row repeats the entering props
+/// (a no-change hit); the third swaps in a non-matching email to leave.
 fn enter_hit_leave() -> [(&'static str, i64, &'static str); 3] {
     [
-        (PROPS_PRO, 0, "2026-05-26 10:00:00.000000"), // enter (email matches)
-        (PROPS_PRO, 1, "2026-05-26 11:00:00.000000"), // hit, no change
-        (r#"{"email":"x@p.com"}"#, 2, "2026-05-26 12:00:00.000000"), // leave (email stops matching)
+        (PROPS_PRO, 0, "2026-05-26 10:00:00.000000"),
+        (PROPS_PRO, 1, "2026-05-26 11:00:00.000000"),
+        (r#"{"email":"x@p.com"}"#, 2, "2026-05-26 12:00:00.000000"),
     ]
 }
 
-/// The sync `process_event` composition and the production offloaded worker
-/// composition must agree byte-for-byte. Same single-leaf sequence through sync `process_event` on
-/// store A and through a spawned `All`-mode worker on store B; equal `cf_stage1`, equal person-index,
-/// equal emissions. Catches the two compositions (`process_event` vs `process_event_offloaded`)
-/// drifting — the one risk of keeping a sync twin for the test surface.
+/// The sync `process_event` composition and the offloaded worker composition must agree
+/// byte-for-byte: the same single-leaf sequence on store A (sync) and store B (spawned `All`-mode
+/// worker) yields equal `cf_stage1`, person-index, and emissions. Catches the two paths drifting.
 #[tokio::test]
 async fn sync_and_offloaded_process_event_agree() {
     let alice = Uuid::from_u128(1);
-    // A single person-property leaf: no stage-2 composition, so `cf_stage1` + person-index + the
-    // emitted membership fully capture the event fold both paths share.
+    // A single person-property leaf keeps stage-2 out, so `cf_stage1` + person-index + emissions
+    // fully capture the event fold both paths share.
     let leaf = || person_leaf("email", "alice@p.com", EMAIL_ALICE);
 
-    // --- Store A: the sync `process_event` composition, with its own emissions collected. ---
     let (_a_dir, a_store) = temp_store();
     let a_filters = team_filters(vec![leaf()]);
     let mut a_statuses: Vec<MembershipStatus> = Vec::new();
@@ -467,8 +464,7 @@ async fn sync_and_offloaded_process_event_agree() {
             &event(alice, props, offset, ts),
         )
         .unwrap();
-        // A single-leaf cohort emits one membership change per leaf transition; mirror the worker's
-        // per-transition membership production so the emission lists compare.
+        // Mirror the worker's per-transition membership production so the emission lists compare.
         for transition in &outcome.transitions {
             a_statuses.push(match transition.kind {
                 TransitionKind::Entered => MembershipStatus::Entered,
@@ -477,7 +473,6 @@ async fn sync_and_offloaded_process_event_agree() {
         }
     }
 
-    // --- Store B: a spawned worker in the default `All` operating point (the production path). ---
     let (_b_dir, b_store) = temp_store();
     let b_filters = team_filters(vec![leaf()]);
     let catalog = std::sync::Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(

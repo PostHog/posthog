@@ -153,9 +153,8 @@ pub(crate) async fn handle_merge(
 ) {
     let msg_coords = (partition_id as i32, offset);
 
-    // Snapshot the catalog once; the section resolves `filters` inside its closure (empty-filters
-    // fallback when the team is absent, to avoid wedging), and `produce_merge_transitions` below
-    // re-resolves from the same snapshot after the section returns.
+    // One snapshot serves both resolutions below; `filters` falls back to empty when the team is
+    // absent, so the drain never wedges on an unknown team.
     let snapshot = catalog.load_full();
 
     let started = Instant::now();
@@ -187,7 +186,6 @@ pub(crate) async fn handle_merge(
     };
     histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
-    // Re-resolve the team from the same snapshot for the post-section produce.
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
         Some(team) => team,
@@ -197,8 +195,8 @@ pub(crate) async fn handle_merge(
         }
     };
 
-    // Only teardown cancellation makes the section itself `Err`: hold the offset so the next tenure's
-    // redelivery resolves the merge (mirrors the store-error hold below).
+    // The section is only `Err` on teardown cancellation; hold the offset so the next tenure's
+    // redelivery resolves the merge.
     let outcome = match section {
         Ok(outcome) => outcome,
         Err(_cancelled) => {
@@ -352,7 +350,6 @@ pub(crate) async fn handle_apply(
     };
     histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
-    // Re-resolve the team from the same snapshot for the post-section produce.
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
         Some(team) => team,
@@ -700,9 +697,8 @@ fn empty_team_filters() -> TeamFilters {
 }
 
 #[cfg(test)]
-// The redrive tests seed and assert against the store directly through `CohortStore` (the
-// sanctioned direct-store surface for tests) while driving `handle_redrive` through the `StoreHandle`
-// facade.
+// Tests seed and assert against `CohortStore` directly while driving `handle_redrive` through the
+// `StoreHandle` facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
@@ -715,8 +711,7 @@ mod tests {
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig};
 
-    /// Wrap a test store in the default `All` operating point so `handle_redrive` exercises the
-    /// blocking-pool transport production uses.
+    /// Wrap a test store in the `All` operating point so `handle_redrive` runs on the blocking pool.
     fn handle(store: &CohortStore) -> StoreHandle {
         StoreHandle::new(
             store.clone(),

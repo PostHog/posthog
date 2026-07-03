@@ -1,14 +1,9 @@
-# Tripwire: async code must reach the store through `StoreHandle` (which offloads I/O to the blocking
-# pool), never a raw `CohortStore` I/O method on a runtime thread. Every direct `CohortStore` I/O
-# method is disallowed here; the workspace lint level (`rust/Cargo.toml`) raises `disallowed_methods`
-# to deny, making a stray direct call a build failure rather than a review-time catch.
-#
-# Sync contexts that legitimately need the direct surface — `store/rocks.rs` and `store/handle.rs`
-# themselves, the `store/durability/*` sweeper/recovery (its own offload under a must-not-panic
-# policy), the sync `run_section` cores, `workers/event_path.rs`'s sync compositions, and every
-# `#[cfg(test)] mod tests` / integration test that drives the store directly — each carry one
-# `#[allow(clippy::disallowed_methods)]` with a justification. `CohortStore::open` is intentionally
-# omitted (constructing the store is not an I/O op and every context needs it).
+# Async code must reach the store through `StoreHandle` (which offloads I/O to the blocking pool),
+# never a raw `CohortStore` I/O method on a runtime thread. Every direct `CohortStore` I/O method is
+# disallowed here; the workspace lint level (`rust/Cargo.toml`) raises `disallowed_methods` to deny.
+# Sync contexts that legitimately need the direct surface each carry one
+# `#[allow(clippy::disallowed_methods)]` with a justification. `CohortStore::open` is omitted:
+# constructing the store is not an I/O op and every context needs it.
 disallowed-methods = [
     { path = "cohort_stream_processor::store::rocks::CohortStore::get", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::get_stage1", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },

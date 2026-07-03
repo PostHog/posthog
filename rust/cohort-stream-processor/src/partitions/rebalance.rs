@@ -186,8 +186,8 @@ fn partition_numbers(partitions: &TopicPartitionList) -> Vec<i32> {
 }
 
 #[cfg(test)]
-// The tests seed and probe partition slices directly through `CohortStore` (the sanctioned
-// direct-store surface for tests) while the dispatcher holds the `StoreHandle` facade.
+// Tests seed and probe partition slices against `CohortStore` directly while the dispatcher holds
+// the `StoreHandle` facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
@@ -213,8 +213,8 @@ mod tests {
         list
     }
 
-    /// Returns the raw store alongside the dispatcher so tests can seed/probe slices directly (the
-    /// dispatcher only exposes the async facade); the dispatcher wraps a clone of the same store.
+    /// Returns the raw store alongside the dispatcher (which wraps a clone of it) so tests can
+    /// seed/probe slices directly; the dispatcher itself only exposes the async facade.
     fn test_dispatcher() -> (
         TempDir,
         Arc<EventDispatcher>,

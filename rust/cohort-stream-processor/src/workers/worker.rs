@@ -59,9 +59,8 @@ const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
 
-/// Chunk size for a team's sweep-state prefetch. The keys are read in fixed-size batches so each
-/// `multi_get_stage1` call spans a bounded number of keys — capping the time any single read op holds
-/// before the sweep can make progress.
+/// Chunk size for a team's sweep-state prefetch, so each `multi_get_stage1` spans a bounded number of
+/// keys and no single read op holds long before the sweep makes progress.
 const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
@@ -302,10 +301,9 @@ async fn run_worker(
                     marker_cutoff_ms,
                     tombstone_cutoff_ms,
                 } => {
-                    // Run each GC pass as a whole sync section on the blocking pool. The in-memory
-                    // resume cursor moves in and comes back out by value; a teardown cancellation
-                    // resets it to `Default`, which is benign — the GC re-scans from the prefix start
-                    // next tenure, exactly as it does after a rebalance.
+                    // The cursor moves into the section and back out by value; a teardown
+                    // cancellation resets it to `Default`, which is benign — the GC re-scans from the
+                    // prefix start next tenure.
                     let scan_limit = merge.gc_scan_limit;
                     let mut cursor = std::mem::take(&mut gc_cursor);
                     gc_cursor = handle
@@ -323,9 +321,6 @@ async fn run_worker(
                         .await
                         .unwrap_or_default();
                     if merge.stage2_orphan_gc_enabled {
-                        // An `Arc<CatalogHandle>` clone moves into the section so the handler keeps
-                        // its two safety gates (is_loaded, empty-catalog) unchanged; the cursor makes
-                        // the same by-value round-trip as the merge GC above.
                         let catalog = catalog.clone();
                         let mut cursor = std::mem::take(&mut stage2_gc_cursor);
                         stage2_gc_cursor = handle
@@ -728,14 +723,12 @@ async fn handle_sweep(
             continue;
         };
         let filters: &TeamFilters = filters;
-        // Prefetch the team's states in bounded chunks so no single read op spans the whole wave. A
-        // read failure anywhere in the team reschedules the whole team's keys and applies none of it
-        // (the per-team retry semantics), so gather every chunk before evicting.
+        // Per-team retry: a read failure anywhere in the team reschedules all its keys and applies
+        // none of it, so gather every chunk before evicting.
         let mut values: Vec<Option<Vec<u8>>> = Vec::with_capacity(keys.len());
         let mut read_failed = false;
         for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
-            // Maintenance lane: the permit rotates between chunks so no single read op spans the whole
-            // wave, keeping each op short against the shutdown grace and fair against event reads.
+            // The maintenance permit rotates between chunks, keeping each op fair against event reads.
             match handle
                 .multi_get_stage1(chunk.to_vec(), ReadLane::Maintenance)
                 .await
@@ -896,7 +889,6 @@ async fn rebuild_eviction_queue(
     let mut cursor: Option<Vec<u8>> = None;
     let mut rebuilt: u64 = 0;
     loop {
-        // Maintenance lane inside the facade: the boot rebuild scans off the runtime threads.
         let page = match handle
             .scan_stage1(partition_id, cursor.clone(), REBUILD_SCAN_PAGE)
             .await
@@ -987,8 +979,7 @@ pub(crate) fn transition_metric_label(
 }
 
 #[cfg(test)]
-// The tests seed and assert against the store directly through `CohortStore` (the sanctioned
-// direct-store surface for tests) while driving the workers through the `StoreHandle` facade.
+// Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface for tests.
 #[allow(clippy::disallowed_methods)]
 mod tombstone_redirect_tests {
     use super::*;
@@ -1025,8 +1016,7 @@ mod tombstone_redirect_tests {
         (dir, store)
     }
 
-    /// Wrap a test store in the default `All` operating point (permits 16/6) so the workers and the
-    /// direct `handle_event` calls exercise the same blocking-pool transport production uses.
+    /// Wraps a test store so tests exercise the same blocking-pool transport as production.
     fn test_handle(store: &CohortStore) -> StoreHandle {
         StoreHandle::new(
             store.clone(),

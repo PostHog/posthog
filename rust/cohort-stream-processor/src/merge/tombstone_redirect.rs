@@ -9,7 +9,7 @@
 //! straggler's own person id, since it keys into `redirect_dedup`.
 
 // The sync `resolve`/`read_tombstone` here is the section-core surface (called inside drain/apply
-// `run_section` closures), so its direct `CohortStore` I/O is already off the runtime threads. The
+// `run_section` closures), so its direct `CohortStore` I/O is already off the runtime threads; the
 // async `resolve_offloaded` twin goes through the `StoreHandle` facade instead.
 #![allow(clippy::disallowed_methods)]
 
@@ -118,8 +118,8 @@ fn read_tombstone(
     }
 }
 
-/// Async twin of [`resolve`] over the [`StoreHandle`] facade: same hop-by-hop tombstone walk, same
-/// [`Resolution`] semantics, same [`MAX_TOMBSTONE_HOPS`] cap, but each hop reads through the Event
+/// Async twin of [`resolve`] over the [`StoreHandle`] facade: identical tombstone walk,
+/// [`Resolution`] semantics, and [`MAX_TOMBSTONE_HOPS`] cap, but each hop reads through the Event
 /// lane so the store I/O runs on the blocking pool. Used by the event-path worker; drain/apply call
 /// the sync [`resolve`] inside their `run_section` closures.
 pub async fn resolve_offloaded(

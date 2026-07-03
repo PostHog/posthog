@@ -24,8 +24,7 @@
 //! Every test creates 4-partition topics and deletes the Kafka topic on exit (a leaked high-partition
 //! topic wedges later runs); the S3 e2e also sweeps its per-test S3 prefix on exit.
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::HashMap;

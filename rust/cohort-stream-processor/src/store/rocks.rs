@@ -1,7 +1,7 @@
 //! RocksDB wrapper: multi-CF atomic `WriteBatch`, async WAL.
 
-// This module DEFINES the disallowed `CohortStore` I/O methods; they call one another internally
-// (e.g. `apply` replays through the `write_batch` path). The tripwire targets async callers, not the
+// This module defines the disallowed `CohortStore` I/O methods, which call one another internally
+// (e.g. `apply` replays through the `write_batch` path). The lint targets async callers, not the
 // store's own implementation.
 #![allow(clippy::disallowed_methods)]
 
@@ -148,8 +148,7 @@ pub type RawKv = (Vec<u8>, Vec<u8>);
 /// [`BatchBuilder`] whose handles are tied to `&self`. [`StagedBatch`] plus [`Self::apply`] is the
 /// owned staging path: keys and operands are encoded into owned bytes up front, so the batch is
 /// `Send + 'static` and can be built on one thread and applied on another. Both funnel through the
-/// same commit, so the two produce identical RocksDB writes. An async facade over the owned path
-/// lands separately.
+/// same commit, so the two produce identical RocksDB writes.
 #[derive(Clone)]
 pub struct CohortStore {
     db: Arc<DBWithThreadMode<SingleThreaded>>,

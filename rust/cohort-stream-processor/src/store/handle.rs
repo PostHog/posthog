@@ -14,8 +14,8 @@
 //! [`CohortStore`] (sync) stays the surface for blocking contexts that cannot `.await`: whole-section
 //! state machines run through [`StoreHandle::run_section`], and checkpoint/tests call it directly.
 
-// This module IS the sanctioned wrapper: every async method here funnels one direct `CohortStore`
-// I/O call onto the blocking pool, so the tripwire must not fire on the wrapping itself.
+// This module is the sanctioned wrapper: every async method funnels one direct `CohortStore` I/O
+// call onto the blocking pool, so the lint must not fire on the wrapper itself.
 #![allow(clippy::disallowed_methods)]
 
 use std::str::FromStr;
@@ -46,8 +46,7 @@ const LANE_SECTION: &str = "section";
 /// it re-routes every op at once.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum OffloadMode {
-    /// Every op runs inline on the caller's thread — byte-identical in transport to the pre-facade
-    /// store surface. The operator kill switch and the A/B baseline.
+    /// Every op runs inline on the caller's thread. The operator kill switch.
     Off,
     /// Maintenance-lane reads, `flush_wal_sync`, `run_section`, and `stats_snapshot` offload;
     /// Event-lane reads and every other write run inline. Keeps the event path off the blocking pool
@@ -115,7 +114,7 @@ pub struct StoreHandle {
 impl StoreHandle {
     pub fn new(store: CohortStore, config: OffloadConfig) -> Self {
         // `0` = unbounded: model it as the absence of a semaphore so the offload path skips permit
-        // acquisition entirely rather than acquiring from an effectively infinite pool.
+        // acquisition entirely.
         let lane = |permits: usize| (permits > 0).then(|| Arc::new(Semaphore::new(permits)));
         Self {
             store,
@@ -144,9 +143,8 @@ impl StoreHandle {
 
     // --- Internal executors: the only places `mode` is matched. ---
 
-    /// Run a read op, offloading per mode + lane. Inline runs record no offload metrics (Off must
-    /// stay byte-identical in overhead to the pre-facade transport); the rocks-level metrics inside
-    /// `CohortStore` fire on both paths.
+    /// Run a read op, offloading per mode + lane. Inline runs record no offload metrics, so Off adds
+    /// no measurement overhead; the rocks-level metrics inside `CohortStore` fire on both paths.
     async fn read<T, F>(&self, op: &'static str, lane: ReadLane, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
@@ -461,7 +459,7 @@ impl Drop for InflightGuard {
 /// unit-testable.
 ///
 /// - Panic → resume the unwind on the caller's thread: a store panic must still kill the calling
-///   worker task (partition stall → lag alert), exactly the pre-facade semantics. Never swallowed.
+///   worker task (partition stall → lag alert). Never swallowed.
 /// - Cancellation → [`StoreError::OffloadCancelled`]: reachable only at runtime teardown, when the
 ///   runtime cancels queued blocking tasks. Mapping it to an error (not a panic) avoids fake panic
 ///   telemetry during a clean shutdown.
@@ -545,7 +543,6 @@ mod tests {
             .unwrap();
         });
 
-        // While the first holds the only permit, the second must NOT have entered.
         assert!(
             second_entered_rx
                 .recv_timeout(Duration::from_millis(300))
@@ -614,8 +611,7 @@ mod tests {
     }
 
     /// In Off mode an op runs on the caller's thread and acquires no permit, even when permits are
-    /// configured. Catches an A/B lever that still offloads (or takes a permit) in the "off" arm,
-    /// which would make the baseline measure the offload path.
+    /// configured. Catches an Off mode that still offloads or takes a permit.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn off_mode_runs_on_the_caller_thread_without_permits() {
         let dir = TempDir::new().unwrap();
@@ -676,8 +672,8 @@ mod tests {
         assert_eq!(OffloadMode::default(), OffloadMode::All);
     }
 
-    // The handle is cloned into every worker task and shared across the consume/commit loops; a
-    // future non-Send member must fail here, not at the distant spawn sites.
+    // The handle is cloned into every worker task and shared across the consume/commit loops: a
+    // non-Send member must fail here, not at the distant spawn sites.
     #[test]
     fn store_handle_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}

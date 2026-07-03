@@ -327,10 +327,10 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
-    /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller —
-    /// the pre-facade transport and the operator kill switch), `maintenance` (only maintenance-lane
-    /// reads, the WAL fsync, and sections offload; the event path stays inline), or `all` (every op
-    /// offloads to the blocking pool). Default `all`.
+    /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller — the
+    /// operator kill switch), `maintenance` (only maintenance-lane reads, the WAL fsync, and sections
+    /// offload; the event path stays inline), or `all` (every op offloads to the blocking pool).
+    /// Default `all`.
     #[envconfig(from = "COHORT_STORE_OFFLOAD_MODE", default = "all")]
     pub cohort_store_offload_mode: OffloadMode,
 
@@ -1083,7 +1083,6 @@ mod tests {
         assert_eq!(offload.event_read_permits, 16);
         assert_eq!(offload.maintenance_permits, 6);
 
-        // Override all three, including `maintenance` mode and a `0` (unbounded) permit lane.
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_STORE_OFFLOAD_MODE", "maintenance"),
             ("COHORT_STORE_EVENT_READ_PERMITS", "8"),
@@ -1098,7 +1097,6 @@ mod tests {
         assert_eq!(offload.event_read_permits, 8);
         assert_eq!(offload.maintenance_permits, 0, "0 = unbounded lane");
 
-        // `off` parses.
         let off_env: std::collections::HashMap<String, String> =
             [("COHORT_STORE_OFFLOAD_MODE", "off")]
                 .into_iter()
@@ -1112,7 +1110,6 @@ mod tests {
             OffloadMode::Off,
         );
 
-        // An unknown mode string fails init (the FromStr error surfaces through envconfig).
         let bad_env: std::collections::HashMap<String, String> =
             [("COHORT_STORE_OFFLOAD_MODE", "occasionally")]
                 .into_iter()

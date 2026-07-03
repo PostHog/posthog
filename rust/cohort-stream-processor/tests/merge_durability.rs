@@ -14,8 +14,7 @@
 //! cargo test -p cohort-stream-processor --test merge_durability -- --ignored --test-threads=1
 //! ```
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::HashSet;

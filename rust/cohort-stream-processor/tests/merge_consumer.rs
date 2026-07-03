@@ -20,8 +20,7 @@
 //!   | xargs -r rpk topic delete'
 //! ```
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::HashSet;

@@ -4,9 +4,8 @@
 //! atomic [`WriteBatch`](crate::store::CohortStore::write_batch) and returns the transitions that
 //! flipped. Transitions are surfaced only after the commit succeeds.
 
-// The sync `process_event`/`process_event_with_memo` compositions here are the public test surface
-// (75 direct call sites) and run in blocking contexts, so their direct `CohortStore` I/O is
-// sanctioned. The production `process_event_offloaded` twin goes through the `StoreHandle` facade.
+// The sync `process_event`/`process_event_with_memo` compositions are the public test surface and run
+// in blocking contexts, so their direct `CohortStore` I/O is sanctioned.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::BTreeMap;
@@ -151,9 +150,8 @@ struct PendingWrite {
 
 /// What [`plan_event`] resolved for one event, up to (but not including) the pre-event read.
 ///
-/// The `&mut PersonMemo` borrow lives entirely inside `plan_event`, so the memo is no longer
-/// mutably borrowed once a plan exists — the read that fills [`Self::Read`]'s slots can run without
-/// any `&mut` in scope.
+/// The `&mut PersonMemo` borrow ends inside `plan_event`, so the read that fills [`Self::Read`] runs
+/// with no `&mut` in scope.
 pub(crate) enum EventPlan {
     /// The event was skipped before any leaf evaluated (`skipped` reason).
     Skip(SkipReason),
@@ -163,8 +161,8 @@ pub(crate) enum EventPlan {
     Read(ReadPlan),
 }
 
-/// The data [`fold_event`] needs from [`plan_event`], carried by [`EventPlan::Read`]. Keys are built
-/// in `applies` order so the fold's zip over the read result stays aligned.
+/// The data [`fold_event`] needs from [`plan_event`], carried by [`EventPlan::Read`]. `keys` are in
+/// `applies` order so the fold's zip over the read result stays aligned.
 pub(crate) struct ReadPlan {
     partition_id: u16,
     team_id: u64,
@@ -176,8 +174,7 @@ pub(crate) struct ReadPlan {
 }
 
 /// The metric emissions a successful fold implies, captured so the compositions can defer them until
-/// after the commit succeeds (matching today's post-`write_batch` metric loop). A fold that stages
-/// nothing yields empty stats.
+/// after the commit succeeds. A fold that stages nothing yields empty stats.
 pub(crate) struct WriteStats {
     /// Per-`StateVariant` `STAGE1_STATE_WRITES` counts, in first-seen order.
     variant_writes: Vec<(StateVariant, u64)>,
@@ -198,8 +195,8 @@ impl WriteStats {
     }
 }
 
-/// The pure result of [`fold_event`]: the staged writes plus everything the caller surfaces once the
-/// commit lands. Infallible — the fold touches no store.
+/// The pure result of [`fold_event`]: the staged writes plus what the caller surfaces after commit.
+/// Infallible — the fold touches no store.
 pub(crate) struct FoldOutput {
     pub staged: StagedBatch,
     pub transitions: Vec<LeafTransition>,
@@ -265,9 +262,8 @@ pub fn process_event_with_memo(
     memo: &mut PersonMemo,
     event_name_gating: EventNameGating,
 ) -> Result<EventOutcome, StoreError> {
-    // The `&mut PersonMemo` borrow begins and ends inside `plan_event`; the read + fold below hold no
-    // mutable borrow. Reads defer to a single batched `multi_get_stage1` so every apply sees the
-    // pre-event image; the fold stages into a `StagedBatch` that commits in one atomic write.
+    // The `&mut PersonMemo` borrow ends inside `plan_event`; the read + fold below hold no mutable
+    // borrow.
     let read = match plan_event(
         partition_id,
         filters,
@@ -293,8 +289,8 @@ pub fn process_event_with_memo(
     } = fold_event(filters, read, values, event);
 
     // The batch spans exactly one event: the next event in the sub-batch must see this event's
-    // committed writes (argMax tiebreaker, replay dedup). Preserve the empty-write guard — an event
-    // that stages nothing performs no write — and emit the write metrics only after the commit lands.
+    // committed writes (argMax tiebreaker, replay dedup). An event that stages nothing performs no
+    // write, and the write metrics emit only after the commit lands.
     if !staged.is_empty() {
         store.apply(&staged)?;
         write_stats.emit();
@@ -304,11 +300,8 @@ pub fn process_event_with_memo(
 }
 
 /// The production composition of [`plan_event`] + [`fold_event`], reading and writing through the
-/// async [`StoreHandle`] facade so the store I/O runs on the blocking pool. Byte-for-byte equivalent
-/// to [`process_event_with_memo`] (both recompose the same pure cores); only the store transport
-/// differs. The `&mut PersonMemo` borrow lives entirely inside `plan_event`, so no mutable borrow
-/// spans an await — the read that fills the plan and the commit that lands the fold both run with
-/// nothing mutably borrowed.
+/// async [`StoreHandle`] facade so the store I/O runs on the blocking pool. The `&mut PersonMemo`
+/// borrow ends inside `plan_event`, so no mutable borrow spans an await.
 ///
 /// Sequential awaits only: the batched read must observe the prior event's committed writes, so the
 /// read and commit are never joined or reordered.
@@ -336,8 +329,7 @@ pub(crate) async fn process_event_offloaded(
 
     let event_ms = read.event_ms;
     histogram!(STAGE1_SNAPSHOT_KEYS).record(read.keys.len() as f64);
-    // The keys are `Copy` (u128-sized structs); clone the Vec for the read so the plan keeps its copy
-    // for `fold_event`'s zip over the read result.
+    // Clone the keys for the read so the plan keeps its copy for `fold_event`'s zip.
     let values = handle
         .multi_get_stage1(read.keys.clone(), ReadLane::Event)
         .await?;
@@ -349,8 +341,7 @@ pub(crate) async fn process_event_offloaded(
         write_stats,
     } = fold_event(filters, read, values, event);
 
-    // Same one-event batch contract as the sync path: commit before the caller processes the next
-    // event, keep the empty-write guard, and emit the write metrics only after the commit lands.
+    // Commit before the caller processes the next event; emit the write metrics only after it lands.
     if !staged.is_empty() {
         handle.commit(staged).await?;
         write_stats.emit();
@@ -359,11 +350,9 @@ pub(crate) async fn process_event_offloaded(
     Ok(EventOutcome::processed(transitions, schedules, event_ms))
 }
 
-/// Resolve everything up to the pre-event read: parse the person id and origin, gate on the team's
-/// conditions, build globals, probe/store the person memo, run the evaluators, collect the applies,
-/// parse the timestamp, and build the read keys. The `&mut PersonMemo` borrow lives entirely here —
-/// on return nothing is mutably borrowed, so the batched read that fills the plan can run without an
-/// `&mut` in scope.
+/// Resolve everything up to the pre-event read: gating, globals, person memo, evaluation, applies,
+/// and the read keys. The `&mut PersonMemo` borrow lives entirely here, so on return the batched read
+/// that fills the plan can run with no `&mut` in scope.
 pub(crate) fn plan_event(
     partition_id: u16,
     filters: &TeamFilters,
@@ -451,9 +440,8 @@ pub(crate) fn plan_event(
     })
 }
 
-/// Fold the pre-event read `values` into each apply's next state. Pure: it decodes the prior state,
-/// runs the `mutate_*` functions, and stages the resulting writes into a [`StagedBatch`] instead of
-/// committing — the caller commits, then emits [`FoldOutput::write_stats`]. Infallible (no store).
+/// Fold the pre-event read `values` into each apply's next state, staging the writes into a
+/// [`StagedBatch`] for the caller to commit. Pure and infallible — touches no store.
 pub(crate) fn fold_event(
     filters: &TeamFilters,
     read: ReadPlan,
@@ -582,8 +570,8 @@ pub(crate) fn fold_event(
     }
 }
 
-/// Accumulate one write against its variant's running count, keeping first-seen order so the deferred
-/// emission mirrors incrementing once per staged write.
+/// Accumulate one write into its variant's running count, preserving first-seen order for the
+/// deferred emission.
 fn record_variant_write(counts: &mut Vec<(StateVariant, u64)>, variant: StateVariant) {
     if let Some((_, count)) = counts.iter_mut().find(|(v, _)| *v == variant) {
         *count += 1;

@@ -11,7 +11,7 @@
 //! The drain emits no `Left` for P_old — it silently deletes P_old's rows. P_old's `cf_stage2` keys
 //! are built from the catalog (no reads needed; deleting an absent key is a no-op).
 
-// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct `CohortStore`
+// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so direct `CohortStore`
 // I/O is already off the runtime threads.
 #![allow(clippy::disallowed_methods)]
 

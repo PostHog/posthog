@@ -11,7 +11,7 @@
 //! state to the live survivor instead — inline when the survivor co-resides on this partition,
 //! forwarded on `cohort_merge_state_transfer` when it lives on another.
 
-// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct `CohortStore`
+// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so direct `CohortStore`
 // I/O is already off the runtime threads.
 #![allow(clippy::disallowed_methods)]
 
@@ -36,12 +36,10 @@ use crate::workers::event_path::schedule_deadline;
 use tracing::warn;
 
 /// The eviction-queue mutations a drain/apply commit implies. The handlers take owned inputs and no
-/// queue borrow, so they return these for the caller (which owns the queue) to apply right after the
+/// queue borrow, so they hand these back for the caller (which owns the queue) to apply after the
 /// atomic write commits and before any produce — a produce failure must never leave the queue ahead
-/// of the store.
-///
-/// `cancels` are the old person's now-deleted keys; `schedules` are the survivor's new eviction
-/// deadlines.
+/// of the store. `cancels` are the old person's now-deleted keys; `schedules` the survivor's new
+/// eviction deadlines.
 #[must_use]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct QueueEffects {
@@ -51,7 +49,7 @@ pub struct QueueEffects {
 
 impl QueueEffects {
     /// Cancel first, then schedule. The two key sets are disjoint by construction (old person ≠ new
-    /// person), so the order is defensive rather than load-bearing.
+    /// person), so the order is defensive.
     pub fn apply_to(&self, queue: &mut EvictionQueue<Stage1Key>) {
         for key in &self.cancels {
             queue.cancel(key);

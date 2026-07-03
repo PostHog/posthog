@@ -19,9 +19,8 @@
 //! continues.
 
 // The checkpoint sweeper offloads its own store I/O (its own `spawn_blocking` + log-and-skip on
-// every `JoinError`), rather than the `StoreHandle` facade, because the facade re-raises a store
-// panic via `resume_unwind` and the must-not-panic policy above forbids that — so its direct
-// `CohortStore` calls are sanctioned. See the comment in `checkpoint_once`.
+// every `JoinError`) to honor the must-not-panic policy above, so its direct `CohortStore` calls are
+// sanctioned. See `checkpoint_once`.
 #![allow(clippy::disallowed_methods)]
 
 use std::path::{Path, PathBuf};
@@ -115,11 +114,9 @@ impl CheckpointSweeper {
     async fn checkpoint_once(&self) {
         let tick = self.tick.fetch_add(1, Ordering::SeqCst);
 
-        // The checkpoint sweeper offloads its own store I/O here rather than routing through
-        // `StoreHandle`: the facade re-raises a store panic via `resume_unwind`, but the `Sweeper`
-        // contract forbids panicking (a panic aborts the timer task and stops all future
-        // checkpoints), so this cluster catches every `JoinError` and logs-and-skips instead. Keeping
-        // its own `spawn_blocking` preserves that must-not-panic policy.
+        // The checkpoint sweeper runs its own `spawn_blocking` and catches every `JoinError` to
+        // log-and-skip: the `Sweeper` contract forbids panicking (a panic aborts the timer task and
+        // stops all future checkpoints), so store panics must not propagate out of this loop.
         //
         // 1. fsync the WAL before the snapshot so `committed <= durable` holds. A failure here would
         //    yield a checkpoint whose manifest claims more than is durable — skip the tick.

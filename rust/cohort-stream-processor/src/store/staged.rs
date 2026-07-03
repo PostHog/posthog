@@ -3,14 +3,13 @@
 //! [`BatchBuilder`](super::rocks::BatchBuilder) borrows the store's CF handles, so a batch built
 //! through it is tied to the store's lifetime and cannot be moved into a `'static` blocking closure.
 //! [`StagedBatch`] is the owned counterpart: each staging call encodes its key (and, for the person
-//! index, its merge operand) into owned bytes at call time and remembers only the target [`Cf`]. The
-//! resulting value is `Send + 'static`, so it can be handed to a background thread and replayed there
-//! via [`CohortStore::apply`](super::rocks::CohortStore::apply).
+//! index, its merge operand) into owned bytes at call time and remembers only the target [`Cf`], so
+//! the value is `Send + 'static` and can be replayed on a background thread via
+//! [`CohortStore::apply`](super::rocks::CohortStore::apply).
 //!
-//! The staging surface mirrors `BatchBuilder` one-to-one — same method names, same typed parameters —
-//! and encodes identically, so a sequence staged here and applied through `apply` is
-//! byte-for-byte the same set of RocksDB operations as the same sequence built through `BatchBuilder`
-//! and committed through `write_batch`.
+//! The staging surface mirrors `BatchBuilder` one-to-one and encodes identically, so a sequence
+//! staged here and applied through `apply` is byte-for-byte the same set of RocksDB operations as
+//! that sequence built through `BatchBuilder` and committed through `write_batch`.
 
 use super::column_families::{Cf, OpaqueCf};
 use super::keys::{
@@ -22,8 +21,8 @@ use crate::stage1::key::Stage1Key;
 /// One staged RocksDB operation with owned bytes, so the batch is `Send + 'static`.
 ///
 /// `Merge` carries the encoded [`IndexOp`] operand verbatim: the person-index merge operator must see
-/// the same operand bytes [`BatchBuilder::merge_person_index`](super::rocks::BatchBuilder::merge_person_index)
-/// produces.
+/// the same operand bytes
+/// [`BatchBuilder::merge_person_index`](super::rocks::BatchBuilder::merge_person_index) produces.
 pub(crate) enum StagedOp {
     Put {
         cf: Cf,
@@ -45,8 +44,8 @@ pub(crate) enum StagedOp {
 /// [`BatchBuilder`](super::rocks::BatchBuilder) one-to-one.
 ///
 /// Stage operations with the typed methods, then replay them into one atomic batch with
-/// [`CohortStore::apply`](super::rocks::CohortStore::apply). Unlike `BatchBuilder`, this holds no
-/// borrowed CF handles, so it can be moved across thread boundaries.
+/// [`CohortStore::apply`](super::rocks::CohortStore::apply). Holds no borrowed CF handles, so it can
+/// move across thread boundaries.
 #[must_use]
 #[derive(Default)]
 pub struct StagedBatch {
@@ -54,17 +53,14 @@ pub struct StagedBatch {
 }
 
 impl StagedBatch {
-    /// No operations have been staged yet.
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }
 
-    /// Number of staged operations.
     pub fn len(&self) -> usize {
         self.ops.len()
     }
 
-    /// The staged operations, in staging order, for replay by the store.
     pub(crate) fn ops(&self) -> &[StagedOp] {
         &self.ops
     }
@@ -195,9 +191,9 @@ impl StagedBatch {
 }
 
 #[cfg(test)]
-// These tests drive the store directly through `CohortStore` (`write_batch`/`apply`/`get_*`) to pin
-// that `StagedBatch::apply` writes exactly what `write_batch` does — the sanctioned direct-store
-// surface for tests.
+// Tests drive the store directly through `CohortStore` (`write_batch`/`apply`/`get_*`) — the
+// sanctioned direct-store surface for tests — to pin that `apply` writes exactly what `write_batch`
+// does.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use tempfile::TempDir;
@@ -281,9 +277,9 @@ mod tests {
         .unwrap()
     }
 
-    /// Every staging method, driven identically through `BatchBuilder`. `merge_person_index` uses
-    /// both `IndexOp` variants (an append that survives and one cancelled by a remove) so the merge
-    /// operand is exercised on replay, and `put_raw` covers both `OpaqueCf` arms.
+    /// Drives every staging method through `BatchBuilder`. `merge_person_index` uses both `IndexOp`
+    /// variants (an append that survives and one cancelled by a remove) to exercise the merge operand
+    /// on replay, and `put_raw` covers both `OpaqueCf` arms.
     fn drive_batch_builder(b: &mut BatchBuilder<'_>) {
         b.put_stage1(&stage1_key(1, 0xA0), b"s1-put");
         b.put_stage1(&stage1_key(2, 0xA1), b"s1-doomed");
@@ -381,13 +377,12 @@ mod tests {
 
         let mut staged = StagedBatch::default();
         drive_staged_batch(&mut staged);
-        // The sequence covers every staging method, so this must have staged at least one op per CF.
         assert!(!staged.is_empty());
         assert_eq!(staged.len(), 21);
         via_staged.apply(&staged).unwrap();
 
-        // Every CF's full contents must match byte-for-byte between the two stores. `scan_merge_cf` is
-        // CF-generic and all keys carry the partition prefix, so it enumerates any CF's slice.
+        // `scan_merge_cf` is CF-generic and all keys carry the partition prefix, so it enumerates any
+        // CF's slice.
         for cf in Cf::ALL {
             let builder_kvs = via_builder
                 .scan_merge_cf(cf, PARTITION, None, LARGE_LIMIT)
@@ -401,9 +396,8 @@ mod tests {
             );
         }
 
-        // Decoded person-index output must agree too: a merge operand replayed to the wrong operator or
-        // with diverging bytes would collapse to a different set even if the raw value scan somehow
-        // matched.
+        // Decoded person-index output must agree too: a merge operand replayed to the wrong operator
+        // or with diverging bytes would collapse to a different set even if the raw value scan matched.
         for person in [1u128, 2] {
             let key = person_index_key(person);
             assert_eq!(
@@ -417,7 +411,6 @@ mod tests {
             via_staged.get_person_index(&person_index_key(1)).unwrap(),
             vec![LeafStateKey([0x11; 16])],
         );
-        // The deleted person-index key reads back as no states.
         assert!(via_staged
             .get_person_index(&person_index_key(2))
             .unwrap()
@@ -431,8 +424,8 @@ mod tests {
         assert_eq!(batch.len(), 0);
     }
 
-    // The whole point of the type is crossing a `spawn_blocking` boundary: a field that is not
-    // `Send + 'static` must fail here, not at the distant offload call site.
+    // The type exists to cross a `spawn_blocking` boundary: a field that is not `Send + 'static` must
+    // fail here, not at the distant offload call site.
     #[test]
     fn staged_batch_is_send_and_static() {
         fn assert_send_static<T: Send + 'static>() {}

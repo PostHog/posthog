@@ -7,8 +7,7 @@
 //! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
 //! the in-crate classifier / catalog tests, not duplicated here.
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::collections::BTreeMap;
@@ -1102,15 +1101,11 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     );
 }
 
-/// Within ONE dispatched batch, a replay of the prior event (identical source coordinates)
-/// must fold zero times — the offloaded read for the second event has to observe the first event's
-/// committed write. Two identical events for one person/leaf in one `send`; exactly one `Entered`.
-/// Catches the offloaded read racing ahead of the prior event's commit (the intra-sub-batch
-/// read-your-writes invariant): a lost read would re-apply and emit a second, spurious transition.
+/// The offloaded read for a second event must observe the first event's committed write: within one
+/// batch, a replay racing ahead of that commit would re-apply and emit a spurious second transition.
 #[tokio::test]
 async fn sub_batch_read_your_writes_survives_offload() {
     let (_dir, store) = temp_store();
-    // A single behavioral leaf: one `Entered` on the first fold; a replay must add nothing.
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
     let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
     let alice = person(1);
@@ -1132,9 +1127,8 @@ async fn sub_batch_read_your_writes_survives_offload() {
         false,
     );
 
-    // Both events carry the SAME source coordinates (5, 0): the second is an exact replay of the
-    // first. They ship in ONE batch so the worker processes them back-to-back — the second's read
-    // must see the first's commit.
+    // Same source coordinates (5, 0) make the second event an exact replay of the first; shipping
+    // both in one batch forces the worker to process them back-to-back.
     tracker.mark_dispatched(PARTITION_ID as i32, 1);
     tx.send(vec![
         ShuffleMessage::Event {

@@ -214,16 +214,14 @@ async fn async_main(config: Config) -> Result<()> {
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
     // needs its own raw-store handle and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
-    // The checkpoint sweeper keeps the raw `CohortStore` (it runs its own `spawn_blocking` under a
-    // must-not-panic policy that conflicts with the facade's `resume_unwind` — see checkpoint.rs).
+    // The sweeper keeps the raw `CohortStore` rather than the facade because of its must-not-panic
+    // policy (see checkpoint.rs).
     let store_for_checkpoint = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
     let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
 
-    // The async facade over the store: the only store surface the dispatcher, its workers, and the
-    // stats sweeper see. Cheap to clone (the inner store is `Arc`-backed).
     let handle = StoreHandle::new(store, config.offload_config());
     let handle_for_stats = handle.clone();
 

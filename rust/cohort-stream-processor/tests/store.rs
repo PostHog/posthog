@@ -1,6 +1,6 @@
 //! End-to-end tests against a real RocksDB in a temp dir, through the public API only.
 
-// These tests exercise `CohortStore` directly — it IS the API under test here.
+// `CohortStore` is the API under test here, so tests call it directly.
 #![allow(clippy::disallowed_methods)]
 
 use cohort_stream_processor::store::{

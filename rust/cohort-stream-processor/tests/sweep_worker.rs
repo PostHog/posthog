@@ -9,8 +9,7 @@
 //! The Stage 2 section covers a time-driven leaf flip recomposing its composable (multi-leaf)
 //! cohorts through the sweep's second produce.
 
-// This test drives the store directly through `CohortStore` for seeding and assertions — the
-// sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -63,8 +62,7 @@ fn temp_store() -> (TempDir, CohortStore) {
     (dir, store)
 }
 
-/// Wrap a test store in the default `All` operating point so the worker and dispatcher exercise the
-/// blocking-pool transport production uses; the tests keep the raw store for seeding and assertions.
+/// `All` mode so the worker and dispatcher exercise the blocking-pool transport; the raw store stays for seeding and assertions.
 fn test_handle(store: &CohortStore) -> StoreHandle {
     test_handle_with_mode(store, OffloadMode::All)
 }
@@ -269,10 +267,9 @@ async fn send_sweep(tx: &mpsc::Sender<Vec<ShuffleMessage>>, due_before_ms: i64) 
         .unwrap();
 }
 
-/// Drive the runtime until `predicate` holds, so a test can observe intermediate mid-stream state
-/// (the queue is per-worker, so it can't drop the worker to barrier). The worker's store I/O runs on
-/// the blocking pool, so progress takes wall-clock time regardless of this runtime's polling —
-/// sleeping between probes (rather than yield-spinning a bounded count) lets that work land.
+/// Poll `predicate` until it holds, so a test can observe intermediate mid-stream state without a
+/// barrier. Store I/O runs on the blocking pool, so probes sleep (rather than yield-spin) to let that
+/// wall-clock work land.
 async fn drain_until(what: &str, mut predicate: impl FnMut() -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
@@ -284,9 +281,8 @@ async fn drain_until(what: &str, mut predicate: impl FnMut() -> bool) {
     panic!("timed out waiting for {what}");
 }
 
-/// [`drain_until`] on the sink's recorded change count. `handle_sweep` produces its changes BEFORE
-/// its state write, and that write completes on the blocking pool — a test that must inspect the
-/// post-sweep state should follow this with a [`drain_until`] on the store observable itself.
+/// [`drain_until`] on the sink's change count. `handle_sweep` produces before its state write, so a
+/// test inspecting post-sweep state must follow this with a [`drain_until`] on the store itself.
 async fn drain_until_changes(sink: &CaptureSink, count: usize) {
     drain_until("the worker to record changes", || {
         sink.changes().len() >= count
@@ -314,7 +310,7 @@ fn spawn_worker_durable(
     spawn_worker_with_restore(store, catalog, sink, tracker, true)
 }
 
-/// Like [`spawn_worker`] but pinned to one offload operating point instead of the default `All`.
+/// Like [`spawn_worker`] but pinned to a given offload mode instead of the default `All`.
 fn spawn_worker_with_mode(
     store: &CohortStore,
     catalog: Arc<CatalogHandle>,
@@ -942,7 +938,7 @@ async fn sweep_emits_entered_when_a_daily_eq_count_falls_into_range() {
 
     // Barrier on the Enter+Leave (events) + Enter (sweep): the slide advanced the window and
     // rescheduled to the surviving D+3 bucket's leave boundary (start of D+11). The sweep produces
-    // before its state write lands on the blocking pool, so also wait for the slid record itself.
+    // before its state write, so also wait for the slid record itself.
     drain_until_changes(&sink, 3).await;
     drain_until("the slid daily record to land", || {
         matches!(
@@ -1152,8 +1148,7 @@ async fn sweep_emits_entered_when_a_compressed_eq_count_falls_into_range() {
     )
     .await;
 
-    // The sweep produces before its state write lands on the blocking pool, so also wait for the
-    // slid record itself before inspecting it.
+    // The sweep produces before its state write, so also wait for the slid record before inspecting it.
     drain_until_changes(&sink, 3).await;
     drain_until("the slid compressed record to land", || {
         matches!(
@@ -1973,12 +1968,10 @@ fn state_variants_are_exhaustive() {
     }
 }
 
-/// The three offload operating points route the same store ops inline vs onto the blocking pool; the
-/// observable outcome must be identical. One composable cohort (behavioral AND person) driven through
-/// enter-then-evict exercises every lane per mode: the event fold (Event-lane read + commit), stage-2
-/// composition (Event-lane reads + commit), and the sweep (Maintenance-lane prefetch + eviction
-/// commit + recompose). Catches mode plumbing inverting a lane — e.g. `Maintenance` offloading the
-/// event read it must run inline, or dropping a commit on one arm.
+/// The three offload modes route the same store ops inline vs onto the blocking pool; the observable
+/// outcome must be identical. One composable cohort driven through enter-then-evict exercises every
+/// lane per mode (event fold, stage-2 composition, sweep prefetch + recompose), catching mode
+/// plumbing that inverts a lane — e.g. `Maintenance` offloading the event read it must run inline.
 #[tokio::test]
 async fn each_offload_mode_yields_the_same_emissions_and_state() {
     #[derive(Debug, PartialEq)]
@@ -2007,12 +2000,10 @@ async fn each_offload_mode_yields_the_same_emissions_and_state() {
             mode,
         );
 
-        // Enter: one event flips both leaves, so stage 2 composes the cohort in.
         send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
-        // Evict: the behavioral leaf ages out, so stage 2 recomposes the cohort out.
         send_sweep(&tx, deadline + DAY_MS).await;
         drop(tx);
-        // The join is the barrier: the worker awaited every commit before exiting.
+        // Join is the barrier: the worker awaits every commit before exiting.
         worker.join().await.unwrap();
 
         let statuses: Vec<MembershipStatus> =

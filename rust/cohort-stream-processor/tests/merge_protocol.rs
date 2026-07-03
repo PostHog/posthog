@@ -4,8 +4,7 @@
 //! keyed to P_new from the start" oracle. Replays every handler twice for idempotence and exercises
 //! the reopen-without-wipe recovery via `scan_pending_transfers`.
 
-// This test drives the store directly through `CohortStore` (and the sync section-core handlers) for
-// seeding and assertions — the sanctioned direct-store surface for tests.
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
 use chrono_tz::UTC;
@@ -50,8 +49,7 @@ fn temp_store_in(dir: &TempDir) -> CohortStore {
     .expect("open store")
 }
 
-/// Wrap a test store in the default `All` operating point so `compose_stage2` exercises the
-/// blocking-pool transport production uses; the handlers under test still take the raw store.
+/// `All` mode so `compose_stage2` exercises the blocking-pool transport; handlers still take the raw store.
 fn handle(store: &CohortStore) -> StoreHandle {
     StoreHandle::new(
         store.clone(),
@@ -555,9 +553,7 @@ fn fast_path_equals_the_cross_partition_result() {
     let DrainOutcome::FastPath { effects, .. } = &outcome else {
         panic!("same partition → fast path, got {outcome:?}");
     };
-    // The fast path returns the queue effects for the caller to apply: the merged behavioral leaves
-    // carry finite eviction deadlines, so P_new (the survivor) gets scheduled and P_old's keys are
-    // cancelled. Pins the extracted-effects contract.
+    // The fast path returns queue effects for the caller to apply rather than applying them inline.
     assert!(
         !effects.schedules.is_empty(),
         "the merged behavioral leaves schedule P_new's eviction deadlines",

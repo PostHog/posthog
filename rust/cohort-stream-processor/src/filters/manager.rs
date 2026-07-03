@@ -126,9 +126,9 @@ impl CatalogHandle {
         self.catalog.load()
     }
 
-    /// Load the current snapshot as an owned `Arc`, so it can move into a `'static` blocking closure
-    /// (e.g. a [`StoreHandle::run_section`](crate::store::StoreHandle::run_section) body). Unlike
-    /// [`Self::load`], the returned handle borrows nothing from `self`.
+    /// Load the current snapshot as an owned `Arc` that borrows nothing from `self`, so it can move
+    /// into a `'static` blocking closure (e.g. a
+    /// [`StoreHandle::run_section`](crate::store::StoreHandle::run_section) body).
     pub fn load_full(&self) -> Arc<FilterCatalog> {
         self.catalog.load_full()
     }

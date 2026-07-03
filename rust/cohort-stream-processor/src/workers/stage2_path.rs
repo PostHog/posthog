@@ -318,8 +318,7 @@ fn collect_cohort_refs(node: &FilterNode, out: &mut Vec<CohortId>) {
 }
 
 #[cfg(test)]
-// The tests drive the store directly through `CohortStore` (seeding via `write_batch`), the
-// sanctioned direct-store surface for tests.
+// Tests seed the store directly through `CohortStore`, the sanctioned direct-store surface for tests.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
@@ -350,8 +349,7 @@ mod tests {
         (dir, store)
     }
 
-    /// A facade over the store in the default `All` operating point, so the compose paths exercise the
-    /// blocking-pool transport the production workers use.
+    /// Wraps the store so the compose paths exercise the same blocking-pool transport as production.
     fn handle(store: &CohortStore) -> StoreHandle {
         StoreHandle::new(
             store.clone(),

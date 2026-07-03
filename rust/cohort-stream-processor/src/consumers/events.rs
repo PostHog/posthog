@@ -659,8 +659,8 @@ impl EventDispatcher {
             );
             return;
         };
-        // Sync escape hatch: this runs under the partition's DashMap shard guard where no `.await` is
-        // possible. The delete is a single range tombstone per CF and rare (a post-boot move-in).
+        // Sync escape hatch: runs under the partition's DashMap shard guard, so no `.await`. The
+        // delete is one range tombstone per CF and rare (a post-boot move-in).
         match self.handle.delete_partition_blocking(partition_id) {
             Ok(()) => counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(1),
             Err(err) => warn!(
@@ -1296,9 +1296,9 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 /// fsync the store's WAL before committing offsets, upholding `committed <= durable`. Unconditional
 /// so reopen-live is safe whenever the durability gate is flipped. A fsync error skips the commit.
 ///
-/// The offsets are captured by the caller before this runs, so the fsync (offloaded off the runtime
-/// under the write lane, no permit — the commit cadence must never queue behind reads) makes durable
-/// exactly what those offsets already reflect.
+/// The caller captures `offsets` before this runs, so the fsync makes durable exactly what they
+/// already reflect. It runs on the write lane with no permit so the commit cadence never queues
+/// behind reads.
 pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     handle: &StoreHandle,
     consumer: &StreamConsumer<C>,
@@ -1365,8 +1365,8 @@ async fn run_pauser_loop(
 }
 
 #[cfg(test)]
-// The tests seed and assert against the store directly through `CohortStore` (the sanctioned
-// direct-store surface for tests) while the dispatchers hold the `StoreHandle` facade.
+// Tests seed and assert against `CohortStore` directly while the dispatchers hold the `StoreHandle`
+// facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
@@ -1397,9 +1397,7 @@ mod tests {
     const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
     const BASE_TS: &str = "2026-05-26 12:34:56.789000";
 
-    /// Wrap a test store in the default `All` operating point so the dispatcher exercises the
-    /// blocking-pool transport production uses; the tests keep the raw `CohortStore` for direct
-    /// seeding and assertions.
+    /// Wrap a test store in the `All` operating point so the dispatcher runs on the blocking pool.
     fn test_handle(store: &CohortStore) -> StoreHandle {
         StoreHandle::new(
             store.clone(),

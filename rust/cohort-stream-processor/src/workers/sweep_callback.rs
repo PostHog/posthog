@@ -2,9 +2,9 @@
 //!
 //! [`sweep_evict`] is a pure compute pass over states the caller has already read: for each due key
 //! it drops aged-out bucket(s), recomputes the predicate, and returns the membership transition,
-//! state mutation, and next eviction deadline --- but reads and writes nothing. The worker prefetches
-//! the states, orchestrates produce-before-write ordering (so a produce failure can replay against
-//! still-un-evicted state), and applies the resulting writes.
+//! state mutation, and next eviction deadline --- reading and writing nothing. The worker prefetches
+//! the states, orders produce before write (so a produce failure can replay against still-un-evicted
+//! state), and applies the resulting writes.
 
 use chrono_tz::Tz;
 use metrics::counter;
@@ -72,9 +72,9 @@ pub(crate) struct SweepEvictions {
     pub drops: Vec<SweepDropReason>,
 }
 
-/// Compute the eviction for each due key against a team's frozen filters, over states the caller has
-/// already read. `values` is aligned with `due_keys` (same order, same length, `None` for an absent
-/// key). All `due_keys` must belong to `filters`' team. Pure: no reads, no writes.
+/// Compute the eviction for each due key against a team's frozen filters. `values` is aligned with
+/// `due_keys` (same order and length, `None` for an absent key). All `due_keys` must belong to
+/// `filters`' team. Pure: no reads, no writes.
 pub(crate) fn sweep_evict(
     filters: &TeamFilters,
     due_keys: &[Stage1Key],
@@ -384,7 +384,7 @@ mod tests {
         }
     }
 
-    /// The encoded stored record for `state`, as the worker's prefetch would hand `sweep_evict`.
+    /// `state` encoded as the worker's prefetch would hand it to `sweep_evict`.
     fn encoded(state: Stage1State) -> Option<Vec<u8>> {
         Some(StatefulRecord::new(state, AppliedOffsets::default()).encode())
     }

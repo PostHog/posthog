@@ -244,8 +244,7 @@ fn clickhouse_millis(ts: &str) -> i64 {
 }
 
 #[cfg(test)]
-// The tests seed and assert against the store directly through `CohortStore` (the sanctioned
-// direct-store surface for tests) while driving `handle_cascade` through the `StoreHandle` facade.
+// Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface for tests.
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
@@ -281,8 +280,7 @@ mod tests {
         (dir, store)
     }
 
-    /// Wrap a test store in the default `All` operating point so `handle_cascade` exercises the
-    /// blocking-pool transport production uses.
+    /// Wraps the store so `handle_cascade` exercises the same blocking-pool transport as production.
     fn handle(store: &CohortStore) -> StoreHandle {
         StoreHandle::new(
             store.clone(),
