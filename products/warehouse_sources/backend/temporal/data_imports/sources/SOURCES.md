@@ -190,6 +190,7 @@ the row lists both.
 | jira                    | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
 | justcall                | HTTP                        | requests                                                        | ✅                          |
+| k6_cloud                | HTTP                        | requests                                                        | ✅                          |
 | katana                  | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                 | HTTP                        | requests                                                        | ✅                          |
 | lago                    | HTTP                        | requests                                                        | ✅                          |
@@ -497,7 +498,6 @@ doesn't conflict with concurrent PRs.
 - jobnimbus
 - judgeme_reviews
 - justsift
-- k6_cloud
 - kafka
 - keka
 - kisi
