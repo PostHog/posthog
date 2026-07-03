@@ -5,15 +5,18 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
+import { AccumulatingPipeline, AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newAccumulatingPipeline, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
+import { SessionBatchFactory } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-factory'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -22,11 +25,14 @@ import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
-import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
+import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
+import { createRecordMetricsStep } from './session-batch-record-metrics-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
+import { createCreateSessionBatchStep } from './session-batch-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
+import { createWriteStep } from './session-batch-write-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
@@ -40,7 +46,31 @@ export interface SessionReplayPipelineOutput {
     parsedMessage: ParsedMessageData
 }
 
-export interface SessionReplayPipelineConfig {
+/**
+ * The per-message inner pipeline wrapped by the session replay pipeline. Its input carries the
+ * batch context (the recorder) tagged on by the accumulating pipeline, which the retention and
+ * record steps read.
+ */
+export type SessionReplayInnerPipeline = BatchPipeline<
+    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput: raw input + batch recorder + batch id
+    SessionReplayPipelineOutput, // TOutput: element out of the inner pipeline
+    { message: Message }, // CInput: per-element context in (the Kafka message)
+    { message: Message }, // COutput: per-element context out (the Kafka message)
+    OverflowOutput // R: redirect output names this pipeline can emit
+>
+
+export type SessionReplayPipeline = AccumulatingPipeline<
+    SessionReplayPipelineInput, // TRecordIn: element fed in per message (batch context is added internally)
+    SessionReplayPipelineOutput, // TRecordOut: element out of the inner pipeline
+    { message: Message }, // CRecordIn: inner-pipeline context in (the Kafka message)
+    { message: Message }, // CRecordOut: inner-pipeline context out (the Kafka message)
+    SessionBatchContext, // CBatch: batch context minted per cycle (the recorder), tagged on every element and the flush unit
+    SessionBlockMetadata[], // TFlushOut: element out of the flush pipeline (written block metadata)
+    Record<string, never>, // CFlushOut: flush-pipeline context out (empty — the flush unit carries no context)
+    OverflowOutput // R: redirect output names this pipeline can emit
+>
+
+export interface SessionReplayInnerPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
@@ -58,31 +88,37 @@ export interface SessionReplayPipelineConfig {
     sessionKeyResolutionMaxConcurrency: number
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
-    /** Session batch manager for recording sessions. */
-    sessionBatchManager: SessionBatchManager
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
 }
 
+export interface SessionReplayPipelineConfig {
+    recordPipeline: SessionReplayInnerPipeline
+    sessionBatchFactory: SessionBatchFactory
+    /** Committed by the commit-offsets flush step after the write step persists the batch */
+    offsetManager: KafkaOffsetManager
+    /** Maximum raw size (before compression) of a batch in bytes before it is flushed */
+    maxBatchSizeBytes: number
+    /** Maximum age of a batch in milliseconds before it is flushed */
+    maxBatchAgeMs: number
+}
+
 /**
- * Creates the session replay pipeline.
+ * Creates the session replay inner (per-message) pipeline.
  *
  * The pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
- * 2. Team Filter - Validate team ownership and enrich with team context
- * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
- * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Record - Record parsed messages to session batches
+ * 2. Validate headers - Enforce the capture guarantees (DLQ if missing) and narrow the type
+ * 3. Team Filter - Validate team ownership and enrich with team context
+ * 4. Resolve retention - one batched lookup, keyed on the session_id header, before parse; drop
+ *    sessions with unresolvable retention
+ * 5. Resolve session key - track the session, rate-limit/block new sessions, and resolve its
+ *    encryption key, off the S3 write path; drop blocked/deleted sessions
+ * 6. Parse - Parse Kafka messages into structured session recording data (inside teamAware)
+ * 7. Version Monitor - Check library version and emit warnings for old versions
+ * 8. Record - Fold parsed messages into the cycle's recorder (using the resolved retention and key)
  */
-export function createSessionReplayPipeline(
-    config: SessionReplayPipelineConfig
-): BatchPipeline<
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
-    MessageContext,
-    MessageContext,
-    OverflowOutput
-> {
+export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipelineConfig): SessionReplayInnerPipeline {
     const {
         outputs,
         eventIngestionRestrictionManager,
@@ -95,7 +131,6 @@ export function createSessionReplayPipeline(
         keyStore,
         sessionKeyResolutionMaxConcurrency,
         topHog,
-        sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
 
@@ -106,7 +141,10 @@ export function createSessionReplayPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
+    const pipeline = newBatchPipelineBuilder<
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+        { message: Message }
+    >()
         .messageAware((b) =>
             b
                 .sequentially((b) =>
@@ -128,7 +166,7 @@ export function createSessionReplayPipeline(
                 // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
                 // retention are dropped before any parse or write.
                 .gather()
-                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService), {
                     tries: 3,
                     sleepMs: 100,
                 })
@@ -187,10 +225,10 @@ export function createSessionReplayPipeline(
                                             )
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
+                                            // Record to the cycle's recorder (uses the resolved retention and key)
                                             .pipe(
                                                 topHogWrapper(
                                                     createRecordSessionEventStep({
-                                                        sessionBatchManager,
                                                         isDebugLoggingEnabled,
                                                     }),
                                                     [
@@ -224,47 +262,34 @@ export function createSessionReplayPipeline(
 }
 
 /**
- * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
- * reached per partition.
- *
- * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
- * and each result still carries its source message in the context. Draining them here and taking the
- * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
- * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
- * the returned offsets to the offset manager, which commits them on the next flush.
- *
- * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
- * yields exactly one terminal result here.
+ * Builds the session replay pipeline: an accumulating pipeline wrapping the per-message inner
+ * pipeline. The inner pipeline resolves retention and session keys off the S3 write path, then folds
+ * events into a recorder minted per cycle by the factory; the flush pipeline writes the recorder to
+ * storage, commits the offsets it covers, then records the flush metrics — all on a size or age
+ * trigger.
  */
-export async function runSessionReplayPipeline(
-    pipeline: BatchPipeline<
+export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
+    const { recordPipeline, sessionBatchFactory, offsetManager, maxBatchSizeBytes, maxBatchAgeMs } = config
+
+    return newAccumulatingPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         { message: Message },
         { message: Message },
+        SessionBatchContext,
+        SessionBlockMetadata[],
+        Record<string, never>,
         OverflowOutput
-    >,
-    messages: Message[]
-): Promise<Map<number, number>> {
-    const maxOffsetByPartition = new Map<number, number>()
-    if (messages.length === 0) {
-        return maxOffsetByPartition
-    }
-
-    const batch = createBatch(messages.map((message) => ({ message })))
-    pipeline.feed(batch)
-
-    let results = await pipeline.next()
-    while (results !== null) {
-        for (const { context } of results) {
-            const { partition, offset } = context.message
-            const current = maxOffsetByPartition.get(partition)
-            if (current === undefined || offset > current) {
-                maxOffsetByPartition.set(partition, offset)
-            }
-        }
-        results = await pipeline.next()
-    }
-
-    return maxOffsetByPartition
+    >({
+        beforeBatch: (builder) => builder.pipe(createCreateSessionBatchStep(sessionBatchFactory)),
+        pipeline: recordPipeline,
+        // The flush lifecycle: write to storage (retention and keys already resolved at record time),
+        // commit the offsets it covers, then record the flush metrics from the write step's block metadata.
+        flush: (builder) =>
+            builder.sequentially((b) =>
+                b.pipe(createWriteStep()).pipe(createCommitOffsetsStep(offsetManager)).pipe(createRecordMetricsStep())
+            ),
+        shouldFlush: (batchContext) => batchContext.sessionBatchRecorder.size >= maxBatchSizeBytes,
+        maxBatchAgeMs,
+    })
 }

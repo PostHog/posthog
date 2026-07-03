@@ -14,7 +14,6 @@ import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-m
 import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -265,23 +264,24 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Flushes the session recordings to storage and commits Kafka offsets
+     * Writes the accumulated session recordings to storage and returns their block metadata.
      *
-     * @throws If the flush operation fails
+     * The Kafka offset commit and the flush metrics are separate flush-pipeline steps
+     * ({@link createCommitOffsetsStep}, {@link createRecordMetricsStep}) that run after this — the
+     * recorder owns the storage write, not the offset lifecycle. The recorder is minted fresh per
+     * accumulation cycle and discarded after the flush, so it does not reset its own state here.
+     *
+     * @throws If the write fails
      */
-    public async flush(): Promise<SessionBlockMetadata[]> {
+    public async flushToStorage(): Promise<SessionBlockMetadata[]> {
         logger.info('🔁', 'session_batch_recorder_flushing', {
             sessions: this.sessions.size,
             totalSize: this._size,
         })
 
-        // If no sessions, commit offsets but skip writing the file. Sessions can still have been
-        // recorded then dropped (e.g. rate limited), leaving batch state to reset.
+        // No sessions to write — offsets are still committed by the commit-offsets flush step.
+        // Sessions can have been recorded then dropped (e.g. rate limited), leaving an empty batch.
         if (this.sessions.size === 0) {
-            await this.offsetManager.commit()
-            this.partitionSizes.clear()
-            this._size = 0
-            this.rateLimiter.clear()
             logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
             return []
         }
@@ -384,19 +384,6 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
-            await this.offsetManager.commit()
-
-            // Update metrics
-            SessionBatchMetrics.incrementBatchesFlushed()
-            SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
-            SessionBatchMetrics.incrementEventsFlushed(totalEvents)
-            SessionBatchMetrics.incrementBytesWritten(totalBytes)
-
-            // Clear sessions, partition sizes, total size, and rate limiter state after successful flush
-            this.sessions = new SessionMap()
-            this.partitionSizes.clear()
-            this._size = 0
-            this.rateLimiter.clear()
 
             logger.info('🔁', 'session_batch_recorder_flushed', {
                 totalEvents,

@@ -1,12 +1,13 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
+import { AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
-    SessionReplayPipelineConfig,
+    SessionReplayInnerPipelineConfig,
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
@@ -17,6 +18,7 @@ import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessio
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -24,7 +26,7 @@ import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/sessio
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
-export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
+export type MlMirrorReplayPipelineConfig = SessionReplayInnerPipelineConfig & {
     /** Shared, immutable scrub context (allow lists + tunables). */
     scrubContext: ScrubContext
 }
@@ -32,7 +34,7 @@ export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
 export function createMlMirrorReplayPipeline(
     config: MlMirrorReplayPipelineConfig
 ): BatchPipeline<
-    SessionReplayPipelineInput,
+    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
     SessionReplayPipelineOutput,
     MessageContext,
     MessageContext,
@@ -50,7 +52,6 @@ export function createMlMirrorReplayPipeline(
         keyStore,
         sessionKeyResolutionMaxConcurrency,
         topHog,
-        sessionBatchManager,
         isDebugLoggingEnabled,
         scrubContext,
     } = config
@@ -58,7 +59,10 @@ export function createMlMirrorReplayPipeline(
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
+    const pipeline = newBatchPipelineBuilder<
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+        MessageContext
+    >()
         .messageAware((b) =>
             b
                 .sequentially((b) =>
@@ -78,7 +82,7 @@ export function createMlMirrorReplayPipeline(
                 // Resolve retention up front (before parse), keyed on the (validated) session_id
                 // header; drop unresolvable sessions.
                 .gather()
-                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService), {
                     tries: 3,
                     sleepMs: 100,
                 })
@@ -144,7 +148,6 @@ export function createMlMirrorReplayPipeline(
                                         return parsed.pipe(
                                             topHogWrapper(
                                                 createRecordSessionEventStep({
-                                                    sessionBatchManager,
                                                     isDebugLoggingEnabled,
                                                 }),
                                                 [

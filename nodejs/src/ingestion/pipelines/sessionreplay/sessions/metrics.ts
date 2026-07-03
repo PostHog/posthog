@@ -1,5 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+
 export class SessionBatchMetrics {
     private static readonly batchesFlushed = new Counter({
         name: 'recording_blob_ingestion_v2_batches_flushed_total',
@@ -146,6 +148,22 @@ export class SessionBatchMetrics {
         help: 'Time taken for retention service Redis calls (acquire + GET/SET + release)',
         buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
+
+    /**
+     * Records the flush counters (batches/sessions/events/bytes) for one flushed batch, from the
+     * write step's block metadata. Called by the record-metrics flush step after offsets commit, so a
+     * batch that fails to commit (and will be reprocessed) is not counted. A batch with no written
+     * blocks is a no-op.
+     */
+    public static recordFlushedBatch(blockMetadata: SessionBlockMetadata[]): void {
+        if (blockMetadata.length === 0) {
+            return
+        }
+        this.incrementBatchesFlushed()
+        this.incrementSessionsFlushed(blockMetadata.length)
+        this.incrementEventsFlushed(blockMetadata.reduce((sum, block) => sum + block.eventCount, 0))
+        this.incrementBytesWritten(blockMetadata.reduce((sum, block) => sum + block.blockLength, 0))
+    }
 
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()

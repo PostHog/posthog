@@ -1,4 +1,5 @@
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import {
     RetentionResolution,
     RetentionService,
@@ -9,7 +10,6 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { SessionReplayHeaders } from './pipeline-types'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { SessionBatchMetrics } from './sessions/metrics'
-import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 
 jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
@@ -17,30 +17,27 @@ jest.mock('./sessions/metrics', () => ({
     SessionBatchMetrics: { incrementSessionsDroppedMissingRetention: jest.fn() },
 }))
 
+type RetentionElement = {
+    message: { partition: number; offset: number }
+    team: TeamForReplay
+    headers: SessionReplayHeaders
+} & SessionBatchContext
+
 describe('createResolveRetentionStep', () => {
     let mockRetentionService: jest.Mocked<RetentionService>
     let mockBatch: jest.Mocked<Pick<SessionBatchRecorder, 'getRetention'>>
-    let mockSessionBatchManager: jest.Mocked<Pick<SessionBatchManager, 'getCurrentBatch'>>
 
-    // Minimal element carrying just what the step reads (message offset, team id, session_id header).
-    const element = (
-        teamId: number,
-        sessionId: string,
-        partition = 0,
-        offset = 0
-    ): { message: { partition: number; offset: number }; team: TeamForReplay; headers: SessionReplayHeaders } =>
+    // Minimal element carrying just what the step reads (message offset, team id, session_id header)
+    // plus the cycle's recorder, which the accumulating pipeline tags onto every element.
+    const element = (teamId: number, sessionId: string, partition = 0, offset = 0): RetentionElement =>
         ({
             message: { partition, offset },
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
             headers: { token: 'token', session_id: sessionId, distinct_id: 'distinct-1' },
-        }) as unknown as {
-            message: { partition: number; offset: number }
-            team: TeamForReplay
-            headers: SessionReplayHeaders
-        }
+            sessionBatchRecorder: mockBatch,
+        }) as unknown as RetentionElement
 
-    const createStep = () =>
-        createResolveRetentionStep(mockRetentionService, mockSessionBatchManager as unknown as SessionBatchManager)
+    const createStep = () => createResolveRetentionStep(mockRetentionService)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -51,9 +48,6 @@ describe('createResolveRetentionStep', () => {
         mockBatch = { getRetention: jest.fn().mockReturnValue(undefined) } as unknown as jest.Mocked<
             Pick<SessionBatchRecorder, 'getRetention'>
         >
-        mockSessionBatchManager = {
-            getCurrentBatch: jest.fn().mockReturnValue(mockBatch),
-        } as unknown as jest.Mocked<Pick<SessionBatchManager, 'getCurrentBatch'>>
     })
 
     it('resolves the batch in one call (keyed on the session_id header) and attaches retention', async () => {
@@ -127,7 +121,7 @@ describe('createResolveRetentionStep', () => {
             new SessionSet().add(999, 'gone').add(2, 'ok')
         )
         // The unresolvable session becomes a DROP; its Kafka offset is tracked downstream by the
-        // single offset-tracking stage in the runner, not here.
+        // consumer's offset tracking as a record-phase result, not here.
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(isOkResult(results[1]) ? results[1].value.retentionPeriod : null).toBe('90d')
         expect(SessionBatchMetrics.incrementSessionsDroppedMissingRetention).toHaveBeenCalledTimes(1)

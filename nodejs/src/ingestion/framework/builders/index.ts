@@ -7,4 +7,4 @@ export {
 } from './batch-pipeline-builders'
 export type { BatchRetryOptions } from '~/ingestion/framework/batch-retry'
 export { BranchingPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
-export { newBatchPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'
+export { newAccumulatingPipeline, newBatchPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'
