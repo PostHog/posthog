@@ -1,0 +1,16 @@
+rules:
+    - id: no-regex-lookbehind
+      message: >-
+          This regex literal uses a lookbehind assertion (`(?<=`, `(?<!`) or a named capture
+          group (`(?<name>`). Older Safari/WebKit cannot parse the `(?<` group specifier and
+          throws `SyntaxError: Invalid regular expression: invalid group specifier name` the
+          moment the literal is parsed — which crashes the entire SPA on boot, not just the
+          feature using it. esbuild ships these literals as-is (it can't transpile them), so
+          keep them out of the source. Rewrite without a lookbehind (capture-and-check or
+          manual scanning) and avoid named groups. See frontend/src/lib/utils/markdown.ts and
+          frontend/src/lib/lemon-ui/LemonInputSelect/LemonInputSelect.tsx for examples.
+      severity: ERROR
+      languages: [typescript, javascript]
+      patterns:
+          - pattern: /.../
+          - pattern-regex: '\(\?<'

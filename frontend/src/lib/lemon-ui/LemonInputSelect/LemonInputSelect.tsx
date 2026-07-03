@@ -26,7 +26,23 @@ import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 import { TooltipTitle } from '../Tooltip/Tooltip'
 
-const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
+// Splits on commas that are not backslash-escaped (so `\,` stays part of a value). Implemented
+// by manual scanning rather than a `(?<!\\),` lookbehind because older Safari/WebKit throws a
+// SyntaxError on lookbehind assertions, which crashes the whole app when the literal is parsed.
+function splitOnUnescapedCommas(value: string): string[] {
+    const segments: string[] = []
+    let current = ''
+    for (let i = 0; i < value.length; i++) {
+        if (value[i] === ',' && value[i - 1] !== '\\') {
+            segments.push(current)
+            current = ''
+        } else {
+            current += value[i]
+        }
+    }
+    segments.push(current)
+    return segments
+}
 
 // This matches LemonButton's height when its size small
 const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
@@ -404,11 +420,12 @@ export function LemonInputSelect<T = string>({
         }
 
         // Special case for multiple mode with custom values
-        if (separateOnComma && newValue.match(NON_ESCAPED_COMMA_REGEX)) {
+        // We split on commas EXCEPT if they're escaped (to allow for commas in values)
+        const separatedValues = separateOnComma ? splitOnUnescapedCommas(newValue) : [newValue]
+        if (separateOnComma && separatedValues.length > 1) {
             const newValues = [...values]
 
-            // We split on commas EXCEPT if they're escaped (to allow for commas in values)
-            newValue.split(NON_ESCAPED_COMMA_REGEX).forEach((stringValue) => {
+            separatedValues.forEach((stringValue) => {
                 const trimmedValue = stringValue.replaceAll('\\,', ',').trim() // Transform escaped commas to plain commas
                 if (trimmedValue && !stringKeys.includes(trimmedValue)) {
                     // Convert string back to typed value

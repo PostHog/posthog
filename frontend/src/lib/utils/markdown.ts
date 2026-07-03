@@ -1,10 +1,12 @@
 import { marked } from 'marked'
 
 const TABLE_DELIMITER_SEGMENT_RE = /^\|(?:\s*:?-{2,}:?\s*\|)+\s*$/
-// Matches the boundary between two flattened rows: a closing `|` directly followed by the
-// next row's opening `|`. The whitespace is optional because some sources (e.g. AI chat
-// output) glue rows together with no space (`...Total ||-------|...`) while others keep one.
-const FLATTENED_TABLE_ROW_BOUNDARY_RE = /(?<=\|)\s*(?=\|)/
+// Matches the boundary between two flattened rows: a closing `|` followed by optional
+// whitespace and the next row's opening `|`. The whitespace is optional because some sources
+// (e.g. AI chat output) glue rows together with no space (`...Total ||-------|...`) while
+// others keep one. A lookahead (never a lookbehind) is used so the literal parses on older
+// Safari/WebKit, which throws a SyntaxError on lookbehind assertions and crashes the whole app.
+const FLATTENED_TABLE_ROW_BOUNDARY_RE = /\|\s*(?=\|)/g
 
 // Slack, ChatGPT, Notion etc. strip newlines between table rows on plain-text copy.
 // Only splits when a delimiter row (`|---|---|`) is present, so prose with `|` is safe.
@@ -12,7 +14,12 @@ export function expandFlattenedMarkdownTables(text: string): string {
     return text
         .split('\n')
         .flatMap((line) => {
-            const segments = line.split(FLATTENED_TABLE_ROW_BOUNDARY_RE).map((s) => s.trim())
+            // `line` has no newlines (we split on \n above), so a newline is a safe split marker:
+            // mark each row boundary with one, then split. This avoids a lookbehind assertion.
+            const segments = line
+                .replace(FLATTENED_TABLE_ROW_BOUNDARY_RE, '|\n')
+                .split('\n')
+                .map((s) => s.trim())
             if (segments.length < 2 || !segments.some((s) => TABLE_DELIMITER_SEGMENT_RE.test(s))) {
                 return [line]
             }

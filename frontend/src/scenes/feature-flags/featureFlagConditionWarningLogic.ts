@@ -13,9 +13,13 @@ export interface FeatureFlagConditionWarningLogicProps {
     evaluationRuntime: FeatureFlagEvaluationRuntime
 }
 
-const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/ // (?= or (?!
-const REGEX_LOOKBEHIND = /(?<!\\)\(\?<[=!]/ //  or (?<!
-const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/ // \1 through \9
+// These detect unsupported constructs in a user's regex. They match the character before the
+// construct (start-of-string or a non-backslash) instead of using a `(?<!\\)` lookbehind,
+// because older Safari/WebKit throws a SyntaxError on lookbehind assertions the moment the
+// literal is parsed — which would crash the whole app on boot.
+const REGEX_LOOKAHEAD = /(?:^|[^\\])\(\?[=!]/ // (?= or (?!
+const REGEX_LOOKBEHIND = /(?:^|[^\\])\(\?<[=!]/ // (?<= or (?<!
+const REGEX_BACKREFERENCE = /(?:^|[^\\])\\[1-9]/ // \1 through \9
 
 export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
