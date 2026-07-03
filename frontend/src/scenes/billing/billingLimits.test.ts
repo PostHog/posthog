@@ -102,7 +102,7 @@ describe('billing limits', () => {
             patch: {
                 '/api/billing': async ({ request }) => {
                     const body: any = await request.json()
-                    mergeIntoServerLimits(body.custom_limits_usd)
+                    mergeIntoServerLimits(body.custom_limits_usd ?? {})
                     const response = billingPayload()
                     if (productA.type in body.custom_limits_usd) {
                         await gateA // A's response arrives after B has saved, so it lacks B's new limit

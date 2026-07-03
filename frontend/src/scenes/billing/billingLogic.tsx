@@ -545,7 +545,8 @@ export const billingLogic = kea<billingLogicType>([
         const patchLimits = async (
             body: Record<string, unknown>,
             productType: string,
-            successMessage: string
+            successMessage: string,
+            errorMessage: string
         ): Promise<void> => {
             try {
                 const limits: BillingLimits = await api.update('api/billing', body)
@@ -554,18 +555,24 @@ export const billingLogic = kea<billingLogicType>([
                 actions.loadBilling() // background refresh of usage-derived fields; never gates the editors
             } catch (error) {
                 posthog.captureException(error)
-                lemonToast.error('There was an error updating your billing limit. Please try again or contact support.')
+                lemonToast.error(`${errorMessage} Please try again or contact support.`)
                 actions.updateBillingLimitFailure(productType)
             }
         }
         return {
             updateBillingLimit: ({ productType, amount }) =>
-                patchLimits({ custom_limits_usd: { [productType]: amount } }, productType, 'Billing limit updated'),
+                patchLimits(
+                    { custom_limits_usd: { [productType]: amount } },
+                    productType,
+                    'Billing limit updated',
+                    'There was an error updating your billing limit.'
+                ),
             removeBillingLimitNextPeriod: ({ productType }) =>
                 patchLimits(
                     { reset_limit_next_period: productType },
                     productType,
-                    'Billing limit for next period has been removed.'
+                    'Billing limit for next period has been removed.',
+                    'There was an error removing your billing limit for next period.'
                 ),
         }
     }),
