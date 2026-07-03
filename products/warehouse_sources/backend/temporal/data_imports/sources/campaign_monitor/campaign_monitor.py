@@ -1,3 +1,4 @@
+import functools
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -185,7 +186,7 @@ def _iter_fan_out(
                 logger,
                 extra_row_fields,
                 resumable_source_manager,
-                lambda next_page, parent_id=parent_id: make_resume(parent_id, next_page),
+                functools.partial(make_resume, parent_id),
                 page,
             )
         else:
