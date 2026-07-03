@@ -3,9 +3,12 @@
 import pytest
 
 from gates import (
+    DEPENDENCY_ECOSYSTEMS,
+    DISMISS_TIME_LOCKFILES,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_title_scrutiny_flags,
+    has_dependency_changes,
     is_size_exempt,
     substantive_size,
 )
@@ -208,6 +211,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="cargo-lockfile",
         ),
         pytest.param(
+            ["composer.lock"],
+            "deps_toolchain",
+            id="composer-lockfile",
+        ),
+        pytest.param(
             ["requirements.txt"],
             "deps_toolchain",
             id="requirements-pins-directly",
@@ -400,8 +408,18 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
         ),
         pytest.param(
             ["frontend/package.json", "rust/Cargo.lock"],
-            [],
-            id="unrelated-lockfile-suppresses-flag-but-lockfile-denies",
+            ["frontend/package.json"],
+            id="unrelated-ecosystem-lockfile-does-not-suppress",
+        ),
+        pytest.param(
+            ["common/esbuilder/tsconfig.json", "pnpm-lock.yaml"],
+            ["common/esbuilder/tsconfig.json"],
+            id="tsconfig-has-no-lockfile-always-flagged",
+        ),
+        pytest.param(
+            ["composer.json"],
+            ["composer.json"],
+            id="composer-manifest-flagged",
         ),
         pytest.param(
             ["docs/some_tsconfig_notes.md"],
@@ -415,3 +433,43 @@ def test_dependency_manifests_without_lockfile(files: list[str], expected: list[
     # what routes them to the reviewer's scripts/hooks guard — if it breaks,
     # a package.json scripts edit sails through with no scrutiny at all.
     assert dependency_manifests_without_lockfile(files) == expected
+
+
+@pytest.mark.parametrize("ecosystem", list(DEPENDENCY_ECOSYSTEMS))
+def test_dependency_ecosystem_names_are_lowercase(ecosystem: str) -> None:
+    # Call sites match against Path(...).name.lower(); a mixed-case entry
+    # here would silently never match and go unrecognized in a security gate.
+    spec = DEPENDENCY_ECOSYSTEMS[ecosystem]
+    for name in (*spec.manifests, *spec.lockfiles):
+        assert name == name.lower()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("common/esbuilder/tsconfig.json", id="tsconfig"),
+        pytest.param("setup.py", id="setup-py"),
+        pytest.param("setup.cfg", id="setup-cfg"),
+        pytest.param("pipfile", id="pipfile-manifest"),
+        pytest.param("gemfile", id="gemfile-manifest"),
+        pytest.param("composer.json", id="composer-manifest"),
+        pytest.param("pipfile.lock", id="pipfile-lock"),
+        pytest.param("gemfile.lock", id="gemfile-lock"),
+        pytest.param("composer.lock", id="composer-lock"),
+    ],
+)
+def test_has_dependency_changes_recognizes_uncurated_manifests_and_lockfiles(path: str) -> None:
+    # Pins the members that DEPENDENCY_ECOSYSTEMS added beyond the old
+    # curated set — a future narrowing of the table should fail here rather
+    # than silently stop flagging these as dependency changes.
+    assert has_dependency_changes([path]) is True
+
+
+def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
+    # Dismiss-time trust must be an explicit per-ecosystem decision: go.sum
+    # (trusted_at_dismiss unset) stays out even though it is a deny-listed
+    # lockfile, while node's lockfiles — including npm-shrinkwrap.json — opt
+    # in. Catches a revert to deriving trust from the whole lockfile set.
+    assert "go.sum" not in DISMISS_TIME_LOCKFILES
+    assert "pnpm-lock.yaml" in DISMISS_TIME_LOCKFILES
+    assert "npm-shrinkwrap.json" in DISMISS_TIME_LOCKFILES
