@@ -63,6 +63,9 @@ __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSampling
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+# Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
+# bounded by the query's max_execution_time / max_memory_usage; this just caps how many run at once.
+MAX_CUSTOM_COLUMNS = 50
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -821,6 +824,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
         custom_columns = query_data.get("customColumns") or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            return Response(
+                {"error": f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
