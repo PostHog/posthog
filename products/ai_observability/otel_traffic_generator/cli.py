@@ -29,6 +29,8 @@ from . import (
 CLOUD_HOSTS: dict[str, tuple[str, str]] = {
     "us": ("https://us.i.posthog.com", "https://us.posthog.com"),
     "eu": ("https://eu.i.posthog.com", "https://eu.posthog.com"),
+    # Internal dev cluster serves ingest and app from the same host.
+    "dev": ("https://app.dev.posthog.dev", "https://app.dev.posthog.dev"),
     "local": ("http://localhost:8010", "http://localhost:8010"),
 }
 
