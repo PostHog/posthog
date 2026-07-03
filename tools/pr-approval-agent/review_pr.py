@@ -24,6 +24,7 @@ import json
 import time
 import argparse
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gates import (
@@ -39,10 +40,11 @@ from gates import (
     parse_codeowners_soft,
     parse_conventional_commit,
     scope_breadth,
+    substantive_size,
     t1_risk_subclass,
     test_only,
 )
-from github import PRData, check_team_membership, fetch_pr
+from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
 from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
 
@@ -111,6 +113,33 @@ def _is_retryable_error(err_msg: str) -> bool:
     return not any(pattern in err_msg for pattern in _NON_RETRYABLE_PATTERNS)
 
 
+# Reviewer bots put 👀 on a PR while reviewing and swap it for a verdict
+# reaction within minutes. Stamphog is usually triggered at the same moment
+# (label applied at PR open), so an 👀 at fetch time is almost always a race
+# with a bot mid-review, not a lasting state — poll until it clears instead
+# of refusing. Budget must leave room for the LLM review inside the
+# workflow job timeout.
+BOT_REVIEW_WAIT_BUDGET_SECONDS = 300
+BOT_REVIEW_POLL_SECONDS = 30
+
+# A bot 👀 much older than any real review is a crashed reviewer, not an
+# in-flight one — reactions never expire and a human can't remove another
+# app's reaction, so without this cutoff a wedged bot would make every run
+# WAIT forever. Reactions missing a timestamp count as fresh (fail toward
+# waiting).
+BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+
+
+def _reaction_age_seconds(created_at: str | None) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - created).total_seconds()
+
+
 # ── Gate result ──────────────────────────────────────────────────
 
 
@@ -133,6 +162,7 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
+        self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.classification: dict = {}
         self.gate_results: list[GateResult] = []
@@ -146,20 +176,36 @@ class Pipeline:
         if self.pr.author_is_bot:
             return self._refuse_bot_author()
 
-        self._classify()
-        self._run_gates()
+        gate_verdict = self._classify_and_gate()
 
         if self._only_pending_migration_check():
             return self._refuse_pending_migration_check()
-
-        gate_verdict = self._gate_verdict()
 
         if self.dry_run:
             self.final_verdict = "DRY-RUN"
             return self.final_verdict
 
+        # Gate denials skip the wait: a refusal can't approve over an
+        # in-flight review, so waiting would only burn runner minutes before
+        # the inevitable REFUSE. The wait refetches the PR, so on the paths
+        # that did wait, re-derive classification and gates from fresh data.
+        if gate_verdict != "DENIED":
+            wait_verdict = self._handle_in_flight_bot_reviews()
+            if wait_verdict:
+                return wait_verdict
+            if self._wait_refetched_pr:
+                gate_verdict = self._classify_and_gate()
+                if self._only_pending_migration_check():
+                    return self._refuse_pending_migration_check()
+
         self._llm_review(gate_verdict)
         return self.final_verdict
+
+    def _classify_and_gate(self) -> str:
+        self.gate_results = []
+        self._classify()
+        self._run_gates()
+        return self._gate_verdict()
 
     def _only_pending_migration_check(self) -> bool:
         """True when the only thing blocking approval is a pending Migration risk check.
@@ -195,6 +241,62 @@ class Pipeline:
         }
         print(f"\n{_fail('REFUSED')} — bot author (@{self.pr.author}); stamphog skips bot-authored PRs")
         self._capture_review_completed("DENIED", "BOT-AUTHOR")
+        return self.final_verdict
+
+    def _in_flight_bot_reviewers(self) -> list[str]:
+        """Allowlisted reviewer bots with a fresh 👀 reaction on the PR."""
+        return sorted(
+            {
+                r["user"]
+                for r in self.pr.pr_reactions
+                if r["emoji"] == "👀"
+                and r["user"].lower() in TRUSTED_REACTOR_BOTS
+                and _reaction_age_seconds(r.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
+            }
+        )
+
+    def _handle_in_flight_bot_reviews(self) -> str | None:
+        """Wait out the reviewer-bot 👀 race; WAIT if a bot is still reviewing.
+
+        Returns None when no bot review is (or remains) in flight. Human 👀
+        reactions are not waited on — humans take longer than any polling
+        budget, and the LLM refuses over them with a clear message instead.
+        The WAIT verdict keeps the stamphog label (like ERROR) so the review
+        retries on the next push rather than demanding a human re-label.
+        """
+        bots = self._in_flight_bot_reviewers()
+        if not bots:
+            return None
+
+        deadline = time.monotonic() + BOT_REVIEW_WAIT_BUDGET_SECONDS
+        while time.monotonic() < deadline:
+            print(_warn(f"in-flight bot review ({', '.join(bots)}) — waiting {BOT_REVIEW_POLL_SECONDS}s"))
+            time.sleep(BOT_REVIEW_POLL_SECONDS)
+            try:
+                self._fetch()
+            except Exception as exc:
+                print(_warn(f"refetch failed ({exc}); treating as still in flight"))
+                continue
+            self._wait_refetched_pr = True
+            bots = self._in_flight_bot_reviewers()
+            if not bots:
+                return None
+
+        bot_list = ", ".join(f"@{b}" for b in bots)
+        self.final_verdict = "WAIT"
+        self.reviewer_output = {
+            "verdict": "WAIT",
+            "reasoning": (
+                f"{bot_list} still {'have' if len(bots) > 1 else 'has'} a review in flight (👀) after "
+                f"{BOT_REVIEW_WAIT_BUDGET_SECONDS // 60} minutes — not approving over an "
+                "unfinished review. The `stamphog` label has been kept; the review re-runs "
+                "on the next push, or remove and re-apply the label once the reviewer finishes."
+            ),
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_warn('WAIT')} — bot review still in flight ({bot_list}); label retained for retry")
+        self._capture_review_completed("SKIPPED", "WAIT")
         return self.final_verdict
 
     def _refuse_pending_migration_check(self) -> str:
@@ -359,16 +461,22 @@ class Pipeline:
         return self.classification["ownership_summary"]
 
     def _check_size(self) -> tuple[bool, str]:
-        lines = self.pr.lines_total
-        files = len(self.pr.files)
+        lines, files = substantive_size(self.pr.files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
-        suffix = f", {binary_count} binary" if binary_count else ""
+        exempt_files = len(self.pr.files) - files
+        suffix_parts = []
+        if binary_count:
+            suffix_parts.append(f"{binary_count} binary")
+        if exempt_files:
+            suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
+        suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
         if lines > MAX_LINES or files > MAX_FILES:
             return (
                 False,
-                f"too large for auto-review ({lines}L, {files}F{suffix} — ceiling is {MAX_LINES}L / {MAX_FILES}F)",
+                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — "
+                f"ceiling is {MAX_LINES}L / {MAX_FILES}F)",
             )
-        return True, f"{lines}L, {files}F{suffix} within ceiling"
+        return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification

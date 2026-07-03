@@ -176,3 +176,134 @@ def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatc
     assert output["final_verdict"] == "REFUSED"
     assert output["classification"]["tier"] == ""
     assert output["classification"]["breadth"] == ""
+
+
+# ── In-flight bot review handling ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "reactions",
+    [
+        pytest.param([], id="no-reactions"),
+        pytest.param([{"user": "greptile-apps[bot]", "emoji": "👍"}], id="bot-verdict-reaction"),
+        pytest.param([{"user": "alice", "emoji": "👀"}], id="human-eyes-not-waited-on"),
+        pytest.param(
+            [{"user": "greptile-apps[bot]", "emoji": "👀", "created_at": "2020-01-01T00:00:00Z"}],
+            id="stale-bot-eyes-from-crashed-reviewer-ignored",
+        ),
+    ],
+)
+def test_no_wait_without_in_flight_bot_review(monkeypatch: pytest.MonkeyPatch, reactions: list[dict]) -> None:
+    # Waiting on a human 👀 would block for longer than any polling budget —
+    # the LLM refuses over those instead — and waiting with nothing in flight
+    # would slow every review down.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("must not poll"))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = reactions
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_waits_out_bot_eyes_race_then_proceeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reviewer bots swap 👀 for a verdict reaction within minutes; refusing
+    # during that window was ~26% of all denials in the week this landed.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+    pipeline.pr = pr
+
+    def fake_refetch() -> None:
+        pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👍"}]
+
+    monkeypatch.setattr(pipeline, "_fetch", fake_refetch)
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WAIT keeps the stamphog label (workflow skips the label-strip for it),
+    # so a slow bot review retries on the next push instead of demanding a
+    # human re-label — a REFUSE here would reintroduce the race friction.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "BOT_REVIEW_WAIT_BUDGET_SECONDS", 0)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = [{"user": "hex-security-app[bot]", "emoji": "👀"}]
+
+    assert pipeline._handle_in_flight_bot_reviews() == "WAIT"
+    assert pipeline.final_verdict == "WAIT"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["verdict"] == "WAIT"
+    assert "hex-security-app[bot]" in pipeline.reviewer_output["reasoning"]
+
+    output = pipeline.to_dict()
+    assert output["final_verdict"] == "WAIT"
+
+
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A deny-listed PR can't be approved over an in-flight review, so waiting
+    # 5 minutes before the inevitable REFUSE is pure runner cost.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
+
+    class _RefusingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "REFUSE", "reasoning": "gates denied", "risk": "high", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _RefusingReviewer)
+
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", pr))
+
+    assert pipeline.run() == "REFUSED"
+
+
+def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The wait loop refetches the PR; if the author pushed during the wait,
+    # gates must run against the new file set, not the pre-wait snapshot.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    class _ApprovingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _ApprovingReviewer)
+
+    initial = _fake_pr(head_sha="abc123")
+    initial.files = [{"filename": "docs/readme.md", "additions": 1, "deletions": 0, "status": "M"}]
+    initial.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    refetched = _fake_pr(head_sha="def456")
+    refetched.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    refetched.pr_reactions = []
+
+    fetches = iter([initial, refetched])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", next(fetches)))
+
+    verdict = pipeline.run()
+
+    assert verdict == "REFUSED"
+    assert pipeline.classification["deny_categories"] == ["infra_cicd"]

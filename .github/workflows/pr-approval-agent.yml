@@ -35,7 +35,11 @@ jobs:
               || needs.decide-delta.result == 'failure'
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        # Budget for the in-flight-bot-review wait (5 min of sleeps plus the
+        # per-poll refetches, so wall-clock exceeds it) plus the LLM review —
+        # see BOT_REVIEW_WAIT_BUDGET_SECONDS in review_pr.py. The cap costs
+        # nothing unless a run hangs; runners bill actual minutes.
+        timeout-minutes: 20
 
         steps:
             - name: Get app token
@@ -119,14 +123,17 @@ jobs:
                       --repo "$REPO"
                   fi
 
-                  # A substantive non-APPROVED verdict (REFUSE/ESCALATE)
-                  # removes the label, breaking the auto-rerun loop until a
-                  # human re-applies it after addressing the feedback. ERROR
-                  # means the review agent couldn't reach its LLM backend
-                  # (auth/credit/outage) — that's not a verdict on the PR, so
-                  # keep the label and let it retry rather than silently
-                  # dropping it across every queued PR during an outage.
-                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ]; then
+                  # Only the two substantive verdicts strip the label — a
+                  # REFUSE/ESCALATE means the author must address feedback and
+                  # re-apply. Everything else fails toward retention: ERROR
+                  # (LLM backend down), WAIT (reviewer bot mid-review), and an
+                  # empty verdict (script crash / job cancelled before
+                  # review.json was written) are not verdicts on the PR, and
+                  # retention just means the next push retries. An explicit
+                  # strip-list also means future verdicts keep the label by
+                  # default instead of everyone remembering to extend a
+                  # keep-list.
+                  if [ "$VERDICT" = "REFUSED" ] || [ "$VERDICT" = "ESCALATE" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi
