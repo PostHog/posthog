@@ -34,6 +34,10 @@ interface ToastButton {
 interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
     hideButton?: boolean
+    // Clear this toast on SPA navigation. Load-failure toasts fire on scene mount, so
+    // without this a one-off endpoint hiccup leaves a red banner lingering (and re-firing
+    // from background retries) long after the user has moved to another scene.
+    dismissOnNavigation?: boolean
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -113,6 +117,11 @@ interface ToastError {
 // appearing if dismiss() is called synchronously after creation in the same tick.
 const cancelledIds = new Set<number | string>()
 
+// IDs of toasts that should be cleared on the next SPA navigation. Populated via the
+// `dismissOnNavigation` option and flushed by `dismissNavigationScoped`, which sceneLogic
+// calls on scene change so scene-scoped load failures don't outlive the scene.
+const navigationScopedIds = new Set<number | string>()
+
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
@@ -176,7 +185,10 @@ export const lemonToast = {
         })
         return id
     },
-    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
+    error(
+        message: string | JSX.Element,
+        { button, hideButton, dismissOnNavigation, ...toastOptions }: ToastOptionsWithButton = {}
+    ) {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -189,6 +201,9 @@ export const lemonToast = {
 
         const options = ensureToastId(toastOptions, 'error', message)
         const id = options.toastId!
+        if (dismissOnNavigation) {
+            navigationScopedIds.add(id)
+        }
         queueMicrotask(() => {
             if (cancelledIds.delete(id)) {
                 return
@@ -254,5 +269,9 @@ export const lemonToast = {
             cancelledIds.add(id)
         }
         toast.dismiss(id)
+    },
+    dismissNavigationScoped(): void {
+        navigationScopedIds.forEach((id) => lemonToast.dismiss(id))
+        navigationScopedIds.clear()
     },
 }

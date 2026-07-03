@@ -2,7 +2,7 @@ import { KeaPlugin, resetContext } from 'kea'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
-import { routerPlugin } from 'kea-router'
+import { router, routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
@@ -39,6 +39,31 @@ don't report them to error tracking — otherwise sporadic 5xxs surface as noisy
 issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
+/*
+Billing/quota limits (HTTP 402) are an org-wide account state, not a failure of the specific
+action the user happened to trigger. Surfacing them as a raw "Load X failed: ..." toast is
+confusing and non-actionable — and because the failing loader retries in the background, the
+scary red banner keeps re-firing across navigations. Route them instead to a single,
+deduplicated billing notice that points at Billing settings and clears on navigation.
+*/
+function showBillingLimitToast(error: { detail?: string | null; statusText?: string | null }): void {
+    lemonToast.error(
+        error.detail ||
+            error.statusText ||
+            'Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so.',
+        {
+            // Stable id so multiple failing loaders (and their retries) collapse into one
+            // notice rather than stacking a wall of identical banners.
+            toastId: 'billing-limit-exceeded',
+            dismissOnNavigation: true,
+            button: {
+                label: 'Billing settings',
+                action: () => router.actions.push('/organization/billing'),
+            },
+        }
+    )
+}
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -107,19 +132,29 @@ export function initKea({
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
-                    let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
-                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                    if (error.status === 402) {
+                        showBillingLimitToast(error)
+                    } else {
+                        let errorMessage = error.detail || error.statusText
+                        const isTwoFactorError =
+                            error.code === 'two_factor_setup_required' ||
+                            error.code === 'two_factor_verification_required'
+                        const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
-                    if (!errorMessage && error.status === 404) {
-                        errorMessage = 'URL not found'
-                    }
-                    if (isTwoFactorError || isSensitiveActionError) {
-                        errorMessage = null
-                    }
-                    if (errorMessage) {
-                        lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
+                        if (!errorMessage && error.status === 404) {
+                            errorMessage = 'URL not found'
+                        }
+                        if (isTwoFactorError || isSensitiveActionError) {
+                            errorMessage = null
+                        }
+                        if (errorMessage) {
+                            lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`, {
+                                // Load failures fire on scene mount; clear them on navigation so a
+                                // scene-scoped endpoint hiccup doesn't leave a red banner lingering
+                                // (and re-firing on retry) after the user has moved on.
+                                dismissOnNavigation: isLoadAction,
+                            })
+                        }
                     }
                 }
                 if (!errorsSilenced) {

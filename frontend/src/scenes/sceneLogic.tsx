@@ -492,6 +492,11 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             const previousScene = selectors.sceneId(previousState)
+            if (sceneId !== previousScene) {
+                // Clear scene-scoped load-failure toasts so a red banner from the scene we're
+                // leaving doesn't linger on top of the new one.
+                lemonToast.dismissNavigationScoped()
+            }
             if (scrollToTop && sceneId !== previousScene) {
                 // Forward navigation (link click) scrolls to top. There is no back/forward scroll
                 // restoration: #main-content is an inner scroll container the browser won't restore.
