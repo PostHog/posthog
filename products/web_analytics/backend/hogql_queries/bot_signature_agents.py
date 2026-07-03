@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from products.web_analytics.backend.hogql_queries.bot_signature_agent_directory import SIGNATURE_AGENT_ENTRIES
+
 
 @dataclass(frozen=True)
 class SignatureAgentDefinition:
@@ -14,24 +16,22 @@ class SignatureAgentDefinition:
 # Signature-Agent header naming the domain that publishes their public keys, e.g.
 # `Signature-Agent: "https://chatgpt.com"`. Servers that forward that header as the
 # $signature_agent event property get classification even when the agent uses a real
-# browser user agent. Keys here are the normalized hosts (lowercase, no scheme/quotes).
+# browser user agent.
+#
+# Keys are the normalized hosts (lowercase, no scheme/quotes), sourced from Cloudflare's
+# Radar bots directory — refresh with
+# products/web_analytics/scripts/refresh_signature_agents.py.
 #
 # Presence of the header is treated as sufficient — signatures are not verified at query
 # time. Spoofing it only reclassifies the spoofer's own traffic as a bot, which is the
 # outcome bot filtering wants anyway.
 SIGNATURE_AGENT_DEFINITIONS: dict[str, SignatureAgentDefinition] = {
-    "chatgpt.com": SignatureAgentDefinition(
-        "ChatGPT agent",
-        "ai_assistant",
-        "AI Agent",
-        "OpenAI",
-        documentation_url="https://help.openai.com/en/articles/11845367-chatgpt-agent-allowlisting",
-    ),
-    "operator.openai.com": SignatureAgentDefinition(
-        "OpenAI Operator",
-        "ai_assistant",
-        "AI Agent",
-        "OpenAI",
-        documentation_url="https://help.openai.com/en/articles/11845367-chatgpt-agent-allowlisting",
-    ),
+    entry["host"]: SignatureAgentDefinition(
+        entry["name"],
+        entry["category"],
+        entry["traffic_type"],
+        entry["operator"],
+        documentation_url=entry["documentation_url"] or None,
+    )
+    for entry in SIGNATURE_AGENT_ENTRIES
 }
