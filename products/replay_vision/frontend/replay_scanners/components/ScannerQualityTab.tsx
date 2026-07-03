@@ -40,10 +40,34 @@ const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
     { value: 'all', label: 'All' },
 ]
 
-const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string }> = {
-    applied: { type: 'success', label: 'Applied' },
-    dismissed: { type: 'muted', label: 'Dismissed' },
-    superseded: { type: 'muted', label: 'Superseded' },
+const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string; tooltip: string }> = {
+    applied: {
+        type: 'success',
+        label: 'Applied',
+        tooltip: 'This prompt was applied to the scanner as a new version',
+    },
+    dismissed: {
+        type: 'muted',
+        label: 'Dismissed',
+        tooltip: 'This recommendation was rejected without being applied',
+    },
+    superseded: {
+        type: 'muted',
+        label: 'Superseded',
+        tooltip: 'A newer recommendation replaced this one before it was applied',
+    },
+}
+
+function SuggestionStatusTag({ status }: { status: string }): JSX.Element | null {
+    const tag = SUGGESTION_STATUS_TAGS[status]
+    if (!tag) {
+        return null
+    }
+    return (
+        <Tooltip title={tag.tooltip}>
+            <LemonTag type={tag.type}>{tag.label}</LemonTag>
+        </Tooltip>
+    )
 }
 
 /** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
@@ -127,7 +151,6 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         AccessControlLevel.Editor
     )
 
-    const statusTag = currentSuggestion ? SUGGESTION_STATUS_TAGS[currentSuggestion.status] : undefined
     const pastSuggestions = suggestionHistory.filter((s) => s.id !== currentSuggestion?.id)
 
     let body: JSX.Element
@@ -212,7 +235,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">Prompt recommendation</span>
-                {statusTag && <LemonTag type={statusTag.type}>{statusTag.label}</LemonTag>}
+                {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
                 {suggestionStale && currentSuggestion && (
                     <LemonTag type="warning">Ratings changed since this was generated</LemonTag>
                 )}
@@ -261,11 +284,10 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     ) : (
                         <div className="space-y-2 pt-2">
                             {pastSuggestions.map((suggestion) => {
-                                const tag = SUGGESTION_STATUS_TAGS[suggestion.status]
                                 return (
                                     <div key={suggestion.id} className="border rounded p-3 space-y-3">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            {tag && <LemonTag type={tag.type}>{tag.label}</LemonTag>}
+                                            <SuggestionStatusTag status={suggestion.status} />
                                             <SuggestionMeta suggestion={suggestion} />
                                         </div>
                                         <SuggestionDetails
