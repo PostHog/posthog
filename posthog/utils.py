@@ -247,6 +247,15 @@ def relative_date_parse_with_delta_mapping(
     else:
         parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
 
+    if match_group_dict["kind"] == "q":
+        # Quarter boundaries depend on the resulting month, so they can't be expressed
+        # as a static delta mapping like mStart/yStart — snap after applying the delta
+        quarter_start_month = ((parsed_dt.month - 1) // 3) * 3 + 1
+        if match_group_dict["position"] == "Start":
+            parsed_dt += relativedelta(month=quarter_start_month, day=1)
+        elif match_group_dict["position"] == "End":
+            parsed_dt += relativedelta(month=quarter_start_month + 2, day=31)
+
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
@@ -329,7 +338,11 @@ def get_delta_mapping_for(
             delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
-            delta_mapping["weeks"] = 13 * int(number)
+            if human_friendly_comparison_periods:
+                # 13 whole weeks keeps weekdays aligned when comparing to the previous quarter
+                delta_mapping["weeks"] = 13 * int(number)
+            else:
+                delta_mapping["months"] = 3 * int(number)
     elif kind == "y":
         if number:
             if human_friendly_comparison_periods:
