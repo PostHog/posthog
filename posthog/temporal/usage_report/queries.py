@@ -52,7 +52,6 @@ from django.db.models import Count
 from posthog.constants import FlagRequestType
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
-    get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
     get_teams_with_active_hog_destinations_in_period,
@@ -225,41 +224,6 @@ QUERIES: list[QuerySpec] = [
         fn=run_events_family,
         output="multi",
         multi_keys_mapping={m.name: m.all_data_key for m in EVENTS_METRICS},
-        timeout_minutes=30,
-    ),
-    QuerySpec(
-        name="all_event_metrics",
-        fn=get_all_event_metrics_in_period,
-        output="multi",
-        # Keep this fan-out in sync with `_get_team_report` in `posthog.tasks.usage_report`.
-        # A missing destination key here can make the Temporal usage report path fail at aggregation time.
-        multi_keys_mapping={
-            "helicone_events": "teams_with_event_count_from_helicone_in_period",
-            "langfuse_events": "teams_with_event_count_from_langfuse_in_period",
-            "keywords_ai_events": "teams_with_event_count_from_keywords_ai_in_period",
-            "traceloop_events": "teams_with_event_count_from_traceloop_in_period",
-            "web_events": "teams_with_web_events_count_in_period",
-            "web_lite_events": "teams_with_web_lite_events_count_in_period",
-            "node_events": "teams_with_node_events_count_in_period",
-            "openclaw_events": "teams_with_openclaw_events_count_in_period",
-            "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
-            "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
-            "edge_events": "teams_with_edge_events_count_in_period",
-            "convex_events": "teams_with_convex_events_count_in_period",
-            "android_events": "teams_with_android_events_count_in_period",
-            "flutter_events": "teams_with_flutter_events_count_in_period",
-            "ios_events": "teams_with_ios_events_count_in_period",
-            "go_events": "teams_with_go_events_count_in_period",
-            "java_events": "teams_with_java_events_count_in_period",
-            "react_native_events": "teams_with_react_native_events_count_in_period",
-            "ruby_events": "teams_with_ruby_events_count_in_period",
-            "python_events": "teams_with_python_events_count_in_period",
-            "php_events": "teams_with_php_events_count_in_period",
-            "dotnet_events": "teams_with_dotnet_events_count_in_period",
-            "elixir_events": "teams_with_elixir_events_count_in_period",
-            "unity_events": "teams_with_unity_events_count_in_period",
-            "rust_events": "teams_with_rust_events_count_in_period",
-        },
         timeout_minutes=30,
     ),
     # ---- ClickHouse: recordings ----------------------------------------------

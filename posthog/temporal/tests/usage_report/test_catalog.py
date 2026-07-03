@@ -10,9 +10,7 @@ on identical data — a fixed catalog-case union plus Hypothesis-generated
 event batches; they exist for the v1→v2 migration window and die with v1.
 """
 
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -29,6 +27,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.util import create_event
 from posthog.tasks.usage_report import (
+    get_all_event_metrics_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
@@ -39,27 +38,45 @@ from posthog.temporal.usage_report.compiler import run_events_family
 PERIOD_START = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
 PERIOD_END = datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC)
 
-# The legacy query each catalog metric replaces. Extend when porting more
-# metrics; dies with v1.
-LEGACY_EQUIVALENTS: dict[str, Callable[[datetime, datetime], list[Any]]] = {
-    "event_count_in_period": lambda b, e: get_teams_with_billable_event_count_in_period(b, e, count_distinct=True),
-    "enhanced_persons_event_count_in_period": lambda b, e: (
-        get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True)
-    ),
-    "event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period,
+# `get_all_event_metrics_in_period` keys most SDK metrics as `<short>` for the
+# field `<short>_count_in_period`; the integration metrics are the exception.
+_INTEGRATION_FIELDS = {
+    f"{integration}_events": f"event_count_from_{integration}_in_period"
+    for integration in ("helicone", "langfuse", "keywords_ai", "traceloop")
 }
+
+
+def _legacy_results(begin: datetime, end: datetime) -> dict[str, list]:
+    """Every ported metric computed via the legacy v1 queries, keyed by the
+    catalog metric name. Extend when porting more metrics; dies with v1.
+    """
+    results: dict[str, list] = {
+        "event_count_in_period": get_teams_with_billable_event_count_in_period(begin, end, count_distinct=True),
+        "enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
+            begin, end, count_distinct=True
+        ),
+        "event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(begin, end),
+    }
+    for short, rows in get_all_event_metrics_in_period(begin, end).items():
+        results[_INTEGRATION_FIELDS.get(short, f"{short}_count_in_period")] = rows
+    return results
 
 
 def _insert(team: Team, fixtures: tuple[EventFixture, ...], distinct_id: str) -> None:
     dup_uuids: dict[str, UUID] = {}
     for fixture in fixtures:
+        properties = dict(fixture.properties)
+        if fixture.lib is not None:
+            properties["$lib"] = fixture.lib
+        if fixture.ai_lib is not None:
+            properties["$ai_lib"] = fixture.ai_lib
         create_event(
             event_uuid=dup_uuids.setdefault(fixture.dup, uuid4()) if fixture.dup else uuid4(),
             event=fixture.event,
             team=team,
             distinct_id=distinct_id,
             timestamp=PERIOD_START + timedelta(hours=fixture.at_hours),
-            properties=dict(fixture.properties),
+            properties=properties,
             person_mode=fixture.person_mode,  # type: ignore[arg-type]
         )
 
@@ -92,10 +109,10 @@ class TestEventsCatalogCases(ClickhouseTestMixin, BaseTest):
 
 def _assert_parity_for_team(team_id: int) -> None:
     compiled = run_events_family(PERIOD_START, PERIOD_END)
-    for metric_name, legacy_fn in LEGACY_EQUIVALENTS.items():
-        legacy_rows = legacy_fn(PERIOD_START, PERIOD_END)
-        assert _team_value(compiled, metric_name, team_id) == dict(legacy_rows).get(team_id, 0), (
-            f"Fused scan and legacy query disagree on {metric_name}"
+    legacy = _legacy_results(PERIOD_START, PERIOD_END)
+    for metric in EVENTS_METRICS:
+        assert _team_value(compiled, metric.name, team_id) == dict(legacy[metric.name]).get(team_id, 0), (
+            f"Fused scan and legacy query disagree on {metric.name}"
         )
 
 
@@ -110,8 +127,10 @@ class TestEventsFamilyLegacyParity(ClickhouseTestMixin, BaseTest):
 
 
 # Pools are boundary-heavy on purpose: period edges, every exclusion
-# category, duplicate uuids, empty-string group values, and free-text event
-# names that must count as billable.
+# category, duplicate uuids, empty-string group values, free-text event
+# names that must count as billable, and lib/ai_lib combinations that
+# exercise the SDK classification (integration-prefix wins, java's two
+# libs, the posthog-node AI sub-SDK carve-out).
 _fixture_strategy = st.builds(
     EventFixture,
     event=st.one_of(
@@ -123,7 +142,10 @@ _fixture_strategy = st.builds(
                 "survey sent",
                 "$exception",
                 "$ai_generation",
+                "$ai_span",
                 "$conversations_loaded",
+                "langfuse-trace",
+                "helicone_request",
             ]
         ),
         st.text(
@@ -133,6 +155,8 @@ _fixture_strategy = st.builds(
     person_mode=st.sampled_from(["full", "propertyless", "force_upgrade"]),
     at_hours=st.sampled_from([-3.0, 0.0, 6.0, 12.0, 23.99, 24.0, 30.0]),
     dup=st.sampled_from([None, None, "a", "b"]),
+    lib=st.sampled_from([None, "web", "js", "posthog-node", "posthog-ios", "posthog-java", "posthog-server"]),
+    ai_lib=st.sampled_from([None, "posthog-openclaw", "@posthog/pi", "posthog-ai"]),
     properties=st.sampled_from([{}, {"$group_0": "org:1"}, {"$group_1": ""}, {"$group_4": "acct:9"}]),
 )
 

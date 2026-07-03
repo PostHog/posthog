@@ -59,29 +59,8 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
     if query_name == "events_family":
         return {m.name: [] for m in EVENTS_METRICS} | {
             "event_count_in_period": [(team_a_id, 100), (team_b_id, 50), *extra_total_rows],
-        }
-    if query_name == "all_event_metrics":
-        return {
-            "helicone_events": [],
-            "langfuse_events": [],
-            "keywords_ai_events": [],
-            "traceloop_events": [],
-            "web_events": [(team_a_id, 7), (team_b_id, 11), *extra_event_rows],
-            "web_lite_events": [],
-            "node_events": [],
-            "android_events": [],
-            "flutter_events": [],
-            "ios_events": [],
-            "go_events": [],
-            "java_events": [],
-            "react_native_events": [],
-            "ruby_events": [],
-            "python_events": [(team_a_id, 3)],
-            "php_events": [],
-            "dotnet_events": [],
-            "elixir_events": [],
-            "unity_events": [],
-            "rust_events": [],
+            "web_events_count_in_period": [(team_a_id, 7), (team_b_id, 11), *extra_event_rows],
+            "python_events_count_in_period": [(team_a_id, 3)],
         }
     if query_name == "exceptions_captured":
         return {
@@ -227,8 +206,8 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     by_org = {row["organization_id"]: row["usage_report"] for row in rows}
     assert set(by_org.keys()) == {str(org_a.id), str(org_b.id)}
 
-    # multi-key fan-out: web events from `all_event_metrics` landed in the
-    # destination key on each org's report.
+    # multi-key fan-out: web events from the compiled `events_family` spec
+    # landed in the destination key on each org's report.
     assert by_org[str(org_a.id)]["web_events_count_in_period"] == 7
     assert by_org[str(org_b.id)]["web_events_count_in_period"] == 11
 
@@ -333,8 +312,6 @@ async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
             payload: Any = {m.name: [] for m in EVENTS_METRICS} | {
                 "event_count_in_period": [(team_with_usage.id, 100)],
             }
-        elif spec.name == "all_event_metrics":
-            payload = _canned_query_payload(spec.name, team_with_usage.id, team_with_usage.id)
         elif spec.name == "exceptions_captured":
             payload = _canned_query_payload(spec.name, team_with_usage.id, team_with_usage.id)
         elif spec.name == "api_queries_metrics":

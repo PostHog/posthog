@@ -11,11 +11,13 @@ Retries are intentionally absent: the Temporal activity running this owns the
 retry policy.
 """
 
+import re
 from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.property.util import get_property_string_expr
 from posthog.temporal.usage_report.catalog import EVENTS_METRICS, EventsMetric
 
 CH_BILLING_SETTINGS = {
@@ -30,20 +32,32 @@ NUM_SPLITS = 12
 # https://github.com/PostHog/posthog/blob/master/posthog/models/event/sql.py
 DEDUP_KEY = "(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
 
+_PROP_TOKEN = re.compile(r"##PROP:([^#]+)##")
+
+
+def _resolve_prop_tokens(sql: str) -> str:
+    """Swap `catalog.prop(...)` placeholders for the real property expression,
+    which is the materialized column when one exists. Resolved at query build
+    time because materialization state is per-deployment."""
+    return _PROP_TOKEN.sub(
+        lambda match: get_property_string_expr("events", match.group(1), f"'{match.group(1)}'", "properties")[0],
+        sql,
+    )
+
 
 def compile_events_sql(metrics: tuple[EventsMetric, ...]) -> str:
     aggregates = ",\n            ".join(
         f"uniqExactIf({DEDUP_KEY}, {m.where.sql}) AS {m.name}" if m.dedup else f"countIf({m.where.sql}) AS {m.name}"
         for m in metrics
     )
-    return f"""
+    return _resolve_prop_tokens(f"""
         SELECT
             team_id,
             {aggregates}
         FROM events
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
-    """
+    """)
 
 
 def run_events_family(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:

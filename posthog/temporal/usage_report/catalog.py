@@ -57,18 +57,41 @@ def any_group_set() -> Expr:
     return Expr("($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')")
 
 
+def prop(name: str) -> str:
+    """Placeholder the compiler resolves via `get_property_string_expr`, so a
+    materialized property column is used when one exists."""
+    return f"##PROP:{name}##"
+
+
+def prop_in(name: str, *values: str) -> Expr:
+    return Expr(f"{prop(name)} IN ({_quoted(values)})")
+
+
+def event_like(pattern: str) -> Expr:
+    # The ClickHouse client substitutes query params via Python %-formatting,
+    # so a literal SQL wildcard must be escaped as %%.
+    return Expr(f"event LIKE {_quoted((pattern,))}".replace("%", "%%"))
+
+
+def event_starts_with(prefix: str) -> Expr:
+    return Expr(f"startsWith(event, {_quoted((prefix,))})")
+
+
 @dataclasses.dataclass(frozen=True)
 class EventFixture:
     """One event a `Case` inserts. `at_hours` is relative to the report
     period's start (the period is one day, so anything outside [0, 24) is
     out of period). Fixtures sharing a `dup` key are inserted with the same
-    uuid to exercise ClickHouse-level deduplication.
+    uuid to exercise ClickHouse-level deduplication. `lib` / `ai_lib` are
+    sugar for the `$lib` / `$ai_lib` properties.
     """
 
     event: str
     person_mode: str = "full"
     at_hours: float = 12.0
     dup: Optional[str] = None
+    lib: Optional[str] = None
+    ai_lib: Optional[str] = None
     properties: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
@@ -112,6 +135,107 @@ NON_BILLABLE_EVENTS: tuple[str, ...] = (
     *CONVERSATIONS_EVENTS,
 )
 
+
+# SDK classification mirrors the legacy multiIf: integration-prefixed events
+# (helicone/langfuse/keywords_ai/traceloop) win over `$lib`, so every event
+# lands in exactly one SDK metric.
+FROM_INTEGRATION = (
+    event_like("helicone%") | event_like("langfuse%") | event_like("keywords_ai%") | event_like("traceloop%")
+)
+
+# posthog-node sub-SDKs, split by `$ai_lib` on `$ai_*` events and carved out
+# of node_events. The legacy path computed these in a second scan and
+# subtracted them from node_events with a max(0, ...) jitter guard; in one
+# fused scan the carve-out is exact set subtraction, no guard needed.
+_AI_SUB_LIBS = {
+    "openclaw_events_count_in_period": "posthog-openclaw",
+    "posthog_pi_events_count_in_period": "@posthog/pi",
+    "posthog_ai_events_count_in_period": "posthog-ai",
+}
+_IS_AI_SUB_EVENT = event_starts_with("$ai_") & prop_in("$ai_lib", *_AI_SUB_LIBS.values())
+
+_SDK_LIBS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("web_lite_events_count_in_period", ("js",)),
+    ("edge_events_count_in_period", ("posthog-edge",)),
+    ("convex_events_count_in_period", ("posthog-convex",)),
+    ("android_events_count_in_period", ("posthog-android",)),
+    ("flutter_events_count_in_period", ("posthog-flutter",)),
+    ("ios_events_count_in_period", ("posthog-ios",)),
+    ("go_events_count_in_period", ("posthog-go",)),
+    ("java_events_count_in_period", ("posthog-java", "posthog-server")),
+    ("react_native_events_count_in_period", ("posthog-react-native",)),
+    ("ruby_events_count_in_period", ("posthog-ruby",)),
+    ("python_events_count_in_period", ("posthog-python",)),
+    ("php_events_count_in_period", ("posthog-php",)),
+    ("dotnet_events_count_in_period", ("posthog-dotnet",)),
+    ("elixir_events_count_in_period", ("posthog-elixir",)),
+    ("unity_events_count_in_period", ("posthog-unity",)),
+    ("rust_events_count_in_period", ("posthog-rs",)),
+)
+
+
+def _sdk_metric(name: str, libs: tuple[str, ...]) -> EventsMetric:
+    return EventsMetric(
+        name,
+        where=prop_in("$lib", *libs) & ~FROM_INTEGRATION,
+        cases=tuple(
+            Case(given=(ev("app event", lib=lib_name), ev("app event", lib="some-other-lib")), expect=1)
+            for lib_name in libs
+        ),
+    )
+
+
+INTEGRATION_METRICS: tuple[EventsMetric, ...] = tuple(
+    EventsMetric(
+        f"event_count_from_{integration}_in_period",
+        where=event_like(f"{integration}%"),
+        cases=(Case(given=(ev(f"{integration}_generation"), ev("$pageview")), expect=1),),
+    )
+    for integration in ("helicone", "langfuse", "keywords_ai", "traceloop")
+)
+
+SDK_METRICS: tuple[EventsMetric, ...] = (
+    EventsMetric(
+        "web_events_count_in_period",
+        where=prop_in("$lib", "web") & ~FROM_INTEGRATION,
+        cases=(
+            Case(given=(ev("app event", lib="web"), ev("app event", lib="js")), expect=1),
+            Case(given=(ev("langfuse-trace", lib="web"),), expect=0, note="integration prefix wins over $lib"),
+        ),
+    ),
+    *(_sdk_metric(name, libs) for name, libs in _SDK_LIBS),
+    EventsMetric(
+        "node_events_count_in_period",
+        where=prop_in("$lib", "posthog-node") & ~FROM_INTEGRATION & ~_IS_AI_SUB_EVENT,
+        cases=(
+            Case(
+                given=(
+                    ev("track", lib="posthog-node"),
+                    ev("$ai_generation", lib="posthog-node", ai_lib="posthog-openclaw"),
+                ),
+                expect=1,
+                note="AI sub-SDK events are carved out of node_events",
+            ),
+        ),
+    ),
+    *(
+        EventsMetric(
+            name,
+            where=prop_in("$lib", "posthog-node") & event_starts_with("$ai_") & prop_in("$ai_lib", ai_lib),
+            cases=(
+                Case(
+                    given=(
+                        ev("$ai_generation", lib="posthog-node", ai_lib=ai_lib),
+                        ev("track", lib="posthog-node", ai_lib=ai_lib),
+                    ),
+                    expect=1,
+                    note="only $ai_* events count toward the sub-SDK",
+                ),
+            ),
+        )
+        for name, ai_lib in _AI_SUB_LIBS.items()
+    ),
+)
 
 EVENTS_METRICS: tuple[EventsMetric, ...] = (
     EventsMetric(
@@ -164,4 +288,6 @@ EVENTS_METRICS: tuple[EventsMetric, ...] = (
             ),
         ),
     ),
+    *INTEGRATION_METRICS,
+    *SDK_METRICS,
 )
