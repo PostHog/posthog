@@ -131,6 +131,13 @@ class TestValidateCredentials:
             assert headers["X-API-TOKEN"] == "tok"
             assert headers["X-Requested-With"] == "XMLHttpRequest"
 
+    def test_redacts_token_in_telemetry(self):
+        # The token rides in X-API-TOKEN, which the transport's name-based scrubber doesn't cover, so
+        # it must be passed as a redact value to keep it out of captured HTTP samples.
+        with self._patch_session(_response(status_code=200)) as patched:
+            validate_credentials(None, "tok")
+            assert patched.call_args.kwargs["redact_values"] == ("tok",)
+
 
 class TestInvoiceNinjaSourceResponse:
     @pytest.mark.parametrize("endpoint", list(INVOICENINJA_ENDPOINTS.keys()))
@@ -254,6 +261,26 @@ class TestGetRows:
         headers = session.get.call_args.kwargs["headers"]
         assert headers["X-API-TOKEN"] == "tok"
         assert headers["X-Requested-With"] == "XMLHttpRequest"
+
+    def test_redacts_token_in_telemetry(self):
+        # The token rides in X-API-TOKEN, which the transport's name-based scrubber doesn't cover, so
+        # it must be passed as a redact value to keep it out of captured HTTP samples.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        session = mock.MagicMock()
+        session.get.side_effect = [_page([{"id": "1"}], current_page=1, total_pages=1)]
+        with mock.patch.object(invoiceninja_module, "make_tracked_session", return_value=session) as mts:
+            list(
+                get_rows(
+                    base_url=None,
+                    api_token="tok",
+                    endpoint="clients",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        assert mts.call_args.kwargs["redact_values"] == ("tok",)
 
     def test_raises_when_host_not_allowed(self):
         manager = mock.MagicMock()

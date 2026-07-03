@@ -130,9 +130,11 @@ def validate_credentials(
 
     url = f"{resolved_base_url}/clients?{urlencode({'per_page': 1, 'page': 1})}"
     try:
-        # Don't follow redirects: the validated host could 3xx to an internal address, defeating the
-        # host check above (SSRF).
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10, allow_redirects=False)
+        # `redact_values` masks the token from captured HTTP samples: it rides in the `X-API-TOKEN`
+        # header, which the transport's name-based denylist doesn't recognise. Don't follow redirects:
+        # the validated host could 3xx to an internal address, defeating the host check above (SSRF).
+        session = make_tracked_session(redact_values=(api_token,))
+        response = session.get(url, headers=_get_headers(api_token), timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -197,6 +199,11 @@ def get_rows(
     headers = _get_headers(api_token)
     request_url = f"{resolved_base_url}{config.path}"
 
+    # One session reused across every page (and retry) so urllib3 keeps the connection alive. It
+    # redacts the token from captured HTTP samples — the token rides in the `X-API-TOKEN` header, which
+    # the transport's name-based denylist doesn't recognise, so value-based masking is what covers it.
+    session = make_tracked_session(redact_values=(api_token,))
+
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume_config.next_page if resume_config is not None else 1
     if resume_config is not None:
@@ -212,7 +219,7 @@ def get_rows(
         query = urlencode({"page": page_number, "per_page": config.page_size})
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
         # bypassing the host validation done before the request (SSRF).
-        response = make_tracked_session().get(
+        response = session.get(
             f"{request_url}?{query}", headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
         )
 

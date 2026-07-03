@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.invoicenin
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INVOICENINJA_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -75,6 +76,7 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=INVOICENINJA_ENDPOINTS[endpoint].should_sync_default,
             )
             for endpoint in ENDPOINTS
         ]
