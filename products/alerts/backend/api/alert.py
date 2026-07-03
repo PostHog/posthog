@@ -694,26 +694,47 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        # only validate alert counts when creating a new alert
-        if self.context["request"].method != "POST":
-            return attrs
+        # Total alert count only checked on create.
+        if self.context["request"].method == "POST":
+            if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
+                raise ValidationError({"alert": [msg]})
 
-        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
-            raise ValidationError({"alert": [msg]})
-
-        if calculation_interval == AlertCalculationInterval.REAL_TIME and (
-            msg := AlertConfiguration.check_real_time_alert_limit(self.context["team_id"], organization)
-        ):
-            posthoganalytics.capture(
-                str(self.context["request"].user.distinct_id),
-                "real time alert limit reached",
-                properties={
-                    "team_id": self.context["team_id"],
-                    "organization_id": str(organization.id),
-                },
-                groups={"organization": str(organization.id)},
-            )
-            raise ValidationError({"calculation_interval": [msg]})
+        # Real-time limit applies on create and on any update that would increase the active count:
+        # switching an alert to real_time, or enabling an already-real_time alert.
+        is_create = self.context["request"].method == "POST"
+        existing_interval = self.instance.calculation_interval if self.instance else None
+        existing_enabled = self.instance.enabled if self.instance else True
+        becoming_real_time = (
+            is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and attrs.get("enabled", True) is True
+        )
+        switching_to_real_time = (
+            not is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and existing_interval != AlertCalculationInterval.REAL_TIME
+        )
+        enabling_real_time = (
+            not is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and attrs.get("enabled", existing_enabled) is True
+            and not existing_enabled
+        )
+        if becoming_real_time or switching_to_real_time or enabling_real_time:
+            exclude_id = str(self.instance.pk) if self.instance else None
+            if msg := AlertConfiguration.check_real_time_alert_limit(
+                self.context["team_id"], organization, exclude_id=exclude_id
+            ):
+                posthoganalytics.capture(
+                    distinct_id=str(self.context["request"].user.distinct_id),
+                    event="real time alert limit reached",
+                    properties={
+                        "team_id": self.context["team_id"],
+                        "organization_id": str(organization.id),
+                    },
+                    groups={"organization": str(organization.id)},
+                )
+                raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
 

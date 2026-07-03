@@ -131,6 +131,42 @@ class TestAlertRealTimeInterval(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         assert response.status_code == status.HTTP_201_CREATED, response.content
 
+    def test_patch_to_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        real_time = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert real_time.status_code == status.HTTP_201_CREATED, real_time.content
+
+        daily = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="daily", calculation_interval=AlertCalculationInterval.DAILY),
+        )
+        assert daily.status_code == status.HTTP_201_CREATED, daily.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{daily.json()['id']}",
+            {"calculation_interval": AlertCalculationInterval.REAL_TIME},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())
+
+    def test_enable_real_time_rejected_when_limit_reached(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        disabled = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._creation_request(name="disabled", enabled=False),
+        )
+        assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "limit of 1 real-time alerts" in str(response.json())
+
 
 class TestAlertRealTimeScheduling:
     def test_calculation_interval_to_order_ranks_real_time_first(self) -> None:
