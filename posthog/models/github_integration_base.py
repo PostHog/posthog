@@ -391,8 +391,10 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
+        timeout: int = 10,
     ) -> requests.Response | None:
-        """PATCH with installation token; refreshes on expiry or 401."""
+        """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
             return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
@@ -406,42 +408,14 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
+        timeout: int = 10,
     ) -> requests.Response | None:
-        """POST with installation token; refreshes on expiry or 401."""
+        """POST with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
         try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def send() -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return self._github_api_post(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                json_body=json_body,
-            )
-
-        try:
-            response = send()
-            if response.status_code == 401:
-                try:
-                    self.refresh_access_token()
-                except Exception as exc:
-                    logger.exception(
-                        "GitHubIntegration: token refresh after 401 failed",
-                        integration_id=self.integration.id,
-                        status_code=getattr(exc, "status_code", None),
-                    )
-                    return None
-                response = send()
-            return response
-        except Exception:
+            return self.api_request("POST", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
