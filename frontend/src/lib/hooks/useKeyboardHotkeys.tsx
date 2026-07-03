@@ -41,11 +41,11 @@ function formatTriggeredKeybind(event: KeyboardEvent, key: string): string {
     if (event.ctrlKey) {
         parts.push('ctrl')
     }
-    if (event.altKey) {
-        parts.push('option')
-    }
     if (event.shiftKey) {
         parts.push('shift')
+    }
+    if (event.altKey) {
+        parts.push('option')
     }
     parts.push(key)
     return parts.join('+')
@@ -93,7 +93,7 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
                     }
-                    if (!event.repeat) {
+                    if (!event.repeat && !(hotkey.willHandleEvent && (event.metaKey || event.ctrlKey))) {
                         posthog.capture('keybind triggered', {
                             keybind: formatTriggeredKeybind(event, normalizedKey),
                             mechanism: 'hotkey',
