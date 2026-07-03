@@ -26,12 +26,12 @@ import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './en
 
 const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', 'var(--purple)', 'var(--danger)']
 
-// date_from only (the list floors on it); "all time" / week+month snaps are out. All options are within
-// the list's load window so the cost-tile scope is always a subset of the visible PRs.
+// date_from only (the list floors on it); "all time" / week+month snaps and Custom are out. Every option
+// here stays within the list's 365d load window (max preset is 180d / YTD), so the client-side cost tiles
+// are always a subset of the loaded PRs — a Custom range could reach past the load and desync the tiles
+// from the server-windowed workflow breakdown.
 const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Custom', 'Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'Year to date'].includes(
-        key
-    )
+    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'Year to date'].includes(key)
 )
 
 export const scene: SceneExport<AuthorLogicProps> = {
