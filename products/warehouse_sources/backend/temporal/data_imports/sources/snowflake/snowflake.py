@@ -19,6 +19,7 @@ import structlog
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from snowflake.connector.util_text import construct_hostname
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
     ValidatedRowFilter,
@@ -265,6 +267,8 @@ class SnowflakeImplementation(
                 "user": config.auth_type.user,
             }
 
+        # construct_hostname is what the connector itself uses to derive the host from `account`.
+        log_connection_open(db_host=construct_hostname(None, config.account_id), via="vendor_https")
         with snowflake.connector.connect(
             account=config.account_id,
             warehouse=config.warehouse,
