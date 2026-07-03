@@ -28,17 +28,19 @@ drag the ML deps into the workspace install; a process call doesn't. The two run
 
 ```text
 POST /scrub    body = raw image bytes            -> 200 scrubbed image bytes (application/octet-stream)
+                                                     413 body over IMAGE_SCRUB_MAX_BODY_BYTES (permanent — consumer skips)
                                                      422 undecodable input (permanent — consumer skips the image)
                                                      500 transient/internal failure (consumer retries, then replays)
                                                      503 at IMAGE_SCRUB_CONCURRENCY (consumer retries)
 GET  /_health, /_ready                           -> 200
-GET  /metrics                                    -> Prometheus text (scrubbed/undecodable/failed/rejected/aborted/duration)
+GET  /metrics                                    -> Prometheus text (scrubbed/undecodable/too_large/failed/rejected/aborted/duration)
 ```
 
-The 422-vs-500 split is the load-bearing contract: the consumer permanently skips a 422 but retries and
-replays a 500, so a Stage-2 reimplementation must keep undecodable input on 422 and transient failures on 500.
+The permanent-vs-transient split is the load-bearing contract: the consumer permanently skips 413/422 but
+retries and replays 500, so a Stage-2 reimplementation must keep too-large/undecodable input on 413/422 and
+transient failures on 500.
 
-Config (`src/config.ts`): `IMAGE_SCRUB_PORT` (9010), `IMAGE_SCRUB_CONCURRENCY` (8).
+Config (`src/config.ts`): `IMAGE_SCRUB_PORT` (9010), `IMAGE_SCRUB_CONCURRENCY` (8), `IMAGE_SCRUB_MAX_BODY_BYTES` (20 MiB).
 
 ## Layout
 
@@ -46,9 +48,10 @@ Config (`src/config.ts`): `IMAGE_SCRUB_PORT` (9010), `IMAGE_SCRUB_CONCURRENCY` (
 
 ```text
 src/  (production — ships)
-  server.ts    HTTP server: POST /scrub -> scrub bytes, + /_health, /metrics; bounded concurrency
+  main.ts      entrypoint: load config, start the server, drain on SIGTERM
+  server.ts    HTTP server (library): POST /scrub -> scrub bytes, + /_health, /metrics; bounded concurrency
   blur.ts      Stage-1 scrub: sharp-only downsample+blur (no ML deps)
-  config.ts    port + concurrency from env
+  config.ts    port + concurrency + body cap from env
   metrics.ts   prom-client counters/histogram, served at /metrics
 
 dev/  (non-production)

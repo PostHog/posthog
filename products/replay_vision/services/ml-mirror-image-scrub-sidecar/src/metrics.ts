@@ -24,6 +24,11 @@ const rejected = new Counter({
     help: 'Requests shed for concurrency (503)',
     registers: [register],
 })
+const tooLarge = new Counter({
+    name: 'ml_mirror_image_scrub_too_large_total',
+    help: 'Bodies over the size cap (413) — permanently skipped',
+    registers: [register],
+})
 const aborted = new Counter({
     name: 'ml_mirror_image_scrub_aborted_total',
     help: 'Requests where the consumer hung up before we responded',
@@ -41,6 +46,7 @@ export const ScrubMetrics = {
     incFailed: () => failed.inc(),
     incUndecodable: () => undecodable.inc(),
     incRejected: () => rejected.inc(),
+    incTooLarge: () => tooLarge.inc(),
     incAborted: () => aborted.inc(),
     startTimer: (): (() => void) => duration.startTimer(),
 }

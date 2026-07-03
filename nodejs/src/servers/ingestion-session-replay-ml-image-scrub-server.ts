@@ -63,7 +63,8 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
         const store = new ImageShardStore(
             s3Client,
             this.config.SESSION_RECORDING_V2_S3_BUCKET,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
         const scrubClient = new ScrubClient(
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,

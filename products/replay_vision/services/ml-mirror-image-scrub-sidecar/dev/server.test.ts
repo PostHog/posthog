@@ -14,7 +14,7 @@ describe('image-scrub sidecar server', () => {
     let server: ReturnType<typeof startServer>
 
     beforeAll(async () => {
-        server = startServer(0, 4)
+        server = startServer(0, 4, 1024) // tiny body cap so a >1 KiB post triggers 413
         await once(server, 'listening')
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     })
@@ -34,6 +34,11 @@ describe('image-scrub sidecar server', () => {
     it('422s on undecodable bytes so the consumer skips them instead of retrying forever', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST', body: Buffer.from('not-an-image') })
         expect(res.status).toBe(422)
+    })
+
+    it('413s on a body over the size cap so the consumer skips it', async () => {
+        const res = await fetch(`${base}/scrub`, { method: 'POST', body: Buffer.alloc(2048) })
+        expect(res.status).toBe(413)
     })
 
     it('serves health + metrics', async () => {

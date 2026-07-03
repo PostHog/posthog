@@ -2,7 +2,7 @@ import { request } from 'node:http'
 
 import { promiseRetry } from '~/common/utils/retries'
 
-/** Sidecar 422 (undecodable input): permanent, never retried. */
+/** Sidecar 422/413 (undecodable or too large): a permanent input rejection, never retried. */
 class PermanentScrubReject extends Error {}
 
 class ScrubAborted extends Error {}
@@ -34,10 +34,14 @@ export class ScrubClient {
                     }
                     const { status, body } = await this.post(bytes, signal)
                     if (status === 200) {
+                        // An empty 200 would persist a zero-length image; treat it as transient so it replays.
+                        if (body.length === 0) {
+                            throw new Error('sidecar returned an empty 200 body')
+                        }
                         return body
                     }
-                    if (status === 422) {
-                        throw new PermanentScrubReject('sidecar rejected undecodable input')
+                    if (status === 422 || status === 413) {
+                        throw new PermanentScrubReject(`sidecar rejected the input (${status})`)
                     }
                     throw new Error(`sidecar responded ${status}`) // 500 transient / 503 busy: retry
                 },

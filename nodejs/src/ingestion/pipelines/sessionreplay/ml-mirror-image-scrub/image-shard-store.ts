@@ -4,7 +4,7 @@
  * `image:{pseudo_team}:{hash}` by scanning the index for (pseudo_team, hash) then range-GET the shard.
  *
  *   {prefix}/shards/{node}-{ts}-{seq}.bin       raw concat of scrubbed image bytes (many teams)
- *   {prefix}/index/{node}-{ts}-{seq}.parquet    rows: pseudo_team, hash, shard, offset, length
+ *   {prefix}/index/{node}-{ts}-{seq}.parquet    rows: format_version, pseudo_team, hash, shard, offset, length
  *
  * The team segment is a non-reversible HMAC pseudonym (ml-mirror/pseudonymize.ts), so no raw team id reaches
  * the ML bucket, matching the block-metadata dataset.
@@ -29,8 +29,13 @@ interface IndexRow {
     length: number
 }
 
+// Stamped on every index row so a future format change (Stage 2 columns, layout) is detectable and a reader
+// built against v1 can fail closed on an unknown version instead of silently misparsing.
+const INDEX_FORMAT_VERSION = 1
+
 // Snappy per column (compression is a per-field option in parquetjs, not a writer option).
 const INDEX_SCHEMA = new ParquetSchema({
+    format_version: { type: 'INT64', compression: 'SNAPPY' },
     pseudo_team: { type: 'UTF8', compression: 'SNAPPY' },
     hash: { type: 'UTF8', compression: 'SNAPPY' },
     shard: { type: 'UTF8', compression: 'SNAPPY' },
@@ -42,6 +47,7 @@ function indexRowsToParquet(rows: IndexRow[]): Promise<Buffer> {
     return parquetRecordsToBuffer(
         INDEX_SCHEMA,
         rows.map((r) => ({
+            format_version: BigInt(INDEX_FORMAT_VERSION),
             pseudo_team: r.pseudoTeam,
             hash: r.hash,
             shard: r.shard,
@@ -59,10 +65,24 @@ export class ImageShardStore {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
+        private readonly writeTimeoutMs: number,
         nodeId?: string
     ) {
         // Stable per-pod id so concurrent writers can't collide on a key.
         this.nodeId = nodeId || process.env.HOSTNAME || randomUUID().slice(0, 8)
+    }
+
+    /** PutObject with a wall-clock timeout. The S3 client has no request timeout, so a hung write would
+     *  otherwise stall the poll loop past max.poll.interval.ms and get the consumer evicted; on timeout the
+     *  send aborts and writeShard throws, leaving the window to replay. */
+    private async send(command: PutObjectCommand): Promise<void> {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs)
+        try {
+            await this.s3.send(command, { abortSignal: controller.signal })
+        } finally {
+            clearTimeout(timer)
+        }
     }
 
     /** A whole flush's images (many teams) as one shard blob + one parquet index carrying pseudo_team per row.
@@ -86,7 +106,7 @@ export class ImageShardStore {
 
         // Shard first, then index: a dangling shard (index write failed) just wastes storage, whereas an
         // index pointing at a missing shard would break reads.
-        await this.s3.send(
+        await this.send(
             new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: shardKey,
@@ -94,7 +114,7 @@ export class ImageShardStore {
                 ContentType: 'application/octet-stream',
             })
         )
-        await this.s3.send(
+        await this.send(
             new PutObjectCommand({
                 Bucket: this.bucket,
                 Key: `${this.prefix}/index/${stamp}.parquet`,
