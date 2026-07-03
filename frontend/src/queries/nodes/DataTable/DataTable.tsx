@@ -15,6 +15,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -847,6 +848,20 @@ export function DataTable({
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
+    const showReadOnlyDateRangeRow =
+        isReadOnly &&
+        showDateRange &&
+        sourceFeatures.has(QueryFeature.dateRangePicker) &&
+        (!isHogQLQuery(query.source) || queryUsesFiltersPlaceholder(query.source.query))
+    const readOnlyDateRangeControl = showReadOnlyDateRangeRow ? (
+        <DateRange
+            key="date-range"
+            query={
+                query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery
+            }
+            setQuery={setQuerySource}
+        />
+    ) : null
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     const editorButton = (
@@ -871,6 +886,9 @@ export function DataTable({
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
+                    {showReadOnlyDateRangeRow && (
+                        <div className="flex gap-2 items-center flex-wrap">{readOnlyDateRangeControl}</div>
+                    )}
                     {showFirstRow && (
                         <div className="flex gap-2 items-center flex-wrap">
                             {firstRowLeft}
