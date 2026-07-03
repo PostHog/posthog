@@ -1815,11 +1815,9 @@ class TestSharedWarehouseDenialMessage(APIBaseTest):
         response = self._refresh_via_token(config)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert f"The {kind} owner ({self.user.email}) doesn't have access to table `governed_view`." in str(
-            response.json()
-        )
+        assert f"The {kind} owner doesn't have access to table `governed_view`." in str(response.json())
 
-    def test_denial_without_creator_omits_email(self):
+    def test_denial_with_deleted_creator_worded_the_same(self):
         self.insight.created_by = None
         self.insight.save()
         config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)

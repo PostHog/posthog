@@ -467,16 +467,14 @@ _TABLE_ACCESS_DENIED_PREFIX = "You don't have access"
 def _shared_denial_message(message: str, context: dict[str, Any]) -> str:
     """Reword warehouse access denials for anonymous viewers of a shared artifact.
 
-    Shared queries execute as the artifact's creator, so "you" is wrong and unactionable for an
-    anonymous viewer — name the owner whose access governs the link so they know whom to ask.
+    Shared queries execute as the artifact's creator, so "you" is wrong for an anonymous viewer —
+    attribute the denial to the owner instead. Deliberately no name/email: this renders on a
+    public page.
     """
     if not message.startswith(_TABLE_ACCESS_DENIED_PREFIX):
         return message
     kind = context.get("shared_artifact_kind") or "resource"
-    owner = context.get("shared_execution_user")
     rest = message.removeprefix(_TABLE_ACCESS_DENIED_PREFIX)
-    if owner is not None and owner.email:
-        return f"The {kind} owner ({owner.email}) doesn't have access{rest}"
     return f"The {kind} owner doesn't have access{rest}"
 
 
