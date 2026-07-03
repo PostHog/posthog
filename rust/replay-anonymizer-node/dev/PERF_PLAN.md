@@ -57,6 +57,24 @@ Porting that walk is the real path to the scrub floor: it removes parse + dedupe
 It is PII-sensitive: the fail-closed duplicate-key story changes shape (v2 scrubs *every* occurrence during the walk rather than re-serializing a deduped tree), so it needs the differential + fuzz corpus extended before it ships.
 Estimated ceiling if it lands: large DOM-heavy in-addon ~12–15 ms (≈ 4x vs TS), by-count unchanged (already scan-bound).
 
+## Tried and rejected: fusing scan_event into the byte walk
+
+The walk pays two structural passes (scan_event for span/routing/meta, then the walk). Fusing them
+into one emit-while-walking pass measured **flat on DOM-heavy (26.4 vs 26.3 ms) and a 22% regression
+on mousemove-heavy (8.2 vs 6.7 ms)**, and was reverted. Why: after the SWAR work, scan_event *skips*
+a snapshot's bytes at memchr speed (~1 ms/3 MB) — there was no second walk-grade pass to reclaim —
+while the fused routing pre-scans added real per-event cost to the ~90% of events that decline to
+the scan path. The two-pass structure is the right shape: a near-free skipping pass that routes,
+then walk-grade traversal only where scrubbing happens. (The attempt also surfaced that a fused
+walker must pre-check `data`'s shape for snapshots — a string could be a cv blob — which the
+fail-closed test caught; that check is inherent to any future re-attempt.)
+
+With the scrub-leaf work (bulk `write_json_string`, chunked redaction marks, allow-list length-mask
+rejects), the full-contract numbers are: large 26.1 ms (vs the MLHog-v2 engine's 34.8 on the same
+contract, and the tree's ~23 with outer work), medium 8.8 ms. The remaining profile is dominated by
+`scrub_text` + `skip_string` + emission — i.e. genuine scrub work; we are near the floor for this
+contract on M4.
+
 ## Remaining TS-side work (from the framework audit)
 
 Nothing on the `useRustAnonymizer` path parses the Kafka payload in TS anymore. What's left, by cost:
