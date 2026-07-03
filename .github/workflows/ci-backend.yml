@@ -1222,6 +1222,9 @@ jobs:
                       echo "Primed posthog DB from cached master schema"
                   else
                       echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
+                      # Terminate lingering sessions first or DROP DATABASE fails
+                      # (same guard as _recreate_database in hogli's db_schema.py).
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog' AND pid <> pg_backend_pid();"
                       docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "DROP DATABASE IF EXISTS posthog;"
                       docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "CREATE DATABASE posthog;"
                   fi
