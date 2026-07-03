@@ -249,10 +249,13 @@ class TestOpenfdaSource:
         )
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
-        # Ascending sort must be declared so the pipeline checkpoints the watermark correctly.
-        assert response.sort_mode == "asc"
         if partition_key is None:
+            # Full-refresh endpoint: no sort requested, so arrival order is undefined.
             assert response.partition_mode is None
+            assert response.sort_mode is None
         else:
+            # Incremental endpoint: ascending sort must be declared so the pipeline checkpoints the
+            # watermark correctly, and the stable date field partitions the table.
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
+            assert response.sort_mode == "asc"

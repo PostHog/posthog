@@ -36,6 +36,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -154,6 +155,9 @@ def validate_credentials(api_key: str | None) -> bool:
         session = make_tracked_session(
             redact_values=(api_key,) if api_key else (),
             allow_redirects=False,
+            # Disable urllib3 adapter retries — a slow/unreachable endpoint shouldn't hang the
+            # connect-time UI probe for minutes.
+            retry=Retry(total=0),
         )
         response = session.get(url, headers=_get_headers(), auth=_make_auth(api_key), timeout=30)
         return response.status_code == 200
@@ -184,6 +188,9 @@ def get_rows(
     session = make_tracked_session(
         redact_values=(api_key,) if api_key else (),
         allow_redirects=False,
+        # `_fetch_page` already retries 429/5xx and connection errors via tenacity, so disable the
+        # urllib3 adapter retries — otherwise the two layers stack and multiply the backoff.
+        retry=Retry(total=0),
     )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -237,9 +244,10 @@ def openfda_source(
             incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
-        # Rows arrive oldest-first (sort=<field>:asc) for incremental endpoints, so the watermark
-        # advances safely after each batch.
-        sort_mode="asc",
+        # Incremental endpoints request sort=<field>:asc so rows arrive oldest-first and the watermark
+        # advances safely after each batch. Full-refresh endpoints add no sort (they page on the bare
+        # cursor), so their arrival order is undefined — don't claim "asc" for them.
+        sort_mode="asc" if config.incremental_field else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
