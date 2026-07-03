@@ -154,12 +154,17 @@ pub struct AnonymizeOpts {
     /// streaming's scan+parse duplication when most bytes get parsed anyway). The differential
     /// tests turn this off so the streaming path is the one being exercised.
     pub adaptive_routing: bool,
+    /// Scrub the bulk routes (snapshots, mutations, inputs) with the parse-free byte walk
+    /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
+    /// back to the parse per event.
+    pub byte_walk: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
         Self {
             adaptive_routing: true,
+            byte_walk: true,
         }
     }
 }
@@ -953,17 +958,55 @@ fn process_event_at(
     }
 
     // Incremental events only route to a scrubber for mutation/input/canvas sources.
-    if ty == Some(TYPE_INCREMENTAL) {
-        let source = es
-            .source
-            .and_then(|s| scan::parse_number(inner, s))
-            .and_then(to_small_uint);
-        if !matches!(
+    let source = es
+        .source
+        .and_then(|s| scan::parse_number(inner, s))
+        .and_then(to_small_uint);
+    if ty == Some(TYPE_INCREMENTAL)
+        && !matches!(
             source,
             Some(SOURCE_MUTATION) | Some(SOURCE_INPUT) | Some(SOURCE_CANVAS_MUTATION)
-        ) {
-            pass_through(inner, span, ts, ty, Some(&es), sink);
-            return Ok(EventStep::Next(end));
+        )
+    {
+        pass_through(inner, span, ts, ty, Some(&es), sink);
+        return Ok(EventStep::Next(end));
+    }
+
+    // Parse-free byte walk first: the bulk routes get scrubbed straight from the bytes, with
+    // unchanged values copied verbatim. The walk proves every object duplicate-key-free as it goes,
+    // which is what makes emitting original bytes safe (no shadowed duplicate content can survive);
+    // anything it can't prove — escaped keys, cv payloads, canvas/meta/custom/plugin routes — is
+    // declined and handled by the parse below. The walk never mutates the buffer, so falling
+    // through (and adaptive routing) stay sound.
+    if opts.byte_walk {
+        let mark = sink.lines.len();
+        sink.open_line();
+        sink.lines.extend_from_slice(&inner[span.0..data.0]);
+        let data_mark = sink.lines.len();
+        match crate::bytewalk::scrub_data_bytes(ctx, ty, source, compressed, inner, data, &mut sink.lines)
+        {
+            Some(changed) => {
+                if !changed {
+                    // Nothing changed and the span is proven dup-free: keep the original bytes.
+                    sink.lines.truncate(data_mark);
+                    sink.lines.extend_from_slice(&inner[data.0..data.1]);
+                }
+                sink.lines.extend_from_slice(&inner[data.1..span.1]);
+                sink.close_line();
+                // These routes never scrub data.href/source/type, so the scanned (pre-scrub)
+                // values equal what the tree path reads post-scrub.
+                let interaction = es
+                    .interaction
+                    .and_then(|s| scan::parse_number(inner, s))
+                    .and_then(to_small_uint);
+                sink.events.push(EventMeta {
+                    ts,
+                    flags: flags_of(ty, source, interaction),
+                    href: scanned_href(inner, &es),
+                });
+                return Ok(EventStep::Next(end));
+            }
+            None => sink.lines.truncate(mark),
         }
     }
 

@@ -10,7 +10,10 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use replay_anonymizer_node::{anonymize_kafka_payload, anonymize_message, AllowLists, Ctx};
+use replay_anonymizer_node::{
+    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_message, AllowLists,
+    AnonymizeOpts, Ctx,
+};
 use simd_json::prelude::*;
 
 fn p50<F: FnMut()>(warmup: usize, n: usize, mut f: F) -> f64 {
@@ -91,6 +94,14 @@ fn main() {
             let mut b = payload.clone();
             black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
         });
+        let no_walk = AnonymizeOpts {
+            adaptive_routing: false,
+            byte_walk: false,
+        };
+        let stream_simd = p50(3, n, || {
+            let mut b = payload.clone();
+            black_box(anonymize_kafka_payload_opts(&allow, &mut b, no_walk).unwrap());
+        });
         let ctx = Ctx::new(&allow);
         let tree = p50(3, n, || {
             black_box(
@@ -103,7 +114,8 @@ fn main() {
             );
         });
         println!("\n===== mousemove-heavy: {mb:.1} MB, 12k events =====");
-        println!("STREAM anonymize_kafka_payload       = {stream:.1} ms");
+        println!("STREAM anonymize_kafka_payload       = {stream:.1} ms   (byte walk)");
+        println!("       simd scrub route (walk off)   = {stream_simd:.1} ms");
         println!("TREE   anonymize_via_tree            = {tree:.1} ms   (no outer parse)");
     }
 
@@ -156,6 +168,14 @@ fn main() {
         let stream = p50(3, n, || {
             let mut b = payload.clone();
             black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
+        });
+        let no_walk = AnonymizeOpts {
+            adaptive_routing: false,
+            byte_walk: false,
+        };
+        let stream_simd = p50(3, n, || {
+            let mut b = payload.clone();
+            black_box(anonymize_kafka_payload_opts(&allow, &mut b, no_walk).unwrap());
         });
         // Streaming minus the outer-envelope parse: what the scan+splice itself costs (plus one
         // buffer clone — the in-place path consumes its input).
@@ -219,6 +239,7 @@ fn main() {
             "STREAM anonymize_kafka_payload       = {stream:.1} ms   (production byte path, routed: {})",
             route.as_str()
         );
+        println!("       simd scrub route (walk off)   = {stream_simd:.1} ms");
         println!(
             "       inner only (no outer parse)   = {stream_inner:.1} ms   -> outer envelope parse ~= {:.1} ms",
             stream - stream_inner

@@ -24,7 +24,7 @@ pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object<'_>, key: &str) ->
     }
 }
 
-fn rewrite(ctx: &Ctx<'_>, css: &str) -> Option<String> {
+pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str) -> Option<String> {
     let bytes = css.as_bytes();
     let mut out = String::new();
     let mut last = 0usize;

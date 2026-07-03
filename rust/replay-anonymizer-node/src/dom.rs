@@ -24,14 +24,14 @@ const NODE_CDATA: u8 = 4;
 const NODE_COMMENT: u8 = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ParentKind {
+pub(crate) enum ParentKind {
     Script,
     Style,
     Other,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TagKind {
+pub(crate) enum TagKind {
     Script,
     Style,
     Media,
@@ -184,7 +184,7 @@ fn scrub_text_content(ctx: &Ctx<'_>, obj: &mut Object<'_>) -> bool {
     }
 }
 
-fn classify_tag(tag: &str) -> TagKind {
+pub(crate) fn classify_tag(tag: &str) -> TagKind {
     if tag.eq_ignore_ascii_case("script") {
         TagKind::Script
     } else if tag.eq_ignore_ascii_case("style") {
@@ -252,7 +252,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
     changed
 }
 
-fn is_user_text_attr(name: &str) -> bool {
+pub(crate) fn is_user_text_attr(name: &str) -> bool {
     matches!(
         name,
         "alt"
@@ -269,16 +269,16 @@ fn is_user_text_attr(name: &str) -> bool {
     )
 }
 
-fn is_data_attr(name: &str) -> bool {
+pub(crate) fn is_data_attr(name: &str) -> bool {
     name.starts_with("data-") && !name.starts_with("data-anon-original-")
 }
 
-fn data_attr_looks_sensitive(value: &str) -> bool {
+pub(crate) fn data_attr_looks_sensitive(value: &str) -> bool {
     // Free text (whitespace) or an email-ish token — not a single enum/state/id token.
     value.contains('@') || value.chars().any(char::is_whitespace)
 }
 
-fn is_url_attr(name: &str) -> bool {
+pub(crate) fn is_url_attr(name: &str) -> bool {
     matches!(
         name,
         "href"

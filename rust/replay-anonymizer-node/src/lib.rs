@@ -14,6 +14,7 @@
 pub mod allow_lists;
 pub mod assets;
 pub mod blur;
+pub mod bytewalk;
 pub mod canvas;
 pub mod context;
 pub mod css;
@@ -21,6 +22,8 @@ pub mod cv;
 pub mod dom;
 pub mod event;
 pub mod json;
+#[cfg(feature = "mlhog-bench")]
+pub mod mlhog;
 pub mod scan;
 pub mod snapshot;
 pub mod text;

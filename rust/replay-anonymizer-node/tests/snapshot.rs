@@ -301,12 +301,23 @@ fn adaptive_routing_only_takes_the_tree_before_any_in_place_parse() {
         ]},
         "initialOffset": { "top": 0, "left": 0 }
     }});
+    // The byte walk handles snapshots without parsing, so routing only governs its fallback path —
+    // pin these cases with the walk off.
+    let opts = AnonymizeOpts {
+        adaptive_routing: true,
+        byte_walk: false,
+    };
+    let run_opts = |payload: &str| {
+        let mut bytes = payload.as_bytes().to_vec();
+        anonymize_kafka_payload_opts(&allow, &mut bytes, opts)
+    };
+
     // The realistic message shape: a small scrub-routed Meta event precedes the snapshot. It must
     // parse from scratch (not in place), or adaptive routing could never fire in production.
     let meta_event =
         json!({ "type": 4, "timestamp": TS0, "data": { "href": "https://x.example.com/p", "width": 1, "height": 1 } });
-    let dominated = payload_of(&snapshot_message(json!([meta_event, big_snapshot])));
-    let out = run(&allow, &dominated).expect("anonymizes");
+    let dominated = payload_of(&snapshot_message(json!([meta_event, big_snapshot.clone()])));
+    let out = run_opts(&dominated).expect("anonymizes");
     assert_eq!(out.route, Route::Tree, "snapshot-dominated routes to tree");
 
     // A scrub-routed event too big for the scratch budget has already consumed its span in place —
@@ -317,9 +328,17 @@ fn adaptive_routing_only_takes_the_tree_before_any_in_place_parse() {
     }});
     let mutated_first =
         payload_of(&snapshot_message(json!([big_input, big_snapshot.clone()])));
-    let out = run(&allow, &mutated_first).expect("must not abort after an in-place parse");
+    let out = run_opts(&mutated_first).expect("must not abort after an in-place parse");
     assert_eq!(out.route, Route::Stream, "mutated buffer stays on stream");
     assert_eq!(parse_lines(&out.lines).len(), 2);
+
+    // With the walk on (the default), the same dominated message never needs the tree.
+    let dominated_walk = payload_of(&snapshot_message(json!([
+        json!({ "type": 4, "timestamp": TS0, "data": { "href": "https://x.example.com/p", "width": 1, "height": 1 } }),
+        big_snapshot
+    ])));
+    let out = run(&allow, &dominated_walk).expect("anonymizes");
+    assert_eq!(out.route, Route::Stream, "the byte walk keeps snapshots on stream");
 }
 
 // ---------------------------------------------------------------------------
@@ -369,35 +388,41 @@ impl Rng {
 
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
-    let mut bytes = payload.as_bytes().to_vec();
-    // Adaptive routing off: the differential must pin the *streaming* path against the tree, not
-    // let snapshot-dominated cases silently compare the tree against itself.
-    let stream = anonymize_kafka_payload_opts(
-        allow,
-        &mut bytes,
-        AnonymizeOpts {
-            adaptive_routing: false,
-        },
-    );
-
     let ctx = Ctx::new(allow);
     let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    match (stream, tree) {
-        (Ok(s), Ok(t)) => {
-            let s_lines = parse_lines(&s.lines);
-            let t_lines = parse_lines(&t.lines);
-            assert_eq!(s_lines, t_lines, "lines diverged: {label}");
-            assert_eq!(s.meta, t.meta, "meta diverged: {label}");
+    // Adaptive routing off: the differential must pin the *streaming* implementations against the
+    // tree, not let snapshot-dominated cases silently compare the tree against itself. Both scrub
+    // engines are pinned: the parse-free byte walk (with its per-event fallbacks) and the simd path.
+    for byte_walk in [true, false] {
+        let mut bytes = payload.as_bytes().to_vec();
+        let stream = anonymize_kafka_payload_opts(
+            allow,
+            &mut bytes,
+            AnonymizeOpts {
+                adaptive_routing: false,
+                byte_walk,
+            },
+        );
+        match (&stream, &tree) {
+            (Ok(s), Ok(t)) => {
+                let s_lines = parse_lines(&s.lines);
+                let t_lines = parse_lines(&t.lines);
+                assert_eq!(s_lines, t_lines, "lines diverged (walk={byte_walk}): {label}");
+                assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
+            }
+            (Err(s), Err(t)) => {
+                assert_eq!(
+                    s.kind, t.kind,
+                    "failure kind diverged (walk={byte_walk}): {label}"
+                );
+            }
+            (s, t) => panic!(
+                "outcome diverged (walk={byte_walk}) for {label}: stream={:?} tree={:?}",
+                s.as_ref().map(|m| parse_lines(&m.lines)),
+                t.as_ref().map(|m| parse_lines(&m.lines)),
+            ),
         }
-        (Err(s), Err(t)) => {
-            assert_eq!(s.kind, t.kind, "failure kind diverged: {label}");
-        }
-        (s, t) => panic!(
-            "outcome diverged for {label}: stream={:?} tree={:?}",
-            s.map(|m| parse_lines(&m.lines)),
-            t.map(|m| parse_lines(&m.lines)),
-        ),
     }
 }
 
