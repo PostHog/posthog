@@ -27,6 +27,8 @@ def build(handle: SourceHandle) -> BuiltQuery:
     events_query = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["person", "id"])),
+            # toString keeps subscription_id a string even when the property holds numeric values —
+            # otherwise HogQL types it as Float64 and downstream nullIf(subscription_id, '') fails in ClickHouse
             ast.Alias(
                 alias="subscription_id",
                 expr=ast.Call(name="toString", args=[ast.Field(chain=["properties", event.subscriptionProperty])]),
