@@ -15,11 +15,27 @@ const DIFF_STYLE_OPTIONS = [
 ]
 
 /**
+ * The report's branch as a git-branch tag. Rendered in the "Files changed" tab label (so the tab
+ * signals there's code behind it, GitHub-style) — inside the LemonTabs active tab it picks up the
+ * accent color for free.
+ */
+export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX.Element {
+    return (
+        <Tooltip title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}>
+            <LemonTag type="muted" className="font-mono min-w-0">
+                <IconGitBranch className="shrink-0" />
+                <span className="truncate">{commit.branch}</span>
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
+/**
  * "Files changed" tab body: the report's branch diff against the repository default branch, rendered
- * GitHub-style and read-only. The tab already labels this, so the panel leads with a compact toolbar
- * (branch context on the left, unified/split toggle on the right) rather than a titled section. The
- * diff itself is loaded by `inboxReportDetailLogic` (keyed to the report, cascading off the artefact
- * load) — this component just renders the current state, tracking the branch tip as the work moves.
+ * GitHub-style and read-only. The tab already labels this and carries the branch tag, so the panel
+ * leads with just the unified/split toggle rather than a titled section. The diff itself is loaded by
+ * `inboxReportDetailLogic` (keyed to the report, cascading off the artefact load) — this component
+ * just renders the current state, tracking the branch tip as the work moves.
  */
 export function PullRequestDiffPanel({ report, commit }: { report: SignalReport; commit: CommitContent }): JSX.Element {
     const { reportDiff, reportDiffError } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
@@ -27,14 +43,7 @@ export function PullRequestDiffPanel({ report, commit }: { report: SignalReport;
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-                <Tooltip title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}>
-                    <LemonTag type="muted" className="font-mono min-w-0">
-                        <IconGitBranch className="shrink-0" />
-                        <span className="truncate">{commit.branch}</span>
-                    </LemonTag>
-                </Tooltip>
-                <div className="flex-1" />
+            <div className="flex items-center justify-end min-w-0">
                 <LemonSegmentedButton
                     size="small"
                     value={diffStyle}

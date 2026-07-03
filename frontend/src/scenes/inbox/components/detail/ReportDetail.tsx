@@ -35,7 +35,7 @@ import {
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
-import { PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -244,6 +244,8 @@ interface InboxDetailFrameProps {
     primaryAction?: ReactNode
     /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
     diffSection?: ReactNode
+    /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
+    diffBranchTag?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -260,6 +262,7 @@ export function InboxDetailFrame({
     summary,
     primaryAction,
     diffSection,
+    diffBranchTag,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
@@ -434,7 +437,16 @@ export function InboxDetailFrame({
                     onChange={setActiveDetailTab}
                     tabs={[
                         { key: 'overview', label: 'Overview', content: overviewBody },
-                        { key: 'files', label: 'Files changed', content: <>{diffSection}</> },
+                        {
+                            key: 'files',
+                            label: (
+                                <span className="flex items-center gap-1.5">
+                                    <span>Files changed</span>
+                                    {diffBranchTag}
+                                </span>
+                            ),
+                            content: <>{diffSection}</>,
+                        },
                     ]}
                 />
             ) : (
@@ -490,6 +502,9 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                 canDiff && commit && latestCommitArtefact ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
                 ) : undefined
+            }
+            diffBranchTag={
+                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
             }
         />
     )
