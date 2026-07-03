@@ -909,9 +909,9 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 
 
 @pytest.mark.parametrize(
-    "observed_error,expected_key",
+    "observed_error,expected_key,expected_word",
     [
-        # Writing into a PostHog temp table needs bigquery.tables.update...
+        # Overwriting a PostHog temp table — denied with bigquery.tables.update on the table.
         (
             str(
                 Forbidden(
@@ -920,8 +920,9 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
                 )
             ),
             "bigquery.tables.update",
+            "write access",
         ),
-        # ...and creating it needs bigquery.tables.create.
+        # Creating a PostHog temp table — denied with bigquery.tables.create on the dataset.
         (
             str(
                 Forbidden(
@@ -930,18 +931,20 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
                 )
             ),
             "bigquery.tables.create",
+            "create",
         ),
     ],
 )
-def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key):
-    # These denials also contain "Access Denied:", so both keys match. external_data_job surfaces the
-    # first matching key's message, so each write-specific key must sit above "Access Denied:" —
-    # otherwise the customer is told to grant read access to fix a write failure.
+def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
+    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
+    # write-specific key match. external_data_job surfaces the first matching key's message, so the
+    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
+    # access to fix a write/create failure.
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
     assert first_key == expected_key
     assert friendly is not None
-    assert "write access" in friendly
+    assert expected_word in friendly
 
 
 @pytest.mark.parametrize(
