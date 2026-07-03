@@ -33,6 +33,10 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
+    VALIDATION_INITIAL_PERMISSION_MODE,
+    VALIDATION_MODEL,
+    VALIDATION_REASONING_EFFORT,
+    VALIDATION_RUNTIME_ADAPTER,
     effective_priority,
     published_priorities_for,
 )
@@ -878,6 +882,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             system_prompt=VALIDATION_SYSTEM_PROMPT,
                             model_to_validate=IssueValidation,
                             step_name=f"validation-c{input.chunk_id}",
+                            runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
+                            model=VALIDATION_MODEL,
+                            reasoning_effort=VALIDATION_REASONING_EFFORT,
+                            initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
                         )
                     else:
                         validation = await continue_sandbox_session(

@@ -9,6 +9,14 @@ REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
 REVIEW_INITIAL_PERMISSION_MODE = None
 
+# VALIDATION MODEL
+# Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
+# default effort (the behavior before this knob existed); set all three to pin, like the review pins.
+VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
+VALIDATION_MODEL: str | None = "claude-sonnet-5"
+VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
 # sandbox-turn activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`. The true global

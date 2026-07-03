@@ -102,15 +102,31 @@ async def start_sandbox_session(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str = "",
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
 ) -> tuple[MultiTurnSession, _ModelT]:
     """Open a multi-turn sandbox session and return it with its first validated turn.
 
     The caller drives further turns via ``continue_sandbox_session`` and MUST ``end_sandbox_session``
     it (usually in a ``finally``). ``start`` self-ends if the first turn fails to validate, so a raised
     exception never leaves the caller a live session to clean up.
+
+    ``runtime_adapter`` / ``model`` / ``reasoning_effort`` / ``initial_permission_mode`` pin the
+    session's LLM exactly like ``run_sandbox_review``'s kwargs; all-``None`` keeps the agent server's
+    default. The pin applies to the whole session — every follow-up turn runs on the opener's model.
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
-    context = CustomPromptSandboxContext(team_id=team_id, user_id=user_id, repository=repository)
+    context = CustomPromptSandboxContext(
+        team_id=team_id,
+        user_id=user_id,
+        repository=repository,
+        model=model,
+        runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
+        initial_permission_mode=initial_permission_mode,
+    )
     try:
         return await MultiTurnSession.start(
             prompt=full_prompt,

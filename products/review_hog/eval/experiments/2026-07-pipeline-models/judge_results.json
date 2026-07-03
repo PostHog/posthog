@@ -1,0 +1,253 @@
+{
+    "protocol": "One LLM judge per dump (same as prior rounds): root-cause matching vs the old ReviewHog's 10 findings; every unmatched dump finding classified new_plausible/new_junk against the PR diff; NEW this round — each judge also assesses VALIDATOR VERDICT CORRECTNESS (the round's subject) and takes a position on the contested 'list_actions object-level access control' finding family. Judge calls are UNREVIEWED by a human. CROSS-JUDGE SPLIT, now 3-3 across both rounds: A1/B1/C1/F2 judges REFUTE the access-control finding (strongest form, F2 judge: minimum_access_level('action')=='viewer' shipped in the same commit 328cc484865 that made actions access-controlled, so 'none' rows can never have existed and filter_queryset_by_access_level is a no-op for actions); A2/B2/F1 judges VALIDATE it (strongest form, F1 judge: filter_queryset_by_access_level's standard branch excludes object-level-'none'-blocked ids regardless of resource-level access, ActionViewSet includes AccessControlViewSetMixin, and the PR's own get_action enforces check_object_access, so list-vs-get is internally inconsistent). NEEDS HUMAN ADJUDICATION before anyone acts on it.",
+    "suppressed": [],
+    "runs": [
+        {
+            "label": "C-sonnet5val-xhigh-1",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "CreateActionTool/UpdateActionTool have no length bound on `name`, so a name over 400 chars raises an unhandled DataError instead of a retryable ActionToolError — a gap the REST path doesn't have"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions has no lower-bound validation on limit/offset, causing a crash or silent wrong result"
+                },
+                { "num": 4, "status": "missed" },
+                {
+                    "num": 5,
+                    "status": "caught_valid",
+                    "matched_title": "UpdateActionTool never treats a full steps-replacement as a dangerous operation, unlike the established UpsertDashboardTool precedent for destructive updates"
+                },
+                { "num": 6, "status": "missed" },
+                {
+                    "num": 7,
+                    "status": "caught_invalidated",
+                    "matched_title": "No upper bound on `steps`/`properties` size for create_action/update_action, unlike the explicitly capped list_actions"
+                },
+                { "num": 8, "status": "missed" },
+                { "num": 9, "status": "missed" },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "New action tools break the established one-icon-per-entity convention",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "core.py's mutating functions perform no authorization of their own — safety depends entirely on the caller remembering to check first",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Check-then-act race on action name uniqueness has no DB backstop",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions fetches full rows including the unused bytecode/embedding columns for every page",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "create_action's resource-limit check adds a query but never actually bounds agent-driven creation",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions / get_action_object filter by `team=` object, bypassing the RootTeamQuerySet parent-team remap that writes and the name check rely on",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "ActionStepInput selector/tag_name/text/href are silently dropped unless event is '$autocapture', but the descriptions don't say so",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Yardstick: 4/10 caught (3 valid + old#7 dismissed); missed 1,4,6,8,9,10 — the chunk-2 (subagent exposure) and chunk-3 (DEFAULT_TOOL_KEYS, Markdown injection) yardstick sets missed entirely, plus activity attribution. Matching caveats: old#2 catch is the length-validation half only (trim-normalization missed); the 'core.py no self-auth' finding is NOT old#4 (undocumented auth contract vs resource-editor preflight blocking object-level grants — verified _check_resource_access uses only check_access_level_for_resource, so old#4 remains a distinct miss); the .only() projection finding is NOT old#6 (DB column fetch cost vs unbounded rendered output). VALIDATOR QUALITY (sonnet-5 @ xhigh): 11 verdicts, judged 10-10.5/11 correct — every load-bearing claim spot-checked in-repo was accurate (RootTeamQuerySet remaps only the team_id kwarg with the exact TODO; no (team,name) unique constraint on Action; ActionSerializer does the same check-then-act; steps_to_expr compiles element logic only under event=='$autocapture'; is_dangerous_operation defaults False with UpsertDashboardTool precedent). Probes: old#3 correctly VALID; the access-control family is absent from this dump (judge sides with the refuters, so its absence costs nothing). The old#7 dismissal is the one arguable call (defensible precision-over-recall; forfeits a yardstick catch). NOTABLE FIRST: the validator ESCALATED the team=/team_id= environments-remap bug to must_fix — fully verified and justified; prior rounds observed the raise capability never fires. #5 caught VALID = its 2nd-ever validation (3rd-ever surface)."
+        },
+        {
+            "label": "F-fable5-low-1",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action names are stored unstripped, so whitespace variants bypass the duplicate-name check"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative limit/offset from the LLM crashes list_actions with an unhandled exception instead of a retryable error"
+                },
+                { "num": 4, "status": "missed" },
+                {
+                    "num": 5,
+                    "status": "caught_invalidated",
+                    "matched_title": "update_action can destructively wipe or invert an action's semantics without the approval gate that delete gets"
+                },
+                {
+                    "num": 6,
+                    "status": "caught_invalidated",
+                    "matched_title": "Action descriptions are rendered untruncated in list output, weakening the context-window cap the tool is designed around"
+                },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_invalidated",
+                    "matched_title": "New default action tools are not added to DEFAULT_TOOL_KEYS, so the frontend 'default tools' capability listing omits them"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "Delete approval flow fetches the action and runs the object access check twice",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Unbounded action name interpolated into tool status label",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Unvalidated `properties: list[dict]` can persist malformed property filters and crash save() unhandled",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Stored action names/descriptions are rendered verbatim into the agent's context",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions exposes actions the user is denied object-level access to",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination ordering is not fully deterministic for unnamed actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Delete approval flow re-runs preview kwargs after user-modified payload without revalidating action_id type",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "delete_action and get_action display labels never identify which action is affected",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Duplicate-name check and save are not atomic — concurrent creates/updates can produce duplicate action names",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Max-path action CRUD skips the `report_user_action` product analytics the REST path emits",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Element-matching step fields are silently ignored unless event is \"$autocapture\", turning steps into match-all",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Malformed LLM-supplied property filters are silently compiled to a match-everything constant",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Matching: 5/10 old findings surfaced by root cause (2 valid, 3 dismissed), 5 missed (1,4,7,8,10). Old#2 partial — nails the unstripped-name/duplicate-bypass half (the OTHER half from every prior partial catch), omits max_length. Old#10 is a verified NEAR-MISS, not a match: dump finding 2 hits the same interpolation site but claims a cosmetic length defect and explicitly disclaims injection; judge verified the Markdown-image exfiltration vector IS real (LangGraphActivity → MarkdownMessage → LemonMarkdown.Renderer with images enabled) and the validator's 'React escapes strings' dismissal rationale is factually wrong. Volume verdict: the 25-raw record is a MIX — genuine new breadth in the valid set (5 verified novel findings incl. two silent match-all correctness bugs confirmed in posthog/hogql/property.py: element fields ignored without $autocapture, and strict=False property_to_expr degrading malformed dicts to Constant(1)) but ordinary yardstick coverage; the dismissed tail is mostly real noise (self-conceding, cosmetic, platform-wide). VALIDATOR QUALITY (fable-5 @ low): ~15/17 correct — all 7 validations correct; wrong-leaning dismissals: old#6 (the PR's own bounded-context claim doesn't hold against an unbounded TextField; old ReviewHog validated it) and debatably old#5 (delete is approval-gated in the same PR while equally destructive steps-replacement is not). Probes: old#3 correctly VALID. Access-control family: THIS judge sides with the VALIDATORS (see protocol note for the argument)."
+        },
+        {
+            "label": "F-fable5-low-2",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action name length is unvalidated — names over 400 chars raise an unhandled DataError instead of a retryable tool error"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Unvalidated `limit`/`offset` can crash `list_actions` with an uncaught ValueError"
+                },
+                { "num": 4, "status": "missed" },
+                { "num": 5, "status": "missed" },
+                { "num": 6, "status": "missed" },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_valid",
+                    "matched_title": "New action tools missing from DEFAULT_TOOL_KEYS, so they never appear in the default tool listing UI"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "_STEP_FIELDS filtering in to_step_dict is dead code with a misleading justification comment",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions bypasses object-level access controls, exposing restricted actions",
+                    "verdict_valid": true,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Pagination ordering by name alone is non-deterministic, so pages can skip or duplicate actions",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Name-uniqueness check is check-then-write with no DB constraint (race under concurrent creates)",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions search and ordering have no supporting index",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Redis publish in post_save can fail after the row is committed, reporting failure for a successful write",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Delete confirmation flow performs the action fetch + access check twice per invocation",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Detailed action rendering collapses property filters to a count, so the get_action → update_action round-trip silently drops them",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Malformed step property filters are silently dropped, so the created action over-matches while the tool reports success",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Max tool writes skip the REST path's report_user_action product analytics events",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Catches: 3/10 valid (#2 partial — length half; #3 probe correctly VALID; #9 exact, soft-downgraded to consider defensibly). All misses real: chunk 3 produced 0 raw issues from 3 of its 4 review units (so #10 never surfaced) and chunk 2 missed the subagent gap (#8). Root-cause rulings: the get→update property-filter round-trip-loss finding shares consequence with #5 but roots in lossy rendering, not the missing approval gate — not a catch; the list access finding is exposure-on-read, not #4's false-denial — not a catch. CALIBRATION PROBE: this judge REFUTES the access-control family with the strongest evidence yet — minimum_access_level('action')=='viewer' shipped in the SAME commit (328cc484865) that made actions access-controlled, so 'none' rows (resource- or object-level) can never have existed for actions, making filter_queryset_by_access_level a no-op for them and the claimed trigger unreachable; the validator's must_fix VALID (the run's only must_fix) is therefore judged over-permissive — hence its new_junk despite verdict_valid=true. VALIDATOR QUALITY (fable-5 @ low): 12/13 correct — all 5 dismissals correct with precise grounded argumentation (traced the ValueError to the generic except in executables.py; two defensible soft-downgrades); sole error = the contested access finding. Volume verdict: real breadth on chunk 1, not across the PR; of the 8 headline VALIDs, 7 are genuinely valid per the judge — the get→update round-trip loss and the strict=False over-match are genuinely strong new findings, both verified against posthog/hogql/property.py."
+        }
+    ]
+}
