@@ -6,7 +6,6 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import sync_to_async
-from google.genai import Client as RawGenAIClient
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
@@ -62,6 +61,9 @@ async def _classify_workflow(temporal: Client, workflow_id: str) -> str:
 @activity.defn
 async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     """Reclaims orphaned Gemini files. Failures counted, never raised."""
+    # Kept off module scope so the Gemini SDK (slow to import) stays off the Django boot path.
+    from google.genai import Client as RawGenAIClient  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+
     raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
     temporal = await async_connect()
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE

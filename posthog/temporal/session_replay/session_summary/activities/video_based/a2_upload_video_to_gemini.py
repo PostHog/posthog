@@ -8,10 +8,6 @@ from django.conf import settings
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
-from google.genai import (
-    Client as RawGenAIClient,
-    types,
-)
 
 from posthog.schema import ReplayInactivityPeriod
 
@@ -44,6 +40,12 @@ async def upload_video_to_gemini_activity(
     Tracking happens before the ACTIVE-wait so a polling timeout still leaves the file visible
     to the sweep. On track failure the just-uploaded file is deleted inline.
     """
+    # Kept off module scope so the Gemini SDK (slow to import) stays off the Django boot path.
+    from google.genai import (  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+        Client as RawGenAIClient,
+        types,
+    )
+
     workflow_id = temporalio.activity.info().workflow_id
     if workflow_id is None:
         raise RuntimeError("activity has no workflow_id")

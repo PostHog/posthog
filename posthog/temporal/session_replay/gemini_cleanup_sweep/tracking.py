@@ -5,7 +5,6 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 
 import structlog
-from google.genai.errors import APIError
 
 from posthog.redis import get_async_client
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
@@ -23,6 +22,9 @@ def is_gemini_file_gone(error: Exception) -> bool:
     """Whether a Gemini delete failure means the file no longer exists. Gemini reports missing
     files as 403 PERMISSION_DENIED ("...or it may not exist"), not just 404 — callers should
     untrack on either instead of retrying a doomed delete."""
+    # Kept off module scope so the Gemini SDK (slow to import) stays off the Django boot path.
+    from google.genai.errors import APIError  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+
     return isinstance(error, APIError) and error.code in (403, 404)
 
 

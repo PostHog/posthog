@@ -5,8 +5,6 @@ from typing import Any, cast
 from django.conf import settings
 
 import temporalio
-from google.genai import types
-from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.session_replay.session_summary.state import (
@@ -35,6 +33,10 @@ async def analyze_video_segment_activity(
     trace_id: str,
     team_name: str,
 ) -> list[VideoSegmentOutput]:
+    # Kept off module scope so the Gemini SDK (slow to import) stays off the Django boot path.
+    from google.genai import types  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+    from posthoganalytics.ai.gemini import genai  # noqa: PLC0415 — pulls in google.genai; keep it off the boot path
+
     try:
         events_context = ""
         if not inputs.redis_key_base:

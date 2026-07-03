@@ -71,6 +71,47 @@ def test_django_setup_does_not_import_heavy_subsystems() -> None:
     )
 
 
+# ``django.setup()`` above does NOT load the URLconf, so the bare-setup guard is blind to imports
+# that only ride in via URL resolution (which every web worker and ``manage.py check`` pays). The
+# canonical culprit is the Gemini SDK (``google.genai``): ``types.py`` triggers slow pydantic schema
+# generation, and it was dragged onto the boot path because ``session_recording_api`` (reachable from
+# URL loading) imports the session-summary Temporal workflow at module scope, whose package
+# ``__init__`` eagerly pulls every video activity — several of which imported ``google.genai`` at
+# module level. This reproduces that exact import (the one at ``session_recording_api.py`` line 115)
+# and asserts it no longer drags in the SDK: the Gemini imports must be deferred into the activities
+# that run them. Guarding the specific chain rather than the whole URLconf keeps this from flapping on
+# unrelated Gemini callers that only load lazily via the API router.
+_WORKFLOW_IMPORT_GENAI = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+import sys
+import importlib
+importlib.import_module("posthog.temporal.session_replay.session_summary.workflow")
+print("\\n".join(sorted(m for m in sys.modules if m == "google.genai" or m.startswith("google.genai."))))
+"""
+
+
+def test_session_summary_workflow_import_does_not_pull_gemini_sdk() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _WORKFLOW_IMPORT_GENAI],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"django.setup() or the workflow import failed:\n{result.stderr[-2000:]}"
+    loaded = [m for m in result.stdout.splitlines() if m]
+    assert not loaded, (
+        f"Importing the session-summary workflow dragged the Gemini SDK onto the import path: {loaded}. "
+        "session_recording_api imports this workflow at module scope, so a module-level "
+        "'from google.genai import ...' (or an import of posthoganalytics.ai.gemini, which pulls it) in "
+        "any of its activities makes every web worker and `manage.py check` pay the SDK's slow pydantic "
+        "schema generation at boot. Defer the import into the activity/function that uses it with a "
+        "`# noqa: PLC0415`."
+    )
+
+
 # Counterpart guard to the lazy API router: with the route aggregator off the startup path,
 # a model class only registers if its app's ``models/__init__`` imports it (importing the
 # class is what runs ``ModelBase.__new__`` -> ``apps.register_model``). A model reachable

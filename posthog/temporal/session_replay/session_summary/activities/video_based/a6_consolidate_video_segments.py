@@ -5,16 +5,22 @@ then tagging the session in a follow-up turn of the same conversation.
 (Python modules have to start with a letter, hence the file is prefixed `a4_` instead of `4_`.)
 """
 
+# Deferred annotations so module-level helper signatures can reference `google.genai` types
+# without importing the slow Gemini SDK onto the Django boot path.
+from __future__ import annotations
+
 import re
 import json
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
 import structlog
 import temporalio
-from google.genai import types
-from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
+
+if TYPE_CHECKING:
+    from google.genai import types
 
 from posthog.temporal.session_replay.session_summary.types.video import (
     AI_TAGS_FIXED_TAXONOMY,
@@ -55,6 +61,10 @@ async def consolidate_video_segments_activity(
     with fixed and free-form tags plus a highlight flag. Using the same conversation means
     the model retains full context from the consolidation.
     """
+    # Kept off module scope so the Gemini SDK (slow to import) stays off the Django boot path.
+    from google.genai import types  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+    from posthoganalytics.ai.gemini import genai  # noqa: PLC0415 — pulls in google.genai; keep it off the boot path
+
     if not raw_segments:
         raise ApplicationError(
             f"No segments extracted from video analysis for session {inputs.session_id}. "
@@ -164,6 +174,8 @@ async def _call_llm_to_consolidate_segments(
 
     Returns the validated analysis and the raw response text (needed for multi-turn tagging).
     """
+    from google.genai import types  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+
     for attempt in range(max_attempts):
         try:
             response = await client.models.generate_content(
@@ -285,6 +297,8 @@ async def _call_llm_to_tag_session(
     Builds a multi-turn conversation: the original consolidation prompt/response,
     then a tagging request. The model retains full context from consolidation.
     """
+    from google.genai import types  # noqa: PLC0415 — keeps the heavy Gemini SDK off the import path
+
     taxonomy_list = "\n".join(f"  - {tag}: {desc}" for tag, desc in AI_TAGS_FIXED_TAXONOMY.items())
     tagging_prompt = TAGGING_PROMPT.format(
         taxonomy_list=taxonomy_list,
