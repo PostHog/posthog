@@ -124,6 +124,8 @@ export function SubscriptionScene(): JSX.Element {
                         loadDeliveriesPage={loadDeliveriesPage}
                         deliveryStatusFilter={deliveryStatusFilter}
                         onDeliveryStatusFilterChange={setDeliveryStatusFilter}
+                        // Empty-state CTA intentionally coexists with the header Test delivery button:
+                        // it's the discoverable first-run nudge when a subscription has no deliveries yet.
                         onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
                         testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
                         onDeliveryFeedback={

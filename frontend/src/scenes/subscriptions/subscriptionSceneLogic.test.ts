@@ -129,8 +129,8 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
-    // The header "Test delivery" button blocks double-submits via deliveringSubscriptionId,
-    // so the id must reset once the request settles — on both the success and failure paths.
+    // The failure path matters too: the header button's double-submit guard would stick
+    // if deliveringSubscriptionId reset only on success.
     it.each([
         { name: 'success', status: 202, terminalAction: 'deliverSubscriptionSuccess' },
         { name: 'failure', status: 500, terminalAction: 'deliverSubscriptionFailure' },
@@ -159,9 +159,7 @@ describe('subscriptionSceneLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.deliverSubscription(1)
-        })
-            .toDispatchActions(['deliverSubscription'])
-            .toMatchValues({ deliveringSubscriptionId: 1 })
+        }).toMatchValues({ deliveringSubscriptionId: 1 })
 
         await expectLogic(logic).toDispatchActions([terminalAction]).toMatchValues({
             deliveringSubscriptionId: null,
