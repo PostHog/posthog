@@ -223,13 +223,13 @@ export function FilterPanel({
                                             />
                                         </SectionSetting>
                                     )}
-                                    {onClickmapEnabledChange && (
+                                    {clickmapEnabled !== undefined && onClickmapEnabledChange && (
                                         <SectionSetting
                                             title="Clickmap"
                                             info="Overlay click counts on the elements users actually clicked"
                                         >
                                             <LemonSwitch
-                                                checked={clickmapEnabled ?? false}
+                                                checked={clickmapEnabled}
                                                 onChange={onClickmapEnabledChange}
                                                 label="Show clickmap"
                                                 size="small"

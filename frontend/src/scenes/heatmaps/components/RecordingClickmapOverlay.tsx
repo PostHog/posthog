@@ -6,19 +6,32 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function useSnapshotScrollTransform(
+    enabled: boolean,
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 ): React.RefObject<HTMLDivElement> {
     const innerRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
+        if (!enabled) {
+            return
+        }
+
         let rafId: number | undefined
         let lastX = -1
         let lastY = -1
 
+        // polling like useScrollSync does, because a scroll listener would need
+        // re-binding every time the srcDoc document is replaced
         const onFrame = (): void => {
-            const snapshotWindow = iframeRef?.current?.contentWindow
-            const scrollX = snapshotWindow?.scrollX ?? 0
-            const scrollY = snapshotWindow?.scrollY ?? 0
+            let scrollX = 0
+            let scrollY = 0
+            try {
+                const snapshotWindow = iframeRef?.current?.contentWindow
+                scrollX = snapshotWindow?.scrollX ?? 0
+                scrollY = snapshotWindow?.scrollY ?? 0
+            } catch {
+                // the frame navigated cross-origin; keep the overlay where it was
+            }
             if (scrollX !== lastX || scrollY !== lastY) {
                 lastX = scrollX
                 lastY = scrollY
@@ -35,7 +48,7 @@ function useSnapshotScrollTransform(
                 cancelAnimationFrame(rafId)
             }
         }
-    }, [iframeRef])
+    }, [enabled, iframeRef])
 
     return innerRef
 }
@@ -47,18 +60,19 @@ export function RecordingClickmapOverlay({
 }): JSX.Element | null {
     const logic = recordingClickmapLogic({ iframeRef })
     const { clickmapEnabled, clickmapBoxes, highestClickCount } = useValues(logic)
-    const innerRef = useSnapshotScrollTransform(iframeRef)
+    const showClickmap = clickmapEnabled && clickmapBoxes.length > 0
+    const innerRef = useSnapshotScrollTransform(showClickmap, iframeRef)
 
-    if (!clickmapEnabled || clickmapBoxes.length === 0) {
+    if (!showClickmap) {
         return null
     }
 
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
             <div ref={innerRef} className="absolute inset-0">
-                {clickmapBoxes.map((box, index) => (
+                {clickmapBoxes.map((box) => (
                     <div
-                        key={index}
+                        key={`${box.top}:${box.left}:${box.width}:${box.height}`}
                         className="absolute rounded-sm border border-danger"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{

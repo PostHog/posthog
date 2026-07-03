@@ -19,7 +19,7 @@ import type {
     ElementsStatsRetrieveParams,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { heatmapsBrowserLogic, isUrlPattern } from './heatmapsBrowserLogic'
 import type { recordingClickmapLogicType } from './recordingClickmapLogicType'
 
 export interface ClickmapBox {
@@ -55,15 +55,17 @@ function currentUrlProperty(href: string, isPattern: boolean): Record<string, un
 export function buildElementStatsParams(
     href: string,
     isPattern: boolean,
-    commonFilters: { date_from?: string | null; date_to?: string | null },
+    commonFilters: { date_from?: string | null; date_to?: string | null; filter_test_accounts?: boolean },
     dataAttributes: string[]
 ): ElementsStatsRetrieveParams {
+    // properties and filter_test_accounts are parsed by the endpoint but missing from its
+    // generated schema, hence the widening cast - see the stats action in posthog/api/element.py
     return {
         properties: JSON.stringify([currentUrlProperty(href, isPattern)]),
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
-        paginate_response: true,
-        include: '$autocapture',
+        filter_test_accounts: commonFilters.filter_test_accounts,
+        include: ['$autocapture'],
         limit: CLICKMAP_STATS_LIMIT,
         data_attributes: dataAttributes.join(','),
     } as unknown as ElementsStatsRetrieveParams
@@ -114,7 +116,9 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
     connect(() => ({
         values: [
             heatmapDataLogic({ context: 'in-app' }),
-            ['href', 'hrefMatchType', 'commonFilters'],
+            ['commonFilters'],
+            heatmapsBrowserLogic,
+            ['replayIframeData'],
             teamLogic,
             ['currentTeam'],
             projectLogic,
@@ -122,9 +126,9 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         ],
         actions: [
             heatmapsBrowserLogic,
-            ['onIframeLoad'],
+            ['onIframeLoad', 'setReplayIframeData', 'setReplayIframeDataURL'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['setHref', 'setCommonFilters'],
+            ['setCommonFilters', 'setWindowWidthOverride'],
         ],
     })),
     actions({
@@ -145,7 +149,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             {
                 setClickmapBoxes: (_, { boxes }) => boxes,
                 setClickmapEnabled: (state, { enabled }) => (enabled ? state : []),
-                setHref: () => [],
+                setReplayIframeData: () => [],
+                setReplayIframeDataURL: () => [],
             },
         ],
     }),
@@ -155,9 +160,15 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             {
                 loadElementStats: async (_, breakpoint) => {
                     await breakpoint(150)
+                    // heatmapDataLogic's href gets clobbered to '' by onIframeLoad in this scene,
+                    // so the replay payload's URL is the stable source of truth here
+                    const url = values.replayIframeData?.url?.trim()
+                    if (!url) {
+                        return values.elementStats
+                    }
                     const params = buildElementStatsParams(
-                        values.href,
-                        values.hrefMatchType === 'pattern',
+                        url,
+                        isUrlPattern(url),
                         values.commonFilters,
                         values.wantedDataAttributes
                     )
@@ -186,12 +197,14 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             }
         },
         maybeLoadElementStats: () => {
-            if (values.clickmapEnabled && values.href) {
+            if (values.clickmapEnabled && values.replayIframeData?.url?.trim()) {
                 actions.loadElementStats()
             }
         },
-        setHref: () => actions.maybeLoadElementStats(),
+        setReplayIframeData: () => actions.maybeLoadElementStats(),
+        setReplayIframeDataURL: () => actions.maybeLoadElementStats(),
         setCommonFilters: () => actions.maybeLoadElementStats(),
+        setWindowWidthOverride: () => actions.recomputeClickmap(),
         onIframeLoad: () => {
             if (values.elementStats) {
                 actions.recomputeClickmap()
@@ -219,6 +232,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             posthog.capture('in-app heatmap clickmap rendered', {
                 stats_rows: statsRows.length,
                 matched_elements: boxes.length,
+                has_more: !!values.elementStats?.next,
             })
             actions.setClickmapBoxes(boxes)
         },
