@@ -11,7 +11,7 @@ configuration.
 import io
 import gzip
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from django.conf import settings
@@ -31,9 +31,23 @@ def bucket() -> str:
     return settings.BILLING_USAGE_REPORTS_S3_BUCKET
 
 
+def date_prefix(date_str: str) -> str:
+    """The S3 prefix holding every usage-report run for one report date."""
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/billing/usage_reports/{date_str}"
+
+
 def run_prefix(ctx: WorkflowContext) -> str:
     """The S3 prefix for everything written by a single workflow run."""
-    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/billing/usage_reports/{ctx.date_str}/{ctx.run_id}"
+    return f"{date_prefix(ctx.date_str)}/{ctx.run_id}"
+
+
+def backtest_prefix(date_str: str, backtest_id: str) -> str:
+    """The S3 prefix for one backtest run's candidate results and diff report.
+
+    Kept outside `date_prefix` so backtest artifacts can never be mistaken
+    for a production run when discovering baselines.
+    """
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/billing/usage_reports_backtest/{date_str}/{backtest_id}"
 
 
 def queries_prefix(ctx: WorkflowContext) -> str:
@@ -77,6 +91,29 @@ def read_json(key: str) -> Any:
     if raw is None:
         raise FileNotFoundError(f"S3 key not found: {key}")
     return json.loads(raw)
+
+
+def list_keys(prefix: str) -> list[str]:
+    """List every object key under `prefix` in the usage-reports bucket."""
+    return object_storage.object_storage_client().list_objects(bucket=bucket(), prefix=prefix) or []
+
+
+def last_modified(key: str) -> Any:
+    """The object's LastModified timestamp, or None if the key is missing."""
+    head = object_storage.head_object(key, bucket=bucket())
+    return head.get("LastModified") if head else None
+
+
+def read_jsonl_gzip(key: str) -> Iterator[dict[str, Any]]:
+    """Yield one dict per line from a gzipped JSONL object (the chunk format
+    written by `write_jsonl_chunk_gzip`). Raises if the key is missing.
+    """
+    raw = object_storage.read_bytes(key, bucket=bucket())
+    if raw is None:
+        raise FileNotFoundError(f"S3 key not found: {key}")
+    for line in gzip.decompress(raw).decode("utf-8").splitlines():
+        if line:
+            yield json.loads(line)
 
 
 def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:

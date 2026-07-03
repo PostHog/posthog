@@ -78,3 +78,55 @@ class EnqueuePointerInputs(BaseModel):
 class CleanupInputs(BaseModel):
     ctx: WorkflowContext
     query_keys: list[str]
+
+
+class BacktestUsageReportsInputs(BaseModel):
+    """Top-level input for the backtest workflow.
+
+    `date` is the report date (YYYY-MM-DD) of the production run to compare
+    against. `baseline_run_id` pins a specific run when several exist for
+    that date; the most recent one is used otherwise.
+    """
+
+    date: str
+    baseline_run_id: Optional[str] = None
+
+
+class BacktestBaseline(BaseModel):
+    """The production run selected as the comparison baseline."""
+
+    date: str
+    run_id: str
+    manifest_key: str
+    chunk_keys: list[str]
+    period_start: datetime
+    period_end: datetime
+
+
+class BacktestCandidateInputs(BaseModel):
+    baseline: BacktestBaseline
+    backtest_id: str
+
+
+class BacktestCandidateResult(BaseModel):
+    candidate_key: str
+    metric_count: int
+
+
+class BacktestDiffInputs(BaseModel):
+    baseline: BacktestBaseline
+    candidate: BacktestCandidateResult
+    backtest_id: str
+
+
+class BacktestSummary(BaseModel):
+    """Compact result of a backtest run; the full per-metric diff lives in
+    the report at `report_key`.
+    """
+
+    report_key: str
+    clean: bool
+    metrics_compared: int
+    metrics_with_diffs: int
+    teams_compared: int
+    candidate_only_teams: int
