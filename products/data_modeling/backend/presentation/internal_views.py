@@ -35,11 +35,13 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
 )
+from products.data_modeling.backend.logic.schedule_truth import SCHEDULE_CANDIDATE_CAP, describe_schedules
 from products.data_modeling.backend.presentation.internal_auth import DataModelingOpsAuthenticationMixin
 from products.data_modeling.backend.presentation.internal_serializers import (
     InternalDAGSummarySerializer,
     InternalDataModelingJobSerializer,
     InternalEdgeSerializer,
+    InternalEntityScheduleSerializer,
     InternalNodeSerializer,
     InternalSavedQueryDetailSerializer,
     InternalSavedQuerySummarySerializer,
@@ -64,6 +66,31 @@ def _is_v2_backend_enabled(team_id: int, organization_id: str) -> bool:
             "project": {"id": str(team_id)},
         },
     )
+
+
+def _saved_query_schedule_truth(saved_query: DataWarehouseSavedQuery, nodes: list[dict]) -> dict:
+    """Which Temporal schedule covers this saved query: its own v1 schedule, a v2
+    schedule on one of its DAGs, or none. Degrades to an error payload so a Temporal
+    outage never takes down the detail endpoint."""
+    try:
+        own_id = str(saved_query.id)
+        dag_ids = [str(node["dag_id"]) for node in nodes]
+        descriptions = describe_schedules([own_id, *dag_ids])
+
+        own = descriptions.get(own_id)
+        dag_schedules = [
+            {"dag_id": dag_id, "dag_name": node["dag_name"], "schedule": descriptions.get(dag_id)}
+            for dag_id, node in zip(dag_ids, nodes)
+        ]
+        if any(entry["schedule"] and entry["schedule"]["kind"] == "v2_dag" for entry in dag_schedules):
+            covered_by = "v2"
+        elif own and own["kind"] == "v1_saved_query":
+            covered_by = "v1"
+        else:
+            covered_by = "none"
+        return {"covered_by": covered_by, "v1_schedule": own, "dag_schedules": dag_schedules}
+    except Exception as error:
+        return {"error": str(error)}
 
 
 def team_id_filter(request: Request) -> int | None:
@@ -213,9 +240,34 @@ class InternalDataModelingOpsViewSet(
                 "backing_tables": backing_tables,
                 "linked_table_id": saved_query.table_id,
                 "last_successful_job_at": last_successful_job_at,
+                "schedule_truth": _saved_query_schedule_truth(saved_query, nodes),
             },
         )
         return Response(serializer.data)
+
+    @extend_schema(exclude=True)
+    def internal_schedules(self, request: Request, team_id: str) -> Response:
+        entities = [
+            {"entity_type": "dag", "entity_id": str(dag["id"]), "entity_name": dag["name"]}
+            for dag in DAG.objects.filter(team_id=int(team_id)).values("id", "name")
+        ] + [
+            {"entity_type": "saved_query", "entity_id": str(sq["id"]), "entity_name": sq["name"]}
+            for sq in DataWarehouseSavedQuery.objects.filter(team_id=int(team_id))
+            .exclude(deleted=True)
+            .filter(Q(is_materialized=True) | Q(sync_frequency_interval__isnull=False))
+            .values("id", "name")
+        ]
+        truncated = len(entities) > SCHEDULE_CANDIDATE_CAP
+        entities = entities[:SCHEDULE_CANDIDATE_CAP]
+
+        descriptions = describe_schedules([entity["entity_id"] for entity in entities])
+        results = [{**entity, "schedule": descriptions.get(entity["entity_id"])} for entity in entities]
+        return Response(
+            {
+                "results": InternalEntityScheduleSerializer(results, many=True).data,
+                "truncated": truncated,
+            }
+        )
 
     @extend_schema(exclude=True)
     def internal_saved_query_jobs(self, request: Request, saved_query_id: str, **kwargs: Any) -> Response:

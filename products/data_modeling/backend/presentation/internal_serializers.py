@@ -77,6 +77,51 @@ class InternalSavedQueryNodeContextSerializer(serializers.Serializer):
     )
 
 
+class InternalScheduleRecentActionSerializer(serializers.Serializer):
+    scheduled_at = serializers.CharField(allow_null=True, help_text="When the action was scheduled to run (ISO).")
+    started_at = serializers.CharField(allow_null=True, help_text="When the action actually started (ISO).")
+    workflow_id = serializers.CharField(allow_null=True, help_text="Workflow id the action started.")
+    workflow_run_id = serializers.CharField(
+        allow_null=True, help_text="First execution run id of the started workflow."
+    )
+
+
+class InternalScheduleInfoSerializer(serializers.Serializer):
+    schedule_id = serializers.CharField(help_text="Temporal schedule id (saved query id for v1, DAG id for v2).")
+    exists = serializers.BooleanField(help_text="Whether the schedule exists in Temporal.")
+    workflow_name = serializers.CharField(
+        allow_null=True, help_text="Workflow the schedule starts — the authoritative v1/v2 discriminator."
+    )
+    kind = serializers.ChoiceField(
+        choices=["v1_saved_query", "v2_dag", "other"],
+        help_text="Classification by workflow name: data-modeling-run = v1, data-modeling-execute-dag = v2.",
+    )
+    paused = serializers.BooleanField(allow_null=True, help_text="Whether the schedule is paused.")
+    note = serializers.CharField(allow_null=True, help_text="Operator note on the schedule state, if any.")
+    next_run_at = serializers.CharField(allow_null=True, help_text="Next scheduled action time (ISO), if any.")
+    spec = serializers.JSONField(help_text="Spec summary: intervals, cron expressions, calendar count, jitter, tz.")
+    recent_actions = InternalScheduleRecentActionSerializer(
+        many=True, help_text="Up to 5 most recent schedule actions with started workflow ids."
+    )
+    search_attributes = serializers.JSONField(
+        help_text="Temporal search attributes on the schedule (PostHogTeamId, PostHogDagId, PostHogScheduleType...). "
+        "Informational only — never used for classification."
+    )
+
+
+class InternalEntityScheduleSerializer(serializers.Serializer):
+    entity_type = serializers.ChoiceField(
+        choices=["dag", "saved_query"], help_text="Kind of entity this schedule slot belongs to."
+    )
+    entity_id = serializers.CharField(help_text="DAG or saved query id — also the expected Temporal schedule id.")
+    entity_name = serializers.CharField(help_text="Name of the DAG or saved query.")
+    schedule = InternalScheduleInfoSerializer(
+        allow_null=True,
+        help_text="Live Temporal schedule state, or null when no schedule exists for this entity — "
+        "a materialized entity with null here is unscheduled.",
+    )
+
+
 class InternalSavedQueryDetailSerializer(InternalSavedQuerySummarySerializer):
     query = serializers.JSONField(read_only=True, help_text="Stored HogQL query payload (JSON with a 'query' key).")
     columns = serializers.JSONField(
@@ -98,6 +143,10 @@ class InternalSavedQueryDetailSerializer(InternalSavedQuerySummarySerializer):
         "More than one entry means duplicate backing tables — treat as a lead, not proof: the match "
         "is by name, so an unrelated table of the same name also shows up here."
     )
+    schedule_truth = serializers.SerializerMethodField(
+        help_text="Live Temporal coverage: covered_by (v1/v2/none), the v1 per-query schedule, and per-DAG "
+        "v2 schedules. Degrades to {'error': ...} when Temporal is unreachable."
+    )
 
     class Meta(InternalSavedQuerySummarySerializer.Meta):
         fields = [
@@ -109,6 +158,7 @@ class InternalSavedQueryDetailSerializer(InternalSavedQuerySummarySerializer):
             "nodes",
             "double_materialized",
             "backing_tables",
+            "schedule_truth",
         ]
         read_only_fields = fields
 
@@ -129,6 +179,9 @@ class InternalSavedQueryDetailSerializer(InternalSavedQuerySummarySerializer):
         return list(
             InternalBackingTableSerializer(self.context.get("backing_tables", []), many=True, context=self.context).data
         )
+
+    def get_schedule_truth(self, saved_query: DataWarehouseSavedQuery) -> dict:
+        return self.context.get("schedule_truth") or {}
 
 
 class InternalDataModelingJobSerializer(serializers.ModelSerializer):
