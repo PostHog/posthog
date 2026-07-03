@@ -8,6 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,6 +22,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
+import { alertsSimulateForecastCreate } from 'products/alerts/frontend/generated/api'
+import { ForecastConfigApi, ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     blockSubmitWithoutHighFrequencyAlertsEntitlement,
     getDefaultSimulationRange,
@@ -63,6 +66,7 @@ export type AlertFormType = Pick<
     | 'skip_weekend'
     | 'schedule_restriction'
     | 'detector_config'
+    | 'forecast_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
@@ -234,6 +238,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
             ['goalLines'],
             insightVizDataLogic({ dashboardItemId: undefined, ...props.insightVizDataLogicProps }),
             ['insightData'],
+            teamLogic,
+            ['currentTeamId'],
         ],
     })),
 
@@ -242,6 +248,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
         simulateAlert: true,
+        simulateForecast: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
         setAlertFormSubmitAttempted: true,
@@ -252,6 +259,19 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as string | null,
             {
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        // Cleared directly off the raw `clearSimulation` action (not via the loaders' Success dance).
+        // kea-loaders reuses the first-registered `clearSimulationSuccess` action creator across every
+        // loader keyed on the same trigger action — a second `clearSimulation` entry in this file's
+        // `loaders()` block would silently no-op (its payload would carry `simulationResult`, not
+        // `forecastSimulationResult`, so this reducer would receive `undefined`). Verified by re-adding
+        // it: `forecastSimulationResult` then stopped resetting and the "clearSimulation resets the
+        // forecast simulation result" test failed.
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                clearSimulation: () => null,
             },
         ],
         alertFormSubmitAttempted: [
@@ -288,6 +308,28 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 clearSimulation: () => null,
             },
         ],
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
+                    const forecastConfig = values.alertForm.forecast_config
+                    if (!forecastConfig || !props.insightId) {
+                        return null
+                    }
+                    const formConfig = values.alertForm.config
+                    return await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                        insight: props.insightId,
+                        // Bridges schema-general's TS enum config (ForecastConditionType/ForecastEngineType)
+                        // to the generated OpenAPI string-literal type — both serialize identically.
+                        forecast_config: forecastConfig as unknown as ForecastConfigApi,
+                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    })
+                },
+            },
+        ],
     })),
 
     forms(({ props, values }) => ({
@@ -317,6 +359,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       skip_weekend: false,
                       schedule_restriction: null,
                       detector_config: null,
+                      forecast_config: null,
                       investigation_agent_enabled: false,
                       investigation_gates_notifications: false,
                       investigation_inconclusive_action: 'notify',
@@ -352,6 +395,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           }
                         : alert.config,
                     detector_config: alert.detector_config ?? null,
+                    forecast_config: alert.forecast_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
                         ? (alert.investigation_agent_enabled ?? false)
@@ -704,6 +748,35 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     success: false,
                     detector_type: detectorConfig?.type ?? null,
                     ensemble_operator: detectorConfig?.type === 'ensemble' ? detectorConfig.operator : null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    error: error ?? 'Unknown error',
+                })
+                lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
+            },
+            simulateForecastSuccess: ({ forecastSimulationResult }) => {
+                // simulateForecast returns null early for non-forecast alerts (no API call),
+                // so null here means nothing actually ran — skip the event.
+                if (!forecastSimulationResult) {
+                    return
+                }
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: true,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
+                    date_from:
+                        values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    fit_quality_verdict: forecastSimulationResult.fit_quality.verdict,
+                    forecast_points: forecastSimulationResult.forecast_dates.length,
+                })
+            },
+            simulateForecastFailure: ({ error }) => {
+                const forecastConfig = values.alertForm.forecast_config
+                posthog.capture('alert simulation run', {
+                    success: false,
+                    forecast_engine: forecastConfig?.engine ?? null,
+                    forecast_condition: forecastConfig?.condition ?? null,
                     date_from:
                         values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
                     error: error ?? 'Unknown error',

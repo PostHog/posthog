@@ -12,7 +12,7 @@ import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 Chart.register(annotationPlugin)
 
 /** Format a date string compactly: "Mar 16, 11:00" or "Mar 16" if midnight. */
-function formatSimDate(dateStr: string): string {
+export function formatSimDate(dateStr: string): string {
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) {
         return dateStr

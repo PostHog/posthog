@@ -36,7 +36,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
-import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
+import { supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -112,6 +112,8 @@ export function EditAlertModal({
         alertFormChanged,
         simulationResult,
         simulationResultLoading,
+        forecastSimulationResult,
+        forecastSimulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
         hogqlAlertPreview,
@@ -125,6 +127,7 @@ export function EditAlertModal({
         snoozeAlert,
         clearSnooze,
         simulateAlert,
+        simulateForecast,
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
@@ -134,6 +137,7 @@ export function EditAlertModal({
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
+    const forecastAlertsEnabled = useFeatureFlag('FORECAST_ALERTS')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
@@ -160,7 +164,7 @@ export function EditAlertModal({
 
     const creatingNewAlert = alertForm.id === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertForm.forecast_config ? 'forecast' : alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
             isNextPlannedEvaluationStale(
@@ -290,12 +294,18 @@ export function EditAlertModal({
                                         anomalyDetectionEnabled={
                                             anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }
+                                        forecastAlertsEnabled={
+                                            forecastAlertsEnabled && supportsForecast(alertForm.config)
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}
+                                        forecastSimulationResult={forecastSimulationResult}
+                                        forecastSimulationResultLoading={forecastSimulationResultLoading}
                                         simulationDateFrom={simulationDateFrom}
                                         onSetAlertFormValue={setAlertFormValue}
                                         onSimulateAlert={simulateAlert}
+                                        onSimulateForecast={simulateForecast}
                                         onSetSimulationDateFrom={setSimulationDateFrom}
                                         onClearSimulation={clearSimulation}
                                         onClearSimulationOverlay={clearSimulationOverlay}

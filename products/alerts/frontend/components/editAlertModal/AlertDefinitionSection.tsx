@@ -16,6 +16,7 @@ import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import { fractionToPercentInput, rescaleFunnelBound } from 'lib/components/Alerts/thresholdPercent'
 import {
+    AlertMode,
     AlertSimulationResult,
     isAnyRowHogQLConfig,
     isFunnelsAlertConfig,
@@ -23,14 +24,22 @@ import {
     isTrendsAlertConfig,
 } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
+import { ForecastPreview } from 'lib/components/Alerts/views/ForecastPreview'
+import { ForecastSelector, getDefaultForecastConfig } from 'lib/components/Alerts/views/ForecastSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, ForecastConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
-import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
+import {
+    breakdownDisabledReason,
+    FunnelsDefinitionFields,
+    HogQLDefinitionFields,
+    TrendsDefinitionFields,
+} from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 export interface TrendsDefinitionProps {
@@ -64,7 +73,7 @@ export interface HogQLDefinitionProps {
 
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
-    alertMode: 'detector' | 'threshold'
+    alertMode: AlertMode
     thresholdBoundsFormError?: string
     isNonTimeSeriesDisplay: boolean
     // Kind-specific inputs, grouped so the shared section only carries the bundle for the active kind.
@@ -72,12 +81,16 @@ export interface AlertDefinitionSectionProps {
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     anomalyDetectionEnabled: boolean
+    forecastAlertsEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
+    forecastSimulationResult: ForecastSimulateResponseApi | null
+    forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
     onSimulateAlert: () => void
+    onSimulateForecast: () => void
     onSetSimulationDateFrom: (value: string) => void
     onClearSimulation: () => void
     onClearSimulationOverlay: () => void
@@ -97,12 +110,16 @@ export function AlertDefinitionSection({
     funnel,
     hogql,
     anomalyDetectionEnabled,
+    forecastAlertsEnabled,
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
+    forecastSimulationResult,
+    forecastSimulationResultLoading,
     simulationDateFrom,
     onSetAlertFormValue,
     onSimulateAlert,
+    onSimulateForecast,
     onSetSimulationDateFrom,
     onClearSimulation,
     onClearSimulationOverlay,
@@ -115,15 +132,19 @@ export function AlertDefinitionSection({
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
+    // Threshold bounds are shown for a plain threshold alert, and also for a forecast alert configured
+    // to fire on a predicted breach (band-deviation forecasts have no threshold to configure). The
+    // #/% unit toggle and the has-value/increases/decreases picker are threshold-only — a forecast
+    // alert borrows the bounds inputs but not the rest of the threshold UI.
+    const showBoundsInputs =
+        alertMode === 'threshold' ||
+        (alertMode === 'forecast' && alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH)
+    const showThresholdOnlyControls = alertMode === 'threshold'
     return (
         <>
             {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
             {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
-                <LemonBanner type="warning">
-                    {alertMode === 'detector'
-                        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
-                </LemonBanner>
+                <LemonBanner type="warning">{breakdownDisabledReason(alertMode)}</LemonBanner>
             )}
             {isTrendsAlertConfig(alertForm.config) ? (
                 <TrendsDefinitionFields
@@ -151,7 +172,7 @@ export function AlertDefinitionSection({
                 />
             ) : null}
 
-            {anomalyDetectionEnabled && (
+            {(anomalyDetectionEnabled || forecastAlertsEnabled) && (
                 <LemonSegmentedButton
                     fullWidth
                     value={alertMode}
@@ -163,8 +184,13 @@ export function AlertDefinitionSection({
                                 window: getDefaultWindow(alertForm.calculation_interval),
                                 preprocessing: { diffs_n: 1 },
                             })
+                            onSetAlertFormValue('forecast_config', null)
+                        } else if (value === 'forecast') {
+                            onSetAlertFormValue('forecast_config', getDefaultForecastConfig())
+                            onSetAlertFormValue('detector_config', null)
                         } else {
                             onSetAlertFormValue('detector_config', null)
+                            onSetAlertFormValue('forecast_config', null)
                         }
                     }}
                     options={[
@@ -173,23 +199,49 @@ export function AlertDefinitionSection({
                             label: 'Threshold',
                             tooltip: 'Alert when a value goes above or below a fixed threshold you define.',
                         },
-                        {
-                            value: 'detector',
-                            label: 'Anomaly detection',
-                            tooltip:
-                                'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
-                        },
+                        ...(anomalyDetectionEnabled
+                            ? [
+                                  {
+                                      value: 'detector',
+                                      label: 'Anomaly detection',
+                                      tooltip:
+                                          'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
+                                  },
+                              ]
+                            : []),
+                        ...(forecastAlertsEnabled
+                            ? [
+                                  {
+                                      value: 'forecast',
+                                      label: 'Forecast',
+                                      tooltip:
+                                          'Alert on where this metric is heading — fire before a threshold is breached, or when a value leaves its expected range.',
+                                  },
+                              ]
+                            : []),
                     ]}
                 />
             )}
 
-            {alertMode === 'threshold' ? (
+            {alertMode === 'forecast' && (
+                <ForecastSelector
+                    value={alertForm.forecast_config ?? null}
+                    onChange={(config) => {
+                        onSetAlertFormValue('forecast_config', config)
+                        onClearSimulation()
+                        onClearSimulationOverlay()
+                    }}
+                    calculationInterval={alertForm.calculation_interval}
+                />
+            )}
+
+            {showBoundsInputs ? (
                 <div className="deprecated-space-y-2">
                     {thresholdBoundsFormError ? (
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        {supportsRelativeConditions && (
+                        {showThresholdOnlyControls && supportsRelativeConditions && (
                             <Group name={['condition']}>
                                 <LemonField name="type">
                                     {({ value, onChange }) => (
@@ -306,29 +358,31 @@ export function AlertDefinitionSection({
                         </LemonField>
                         {/* Funnels always compare as a percentage of the prior period, so the unit
                             toggle is hidden for them (the threshold is pinned to PERCENTAGE). */}
-                        {!isFunnelAlert && alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                            <Group name={['threshold', 'configuration']}>
-                                <LemonField name="type">
-                                    <LemonSegmentedButton
-                                        options={[
-                                            {
-                                                value: InsightThresholdType.PERCENTAGE,
-                                                label: '%',
-                                                tooltip: 'Percent',
-                                            },
-                                            {
-                                                value: InsightThresholdType.ABSOLUTE,
-                                                label: '#',
-                                                tooltip: 'Absolute number',
-                                            },
-                                        ]}
-                                    />
-                                </LemonField>
-                            </Group>
-                        )}
+                        {showThresholdOnlyControls &&
+                            !isFunnelAlert &&
+                            alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
+                                <Group name={['threshold', 'configuration']}>
+                                    <LemonField name="type">
+                                        <LemonSegmentedButton
+                                            options={[
+                                                {
+                                                    value: InsightThresholdType.PERCENTAGE,
+                                                    label: '%',
+                                                    tooltip: 'Percent',
+                                                },
+                                                {
+                                                    value: InsightThresholdType.ABSOLUTE,
+                                                    label: '#',
+                                                    tooltip: 'Absolute number',
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField>
+                                </Group>
+                            )}
                     </div>
                 </div>
-            ) : (
+            ) : alertMode === 'detector' ? (
                 <DetectorSelector
                     value={alertForm.detector_config ?? null}
                     onChange={(config) => {
@@ -338,7 +392,7 @@ export function AlertDefinitionSection({
                     }}
                     calculationInterval={alertForm.calculation_interval}
                 />
-            )}
+            ) : null}
 
             {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
                 <div className="deprecated-space-y-2">
@@ -442,6 +496,41 @@ export function AlertDefinitionSection({
                     </div>
                     {simulationResult && (
                         <SimulationSummary result={simulationResult} detectorConfig={alertForm.detector_config} />
+                    )}
+                </div>
+            )}
+
+            {alertMode === 'forecast' && alertForm.forecast_config && (
+                <div className="deprecated-space-y-2">
+                    <div className="flex gap-2 items-center">
+                        <h4 className="m-0">Simulation</h4>
+                        <LemonSelect
+                            size="small"
+                            data-attr="alertForm-simulate-forecast-range"
+                            value={simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)}
+                            onChange={(value) => onSetSimulationDateFrom(value)}
+                            options={getSimulationRangeOptions(alertForm.calculation_interval)}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            data-attr="alertForm-simulate-forecast"
+                            onClick={onSimulateForecast}
+                            loading={forecastSimulationResultLoading}
+                            tooltip="Run the forecast on historical data to preview the predicted trend and its expected range"
+                        >
+                            Simulate
+                        </LemonButton>
+                    </div>
+                    {forecastSimulationResult && (
+                        <ForecastPreview
+                            result={forecastSimulationResult}
+                            thresholdBounds={
+                                alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
+                                    ? (alertForm.threshold.configuration.bounds ?? null)
+                                    : null
+                            }
+                        />
                     )}
                 </div>
             )}

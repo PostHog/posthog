@@ -11,7 +11,7 @@ import {
 } from 'lib/components/Alerts/funnelAlertOptions'
 import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isFunnelsAlertConfig } from 'lib/components/Alerts/types'
+import { AlertMode, isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -19,10 +19,17 @@ import { AlertConditionType } from '~/queries/schema/schema-general'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
-const breakdownDisabledReason = (alertMode: 'detector' | 'threshold'): string =>
-    alertMode === 'detector'
-        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
+/** Copy for why breakdowns are unsupported/limited under the active alert mode — shared between the
+ * series picker's disabled reason and the standalone warning banner above it. */
+export const breakdownDisabledReason = (alertMode: AlertMode): string => {
+    if (alertMode === 'detector') {
+        return 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+    }
+    if (alertMode === 'forecast') {
+        return "Forecast alerts don't support breakdowns yet — switch to threshold or anomaly detection, or remove the breakdown."
+    }
+    return 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
+}
 
 /** Trends: pick which series (or formula) to monitor. */
 export function TrendsDefinitionFields({
@@ -34,7 +41,7 @@ export function TrendsDefinitionFields({
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
-    alertMode: 'detector' | 'threshold'
+    alertMode: AlertMode
 }): JSX.Element {
     return (
         <div className="flex gap-3 items-center">

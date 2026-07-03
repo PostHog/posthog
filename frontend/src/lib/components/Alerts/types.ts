@@ -5,6 +5,7 @@ import {
     AlertScheduleRestrictionWindow,
     AlertState,
     DetectorConfig,
+    ForecastConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
@@ -49,6 +50,12 @@ export const supportsTimeWindow = (config: AlertConfig | null | undefined): bool
  * any-row SQL alert's rows are unrelated entities, not a time axis, so there's nothing to score). */
 export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): boolean =>
     isTrendsAlertConfig(config) || (isHogQLAlertConfig(config) && !isAnyRowHogQLConfig(config))
+
+/** Forecasting needs a plain time series with enough history: trends only in v1 (no SQL, no funnels). */
+export const supportsForecast = (config: AlertConfig | null | undefined): boolean => isTrendsAlertConfig(config)
+
+/** Which evaluation strategy the alert editor is configuring. */
+export type AlertMode = 'detector' | 'threshold' | 'forecast'
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
@@ -104,6 +111,7 @@ export interface AlertTypeBase {
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
     detector_config?: DetectorConfig | null
+    forecast_config?: ForecastConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean
     investigation_inconclusive_action?: InvestigationInconclusiveAction
