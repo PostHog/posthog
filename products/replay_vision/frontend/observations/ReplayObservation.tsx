@@ -463,7 +463,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     </Link>
                                 </LabeledRow>
                             )}
-                            <ObservationLabelControl observationId={observation.id} />
+                            <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
                             {prompt && scannerType && (
                                 <div className="flex justify-end pt-1">
                                     <ImproveScannerPromptButton

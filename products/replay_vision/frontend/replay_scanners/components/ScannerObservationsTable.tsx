@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRewindPlay, IconThumbsDownFilled, IconThumbsUpFilled } from '@posthog/icons'
+import { IconRefresh, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -155,37 +155,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
-        },
-        {
-            title: 'Feedback',
-            key: 'feedback',
-            sorter: true,
-            render: (_, obs) => {
-                const label = obs.label
-                const to = urls.replayVisionObservation(obs.id)
-                if (!label) {
-                    return (
-                        <Link to={to} className="block text-muted">
-                            —
-                        </Link>
-                    )
-                }
-                const feedback = !label.is_correct ? label.feedback : null
-                const content = (
-                    <span className="inline-flex items-center">
-                        {label.is_correct ? (
-                            <IconThumbsUpFilled className="text-success" aria-label="Thumbs up" />
-                        ) : (
-                            <IconThumbsDownFilled className="text-danger" aria-label="Thumbs down" />
-                        )}
-                    </span>
-                )
-                return (
-                    <Link to={to} className="block">
-                        {feedback ? <Tooltip title={feedback}>{content}</Tooltip> : content}
-                    </Link>
-                )
-            },
         },
         {
             title: 'Version',
