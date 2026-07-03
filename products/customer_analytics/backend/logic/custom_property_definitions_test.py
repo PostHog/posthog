@@ -57,3 +57,15 @@ def test_select_rejects_invalid_options(_name, options, expected_error):
         normalize_options(DisplayType.SELECT, options)
 
     assert str(err.value) == expected_error
+
+
+def test_select_rejects_the_same_existing_id_sent_twice():
+    options = [
+        {"id": "opt-1", "label": "A", "color": "preset-1"},
+        {"id": "opt-1", "label": "B", "color": "preset-2"},
+    ]
+
+    with pytest.raises(InvalidCustomPropertyOptions) as err:
+        normalize_options(DisplayType.SELECT, options, existing_ids=frozenset({"opt-1"}))
+
+    assert str(err.value) == "Duplicate option id: 'opt-1'."

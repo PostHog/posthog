@@ -38,6 +38,7 @@ def normalize_options(
         raise InvalidCustomPropertyOptions("A select property needs at least one option.")
     normalized = [_normalize_option(option, existing_ids) for option in options]
     _assert_unique_labels(normalized)
+    _assert_unique_ids(normalized)
     return normalized
 
 
@@ -60,6 +61,14 @@ def _assert_unique_labels(options: list[dict[str, Any]]) -> None:
         if option["label"] in seen:
             raise InvalidCustomPropertyOptions(f"Duplicate option label: '{option['label']}'.")
         seen.add(option["label"])
+
+
+def _assert_unique_ids(options: list[dict[str, Any]]) -> None:
+    seen: set[str] = set()
+    for option in options:
+        if option["id"] in seen:
+            raise InvalidCustomPropertyOptions(f"Duplicate option id: '{option['id']}'.")
+        seen.add(option["id"])
 
 
 def apply_option_side_effects(
