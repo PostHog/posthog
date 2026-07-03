@@ -89,7 +89,8 @@ def format_aggregation_value(
     """Render a single metric value per the insight's axis format, wrapped in its prefix/postfix."""
     if not math.isfinite(value):
         formatted = "∞" if value > 0 else "-∞" if value < 0 else "NaN"
-        return f"{prefix or ''}{formatted}{postfix or ''}"
+        effective_prefix = "" if (prefix and formatted.startswith(prefix)) else (prefix or "")
+        return f"{effective_prefix}{formatted}{postfix or ''}"
 
     match axis_format:
         case AggregationAxisFormat.DURATION:
@@ -107,7 +108,9 @@ def format_aggregation_value(
         case _:  # NUMERIC or unset
             formatted = _human_friendly_number(value, decimal_places, min_decimal_places)
 
-    return f"{prefix or ''}{formatted}{postfix or ''}"
+    # Skip the prefix when the formatted value already starts with it (e.g. currency format "$" + prefix "$" → "$$").
+    effective_prefix = "" if (prefix and formatted.startswith(prefix)) else (prefix or "")
+    return f"{effective_prefix}{formatted}{postfix or ''}"
 
 
 def _clamp_decimal_places(value: float | None, fallback: int) -> int:

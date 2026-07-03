@@ -91,7 +91,10 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${aggregationAxisPrefix || ''}${formattedValue}${aggregationAxisPostfix || ''}`
+    // Skip the prefix when the formatted value already starts with it (e.g. currency format "$" + prefix "$" → "$$").
+    const effectivePrefix =
+        aggregationAxisPrefix && formattedValue.startsWith(aggregationAxisPrefix) ? '' : aggregationAxisPrefix || ''
+    return `${effectivePrefix}${formattedValue}${aggregationAxisPostfix || ''}`
 }
 
 export const formatPercentStackAxisValue = (
