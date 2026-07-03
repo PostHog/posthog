@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from django.db import IntegrityError, transaction
 
@@ -302,7 +303,7 @@ def canonical_skill_names() -> frozenset[str]:
         return frozenset()
 
 
-def scout_skill_origin(skill_name: str, metadata: dict | None) -> str:
+def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canonical", "custom"]:
     """Classify a scout skill row as `"canonical"` or `"custom"` by who owns it.
 
     A scout is `canonical` when the harness seeded its skill row (tagged

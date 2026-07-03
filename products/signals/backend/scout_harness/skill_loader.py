@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from posthog.models.team.team import Team
 
@@ -54,7 +55,7 @@ class LoadedSkill:
     # prompt builder gates the self-improvement section on it: a custom scout is invited to record
     # `improve:` suggestions for its own body (the team owns that body and can apply them); a
     # canonical scout is not, so the prompt never nudges a team into diverging a seeded row.
-    origin: str
+    origin: Literal["canonical", "custom"]
 
 
 def is_signals_scout_skill(skill: LLMSkill) -> bool:
