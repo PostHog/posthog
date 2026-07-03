@@ -8,7 +8,13 @@ from django.utils.timezone import now
 import orjson
 import structlog
 
-from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    DashboardFilter,
+    EventPropertyFilter,
+    EventsQuery,
+    EventsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
@@ -25,6 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_queries.ai.heavy_property_filters import heavy_ai_properties_in_expr, split_heavy_ai_property_filters
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
@@ -201,6 +208,26 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         for expr in select:
             checker.visit(expr)
 
+    def _heavy_ai_properties_expr(self, heavy_props: list[EventPropertyFilter]) -> ast.Expr:
+        # Heavy AI content ($ai_input, $ai_output_choices, ...) is stripped from
+        # events.properties at ingestion and lives on posthog.ai_events, so filters on it
+        # match event UUIDs against that table instead. The bounds mirror the outer query's
+        # timestamp window (see the "timestamps" section of to_query) to prune the scan.
+        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+        date_to = relative_date_parse(before, self.team.timezone_info)
+        after = self.query.after or "-24h"
+        date_from = relative_date_parse(after, self.team.timezone_info) if after != "all" else None
+        event_names = [e for e in [self.query.event, *(self.query.events or [])] if e]
+        return heavy_ai_properties_in_expr(
+            anchor=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])]),
+            select_column="uuid",
+            heavy_properties=heavy_props,
+            team=self.team,
+            event_names=event_names or None,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
@@ -221,7 +248,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
-                        where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
+                        heavy_ai_props, regular_props = split_heavy_ai_property_filters(self.query.properties)
+                        where_exprs.extend(property_to_expr(property, self.team) for property in regular_props)
+                        if heavy_ai_props:
+                            where_exprs.append(self._heavy_ai_properties_expr(heavy_ai_props))
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(

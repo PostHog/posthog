@@ -24,6 +24,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.heavy_property_filters import heavy_ai_properties_in_expr, split_heavy_ai_property_filters
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
     SentimentEvaluationLookup,
@@ -36,6 +37,17 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
+
+# Event types that participate in trace selection, aggregation, and filtering.
+TRACE_EVENT_NAMES: tuple[str, ...] = (
+    "$ai_span",
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_metric",
+    "$ai_feedback",
+    "$ai_trace",
+)
+_TRACE_EVENT_NAMES_SQL = ", ".join(f"'{name}'" for name in TRACE_EVENT_NAMES)
 
 
 class TracesQueryDateRange(QueryDateRange):
@@ -125,7 +137,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         min(timestamp) as first_ts,
                         max(timestamp) as last_ts
                     FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                    WHERE event IN ({_TRACE_EVENT_NAMES_SQL})
                       AND {{conditions}}
                     GROUP BY trace_id
                     HAVING min(timestamp) <= {{unbuffered_date_to}}
@@ -242,7 +254,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
 
         query = parse_select(
-            """
+            f"""
             SELECT
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
@@ -344,10 +356,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     )
                 ) AS tools
             FROM events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND {filter_conditions}
+            WHERE event IN ({_TRACE_EVENT_NAMES_SQL})
+              AND {{filter_conditions}}
             GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
@@ -533,8 +543,25 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         property_filters: list[ast.Expr] = []
         if self.query.properties:
             with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
+                heavy_ai_props, regular_props = split_heavy_ai_property_filters(self.query.properties)
+                for prop in regular_props:
                     property_filters.append(property_to_expr(prop, self.team))
+                if heavy_ai_props:
+                    # Heavy AI content is stripped from events.properties at ingestion, so
+                    # match trace IDs against the ai_events content columns instead. A trace
+                    # matches when any of its events in the window carries matching content.
+                    property_filters.append(
+                        heavy_ai_properties_in_expr(
+                            anchor=ast.Field(chain=["properties", "$ai_trace_id"]),
+                            select_column="trace_id",
+                            heavy_properties=heavy_ai_props,
+                            team=self.team,
+                            event_names=TRACE_EVENT_NAMES,
+                            date_from=self._date_range.date_from(),
+                            date_to=self._date_range.date_to(),
+                            distinct=True,
+                        )
+                    )
 
         if not property_filters:
             return None
