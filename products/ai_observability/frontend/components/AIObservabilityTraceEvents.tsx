@@ -2,8 +2,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace } from '~/queries/schema/schema-general'
 
+import { operationStartMs } from '../utils'
 import { AIObservabilityEventCard } from './AIObservabilityEventCard'
-import { operationStartMs } from './TraceTimeline/buildTraceTimeline'
 
 interface AIObservabilityTraceEventsProps {
     trace: LLMTrace | undefined

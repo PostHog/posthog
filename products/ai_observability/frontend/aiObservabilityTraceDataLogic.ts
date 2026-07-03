@@ -20,7 +20,6 @@ import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
-import { operationStartMs } from './components/TraceTimeline/buildTraceTimeline'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
@@ -30,7 +29,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, operationStartMs } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -721,7 +720,7 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     // Order siblings by when their operation began (longer first on ties),
     // matching the timeline — events are captured at completion, so raw
     // timestamp order can differ.
-    const byOperationStart = (a: any, b: any): number => {
+    const byOperationStart = (a: string, b: string): number => {
         const eventA = idMap.get(a)
         const eventB = idMap.get(b)
         if (!eventA || !eventB) {

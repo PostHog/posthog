@@ -1,6 +1,8 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-export type TraceBarKind = 'generation' | 'span' | 'embedding' | 'trace'
+import { LLMEventKind, getLLMEventKind, latencyMs, operationStartMs } from '../../utils'
+
+export type TraceBarKind = LLMEventKind
 
 export interface TraceTimelineBar {
     id: string
@@ -77,38 +79,6 @@ export function formatDuration(ms: number): string {
 // Instant events still occupy a sliver of time when resolving lane collisions.
 const OVERLAP_MIN_MS = 1
 
-/**
- * Epoch ms when the operation behind an event began. PostHog AI SDKs capture an
- * event when the operation finishes (timestamp = end, $ai_latency = duration),
- * while OTel-ingested spans keep the span's start time. Shared by the timeline,
- * the trace tree, and the drawer's event list so they all order events the same way.
- */
-// Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
-// overflows to Infinity when multiplied, which would hang the axis tick loop.
-function latencyMsOf(event: LLMTraceEvent): number {
-    const latencyMs = Number(event.properties?.$ai_latency) * 1000
-    return isFinite(latencyMs) && latencyMs > 0 ? latencyMs : 0
-}
-
-export function operationStartMs(event: LLMTraceEvent): number {
-    const t = new Date(event.createdAt).getTime()
-    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMsOf(event)
-}
-
-// Mirrors getEventType in ../../utils.ts so bar colors match the tree's tags.
-function kindOf(event: string): TraceBarKind {
-    switch (event) {
-        case '$ai_generation':
-            return 'generation'
-        case '$ai_embedding':
-            return 'embedding'
-        case '$ai_trace':
-            return 'trace'
-        default:
-            return 'span'
-    }
-}
-
 function labelOf(event: LLMTraceEvent): string {
     const p = event.properties || {}
     // Properties are sender-controlled and can be non-strings; rendering an
@@ -144,7 +114,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
             idx: timed.length,
             event,
             startAt: operationStartMs(event),
-            latencyMs: latencyMsOf(event),
+            latencyMs: latencyMs(event),
             nodeId: p.$ai_generation_id ?? p.$ai_span_id ?? event.id,
             parentId: p.$ai_parent_id ?? p.$ai_trace_id ?? null,
         })
@@ -165,7 +135,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         label: labelOf(timedEvent.event),
         startMs: timedEvent.startAt - traceStart,
         durationMs: timedEvent.latencyMs,
-        kind: kindOf(timedEvent.event.event),
+        kind: getLLMEventKind(timedEvent.event),
         isError: !!timedEvent.event.properties?.$ai_is_error,
         lane: 0,
         parentEventId: null,

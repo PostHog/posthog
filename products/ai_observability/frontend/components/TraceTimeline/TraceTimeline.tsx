@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconExpand45 } from '@posthog/icons'
@@ -9,6 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { TraceBarKind, TraceTimelineBar, buildTicks, buildTraceTimeline, formatDuration } from './buildTraceTimeline'
+import { traceTimelineLogic } from './traceTimelineLogic'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
 // span neutral, trace purple. Opaque fills so the gridlines don't show through
@@ -38,7 +40,8 @@ export function TraceTimeline({
     selectedEventId: string | null
     onSelectEvent: (id: string) => void
 }): JSX.Element | null {
-    const [collapsed, setCollapsed] = useState(false)
+    const { collapsed } = useValues(traceTimelineLogic)
+    const { setCollapsed } = useActions(traceTimelineLogic)
     const [isFullScreen, setIsFullScreen] = useState(false)
     const { bars, totalMs, laneCount } = useMemo(() => buildTraceTimeline(events), [events])
     // One └ hook per parent per row, anchored at that row's first child — a row
@@ -180,7 +183,7 @@ export function TraceTimeline({
                 <LemonButton
                     size="xsmall"
                     icon={<IconChevronDown className={cn('transition-transform', collapsed && '-rotate-90')} />}
-                    onClick={() => setCollapsed((c) => !c)}
+                    onClick={() => setCollapsed(!collapsed)}
                     aria-label={collapsed ? 'Expand timeline' : 'Collapse timeline'}
                 />
                 <span className="text-sm font-semibold">
