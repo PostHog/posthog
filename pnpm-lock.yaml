@@ -19,7 +19,7 @@ catalogs:
       specifier: 1.60.0
       version: 1.60.0
     '@posthog/brand':
-      specifier: ^0.5.0
+      specifier: 0.5.0
       version: 0.5.0
     '@posthog/icons':
       specifier: ^0.37.4
