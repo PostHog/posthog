@@ -5,15 +5,18 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 import dagster
+from parameterized import parameterized
 
+from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
 from products.marketing_analytics.dags.marketing_precompute import (
+    COST_MATERIALIZATION_GRAINS,
     DEFAULT_ROLLOUT_TEAM_IDS,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
-    chunk_ranges,
     ensure_marketing_precompute_op,
     get_selected_team_ids,
     marketing_precompute_job,
@@ -21,20 +24,59 @@ from products.marketing_analytics.dags.marketing_precompute import (
 
 _IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
+_FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
+_DB = "products.marketing_analytics.dags.marketing_precompute.Database"
+_FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
 _BIG_CHUNK = 100000
 
-# Minimal valid conversion goal — only needs to pass validate_conversion_goals so the team is
-# treated as having goals. The warming path is goal-agnostic (shared touchpoints table).
-_GOAL = {"name": "Signup", "kind": "EventsNode", "schema_map": {}}
+# Converts cleanly but is_goal_precomputable() rejects it (schema_map remaps a tracked UTM field, which
+# the config-agnostic touchpoints table can't serve), so a team with only this goal warms touchpoints but
+# no conversions.
+_INELIGIBLE_GOAL = {
+    "name": "Remapped",
+    "kind": "EventsNode",
+    "event": "signup",
+    "conversion_goal_id": "goal_remapped",
+    "conversion_goal_name": "Remapped",
+    "schema_map": {"utm_campaign_name": "custom_campaign"},
+    "properties": [],
+}
+# Fully-specified EventsNode goal that IS precomputable (see ConversionGoalProcessor.is_goal_precomputable).
+_PRECOMPUTABLE_GOAL = {
+    "name": "Signup",  # required by validate_conversion_goals
+    "kind": "EventsNode",
+    "event": "signup",
+    "conversion_goal_id": "goal_signup",
+    "conversion_goal_name": "Signup",
+    "math": "total",
+    "schema_map": {},
+    "properties": [],
+}
 
 
 def _ready_mock() -> MagicMock:
     mock = MagicMock()
     mock.return_value.ready = True
     return mock
+
+
+def _flag_fn(*, conversion: bool = False, costs: bool = False):
+    """Stand-in for feature_enabled_or_false that toggles the two precompute flags independently."""
+
+    def _fn(flag, *args, **kwargs):
+        return {
+            "marketing-analytics-precomputation": conversion,
+            "marketing-analytics-costs-precomputation": costs,
+        }.get(flag, False)
+
+    return _fn
+
+
+def _tables(ensure_mock) -> list[LazyComputationTable]:
+    return [call.kwargs["table"] for call in ensure_mock.call_args_list]
 
 
 class TestChunkRanges:
@@ -60,94 +102,140 @@ class TestChunkRanges:
 
 
 class TestGetSelectedTeamIds:
-    def test_env_override_parses_comma_separated_ids(self):
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "2, 47074 ,55348"}):
-            assert get_selected_team_ids() == [2, 47074, 55348]
-
-    def test_env_override_skips_blank_and_invalid(self):
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: " , abc, 2 ,"}):
-            assert get_selected_team_ids() == [2]
+    @parameterized.expand(
+        [
+            ("comma_separated", "2, 47074 ,55348", [2, 47074, 55348]),
+            ("skips_blank_and_invalid", " , abc, 2 ,", [2]),
+        ]
+    )
+    def test_env_override_parses(self, _name, raw, expected):
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: raw}):
+            assert get_selected_team_ids() == expected
 
     def test_env_set_empty_disables(self):
         with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
 
-    def test_unset_uses_default_rollout_on_cloud(self):
-        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {}, clear=False):
+    @parameterized.expand(
+        [
+            ("cloud_uses_default_rollout", True, DEFAULT_ROLLOUT_TEAM_IDS),
+            ("off_cloud_is_empty", False, []),
+        ]
+    )
+    def test_unset_behavior_depends_on_cloud(self, _name, cloud, expected):
+        with patch(_IS_CLOUD, return_value=cloud), patch.dict(os.environ, {}, clear=False):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS
-
-    def test_unset_is_empty_off_cloud(self):
-        with patch(_IS_CLOUD, return_value=False), patch.dict(os.environ, {}, clear=False):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == []
+            assert get_selected_team_ids() == expected
 
 
-class TestEnsureMarketingPrecomputeOp(APIBaseTest):
-    """Orchestration-shaped tests; ensure_precomputed is patched so no ClickHouse traffic is needed."""
+class TestConversionWarming(APIBaseTest):
+    """Touchpoints + conversions orchestration; ensure_precomputed is patched so no ClickHouse traffic."""
 
-    def _make_team(self, name: str, *, with_goal: bool) -> Team:
+    def _make_team(self, name: str, *, goals: list | None = None) -> Team:
         org = Organization.objects.create(name=name)
         team = Team.objects.create(organization=org, name=f"{name}-team")
-        if with_goal:
-            team.marketing_analytics_config.conversion_goals = [_GOAL]
+        if goals is not None:
+            team.marketing_analytics_config.conversion_goals = goals
             team.marketing_analytics_config.save()
         return team
 
     @patch(_ENSURE, new_callable=_ready_mock)
-    @patch(_SINGLE_CHUNK, _BIG_CHUNK)  # one chunk → one ensure call per team
-    def test_warms_every_selected_team_with_goals(self, ensure_mock):
-        t1 = self._make_team("A", with_goal=True)
-        t2 = self._make_team("B", with_goal=True)
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk},{t2.pk}"}):
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_conversion_flag_off_skips_everything(self, ensure_mock):
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        with (
+            patch(_FF, _flag_fn(conversion=False, costs=False)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        ensure_mock.assert_not_called()
 
-        assert result == {"teams": 2, "skipped": 0, "failures": 0}
-        assert ensure_mock.call_count == 2
-        warmed_teams = {call.kwargs["team"].pk for call in ensure_mock.call_args_list}
-        assert warmed_teams == {t1.pk, t2.pk}
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_warms_touchpoints_but_no_conversions_for_ineligible_goal(self, ensure_mock):
+        # _INELIGIBLE_GOAL remaps a tracked UTM field → not precomputable. Touchpoints (config-agnostic) still warms.
+        team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["conversion_teams"] == 1
+        assert _tables(ensure_mock) == [LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED]
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_warms_conversions_for_precomputable_goal(self, ensure_mock):
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+        tables = _tables(ensure_mock)
+        assert LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED in tables
+        assert LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED in tables
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_only_precomputable_goals_warm_conversions(self, ensure_mock):
+        # One eligible + one ineligible goal → exactly one conversions job.
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL, _INELIGIBLE_GOAL])
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+        conversion_calls = [
+            t for t in _tables(ensure_mock) if t == LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED
+        ]
+        assert len(conversion_calls) == 1
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
     def test_skips_team_without_conversion_goals(self, ensure_mock):
-        with_goal = self._make_team("A", with_goal=True)
-        without_goal = self._make_team("B", with_goal=False)
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{with_goal.pk},{without_goal.pk}"}):
+        team = self._make_team("A", goals=None)
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-
-        assert result == {"teams": 1, "skipped": 1, "failures": 0}
-        assert ensure_mock.call_count == 1
-        assert ensure_mock.call_args_list[0].kwargs["team"].pk == with_goal.pk
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_window_reaches_back_past_attribution_window(self, ensure_mock):
-        # The warmed window covers PRECOMPUTE_WINDOW_DAYS of lookback plus the team's attribution
-        # window, so a read's [date_from - attribution_window, date_to] is fully served.
-        team = self._make_team("A", with_goal=True)
-        expected_days = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+    def test_touchpoints_window_reaches_back_past_attribution_window(self, ensure_mock):
+        team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
+        expected = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             ensure_marketing_precompute_op(dagster.build_op_context())
+        kwargs = ensure_mock.call_args_list[0].kwargs  # touchpoints is warmed first
+        assert (kwargs["time_range_end"] - kwargs["time_range_start"]).days == expected
 
-        kwargs = ensure_mock.call_args_list[0].kwargs
-        assert (kwargs["time_range_end"] - kwargs["time_range_start"]).days == expected_days
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_conversions_window_has_no_attribution_backfill(self, ensure_mock):
+        # Conversions span only the query window — the conversion event must fall in-range.
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+        conv_call = next(
+            c
+            for c in ensure_mock.call_args_list
+            if c.kwargs["table"] == LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED
+        )
+        assert (
+            conv_call.kwargs["time_range_end"] - conv_call.kwargs["time_range_start"]
+        ).days == PRECOMPUTE_WINDOW_DAYS
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_chunking_issues_multiple_bounded_calls(self, ensure_mock):
-        # Chunking bounds each ensure call to <= chunk_days so no single INSERT scans the whole window.
-        team = self._make_team("A", with_goal=True)
-        with patch(_SINGLE_CHUNK, 7), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+        team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
+        with (
+            patch(_SINGLE_CHUNK, 7),
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
             ensure_marketing_precompute_op(dagster.build_op_context())
         assert ensure_mock.call_count > 1
         for call in ensure_mock.call_args_list:
-            span = call.kwargs["time_range_end"] - call.kwargs["time_range_start"]
-            assert span.days <= 7
+            assert (call.kwargs["time_range_end"] - call.kwargs["time_range_start"]).days <= 7
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
     def test_one_team_failure_does_not_poison_others(self, ensure_mock):
-        t1 = self._make_team("A", with_goal=True)
-        t2 = self._make_team("B", with_goal=True)
+        t1 = self._make_team("A", goals=[_INELIGIBLE_GOAL])
+        t2 = self._make_team("B", goals=[_INELIGIBLE_GOAL])
 
         def side_effect(*args, **kwargs):
             if kwargs["team"].pk == t1.pk:
@@ -155,37 +243,100 @@ class TestEnsureMarketingPrecomputeOp(APIBaseTest):
             return MagicMock(ready=True)
 
         ensure_mock.side_effect = side_effect
-
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk},{t2.pk}"}):
+        with (
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk},{t2.pk}"}),
+        ):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-
-        assert result == {"teams": 2, "skipped": 0, "failures": 1}
+        assert result["teams"] == 2
+        assert result["failures"] == 1
         assert ensure_mock.call_count == 2
 
     @patch(_ENSURE)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
     def test_not_ready_counts_as_failure(self, ensure_mock):
         ensure_mock.return_value = MagicMock(ready=False, errors=["still pending"])
-        team = self._make_team("A", with_goal=True)
-        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+        team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result == {"teams": 1, "skipped": 0, "failures": 1}
+        assert result["failures"] == 1
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_empty_allowlist_is_a_noop(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result == {"teams": 0, "skipped": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_missing_team_is_skipped(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "999999999"}):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result == {"teams": 0, "skipped": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
     def test_job_has_owner_and_runtime_tags(self):
         tags = marketing_precompute_job.tags
         assert tags["owner"] == "team-web-analytics"
         assert "dagster/max_runtime" in tags
+
+
+class TestCostsWarming(APIBaseTest):
+    """Costs orchestration; the source factory + database are patched so no warehouse/CH access is needed."""
+
+    def _make_team(self, name: str) -> Team:
+        org = Organization.objects.create(name=name)
+        return Team.objects.create(organization=org, name=f"{name}-team")
+
+    def _fake_adapter(self, *, materializable: bool = True) -> MagicMock:
+        adapter = MagicMock()
+        adapter.get_source_id.return_value = "src1"
+        adapter.supports_level.return_value = True
+        adapter.build_materialization_query.return_value = MagicMock() if materializable else None
+        return adapter
+
+    def _fake_factory(self, adapters: list) -> MagicMock:
+        factory = MagicMock()
+        factory.create_adapters.return_value = adapters
+        factory.get_valid_adapters.side_effect = lambda a: a
+        return factory
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_costs_flag_off_skips_costs(self, _db, ensure_mock):
+        team = self._make_team("A")
+        with patch(_FF, _flag_fn(costs=False)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        ensure_mock.assert_not_called()
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_warms_costs_per_source_at_every_grain(self, _db, ensure_mock):
+        # One source materializable at all 3 grains → one costs job per grain, independent of conversion goals.
+        team = self._make_team("A")
+        with (
+            patch(_FF, _flag_fn(costs=True)),
+            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["costs_teams"] == 1
+        tables = _tables(ensure_mock)
+        assert tables == [LazyComputationTable.MARKETING_COSTS_PREAGGREGATED] * len(COST_MATERIALIZATION_GRAINS)
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_unmaterializable_source_is_skipped(self, _db, ensure_mock):
+        team = self._make_team("A")
+        with (
+            patch(_FF, _flag_fn(costs=True)),
+            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter(materializable=False)])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["costs_teams"] == 0
+        ensure_mock.assert_not_called()

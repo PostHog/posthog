@@ -373,12 +373,14 @@ class ConversionGoalProcessor:
         array_collection = self.build_array_collection_query(additional_conditions)
         return self.build_attribution_pipeline(array_collection)
 
-    def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
-        """Eligibility check: flag on, explicit date range, Events/Actions goal, no person/cohort filters."""
-        if not self.config.conversion_goal_precomputation_enabled:
-            return False
-        if date_from is None or date_to is None:
-            return False
+    def is_goal_precomputable(self) -> bool:
+        """Goal-level precompute eligibility, independent of the requesting user, date range, or flag.
+
+        Shared by the live read path (`_should_use_precompute`) and the Dagster warmer
+        (products/marketing_analytics/dags/marketing_precompute.py) so both agree on which goals get a
+        conversions precompute job — otherwise the warmer could materialize jobs the read never asks for,
+        or skip ones it does.
+        """
         if self.goal.kind not in ("EventsNode", "ActionsNode"):
             return False
         if self.goal.kind == "EventsNode" and not self.goal.event:
@@ -396,6 +398,18 @@ class ConversionGoalProcessor:
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
+        return True
+
+    def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
+        """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
+        if not self.config.conversion_goal_precomputation_enabled:
+            return False
+        if date_from is None or date_to is None:
+            return False
+        if not self.is_goal_precomputable():
+            return False
+        # User-scoped: the precompute path materializes some event properties as plain columns, bypassing
+        # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
         return True

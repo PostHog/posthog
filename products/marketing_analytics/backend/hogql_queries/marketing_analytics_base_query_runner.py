@@ -55,6 +55,12 @@ COMPARE_PERIOD_FIELD = "_period"
 COMPARE_PERIOD_CURRENT = "current"
 COMPARE_PERIOD_PREVIOUS = "previous"
 
+# TTL schedule for the native cost materialization: recent windows carry a short TTL so an hourly
+# refresh keeps them fresh; older windows are computed once. Kept as a module constant so the Dagster
+# warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
+# SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
+COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
     """Base class for marketing analytics query runners with shared functionality."""
@@ -235,7 +241,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+        ttl_seconds = COSTS_PRECOMPUTE_TTL_SECONDS
         # Per source: read the native table when it materializes, otherwise keep that one source on the
         # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         job_ids: list = []
