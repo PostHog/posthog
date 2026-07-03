@@ -1069,14 +1069,13 @@ def test_apply_enabled_columns_projection(
 
 
 def test_observed_schema_metadata_columns_excludes_internal_columns():
-    schema = pa.schema(
-        [
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string()),
-            pa.field("_ph_debug", pa.string()),
-            pa.field("_dlt_id", pa.string()),
-        ]
-    )
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string()),
+        pa.field("_ph_debug", pa.string()),
+        pa.field("_dlt_id", pa.string()),
+    ]
+    schema = pa.schema(fields)
 
     assert observed_schema_metadata_columns(schema) == [
         {"name": "id", "data_type": "int64", "is_nullable": False},
