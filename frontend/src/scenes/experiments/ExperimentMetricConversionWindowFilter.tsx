@@ -74,9 +74,13 @@ export function ExperimentMetricConversionWindowFilter({
                             fullWidth={false}
                             min={intervalBounds[0]}
                             max={intervalBounds[1]}
-                            value={metric.conversion_window || 1}
+                            value={metric.conversion_window ?? ''}
+                            data-attr="experiment-metric-conversion-window-input"
                             onChange={(value) => {
-                                handleSetMetric({ ...metric, conversion_window: value || undefined })
+                                handleSetMetric({
+                                    ...metric,
+                                    conversion_window: value === undefined || Number.isNaN(value) ? undefined : value,
+                                })
                             }}
                         />
                         <LemonSelect

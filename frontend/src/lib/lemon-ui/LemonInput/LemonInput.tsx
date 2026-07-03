@@ -79,7 +79,7 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
 export interface LemonInputPropsNumber
     extends LemonInputPropsBase, Pick<React.InputHTMLAttributes<HTMLInputElement>, 'step' | 'min' | 'max'> {
     type: 'number'
-    value?: number
+    value?: number | ''
     defaultValue?: number
     onChange?: (newValue: number | undefined) => void
 }
