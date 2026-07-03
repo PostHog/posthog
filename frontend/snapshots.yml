@@ -6045,9 +6045,13 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
         hash: v1.k794b7964.4ebf2f848b10c8b2859630215a9be1ff91fb825fc334005207556310261d3a5c.UcqJY3dqyJNbi3x7oYaZ2rEu95LAEdbGmMyEpI-Wlgc
     scenes-app-mcp-analytics--dashboard--dark:
-        hash: v1.k794b7964.0ea60752a844fdeb315a7097c3dbec54b88c65e83e0754a0493a3e298caa8798.l4Fy_Gv11GiegC6l-OJGVfUoSpP__Xhx41X5GRc8uWA
+        hash: v1.k794b7964.939888c2747dca9aeadcf59cbe72ada3bc36e221258639d9795ba1a028f6e73b.iTbY8sZjrhBpKYgYcGDCxwTZO9zh70Zd-f6Fb9-37fQ
     scenes-app-mcp-analytics--dashboard--light:
-        hash: v1.k794b7964.5ff783bc949d516121e4b3bcbe22dea0272ea1d06b96faf5fdbb195430420b79.QpMgijOyn69H-BXNJHXYY-maOdflsXoQAwcO7bYmzHY
+        hash: v1.k794b7964.56b13e514a5e4d8529faaf532c0c89d87f99a25650f24d9fcfa2808abc50affe.UGoeXTcMhM5JNjQd8SY5fAtoxse3Z76AmAkqkAv-cOg
+    scenes-app-mcp-analytics--dashboard-with-menu-bar--dark:
+        hash: v1.k794b7964.20d53706369819a7b2c0362e19d0b2294f97b5eed1028fea44df50ae9872fc54.yNsqojVK97Tn9tBxdYCT3JlcjkDB4xkrJhY7EOfG4xc
+    scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
+        hash: v1.k794b7964.6a9e36cf76325c2ee350e1d864e672490c3828a0aa8369ca1c2cafe1c71e5e44.O44QEYI6oU9EjrnYQ2YB6-NtfvT4NhEO2lr1CR8cmng
     scenes-app-mcp-analytics--intent-clustering--dark:
         hash: v1.k794b7964.4bf359b5089b714711c176bdbd5e454857e35935027ca46c161215957bcdff63.tuUCfVazgJFLRYPnMr4rBr_bdCHDOR4WINf5P7PHyCU
     scenes-app-mcp-analytics--intent-clustering--light:
