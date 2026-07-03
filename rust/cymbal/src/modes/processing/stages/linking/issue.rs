@@ -263,6 +263,25 @@ async fn resolve_issue(
         return Ok(issue);
     }
 
+    // Continuity path - wire-order normalization changed this event's stored
+    // order, so its canonical fingerprint differs from the one earlier
+    // (pre-normalization) payloads produced. Before forking a fresh issue,
+    // check whether the legacy-order fingerprint already maps to an issue; if
+    // so, alias the canonical fingerprint onto that same issue so the group
+    // stays intact across the flip.
+    if let Some(issue) = maybe_alias_legacy_fingerprint(
+        context,
+        &mut conn,
+        team_id,
+        &fingerprint,
+        event_properties,
+        event_timestamp,
+    )
+    .await?
+    {
+        return Ok(issue);
+    }
+
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling
     // back the transaction if the override insert fails (since that indicates someone else
     // beat us to creating this new issue). Then, possibly reopen the issue.
@@ -361,6 +380,85 @@ async fn resolve_issue(
     };
 
     Ok(issue)
+}
+
+// When wire-order normalization changed this event's stored order, its
+// canonical fingerprint had no issue yet. If the legacy-order fingerprint does
+// map to an issue, alias the canonical fingerprint onto that same issue (a new
+// fingerprint-override row pointing at the existing issue) so pre- and
+// post-flip events keep grouping together. Returns the existing issue on a
+// successful alias, or `None` to let the caller fall through to creating a new
+// issue.
+async fn maybe_alias_legacy_fingerprint(
+    context: &AppContext,
+    conn: &mut PgConnection,
+    team_id: i32,
+    canonical_fingerprint: &str,
+    event_properties: &ExceptionProperties,
+    event_timestamp: DateTime<Utc>,
+) -> Result<Option<Issue>, UnhandledError> {
+    let Some(legacy_fingerprint) = event_properties.legacy_fingerprint.as_deref() else {
+        return Ok(None);
+    };
+    // Reversal was a no-op for fingerprinting (e.g. a single-frame stack), so
+    // there's nothing to alias.
+    if legacy_fingerprint == canonical_fingerprint {
+        return Ok(None);
+    }
+
+    let Some(result) = Issue::load_by_fingerprint(&mut *conn, team_id, legacy_fingerprint).await?
+    else {
+        return Ok(None);
+    };
+    let (mut issue, legacy_first_seen) = result.into_issue();
+
+    // Point the canonical fingerprint at the legacy issue. `create_or_load` is
+    // idempotent under the (team_id, fingerprint) unique constraint, so a race
+    // that inserted the canonical override first just returns that row.
+    let first_seen = legacy_first_seen.unwrap_or(issue.created_at);
+    let alias = IssueFingerprintOverride::create_or_load(
+        &mut *conn,
+        team_id,
+        canonical_fingerprint,
+        &issue,
+        first_seen,
+    )
+    .await?;
+
+    // A concurrent writer already linked the canonical fingerprint to a
+    // different issue — respect that mapping and hand back its issue instead.
+    if alias.issue_id != issue.id {
+        let Some(existing) = Issue::load(&mut *conn, team_id, alias.issue_id).await? else {
+            return Ok(None);
+        };
+        issue = existing;
+    }
+
+    let reopened = issue.maybe_reopen(&mut *conn).await?;
+    let assignment =
+        process_assignment(conn, &context.team_manager, &issue, event_properties).await?;
+    send_fingerprint_issue_state(
+        context,
+        &issue,
+        canonical_fingerprint,
+        assignment.as_ref(),
+        first_seen,
+    )
+    .await?;
+
+    if reopened {
+        let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+        send_issue_reopened_notification(
+            context,
+            &issue,
+            assignment,
+            output_props,
+            &event_timestamp,
+        )
+        .await?;
+    }
+
+    Ok(Some(issue))
 }
 
 pub async fn process_assignment(

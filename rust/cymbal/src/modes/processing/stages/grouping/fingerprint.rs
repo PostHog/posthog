@@ -33,18 +33,33 @@ impl ValueOperator for FingerprintGenerator {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules).
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
-        let fingerprint: Fingerprint =
-            match evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
+        let grouping_rule =
+            evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
                 Ok(serde_json::to_value(&input)?)
             })
-            .await?
-            {
-                Some(rule) => Fingerprint::from_rule(rule),
-                None => Fingerprint::from_exception_list(&input.exception_list),
-            };
+            .await?;
+        let used_grouping_rule = grouping_rule.is_some();
+        let fingerprint: Fingerprint = match grouping_rule {
+            Some(rule) => Fingerprint::from_rule(rule),
+            None => Fingerprint::from_exception_list(&input.exception_list),
+        };
 
         // Always set proposed_fingerprint to the computed value
         input.proposed_fingerprint = Some(fingerprint.value.clone());
+
+        // When wire-order normalization reordered the payload, also compute the
+        // fingerprint the event would have had in its original order. Issue
+        // linking uses it to alias the canonical fingerprint onto a
+        // pre-normalization issue instead of forking a new one. Only meaningful
+        // for the stack-derived fingerprint: a user-supplied fingerprint or a
+        // grouping-rule fingerprint is order-independent, so continuity is moot.
+        let legacy_list = input.legacy_order_resolved.take();
+        if !used_grouping_rule && input.fingerprint.is_none() {
+            if let Some(legacy_list) = legacy_list {
+                input.legacy_fingerprint =
+                    Some(Fingerprint::from_exception_list(&legacy_list).value);
+            }
+        }
 
         // User sent us a custom fingerprint, let's use it.
         if let Some(fp) = &input.fingerprint {

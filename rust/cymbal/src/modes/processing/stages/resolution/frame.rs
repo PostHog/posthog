@@ -117,10 +117,26 @@ impl ValueOperator for FrameResolver {
         evt.exception_list = FrameResolver::resolve_exception_list_frames(
             evt.team_id,
             evt.exception_list,
-            debug_images,
-            ctx,
+            debug_images.clone(),
+            ctx.clone(),
         )
         .await?;
+
+        // Frame-resolve the legacy-order snapshot (already exception-resolved)
+        // when wire-order normalization ran. It carries the same raw frames as
+        // the canonical list, so the resolver cache serves them and this is
+        // nearly free. Grouping fingerprints the result for issue continuity.
+        if let Some(legacy) = evt.legacy_order_exception_list.take() {
+            evt.legacy_order_resolved = Some(
+                FrameResolver::resolve_exception_list_frames(
+                    evt.team_id,
+                    legacy,
+                    debug_images,
+                    ctx,
+                )
+                .await?,
+            );
+        }
         Ok(Ok(evt))
     }
 }
