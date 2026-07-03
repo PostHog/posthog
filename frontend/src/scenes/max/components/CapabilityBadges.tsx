@@ -79,7 +79,7 @@ export function CapabilityBadges({
                 >
                     <span className="flex items-center gap-1.5">
                         {CODE_CAPABILITY.label}
-                        <LemonTag type="completion" size="small">
+                        <LemonTag type="warning" size="small">
                             Beta
                         </LemonTag>
                     </span>
