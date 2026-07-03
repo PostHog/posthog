@@ -1,23 +1,25 @@
 //! Decode/scrub/re-encode per-event `cv` compression (gzip stored as latin-1 codepoints).
 //! Mirrors `anonymize/cv.ts`.
 
-use std::io::{Read, Write};
-
 use anyhow::{bail, Context, Result};
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use simd_json::borrowed::{Object, Value};
 use simd_json::prelude::Writable;
 use simd_json::StaticNode;
 
+use crate::bytewalk;
 use crate::context::Ctx;
 use crate::dom::{
     scrub_full_snapshot, scrub_mutation_adds, scrub_mutation_attributes, scrub_mutation_texts,
 };
+use crate::gzip;
 use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string_value};
 
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1).
+///
+/// Deliberately per-char: gzip bytes are high-entropy, so the ASCII/two-byte branch mispredicts
+/// either way and a hand-rolled byte loop measured slower than `chars()` on the production corpus
+/// (bounds checks with no exploitable run structure). The real saving here is structural — decoding
+/// gzip bytes straight off the escaped wire span instead of via this UTF-8 string — see PERF_PLAN.
 fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(s.len());
     for c in s.chars() {
@@ -31,35 +33,29 @@ fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
 }
 
 fn bytes_to_latin1(bytes: &[u8]) -> String {
-    bytes.iter().map(|&b| b as char).collect()
+    // Exact presize: one two-byte UTF-8 sequence per byte >= 0x80 (the count pass vectorizes).
+    let extra = bytes.iter().filter(|&&b| b >= 0x80).count();
+    let mut out = String::with_capacity(bytes.len() + extra);
+    for &b in bytes {
+        out.push(b as char);
+    }
+    out
 }
 
-// Cap decompressed `cv` size so a gzip bomb can't OOM the worker thread.
-const MAX_DECOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
-
-/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, depth-guarded and size-capped.
+/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, size-capped (the gzip codec rejects
+/// streams whose footer claims more than its 256 MB bomb cap).
+///
+/// NOT depth-guarded: the byte walk that consumes this first bounds its own recursion (and copies
+/// unwalked spans iteratively), so the whole-buffer depth scan — profiled at ~6% of the pipeline —
+/// only runs where recursion actually happens, in front of the parse fallbacks below. This mirrors
+/// the uncompressed stream path, whose all-walked case pays no depth scan either.
 fn decompress_string(s: &str) -> Result<Vec<u8>> {
     let raw = latin1_to_bytes(s)?;
-    let mut json = Vec::new();
-    GzDecoder::new(&raw[..])
-        .take(MAX_DECOMPRESSED_BYTES + 1)
-        .read_to_end(&mut json)
-        .context("gunzip cv data")?;
-    if json.len() as u64 > MAX_DECOMPRESSED_BYTES {
-        bail!("cv payload decompresses beyond {MAX_DECOMPRESSED_BYTES} bytes");
-    }
-    // The outer message depth guard never saw inside this gzip. Re-check before parsing/walking the
-    // decompressed payload — both the parse and the scrub recurse per level, so an over-deep `cv` blob
-    // would otherwise overflow the worker-thread stack (an abort catch_unwind cannot contain).
-    reject_if_too_deep(&json, "cv payload")?;
-    Ok(json)
+    gzip::gunzip(&raw).context("gunzip cv data")
 }
 
 fn compress_bytes(json: &[u8]) -> Result<String> {
-    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
-    gz.write_all(json).context("gzip cv payload")?;
-    let zipped = gz.finish().context("finish gzip")?;
-    Ok(bytes_to_latin1(&zipped))
+    Ok(bytes_to_latin1(&gzip::gzip(json).context("gzip cv payload")?))
 }
 
 fn compress_value(value: &Value<'_>) -> Result<String> {
@@ -73,9 +69,25 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     let Value::String(s) = &*data else {
         bail!("compressed full snapshot data is not a string");
     };
+    let mut scratch = decompress_string(s)?;
+    // Byte-walk the decompressed payload first: it reuses the same walkers as the uncompressed
+    // stream path, whose semantics the stream/tree differential suite pins. On decline (escaped or
+    // duplicate keys, unexpected shapes, over-deep nesting) fall through to the parse below.
+    let mut walked = Vec::with_capacity(scratch.len() + 64);
+    match bytewalk::scrub_cv_snapshot(ctx, &scratch, &mut walked) {
+        Some(false) => return Ok(false),
+        Some(true) => {
+            *data = string_value(compress_bytes(&walked)?);
+            return Ok(true);
+        }
+        None => {}
+    }
+    // The parse and the tree scrub recurse per level where the walk above self-guarded, so an
+    // over-deep payload must fail closed here — a stack overflow aborts the worker process, which
+    // catch_unwind cannot contain.
+    reject_if_too_deep(&scratch, "cv payload")?;
     // The decompressed payload lives in its own scratch buffer; the parsed tree borrows it and is
     // dropped (re-serialized) before anything is written back.
-    let mut scratch = decompress_string(s)?;
     let mut payload = parse_untrusted(&mut scratch).context("parse cv payload")?;
     if !scrub_full_snapshot(ctx, &mut payload) {
         return Ok(false);
@@ -98,32 +110,52 @@ fn scrub_sub(ctx: &Ctx<'_>, sub_key: &str, arr: &mut Vec<Value<'_>>) -> bool {
 /// Scrub a `cv`-compressed Mutation `data` object in place. Returns whether it changed.
 ///
 /// Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. Plain
-/// arrays are scrubbed in place inside the event tree. Gzipped sub-fields are each decompressed into
-/// their own scratch buffer, scrubbed as an independent borrowed tree, and re-serialized; when *any*
-/// sub-field changed, every gzipped sub-field is re-compressed from its (possibly unchanged) scrubbed
-/// form — matching the TS behavior — otherwise the original strings are kept verbatim.
+/// arrays are scrubbed in place inside the event tree. Gzipped sub-fields are each decompressed
+/// into their own scratch buffer, byte-walked (parse fallback on decline), and re-compressed only
+/// when that sub-field itself changed; untouched sub-fields keep their original gzip string
+/// verbatim. (The TS pipeline re-compresses every sub-field once any changed — but recompressing
+/// an unchanged field re-encodes identical content, so keeping the original bytes produces the
+/// same payload after gunzip while skipping the most expensive leg, level-6 recompression.)
 pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result<bool> {
-    const KEYS: [&str; 3] = ["texts", "attributes", "adds"];
+    const KEYS: [(&str, bytewalk::CvMutationField); 3] = [
+        ("texts", bytewalk::CvMutationField::Texts),
+        ("attributes", bytewalk::CvMutationField::Attributes),
+        ("adds", bytewalk::CvMutationField::Adds),
+    ];
 
     let mut changed = false;
-    // For each gzipped sub-field: (key, scrubbed JSON bytes) to re-compress on change.
+    // Changed gzipped sub-fields: (key, scrubbed JSON bytes) to re-compress and write back below.
     let mut recompress: Vec<(&'static str, Vec<u8>)> = Vec::new();
 
-    for sub_key in KEYS {
+    for (sub_key, field) in KEYS {
         match data.get_mut(sub_key) {
             None => {}                                   // absent -> leave absent
             Some(Value::Static(StaticNode::Null)) => {}  // null -> keep verbatim
             Some(Value::String(s)) if s.is_empty() => {} // empty string -> keep verbatim
             Some(Value::String(s)) => {
                 let mut scratch = decompress_string(s)?;
-                let mut decoded =
-                    parse_untrusted(&mut scratch).context("parse cv mutation sub-field")?;
-                let Some(arr) = as_array_mut(&mut decoded) else {
-                    // Fail closed: a decodable-but-non-array sub-field is malformed.
-                    bail!("cv mutation sub-field did not decode to an array");
-                };
-                changed |= scrub_sub(ctx, sub_key, arr);
-                recompress.push((sub_key, decoded.encode().into_bytes()));
+                let mut walked = Vec::with_capacity(scratch.len() + 64);
+                match bytewalk::scrub_cv_mutation_field(ctx, field, &scratch, &mut walked) {
+                    Some(false) => {}
+                    Some(true) => {
+                        changed = true;
+                        recompress.push((sub_key, walked));
+                    }
+                    None => {
+                        // As in the full-snapshot fallback: the parse recurses, the walk didn't.
+                        reject_if_too_deep(&scratch, "cv mutation sub-field")?;
+                        let mut decoded =
+                            parse_untrusted(&mut scratch).context("parse cv mutation sub-field")?;
+                        let Some(arr) = as_array_mut(&mut decoded) else {
+                            // Fail closed: a decodable-but-non-array sub-field is malformed.
+                            bail!("cv mutation sub-field did not decode to an array");
+                        };
+                        if scrub_sub(ctx, sub_key, arr) {
+                            changed = true;
+                            recompress.push((sub_key, decoded.encode().into_bytes()));
+                        }
+                    }
+                }
             }
             Some(v @ Value::Array(_)) => {
                 let arr = as_array_mut(v).expect("matched array");
@@ -133,10 +165,8 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
         }
     }
 
-    if changed {
-        for (sub_key, json) in recompress {
-            data.insert(key(sub_key), string_value(compress_bytes(&json)?));
-        }
+    for (sub_key, json) in recompress {
+        data.insert(key(sub_key), string_value(compress_bytes(&json)?));
     }
 
     Ok(changed)
@@ -201,6 +231,61 @@ mod tests {
             decoded["node"]["childNodes"][0]["textContent"],
             "keep ******"
         );
+    }
+
+    #[test]
+    fn compressed_mutation_keeps_unchanged_subfields_byte_identical() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let texts_gz = compress_json(br#"[{"id":5,"value":"keep secret"}]"#);
+        // Nothing to scrub in `adds`: id-only node, no text/attributes.
+        let adds_gz = compress_json(br#"[{"parentId":1,"nextId":null,"node":{"id":9,"type":2}}]"#);
+
+        let mut data = Object::default();
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), string_value(texts_gz));
+        data.insert(Cow::Borrowed("adds"), string_value(adds_gz.clone()));
+
+        assert!(scrub_compressed_mutation(&ctx, &mut data).unwrap());
+
+        let texts = decompress_value(as_str(data.get("texts").unwrap()).unwrap());
+        assert_eq!(texts[0]["value"], "keep ******");
+        // The untouched sub-field keeps its original gzip bytes — it is not re-compressed just
+        // because a sibling changed.
+        assert_eq!(as_str(data.get("adds").unwrap()).unwrap(), adds_gz);
+    }
+
+    #[test]
+    fn compressed_mutation_with_escaped_keys_scrubs_via_parse_fallback() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        // The `value` key's first byte is a \u escape: the byte walker declines escaped keys,
+        // so this only scrubs if the parse fallback still runs behind it.
+        let texts_gz = compress_json(br#"[{"id":5,"\u0076alue":"topsecret stuff"}]"#);
+
+        let mut data = Object::default();
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), string_value(texts_gz));
+
+        assert!(scrub_compressed_mutation(&ctx, &mut data).unwrap());
+        let texts = decompress_value(as_str(data.get("texts").unwrap()).unwrap());
+        assert_eq!(texts[0]["value"], "********* *****");
+    }
+
+    #[test]
+    fn compressed_full_snapshot_with_escaped_keys_scrubs_via_parse_fallback() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        // The `textContent` key's first byte is a \u escape (see the mutation fallback test
+        // above).
+        let gz = compress_json(
+            br#"{"node":{"type":3,"\u0074extContent":"topsecret stuff"},"initialOffset":{"top":0,"left":0}}"#,
+        );
+        let mut data = string_value(gz);
+
+        assert!(scrub_compressed_full_snapshot(&ctx, &mut data).unwrap());
+        let decoded = decompress_value(as_str(&data).unwrap());
+        assert_eq!(decoded["node"]["textContent"], "********* *****");
     }
 
     #[test]

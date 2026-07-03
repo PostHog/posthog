@@ -21,6 +21,7 @@ pub mod css;
 pub mod cv;
 pub mod dom;
 pub mod event;
+pub mod gzip;
 pub mod json;
 #[cfg(feature = "mlhog-bench")]
 pub mod mlhog;

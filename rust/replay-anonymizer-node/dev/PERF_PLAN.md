@@ -109,6 +109,51 @@ blocks (76% web / 24% mobile, 451 MB decompressed). Findings that synthetic fixt
   tree-parsing it. The traversal wins measured on uncompressed fixtures still stand, but they
   apply to the uncompressed minority of today's traffic mix.
 
+### cv-path moves (done): libdeflater + byte-walk + per-field recompression
+
+Landed as a set; corpus average went **9.6 -> 5.94 ms/msg (47 -> 76 MB/s), 0 failures**
+(libdeflater one-shot decoded all 1000 prod streams). Same corpus, same run:
+crate walk 5.94 / walk-off 6.10 / MLHog engine 6.51 ms/msg.
+
+- **libdeflater for every gzip leg** (`src/gzip.rs`): one-shot codec sized from the gzip ISIZE
+  footer, 256 MB bomb cap *before* allocation (footer lying small fails with InsufficientSpace —
+  both directions fail closed), thread-local (de)compressor state. Used by cv, the outer
+  Kafka-payload gunzip, and the MLHog port (restoring its original codec — the flate2 port was a
+  downgrade we introduced).
+- **Byte-walk the decompressed cv payload** (`bytewalk::scrub_cv_snapshot` /
+  `scrub_cv_mutation_field`): the same self-guarded walkers the uncompressed stream path uses, so
+  the scrub semantics were already pinned by the stream/tree differential; parse fallback on
+  decline (escaped/duplicate keys, non-array sub-fields, over-deep). The whole-buffer depth
+  pre-scan moved from `decompress_string` to the parse fallbacks only — the walk bounds its own
+  recursion and copies unwalked spans iteratively, mirroring the uncompressed path.
+- **Per-field recompression**: only sub-fields the scrub actually changed are re-gzipped; the TS
+  pipeline re-compresses every sub-field once any changed, which re-encodes identical content.
+  Same payload after gunzip, and level-6 compression is the single most expensive leg (see below).
+
+Tried and rejected here: a hand-rolled byte-level latin-1 transcode (replacing `chars()`).
+Measured *slower* on the corpus — gzip bytes are high-entropy, so the ASCII/two-byte branch
+mispredicts either way, there is no run structure to exploit, and the safe indexed loop adds
+bounds checks that `chars()`'s internals avoid. Reverted to per-char with an exact presize.
+
+### Post-move profile (prod corpus, top of stack)
+
+1. **Level-6 deflate of changed cv payloads: ~29%** of all samples — the dominant cost by 3x, and
+   real traffic recompresses *more* than this corpus (see biases below). The remaining lever is a
+   product knob, not engineering: gzip level for re-compressed payloads (level 1 compresses ~3-5x
+   faster for ~10-15% larger output; storage vs CPU). Also worth checking why a *pre-scrubbed*
+   corpus recompresses at all — likely non-idempotent css rewrite / attr-stash output; harmless
+   for single-scrub prod, but it inflates corpus recompress rates and would double-stash if a
+   payload were ever scrubbed twice.
+2. **latin-1 transcode + cv strings through the event tree parse: ~10%** combined
+   (`decompress_string`/`compress_bytes` transcode ~7.5%, plus part of simd `parse_str`). The
+   structural fix is extending the byte walk to compressed events themselves: unescape the cv
+   string straight off the wire span into gzip bytes (mlhog-style `latin1_from_json`), skipping
+   the UTF-8 `String` materialization and the event-tree parse of the wrapper. Biggest remaining
+   engineering item.
+3. `skip_string` ~10% — SWAR structural skipping; fundamental to walking, already tuned.
+4. Outer unescape (`next_backslash` + `unescape_in_place`) ~6%; gunzip ~4.5% (was ~3x that under
+   flate2); remaining `max_bracket_depth` ~2.5% is the guards ahead of tree-route/scratch parses.
+
 Provenance checks on the corpus (it is the *output* of the TS scrubber, so know the biases):
 
 - **cv-gzip is SDK-origin, not a storage artifact**: `cv: "2024-10"` is set by posthog-js

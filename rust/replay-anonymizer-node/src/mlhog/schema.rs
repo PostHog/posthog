@@ -1,12 +1,9 @@
 // Copied (extracted) from MLHog prep/labeling/src/schema.rs — bench-only. Only the items the v2
 // byte-scanner needs: the routing enums, the raw-line `scan_event` pass, the byte-skip helpers and
-// the cv gzip string codec. The v1 typed event tree (serde structs, AttrValue, MutationSubScratch
-// consumers, extract_payload/emit_with_payload) is not ported. The `serde_repr` derives on the
-// enums are dropped (v2 never (de)serializes them). gzip is ported from libdeflater to flate2
-// (already a dependency of this crate) — see `gzip_compress`/`gzip_decompress_into` below.
+// the cv gzip string codec (libdeflater, as in the original). The v1 typed event tree (serde
+// structs, AttrValue, MutationSubScratch consumers, extract_payload/emit_with_payload) is not
+// ported. The `serde_repr` derives on the enums are dropped (v2 never (de)serializes them).
 #![allow(dead_code)]
-
-use std::io::{Read, Write};
 
 use anyhow::{bail, Context, Result};
 
@@ -306,31 +303,33 @@ fn hex4(b: &[u8], i: usize) -> Result<u16> {
     Ok(v)
 }
 
-// Ported from libdeflater to flate2 (already a dependency of this crate) with identical semantics:
-// emit one level-6 gzip member. Byte-identical output vs. libdeflater is not required — only a
-// valid gzip stream that the same codec round-trips.
+// As in the original: one level-6 gzip member via libdeflate's one-shot compressor.
 fn gzip_compress(payload: &[u8]) -> Result<Vec<u8>> {
-    let mut enc = flate2::write::GzEncoder::new(
-        Vec::with_capacity(payload.len() / 2 + 64),
-        flate2::Compression::new(6),
+    let mut enc = libdeflater::Compressor::new(
+        libdeflater::CompressionLvl::new(6).expect("6 is a valid deflate level"),
     );
-    enc.write_all(payload)
+    let mut out = vec![0u8; enc.gzip_compress_bound(payload.len())];
+    let n = enc
+        .gzip_compress(payload, &mut out)
         .map_err(|e| anyhow::anyhow!("gzip compress: {e:?}"))?;
-    enc.finish().map_err(|e| anyhow::anyhow!("gzip compress: {e:?}"))
+    out.truncate(n);
+    Ok(out)
 }
 
-// Ported from libdeflater to flate2. Like the original, the gzip trailer's ISIZE (uncompressed
-// size mod 2^32, little-endian) sizes the output buffer (as a reserve hint here); output is
-// appended to `dst`.
+// As in the original: the gzip trailer's ISIZE (uncompressed size mod 2^32, little-endian) sizes
+// the one-shot output buffer; output is appended to `dst`.
 fn gzip_decompress_into(raw: &[u8], dst: &mut Vec<u8>) -> Result<()> {
     if raw.len() < 4 {
         bail!("gzip stream too short");
     }
     let n = raw.len();
     let out_len = u32::from_le_bytes([raw[n - 4], raw[n - 3], raw[n - 2], raw[n - 1]]) as usize;
-    dst.reserve(out_len);
-    let mut dec = flate2::read::GzDecoder::new(raw);
-    dec.read_to_end(dst).map_err(|e| anyhow::anyhow!("gunzip: {e:?}"))?;
+    let base = dst.len();
+    dst.resize(base + out_len, 0);
+    let written = libdeflater::Decompressor::new()
+        .gzip_decompress(raw, &mut dst[base..])
+        .map_err(|e| anyhow::anyhow!("gunzip: {e:?}"))?;
+    dst.truncate(base + written);
     Ok(())
 }
 

@@ -36,6 +36,15 @@ fn main() {
         ["api", "app", "cdn", "static"],
     );
 
+    // PROD_BENCH_PROFILE=1: loop only the production entry so an attached `sample` profile
+    // is not polluted by the walk-off and mlhog arms.
+    if std::env::var_os("PROD_BENCH_PROFILE").is_some() {
+        for _ in 0..12 {
+            run_round(&allow, &payloads, AnonymizeOpts::default());
+        }
+        return;
+    }
+
     bench("crate (byte walk)", &allow, &payloads, AnonymizeOpts::default());
     bench(
         "crate (walk off) ",

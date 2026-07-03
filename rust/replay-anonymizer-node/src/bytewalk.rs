@@ -133,6 +133,64 @@ pub fn scrub_data_bytes(
     Some(w.changed)
 }
 
+/// Which gzipped mutation sub-field a decompressed cv payload came from.
+#[derive(Clone, Copy)]
+pub enum CvMutationField {
+    Texts,
+    Attributes,
+    Adds,
+}
+
+/// Scrub a decompressed cv FullSnapshot payload (`bytes` is the whole `data` object) into `out`.
+/// `Some(changed)` on success; `None` means "fall back to the parse path" — `out` then holds a
+/// partial emission the caller must discard.
+pub fn scrub_cv_snapshot(ctx: &Ctx<'_>, bytes: &[u8], out: &mut Vec<u8>) -> Option<bool> {
+    let mut w = Walker {
+        ctx,
+        bytes,
+        changed: false,
+        depth: 0,
+        seen: Vec::with_capacity(64),
+    };
+    let start = scan::skip_ws(bytes, 0);
+    let end = w.walk_object(start, out, &mut |w, key, vstart, out| {
+        match &w.bytes[key.0..key.1] {
+            b"node" => w.walk_node(vstart, ParentKind::Other, out),
+            _ => w.copy_value(vstart, out),
+        }
+    })?;
+    (scan::skip_ws(bytes, end) == bytes.len()).then_some(w.changed)
+}
+
+/// Scrub one decompressed cv mutation sub-field (`bytes` is the whole array) into `out`.
+/// `Some(changed)` on success; `None` means "fall back to the parse path" — which also owns
+/// failing payloads that are not arrays closed, so a non-`[` payload must decline here rather
+/// than take `walk_array`'s copy-verbatim branch for non-array values.
+pub fn scrub_cv_mutation_field(
+    ctx: &Ctx<'_>,
+    field: CvMutationField,
+    bytes: &[u8],
+    out: &mut Vec<u8>,
+) -> Option<bool> {
+    let start = scan::skip_ws(bytes, 0);
+    if bytes.get(start) != Some(&b'[') {
+        return None;
+    }
+    let mut w = Walker {
+        ctx,
+        bytes,
+        changed: false,
+        depth: 0,
+        seen: Vec::with_capacity(64),
+    };
+    let end = match field {
+        CvMutationField::Texts => w.walk_texts(start, out),
+        CvMutationField::Attributes => w.walk_mutation_attributes(start, out),
+        CvMutationField::Adds => w.walk_adds(start, out),
+    }?;
+    (scan::skip_ws(bytes, end) == bytes.len()).then_some(w.changed)
+}
+
 impl<'c, 'a> Walker<'c, 'a> {
     /// Emit-walk the object at `start`: keys verbatim, values via `field`. Detects escaped and
     /// duplicate keys (fallback). Returns the position just past the closing `}`.
@@ -341,14 +399,6 @@ impl<'c, 'a> Walker<'c, 'a> {
             }
             pos = vspan.1;
         }
-    }
-
-    fn find_uint_member(&self, obj_start: usize, name: &[u8]) -> Result<Option<u8>, Fallback> {
-        let Some(span) = self.find_member(obj_start, name)? else {
-            return Ok(None);
-        };
-        Ok(scan::parse_number(self.bytes, span)
-            .and_then(|n| (n.fract() == 0.0 && (0.0..=u8::MAX as f64).contains(&n)).then_some(n as u8)))
     }
 
     /// One serialized rrweb node (mirrors `dom::walk_node`), order-independently: capture's

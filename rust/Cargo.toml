@@ -130,6 +130,7 @@ mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
+libdeflater = "1"
 lru = "0.12"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"

@@ -177,9 +177,10 @@ pub struct AnonymizedMessage {
     pub route: Route,
 }
 
-/// Decompressed payloads are capped so a forged lz4 size prefix (a u32, so up to 4 GiB) cannot
-/// force the allocation; real replay payloads decompress to tens of MB at most.
-const MAX_DECOMPRESSED_LEN: usize = 256 * 1024 * 1024;
+/// Decompressed payloads are capped (shared with the gzip codec's bomb cap) so a forged lz4 size
+/// prefix (a u32, so up to 4 GiB) cannot force the allocation; real replay payloads decompress to
+/// tens of MB at most.
+const MAX_DECOMPRESSED_LEN: usize = crate::gzip::MAX_DECOMPRESSED_BYTES;
 
 const GZIP_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x00];
 
@@ -201,16 +202,7 @@ pub fn decompress_payload(raw: Vec<u8>, content_encoding: Option<&str>) -> SResu
             .map_err(|e| bad(&format!("lz4 decompress failed: {e}")));
     }
     if raw.starts_with(GZIP_MAGIC) {
-        use std::io::Read;
-        let mut out = Vec::new();
-        flate2::read::GzDecoder::new(&raw[..])
-            .take(MAX_DECOMPRESSED_LEN as u64 + 1)
-            .read_to_end(&mut out)
-            .map_err(|e| bad(&format!("gzip decompress failed: {e}")))?;
-        if out.len() > MAX_DECOMPRESSED_LEN {
-            return Err(bad("gzip uncompressed size exceeds limit"));
-        }
-        return Ok(out);
+        return crate::gzip::gunzip(&raw).map_err(|e| bad(&format!("gzip decompress failed: {e}")));
     }
     Ok(raw)
 }
