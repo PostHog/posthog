@@ -2440,7 +2440,7 @@ class PersistIqSourceConfig(config.Config):
 
 @config.config
 class PersonaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
