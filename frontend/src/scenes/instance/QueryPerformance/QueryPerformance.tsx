@@ -21,6 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CacheHealth } from './CacheHealth'
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
@@ -497,6 +498,7 @@ export function QueryPerformance(): JSX.Element {
                         label: 'Experiments',
                         content: (
                             <>
+                                <CacheHealth />
                                 <h2>Slowest queries</h2>
                                 <div className="flex flex-wrap gap-2 mb-4 items-center">
                                     {TIME_RANGE_OPTIONS.map(({ label, hours }) => (

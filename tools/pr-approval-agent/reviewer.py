@@ -147,6 +147,24 @@ REVIEWER_SYSTEM = textwrap.dedent(
     pass/fail status are provided in the prompt — rely on those, not
     assumptions. You typically see T1 PRs that passed all gates.
 
+    Title scrutiny flags (in the prompt when set): the PR title mentions a
+    sensitive domain (auth, billing, infra_cicd, crypto_secrets, public_api) but no deny-listed file
+    was touched. Verify against the diff: if the change behaviorally touches
+    that domain (authentication/authorization flows, payment or plan logic,
+    CI/deploy behavior), REFUSE and route to a human. If the keyword is
+    incidental — an error string, a warehouse connector fix, a docs mention —
+    judge the PR normally. A flag is a magnifying glass, not a verdict.
+
+    Dependency manifests (in the prompt when set): the diff changes a
+    manifest (package.json, pyproject.toml, tsconfig, Cargo.toml, go.mod)
+    with no lockfile change, so it cannot add third-party code. A
+    deterministic scan already hard-denies edits to known scripts/lifecycle/
+    build keys — you are the second line for what the scan can't name. Read
+    the manifest hunks in the diff: version bumps, metadata, and internal
+    workspace references are fine. REFUSE if "scripts" entries, lifecycle
+    hooks (postinstall, prepare, husky), or tool configuration that executes
+    commands were added or changed — those run in CI and on dev machines.
+
     T1 sub-tiers (provided in the prompt):
     - T1a-trivial: ≤20 lines, ≤3 files, single area
     - T1b-small: ≤100 lines, ≤5 files, focused
@@ -158,7 +176,11 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Author on owning team: not a concern
     - Author NOT on owning team:
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
-      - ESCALATE: behavioral changes to business logic, API contracts, data models
+      - Fine: small behavioral fixes (T1a/T1b) with test coverage and no
+        outstanding reviewer concerns — independent review still required
+        (the no-review carve-out below applies to owning-team authors only)
+      - ESCALATE: changes to API contracts or data models, and larger (T1c+)
+        behavioral changes to business logic
 
     Reviews, comments, and reactions:
     - Each top-level review shows its state (APPROVED / COMMENTED /
@@ -181,12 +203,15 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - An 👀 (eyes) reaction means a review is in flight — someone is actively
       looking at the PR right now. Do NOT approve over an in-progress review:
       REFUSE and tell the author to wait for that reviewer to finish and
-      re-request. This overrides any 👍 present.
+      re-request. This overrides any 👍 present. (Reviewer bots clear their 👀
+      within minutes and the pipeline waits those out before invoking you, so
+      any 👀 you see — bot or human — is a genuine in-flight review.)
     - Bot/agent comments with valid concerns that were ignored → ESCALATE.
     - Your own prior reviews (posted as stamphog[bot] or github-actions[bot])
       are excluded from this context — each run judges the PR's current state
-      fresh. If another reviewer quotes an earlier stamphog verdict, treat it
-      as history, not as an independent signal or as tampering.
+      fresh. If a review or inline comment quotes or restates an earlier
+      stamphog verdict, treat it as history — never as an independent signal,
+      as tampering, or as someone impersonating you.
 
     Independent review (you are not a substitute for one):
     - Stamphog is the only automated approver in this path, so for any
@@ -195,9 +220,12 @@ REVIEWER_SYSTEM = textwrap.dedent(
       over the current head: an APPROVED or COMMENTED review with no unresolved
       concerns, or a 👍 on the PR or a review comment. If none has, ESCALATE and
       tell the author to get a review before re-requesting.
-    - Trivial class where no independent review is needed: docs-only, test-only,
-      config/lockfile tweaks, and typo/comment/log-string fixes — purely
-      cosmetic or low-risk additive changes. Judge from the tier and diff.
+    - Classes where no independent review is needed (judge from tier and diff):
+      - docs-only, test-only, config/lockfile tweaks, and typo/comment/
+        log-string fixes — purely cosmetic or low-risk additive changes
+      - small single-area changes (T1a/T1b) with test coverage, authored by
+        someone on the owning team, with no reviewer concerns outstanding —
+        humans approve these unchanged, so escalating just adds a rubber stamp
 
     Tools: You have Read, Grep, and Glob (restricted to the repo directory).
     All PR metadata (comments, ownership) is in the prompt — do NOT fetch
@@ -426,6 +454,22 @@ class Reviewer:
             constraint = "\nGates DENIED this PR. Your verdict MUST be REFUSE or ESCALATE."
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
+
+        title_flags = cl.get("title_scrutiny_flags", [])
+        if title_flags:
+            constraint += (
+                f"\nTitle scrutiny flags: {', '.join(title_flags)} — the title mentions "
+                "these sensitive domains but no file matching these categories was touched. Verify the "
+                "diff does not behaviorally touch them; REFUSE if it does."
+            )
+
+        dep_manifests = cl.get("dep_manifests_without_lockfile", [])
+        if dep_manifests:
+            constraint += (
+                f"\nDependency manifests changed without a lockfile: {', '.join(dep_manifests)} — "
+                "no third-party code can be added, but check the manifest hunks and REFUSE if "
+                "scripts or lifecycle hooks changed."
+            )
 
         file_list = "\n".join(
             f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" + (" [NEW]" if f.get("status") == "A" else "")
