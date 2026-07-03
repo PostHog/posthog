@@ -32,6 +32,10 @@ import {
     formatLLMUsage,
     getTraceStepCount,
     getTraceTimestamp,
+    INTERNAL_TOOL_RESULT_ROLE,
+    isInternalToolResultUserMessage,
+    isToolResult,
+    isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -461,12 +465,39 @@ export function pickLastInputMessage(
 }
 
 /**
- * Preferred → fallback cascade for the trace output column. We prefer the
- * last assistant message with real content, but fall back to the last
- * displayable message (e.g. tool_calls) so tool-calling traces still show
- * something useful instead of a dash.
+ * A message is "tool traffic" (a tool call or a tool result) rather than a
+ * user-facing turn. Tool calls frequently end an agent chain, but the traces
+ * list should surface the last human-readable answer, not the machinery that
+ * produced it. Covers the explicit `tool_calls` field, tool-result roles, and
+ * content arrays made up entirely of tool-call / tool-result parts — while
+ * still treating a message that mixes real text with a tool call as
+ * user-facing.
  */
-function pickLastOutputMessage(
+function isToolMessage(message: NormalizedMessage): boolean {
+    const { role, content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    const hasText =
+        (typeof content === 'string' && content.trim().length > 0) ||
+        (Array.isArray(content) && content.some((item) => !isToolStepItem(item) && !isToolResult(item)))
+    if (Array.isArray(tool_calls) && tool_calls.length > 0) {
+        return !hasText
+    }
+    if (role === 'tool' || role === INTERNAL_TOOL_RESULT_ROLE || isInternalToolResultUserMessage(message)) {
+        return true
+    }
+    if (Array.isArray(content) && content.length > 0 && !hasText) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Preferred → fallback cascade for the trace output column. We prefer the last
+ * assistant message that carries user-facing content, skipping pure tool calls
+ * and tool results so a tool-calling agent chain still shows its last readable
+ * answer. Only when a trace has nothing but tool traffic do we fall back to the
+ * last displayable message, so those traces still show something instead of a dash.
+ */
+export function pickLastOutputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
@@ -474,15 +505,15 @@ function pickLastOutputMessage(
     if (normalized.length === 0) {
         return null
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (normalized[i].role === 'assistant' && hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastAssistant = normalized.findLast(
+        (m) => m.role === 'assistant' && hasDisplayableContent(m) && !isToolMessage(m)
+    )
+    if (lastAssistant) {
+        return lastAssistant
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastDisplayable = normalized.findLast(hasDisplayableContent)
+    if (lastDisplayable) {
+        return lastDisplayable
     }
     return normalized[normalized.length - 1]
 }
