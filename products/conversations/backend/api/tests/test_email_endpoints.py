@@ -534,7 +534,7 @@ class TestEmailMultiConfig(BaseTest):
     ):
         from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
 
-        fresh_records = {"sending_dns_records": []}
+        fresh_records: dict = {"sending_dns_records": []}
         # First MAX connects register cleanly; the overflow connect hits a Mailgun
         # conflict, reclaims a stranded unverified domain, then fails on the limit.
         mock_add.side_effect = [{}] * MAX_EMAIL_CONFIGS_PER_TEAM + [
