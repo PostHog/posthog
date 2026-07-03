@@ -127,6 +127,17 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     config: 'Configuration',
 }
 
+/** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
+export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
+    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
+    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+    'not-actionable':
+        'Reports judged not actionable – too vague, missing supporting evidence, or describing expected behavior.',
+    runs: 'Project-wide list of agent runs, for debugging.',
+    archived: 'Reports you archived. You can restore them to the inbox at any time.',
+    config: 'Set up signal sources, scouts, and how autonomously agents can act.',
+}
+
 /**
  * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
  * narrow for the right-hand setup rail (see `AgentSetupColumn`); on wide viewports the rail

@@ -19,7 +19,7 @@ If you understand PostHog product analytics, you understand this. Map it one-to-
 | "How long from signup to purchase?"      | "How long from opened to merged?"              |
 | "What % of signups convert?" (funnel)    | "What % of PRs make it to prod?" (funnel)      |
 | "Is conversion getting better?" (trend)  | "Is CI getting faster?" (trend)                |
-| Segment by country, plan, browser        | Segment by repo, author, file path             |
+| Segment by country, plan, browser        | Segment by repo, workflow, file path           |
 
 Same product, different noun.
 
@@ -145,6 +145,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - UI = read-only analytics surface on the **same** endpoints (PR list, CI health, workflow health) — a real read surface, not only a design-system showcase. No saved views or stateful filters in this phase; persisted/stateful surfaces are a later, separate decision.
 - v1 data path = HogQL on warehouse. Event ingestion deferred. Product Postgres DB stays empty.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping in v1.
+- **Analytics aggregate at team/repo level only.** Author is display metadata on a PR — attribution, never a unit of analysis. No author-level pages, tabs, leaderboards, rankings, or per-author cost, ever. This is a non-goal (per-developer surveillance), not a deferred feature.
 - Bots and drafts excluded by default in throughput / cycle-time tools; bots are first-class in bot-impact analysis (don't strip them everywhere).
 - Bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1.
 - Time to merge v1 = the read layer's `open_to_merge_seconds` column = `merged_at - created_at` (draft + ready-for-review combined). Coarse — encoded in the column name, never named cycle/review time.

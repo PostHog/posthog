@@ -48,6 +48,8 @@ from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthenticati
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
@@ -1184,11 +1186,22 @@ class SignalReportViewSet(
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
 
+        # Both lookups are best-effort decorative metadata (source-product badges, scout names, PR
+        # urls). The serializer degrades to empty values when a map is missing, so a ClickHouse or
+        # backend hiccup in either must not 500 the whole inbox load — fall back to empty and log.
         with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
-            signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            try:
+                signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            except Exception:
+                logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
+                signal_meta_map = {}
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
-            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            try:
+                implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            except Exception:
+                logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
+                implementation_pr_url_map = {}
 
         context = {
             **self.get_serializer_context(),
@@ -1697,7 +1710,9 @@ class SignalReportArtefactViewSet(
         # simultaneous edits would both read the same row and one would be silently lost.
         seen: set[str] = set()
         with transaction.atomic():
-            SignalReport.objects.select_for_update().filter(id=artefact.report_id, team_id=self.team_id).first()
+            report = (
+                SignalReport.objects.select_for_update().filter(id=artefact.report_id, team_id=self.team_id).first()
+            )
 
             # Merge commits/names forward from the *current* reviewers (the latest status row), not
             # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.
@@ -1715,6 +1730,7 @@ class SignalReportArtefactViewSet(
                 prior_content = []
             prior_commits_by_login: dict[str, list] = {}
             prior_name_by_login: dict[str, str | None] = {}
+            prior_logins: list[str] = []
             if isinstance(prior_content, list):
                 for prior in prior_content:
                     if not isinstance(prior, dict):
@@ -1722,6 +1738,7 @@ class SignalReportArtefactViewSet(
                     login = (prior.get("github_login") or "").strip().lower()
                     if not login:
                         continue
+                    prior_logins.append(login)
                     commits = prior.get("relevant_commits")
                     if isinstance(commits, list):
                         prior_commits_by_login[login] = commits
@@ -1755,6 +1772,36 @@ class SignalReportArtefactViewSet(
                 content=SuggestedReviewers.model_validate(new_content),
                 attribution=attribution,
             )
+
+            # Human reviewer corrections are a routing signal (scouts query them via the
+            # activity log to learn who owns an area), so log them — but only genuine
+            # membership changes by a human, not agent writes or order-only rewrites.
+            # `new_content` is deduped above; dedupe `prior_logins` too (a legacy or
+            # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
+            prior_logins = list(dict.fromkeys(prior_logins))
+            new_logins = [entry["github_login"] for entry in new_content]
+            if attribution.kind == "user" and set(prior_logins) != set(new_logins):
+                log_activity(
+                    organization_id=None,
+                    team_id=self.team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=artefact.report_id,
+                    scope="SignalReport",
+                    activity="suggested_reviewers_changed",
+                    detail=Detail(
+                        name=report.title if report else None,
+                        changes=[
+                            Change(
+                                type="SignalReport",
+                                action="changed",
+                                field="suggested_reviewers",
+                                before=prior_logins,
+                                after=new_logins,
+                            )
+                        ],
+                    ),
+                )
 
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}

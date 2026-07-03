@@ -15,7 +15,12 @@ from posthog.async_migrations.utils import update_async_migration
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
 
-pytestmark = pytest.mark.async_migrations
+pytestmark = [
+    pytest.mark.async_migrations,
+    pytest.mark.skip(
+        reason="Async migrations are frozen for self-hosted backwards compat; only test_migrations_not_required still runs"
+    ),
+]
 
 
 class TestRunner(AsyncMigrationBaseTest):

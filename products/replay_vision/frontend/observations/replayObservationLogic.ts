@@ -47,39 +47,44 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, cache }) => ({
-        loadObservation: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionObservationsRetrieve(String(teamId), props.id)
-                actions.loadObservationSuccess(response)
-                // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                replayObservationSceneLogic().actions.setScannerContext(
-                    response.scanner_id,
-                    response.scanner_snapshot?.name ?? null
-                )
-            } catch (error: any) {
-                lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
-                actions.loadObservationFailure()
-            }
-        },
-
-        loadObservationSuccess: ({ observation }) => {
-            // SSE flips us to the result instantly when our listener catches `streamCompleted`, but the
-            // stream is a shared keyed logic — if the dock started and finished it before this page opened,
-            // the past event isn't replayed here. Poll while in flight as a fallback so we still land the result.
-            const inFlight = observation.status === 'pending' || observation.status === 'running'
+    listeners(({ actions, props, values, cache }) => {
+        // Poll while in flight as the SSE fallback, on failure too; reducers run first, so `observation` is current.
+        const reschedulePoll = (): void => {
+            const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
-        },
+        }
+        return {
+            loadObservation: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    const response = await visionObservationsRetrieve(String(teamId), props.id)
+                    actions.loadObservationSuccess(response)
+                    // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
+                    replayObservationSceneLogic().actions.setScannerContext(
+                        response.scanner_id,
+                        response.scanner_snapshot?.name ?? null
+                    )
+                } catch (error: any) {
+                    // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
+                    if (!values.observation) {
+                        lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
+                    }
+                    actions.loadObservationFailure()
+                }
+            },
 
-        // When the stream reports the observation has settled, reload once to render the final result.
-        streamCompleted: () => {
-            actions.loadObservation()
-        },
-    })),
+            loadObservationSuccess: reschedulePoll,
+            loadObservationFailure: reschedulePoll,
+
+            // When the stream reports the observation has settled, reload once to render the final result.
+            streamCompleted: () => {
+                actions.loadObservation()
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadObservation()
