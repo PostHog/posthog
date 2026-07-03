@@ -46,7 +46,29 @@ dev      ai_events  roles/shared
 prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 
+# AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
+# property values, web/marketing preaggregated). roles/aux/shared holds the env-uniform
+# objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
+# kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
+# ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
+local    aux        roles/shared roles/aux/shared roles/aux/local
+prod-us  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-us
+prod-eu  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-eu
+
+# SESSIONS satellite: the local node runs only the shared query_log_archive path
+# (session tables are prod-only), so it composes roles/shared alone. prod nodes host
+# the session tables (sessions, raw_sessions, raw_sessions_v3), the events replica,
+# channel_definition + web_pre_aggregated_teams (+ their dictionaries), and person
+# join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
+# carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
+# has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
+local    sessions   roles/shared
+prod-us  sessions   roles/shared roles/sessions/shared roles/sessions/prod-us
+prod-eu  sessions   roles/shared roles/sessions/shared roles/sessions/prod-eu
+
+# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
+# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
+prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
+
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
 # prod-us  endpoints  roles/shared
-# prod-us  aux        roles/shared
-# prod-us  sessions   roles/shared
