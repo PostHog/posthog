@@ -7,7 +7,7 @@ import { BarChart, ReferenceLine } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
-import { MarkdownTextDiff } from 'lib/components/MarkdownNotebook/MarkdownTextDiff'
+import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -106,19 +106,29 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-2">
                 {currentSuggestion.rationale && <p className="text-sm m-0">{currentSuggestion.rationale}</p>}
-                {currentSuggestion.base_prompt && (
-                    <div className="text-xs text-muted">Changes vs the prompt it was generated against:</div>
-                )}
-                <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                    {currentSuggestion.base_prompt ? (
-                        <MarkdownTextDiff
-                            before={currentSuggestion.base_prompt}
-                            after={currentSuggestion.suggested_prompt}
+                {currentSuggestion.base_prompt ? (
+                    <div className="border rounded overflow-hidden">
+                        <MonacoDiffEditor
+                            original={currentSuggestion.base_prompt}
+                            modified={currentSuggestion.suggested_prompt}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                renderOverviewRuler: false,
+                                scrollBeyondLastLine: false,
+                                diffAlgorithm: 'advanced',
+                            }}
                         />
-                    ) : (
-                        currentSuggestion.suggested_prompt
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {currentSuggestion.suggested_prompt}
+                    </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
