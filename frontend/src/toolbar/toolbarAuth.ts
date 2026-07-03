@@ -8,6 +8,25 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+/** A refresh failure carrying the HTTP status, so callers can tell an expected auth-expiry apart from a real error. */
+export class TokenRefreshError extends Error {
+    status: number | null
+
+    constructor(message: string, status: number | null) {
+        super(message)
+        this.name = 'TokenRefreshError'
+        this.status = status
+    }
+}
+
+// A 4xx refresh response means the refresh token is stale/expired/revoked/already rotated — a routine
+// "session aged out, please re-authenticate" case the toolbar already handles with a toast. It is expected,
+// not a bug, so it should not be reported to error tracking. Genuinely unexpected failures (5xx, network
+// errors) still are.
+function isExpectedAuthExpiry(status: number | null): boolean {
+    return status !== null && status >= 400 && status < 500
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -29,13 +48,17 @@ export async function refreshOAuthTokens(
             })
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                const err = new TokenRefreshError(`Refresh failed: ${response.status}`, response.status)
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                // Keep the analytics event above for volume visibility, but only report genuinely
+                // unexpected failures to error tracking — an expected 4xx auth-expiry is not a bug.
+                if (!isExpectedAuthExpiry(response.status)) {
+                    captureToolbarException(err, 'token_refresh')
+                }
                 throw err
             }
 
@@ -93,7 +116,11 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // An expected 4xx auth-expiry is handled here with a re-authenticate toast; don't also report it
+        // to error tracking (that just duplicates the noise skipped in refreshOAuthTokens).
+        if (!(e instanceof TokenRefreshError && isExpectedAuthExpiry(e.status))) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
