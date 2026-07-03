@@ -11,7 +11,7 @@ The **goal** is to surface these as **Signals** for PostHog Code: valuable CI co
 
 ## 2. Non-goals
 
-- Per-developer surveillance metrics or rankings. Filters operate at cohort level by default.
+- Per-developer surveillance metrics or rankings. Analytics aggregate at team/repo level only; author is display metadata on a PR (attribution), never a unit of analysis. No author-level pages, tabs, leaderboards, rankings, or per-author cost, ever.
 - Real-time alerting on individual PRs. That's notification surface, not analytics.
 - Replacing GitHub's own UI. We surface signal, not the raw PR thread.
 - Code-quality static analysis. Different product space.
@@ -131,7 +131,7 @@ Types named in the README but not yet modeled (reviewers, deploys, file paths) w
 Two curated `build_query()` SELECTs over the existing warehouse data — columns mapped from JSON we already store, **no new ingestion, no global view registration**. Column names encode caveats so a misread is defined out of existence (`open_to_merge_seconds`, never `cycle_time`).
 
 - pull-requests builder — `number`, `title`, `author_handle`, `is_bot`, `repo_owner` / `repo_name` (from `base.repo.full_name`), `labels`, `state`, `is_draft`, `created_at`, `merged_at`, `closed_at`, `head_sha`, `open_to_merge_seconds` (coarse — see §7).
-- workflow-runs builder — `workflow_name`, `head_sha`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
+- workflow-runs builder — `workflow_name`, `head_sha`, `head_branch`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
 
 A PR's current CI status is the head-SHA join between the two (the `ci_rollup` CTE in `_curated`); defined once.
 
@@ -141,8 +141,9 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 - `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
 - `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
-- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window.
+- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`).
 - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
+- `ci_failure_logs` — the thinned failure log lines for a PR's CI, grouped by job. Resolves the PR to its run_ids via the same `pull_requests` attribution as `pr_runs`, then reads the Logs product (`service.name = github-ci-logs`) joined on `run_id`. Reads from Logs, not the warehouse.
 
 **UI:** a read-only scene on the same endpoints via the generated API client — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).
 
@@ -176,7 +177,14 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **Provider abstraction deferred.** No `CodeHostProvider` Protocol in v1. GitHub-shaped HogQL lives in the read layer; that boundary is the future Protocol seam — keep canonical types above it, GitHub-isms below.
 - **Canonical types live in `facade/contracts.py`** as frozen dataclasses (for the named deep tools). No Django imports, no provider-specific fields.
 - **CI granularity = workflow level** (`github_workflow_runs`). Per-check/job breakdown requires a new warehouse endpoint (`github_workflow_jobs`) and is deferred — it is the prerequisite for honest per-PR Depot **cost** (cost is job-level: a run fans into parallel jobs on different runner tiers, so run-level data carries no tier and undercounts). Until it lands, the read layer exposes per-PR **pushes** (distinct head SHAs that triggered CI) and **re-run cycles** (`run_attempt > 1`), attributing runs to a PR via each run's `pull_requests` association — an equality join on PR number, not a head-SHA join (the snapshot is current-state, so a SHA join drops prior pushes). `estimated_cost_usd` is a typed scaffold (always null) until then; the cost model (tier-rate ladder + label→tier parser) lives in `logic/cost.py`.
+- **CI ↔ PR linkage is by PR number (the run's `pull_requests` association), never by head SHA — one rule, every surface.** The curated `ci_rollup` / `runs_by_pr`, `pr_runs` / `pr_cost` / `pr_lifecycle`, and the CI **failure-logs** surface all attribute the same way. Three keys, three roles:
+  - **`pr_number`** — _the attribution key_. Taken from each run's `pull_requests`, keyed on `(repo_owner, repo_name, pr_number)` with `pr_number > 0`. Stable across pushes; a head-SHA join silently drops every push but the latest, because the `github_pull_requests` snapshot retains only the current head — undercounting exactly the multi-push PRs.
+  - **`head_branch`** — _capture-time / pre-PR / fork fallback_. The agent (and the LLM-cost join) can stamp the branch before a PR exists, and fork-originated runs carry a branch even though GitHub leaves their `pull_requests` **empty** (a documented, unresolved security limitation). Branch is reused across PRs over time, so branch-keyed reads must be time-bounded.
+  - **`head_sha`** — _per-commit precision only_, never the attribution key. Always the run/job webhook head SHA (the branch tip = `gh pr view --json headRefOid`); **never** the ephemeral `pull_request` merge SHA (`refs/pull/N/merge`), which is checked out but is not a real commit.
+  - Cardinality: a run ↔ PR is **0..N** (push-only runs and fork PRs have no association; one commit can head several PRs). Treat pr_number attribution as a possibly-empty, possibly-multi set, never a guaranteed single value. v1 credits a run to the **first** PR in its association (see `pr_runs`).
+  - **The Logs surface inherits this.** Emitted CI failure logs carry `attributes['run_id']` (plus `job_id` / `branch` / `conclusion`); `ci_failure_logs` resolves a PR to its run_ids through the same `pull_requests` attribution (reusing `pr_runs`), then filters the Logs product by `run_id` — no head-SHA join, no merge SHA, all pushes captured. Fork PRs (no association) degrade to a run_id / branch lookup.
 - **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** The real GitHub source lands timestamps as strings and the nested objects (`user`/`head`/`base`/`labels`/`repository`/`pull_requests`) as Nullable. Curated builders therefore parse every timestamp with HogQL `parseDateTimeBestEffort` (which maps to ClickHouse `parseDateTime64BestEffortOrNull` — that raw CH name is not exposed in HogQL) and `ifNull`-unwrap any Nullable column before an array function (`JSONExtractArrayRaw` / `splitByChar`), because ClickHouse rejects an Array nested inside a Nullable. `source_schema.py` mirrors these exact types so the seed and tests exercise the real path — violating this contract 500'd every endpoint on real data while idealized-fixture tests stayed green.
+- **Analytics aggregate at team/repo level only — no author-level surface, ever.** _(Changed — reason:)_ the v1 UI grew an authors tab, author list/detail pages, hub leaderboards, and an `author_workflow_costs` endpoint; all were removed. Per-author aggregation is per-developer surveillance (§2), and every such surface invites ranking people. Author stays on the `PullRequest` contract as display metadata (attribution on a PR row) and as a list _filter_ for finding work — never as an aggregation level, a page, or a cost rollup. Don't re-add an author-scoped aggregate endpoint or UI surface.
 - **Bot detection** defined once in the read layer: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time recipes (an explicit column flag + a default filter the skill applies). First-class in any future bot-impact analysis — don't strip them at the substrate.
 - **Time to merge v1** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (combines draft + ready-for-review time). The precise companion lands with state-transition data.

@@ -74,7 +74,7 @@ describe('handleStickinessChartClick', () => {
         expect(call.orderBy).toBeUndefined()
     })
 
-    it('renders a "Stickiness on {interval} {day}" title with the series label', () => {
+    it('renders a "stickiness on {interval} {day}" title with the series label', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult({ label: '$pageview' })
         const deps = makeDeps({ openPersonsModal, interval: 'day', indexedResults: [trendResult] })
@@ -82,9 +82,10 @@ describe('handleStickinessChartClick', () => {
         handleStickinessChartClick(keyFor(trendResult), 2, deps)
 
         const { container } = render(<>{openPersonsModal.mock.calls[0][0].title}</>)
-        // PropertyKeyInfo wraps the raw label; the label text itself surfaces in textContent.
-        expect(container.textContent).toContain('$pageview')
-        expect(container.textContent).toContain('Stickiness on day 3')
+        // PropertyKeyInfo humanizes the core event name, so "$pageview" surfaces as "Pageview".
+        expect(container.textContent).toContain('Pageview')
+        expect(container.textContent).not.toContain('$pageview')
+        expect(container.textContent).toContain('stickiness on day 3')
     })
 
     it('uses "day" as the default interval when interval is null', () => {
@@ -95,7 +96,7 @@ describe('handleStickinessChartClick', () => {
         handleStickinessChartClick(keyFor(trendResult), 0, deps)
 
         const { container } = render(<>{openPersonsModal.mock.calls[0][0].title}</>)
-        expect(container.textContent).toContain('Stickiness on day 1')
+        expect(container.textContent).toContain('stickiness on day 1')
     })
 
     it.each([

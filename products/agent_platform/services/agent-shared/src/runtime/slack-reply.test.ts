@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { HttpFetcher } from './http-client'
 import {
     decodeApprovalActionValue,
-    isSlackTriggerMetadata,
     postSlackApprovalButtons,
     postSlackReply,
     SlackStatusReporter,
@@ -252,19 +251,4 @@ describe('SlackStatusReporter', () => {
         await r.start('working again')
         expect(calls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(2)
     })
-})
-
-describe('isSlackTriggerMetadata', () => {
-    it('accepts a well-formed slack metadata object', () => {
-        expect(
-            isSlackTriggerMetadata({ type: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: 't' })
-        ).toBe(true)
-    })
-
-    it.each([null, undefined, {}, { type: 'chat' }, { type: 'slack', channel: 'C1' }])(
-        'rejects non-slack / incomplete metadata: %j',
-        (meta) => {
-            expect(isSlackTriggerMetadata(meta)).toBe(false)
-        }
-    )
 })

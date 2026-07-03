@@ -2103,6 +2103,30 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_error_message": {
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "label": "MCP error message"
+        },
+        "$mcp_error_status": {
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "examples": [
+                429,
+                500,
+                403
+            ],
+            "label": "MCP error status",
+            "type": "Numeric"
+        },
+        "$mcp_error_type": {
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": [
+                "rate_limited",
+                "validation",
+                "timeout",
+                "api_4xx"
+            ],
+            "label": "MCP error type"
+        },
         "$mcp_exec_inner_tool_names": {
             "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
             "examples": [
@@ -2591,6 +2615,30 @@
             "system": true,
             "used_for_debug": true
         },
+        "$replay_override_event_trigger": {
+            "description": "Recording was force-started, ignoring the event trigger config (e.g. via startSessionRecording({ trigger: 'event' })).",
+            "label": "Replay event trigger overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_linked_flag": {
+            "description": "Recording was force-started, ignoring the linked flag config (e.g. via startSessionRecording({ linked_flag: true })).",
+            "label": "Replay linked flag overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_sampling": {
+            "description": "Recording was force-started, ignoring the sampling config (e.g. via startSessionRecording({ sampling: true })).",
+            "label": "Replay sampling overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_url_trigger": {
+            "description": "Recording was force-started, ignoring the URL trigger config (e.g. via startSessionRecording({ trigger: 'url' })).",
+            "label": "Replay URL trigger overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": [
@@ -2648,6 +2696,12 @@
             "description": "The current session duration in milliseconds.",
             "label": "Current session duration",
             "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_error_capturing_properties": {
+            "description": "An error message recorded if the SDK threw while gathering properties for an event.",
+            "label": "Error capturing properties",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_extensions_init_method": {
@@ -2727,6 +2781,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_matched_recording_trigger_groups": {
+            "description": "The V2 recording trigger groups evaluated for this session, including each group's name and whether it matched and was sampled.",
+            "label": "Matched recording trigger groups",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -2740,6 +2799,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_trigger_groups_count": {
+            "description": "The number of V2 recording trigger groups configured for this project.",
+            "examples": [
+                2
+            ],
+            "label": "Recording trigger groups count",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_url_trigger_status": {
@@ -2761,6 +2829,18 @@
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_rrweb_attached": {
+            "description": "Whether the rrweb recorder is currently attached and capturing for this session.",
+            "label": "rrweb attached",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$sdk_debug_rrweb_start_attempted": {
+            "description": "Whether the SDK attempted to start the rrweb recorder for this session.",
+            "label": "rrweb start attempted",
+            "type": "Boolean",
             "used_for_debug": true
         },
         "$sdk_debug_session_start": {
@@ -3032,6 +3112,12 @@
                 "{\"enabled\": false}"
             ],
             "label": "Session recording canvas recording",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_event_trigger_activated_session": {
+            "description": "Session recording event trigger activated session config. Used by posthog-js to track event activation of session replay.",
+            "label": "Session recording event trigger activated session",
             "system": true,
             "used_for_debug": true
         },
@@ -3693,7 +3779,7 @@
     },
     "events": {
         "$$heatmap": {
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": true,
             "label": "Heatmap"
         },
@@ -3952,12 +4038,13 @@
             "label": "Deep link opened"
         },
         "mcp feedback submitted": {
-            "description": "Fires when feedback is submitted through the MCP server's feedback tool — about any PostHog product, the MCP server itself, or the docs.",
+            "description": "Fires when feedback is submitted through the MCP server's feedback tool \u2014 about any PostHog product, the MCP server itself, or the docs.",
             "label": "MCP feedback submitted"
         },
         "mcp init": {
-            "description": "MCP initialization event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_initialize where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_initialize if you only want the @posthog/mcp-enabled slice.",
-            "label": "MCP init"
+            "description": "LEGACY \u2014 do not use. MCP initialization event from the retired mcpcat library. Superseded by `$mcp_initialize`. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": true,
+            "label": "MCP init (legacy)"
         },
         "mcp organization switched": {
             "description": "Fires when a user switches the active organization in their MCP session.",
@@ -3968,60 +4055,74 @@
             "label": "MCP project switched"
         },
         "mcp tool call": {
-            "description": "Tool-call event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
-            "label": "MCP tool call (mcpcat)"
+            "description": "LEGACY \u2014 do not use. Tool-call event from the external mcpcat integration (still trickling in until that integration is switched off). Superseded by `$mcp_tool_call`, which covers all traffic from 2026-06-16 on. Query this only for older historical data.",
+            "ignored_in_assistant": true,
+            "label": "MCP tool call \u2014 mcpcat (legacy)"
         },
         "mcp tool response": {
-            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response) for @posthog/mcp-enabled traffic. Will be retired once @posthog/mcp reaches general availability.",
-            "label": "MCP tool response (mcpcat)"
+            "description": "LEGACY \u2014 do not use. Tool-response event from the external mcpcat integration (still trickling in until that integration is switched off). Responses now ride inline on `$mcp_tool_call` (under `$mcp_response`). Query this only for older historical data.",
+            "ignored_in_assistant": true,
+            "label": "MCP tool response \u2014 mcpcat (legacy)"
         },
         "mcp_custom": {
-            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
-            "label": "MCP custom event"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_custom`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP custom event (legacy)"
         },
         "mcp_initialize": {
-            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client.",
-            "label": "MCP initialize"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_initialize`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP initialize (legacy)"
         },
         "mcp_mcpcat:identify": {
-            "description": "Identify event emitted by the mcpcat library. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
-            "label": "MCP identify (mcpcat)"
+            "description": "LEGACY \u2014 do not use. Identify event from the retired mcpcat library. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": true,
+            "label": "MCP identify \u2014 mcpcat (legacy)"
         },
         "mcp_posthog:identify": {
-            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
-            "label": "MCP identify (in-tree)"
+            "description": "LEGACY \u2014 do not use. Identify event from PostHog's retired in-tree MCP analytics path. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": true,
+            "label": "MCP identify \u2014 in-tree (legacy)"
         },
         "mcp_prompt_get": {
-            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
-            "label": "MCP prompt fetched"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_prompt_get`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP prompt fetched (legacy)"
         },
         "mcp_prompts_list": {
-            "description": "Fires when an MCP client requests the list of available prompts.",
-            "label": "MCP prompts listed"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_prompts_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP prompts listed (legacy)"
         },
         "mcp_resource_read": {
-            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
-            "label": "MCP resource read"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_resource_read`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP resource read (legacy)"
         },
         "mcp_resources_list": {
-            "description": "Fires when an MCP client requests the list of available resources.",
-            "label": "MCP resources listed"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_resources_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP resources listed (legacy)"
         },
         "mcp_tool_call": {
-            "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
-            "label": "MCP tool call"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_tool_call`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical tool calls before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP tool call (legacy)"
         },
         "mcp_tool_called": {
-            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_tool_call if you only want the @posthog/mcp-enabled slice.",
-            "label": "MCP tool called (in-tree)"
+            "description": "LEGACY \u2014 do not use. Tool-call event from PostHog's retired in-tree MCP analytics path. Superseded by `$mcp_tool_call`. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": true,
+            "label": "MCP tool called \u2014 in-tree (legacy)"
         },
         "mcp_tools_list": {
-            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery \u2014 i.e. whether new clients are finding the server.",
-            "label": "MCP tools listed"
+            "description": "LEGACY \u2014 do not use. Superseded by `$mcp_tools_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP tools listed (legacy)"
         },
         "posthog_identify": {
-            "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
-            "label": "MCP identify"
+            "description": "LEGACY \u2014 do not use. Superseded by the canonical `$identify` emitted by @posthog/mcp, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": true,
+            "label": "MCP identify (legacy)"
         }
     },
     "groups": {
@@ -4103,6 +4204,13 @@
         }
     },
     "numerical_event_properties": {},
+    "person_metadata": {
+        "created_at": {
+            "description": "The time when the person was first seen.",
+            "label": "First seen",
+            "type": "DateTime"
+        }
+    },
     "person_properties": {
         "$$plugin_metrics": {
             "description": "Performance metrics for a given plugin.",
@@ -6528,6 +6636,30 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_error_message": {
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "label": "MCP error message"
+        },
+        "$mcp_error_status": {
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "examples": [
+                429,
+                500,
+                403
+            ],
+            "label": "MCP error status",
+            "type": "Numeric"
+        },
+        "$mcp_error_type": {
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": [
+                "rate_limited",
+                "validation",
+                "timeout",
+                "api_4xx"
+            ],
+            "label": "MCP error type"
+        },
         "$mcp_exec_inner_tool_names": {
             "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
             "examples": [
@@ -7026,6 +7158,30 @@
             "system": true,
             "used_for_debug": true
         },
+        "$replay_override_event_trigger": {
+            "description": "Recording was force-started, ignoring the event trigger config (e.g. via startSessionRecording({ trigger: 'event' })).",
+            "label": "Replay event trigger overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_linked_flag": {
+            "description": "Recording was force-started, ignoring the linked flag config (e.g. via startSessionRecording({ linked_flag: true })).",
+            "label": "Replay linked flag overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_sampling": {
+            "description": "Recording was force-started, ignoring the sampling config (e.g. via startSessionRecording({ sampling: true })).",
+            "label": "Replay sampling overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$replay_override_url_trigger": {
+            "description": "Recording was force-started, ignoring the URL trigger config (e.g. via startSessionRecording({ trigger: 'url' })).",
+            "label": "Replay URL trigger overridden",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": [
@@ -7083,6 +7239,12 @@
             "description": "The current session duration in milliseconds.",
             "label": "Current session duration",
             "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_error_capturing_properties": {
+            "description": "An error message recorded if the SDK threw while gathering properties for an event.",
+            "label": "Error capturing properties",
+            "type": "String",
             "used_for_debug": true
         },
         "$sdk_debug_extensions_init_method": {
@@ -7162,6 +7324,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_matched_recording_trigger_groups": {
+            "description": "The V2 recording trigger groups evaluated for this session, including each group's name and whether it matched and was sampled.",
+            "label": "Matched recording trigger groups",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_remote_trigger_matching_config": {
             "description": "Whether to match on all or any triggers.",
             "examples": [
@@ -7175,6 +7342,15 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_trigger_groups_count": {
+            "description": "The number of V2 recording trigger groups configured for this project.",
+            "examples": [
+                2
+            ],
+            "label": "Recording trigger groups count",
+            "type": "Numeric",
             "used_for_debug": true
         },
         "$sdk_debug_replay_url_trigger_status": {
@@ -7196,6 +7372,18 @@
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_rrweb_attached": {
+            "description": "Whether the rrweb recorder is currently attached and capturing for this session.",
+            "label": "rrweb attached",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
+        "$sdk_debug_rrweb_start_attempted": {
+            "description": "Whether the SDK attempted to start the rrweb recorder for this session.",
+            "label": "rrweb start attempted",
+            "type": "Boolean",
             "used_for_debug": true
         },
         "$sdk_debug_session_start": {
@@ -7458,6 +7646,12 @@
                 "{\"enabled\": false}"
             ],
             "label": "Session recording canvas recording",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_event_trigger_activated_session": {
+            "description": "Session recording event trigger activated session config. Used by posthog-js to track event activation of session replay.",
+            "label": "Session recording event trigger activated session",
             "system": true,
             "used_for_debug": true
         },
@@ -8114,7 +8308,8 @@
     "replay": {
         "click_count": {
             "description": "Number of clicks during the session",
-            "label": "Clicks"
+            "label": "Clicks",
+            "type": "Numeric"
         },
         "comment_text": {
             "description": "Search for text within comments on the recording",
@@ -8122,7 +8317,8 @@
         },
         "console_error_count": {
             "description": "Number of console errors during the session",
-            "label": "Errors"
+            "label": "Errors",
+            "type": "Numeric"
         },
         "console_log_level": {
             "description": "Level of console logs captured",
@@ -8139,7 +8335,13 @@
         },
         "keypress_count": {
             "description": "Number of key presses during the session",
-            "label": "Key presses"
+            "label": "Key presses",
+            "type": "Numeric"
+        },
+        "mouse_activity_count": {
+            "description": "Number of mouse activity events during the session",
+            "label": "Mouse activity",
+            "type": "Numeric"
         },
         "snapshot_source": {
             "description": "Platform the session was recorded on",

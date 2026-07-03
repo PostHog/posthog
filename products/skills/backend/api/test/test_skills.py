@@ -1,7 +1,6 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,7 +11,6 @@ from ...api.skill_services import MAX_SKILL_FILE_COUNT
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
-@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/environments/{self.team.id}/llm_skills/{path}"
@@ -51,7 +49,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Create ---
 
-    def test_create_skill_succeeds(self, mock_feature_enabled):
+    def test_create_skill_succeeds(self):
         response = self.client.post(
             self._url(),
             data={
@@ -72,7 +70,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["latest_version"] == 1
         assert data["version_count"] == 1
 
-    def test_create_skill_with_all_fields(self, mock_feature_enabled):
+    def test_create_skill_with_all_fields(self):
         response = self.client.post(
             self._url(),
             data={
@@ -94,7 +92,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
 
-    def test_create_skill_with_duplicate_name_fails(self, mock_feature_enabled):
+    def test_create_skill_with_duplicate_name_fails(self):
         self.create_skill(name="existing-skill")
 
         response = self.client.post(
@@ -120,7 +118,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("reserved_new", "new"),
         ]
     )
-    def test_create_skill_validates_name_format(self, mock_feature_enabled, _label, skill_name):
+    def test_create_skill_validates_name_format(self, _label, skill_name):
         response = self.client.post(
             self._url(),
             data={
@@ -133,7 +131,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_requires_description(self, mock_feature_enabled):
+    def test_create_skill_requires_description(self):
         response = self.client.post(
             self._url(),
             data={
@@ -145,7 +143,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_files(self, mock_feature_enabled):
+    def test_create_skill_with_files(self):
         response = self.client.post(
             self._url(),
             data={
@@ -173,7 +171,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert file_response.json()["content"] == "#!/bin/bash\necho hi"
         assert file_response.json()["content_type"] == "text/x-shellscript"
 
-    def test_create_skill_with_oversized_file_fails(self, mock_feature_enabled):
+    def test_create_skill_with_oversized_file_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -189,7 +187,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_too_many_files_fails(self, mock_feature_enabled):
+    def test_create_skill_with_too_many_files_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -203,7 +201,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_skill_with_duplicate_file_paths_fails(self, mock_feature_enabled):
+    def test_create_skill_with_duplicate_file_paths_fails(self):
         response = self.client.post(
             self._url(),
             data={
@@ -222,7 +220,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- List ---
 
-    def test_list_skills_returns_name_and_description_without_body(self, mock_feature_enabled):
+    def test_list_skills_returns_name_and_description_without_body(self):
         self.create_skill(name="skill-a", description="Does A things.")
         self.create_skill(name="skill-b", description="Does B things.")
 
@@ -236,7 +234,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
 
-    def test_list_skills_search_by_name(self, mock_feature_enabled):
+    def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
         self.create_skill(name="code-review", description="Reviews code.")
 
@@ -246,7 +244,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "pdf-processing"
 
-    def test_list_skills_search_by_description(self, mock_feature_enabled):
+    def test_list_skills_search_by_description(self):
         self.create_skill(name="skill-one", description="Handles PDF documents.")
         self.create_skill(name="skill-two", description="Reviews Python code.")
 
@@ -256,7 +254,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "skill-two"
 
-    def test_list_skills_filter_by_created_by_id(self, mock_feature_enabled):
+    def test_list_skills_filter_by_created_by_id(self):
         other_user = self._create_user("other-skills-author@example.com")
         self.create_skill(name="mine-one", description="Mine.")
         self.create_skill(name="mine-two", description="Mine too.")
@@ -269,7 +267,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert [r["name"] for r in results] == ["theirs"]
 
-    def test_list_skills_without_created_by_id_returns_all(self, mock_feature_enabled):
+    def test_list_skills_without_created_by_id_returns_all(self):
         other_user = self._create_user("other-skills-author@example.com")
         self.create_skill(name="mine", description="Mine.")
         self.create_skill(name="theirs", description="Theirs.", created_by=other_user)
@@ -285,7 +283,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("float", "1.5"),
         ]
     )
-    def test_list_skills_invalid_created_by_id_returns_400(self, mock_feature_enabled, _label, value):
+    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value):
         self.create_skill(name="some-skill")
 
         response = self.client.get(self._url() + f"?created_by_id={value}")
@@ -300,7 +298,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("no_param_returns_all", "", ["ordinary-skill", "signals-scout-errors", "signals-scout-web"]),
         ]
     )
-    def test_list_skills_filter_by_category(self, mock_feature_enabled, _label, query_suffix, expected_names):
+    def test_list_skills_filter_by_category(self, _label, query_suffix, expected_names):
         self.create_skill(name="ordinary-skill", description="Plain.")
         self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
         self.create_skill(name="signals-scout-web", description="Another scout.", category="scout")
@@ -313,7 +311,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Get by name ---
 
-    def test_get_skill_by_name(self, mock_feature_enabled):
+    def test_get_skill_by_name(self):
         self.create_skill(name="fetch-me", description="Fetchable.", body="# Fetch me body")
 
         response = self.client.get(self._url("name/fetch-me"))
@@ -325,7 +323,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# Fetch me body"
         assert "files" in data
 
-    def test_get_skill_by_name_returns_file_manifest(self, mock_feature_enabled):
+    def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
@@ -339,7 +337,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert "scripts/setup.sh" in paths
         assert "references/guide.md" in paths
 
-    def test_get_skill_not_found(self, mock_feature_enabled):
+    def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -350,7 +348,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("with_version_query_string", "?version=1", 1),
         ]
     )
-    def test_get_skill_by_uuid_redirects_to_name(self, mock_feature_enabled, _label, query_suffix, _version):
+    def test_get_skill_by_uuid_redirects_to_name(self, _label, query_suffix, _version):
         skill = self.create_skill(name="uuid-redirect-target")
         skill_id = str(skill.id)
 
@@ -362,13 +360,13 @@ class TestLLMSkillAPI(APIBaseTest):
         if query_suffix:
             assert query_suffix.lstrip("?") in response["Location"]
 
-    def test_get_skill_by_uuid_not_found_returns_404(self, mock_feature_enabled):
+    def test_get_skill_by_uuid_not_found_returns_404(self):
         nonexistent_id = str(uuid.uuid4())
         response = self.client.get(self._url(f"name/{nonexistent_id}"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self, mock_feature_enabled):
+    def test_get_skill_with_uuid_shaped_name_returns_skill_not_redirect(self):
         uuid_shaped_name = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         self.create_skill(name=uuid_shaped_name, body="# UUID-named skill")
 
@@ -379,7 +377,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish new version ---
 
-    def test_publish_new_version(self, mock_feature_enabled):
+    def test_publish_new_version(self):
         self.create_skill(name="evolving-skill", body="# V1")
 
         response = self.client.patch(
@@ -394,7 +392,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# V2 - improved"
         assert data["is_latest"] is True
 
-    def test_publish_carries_forward_unchanged_fields(self, mock_feature_enabled):
+    def test_publish_carries_forward_unchanged_fields(self):
         self.create_skill(
             name="carry-forward",
             description="Original desc.",
@@ -415,7 +413,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
 
-    def test_publish_can_update_description(self, mock_feature_enabled):
+    def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
 
         response = self.client.patch(
@@ -427,7 +425,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "New desc."
 
-    def test_publish_with_version_conflict_fails(self, mock_feature_enabled):
+    def test_publish_with_version_conflict_fails(self):
         self.create_skill(name="conflict-skill", body="# V1")
         self.client.patch(
             self._url("name/conflict-skill"),
@@ -443,7 +441,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_publish_copies_files_forward(self, mock_feature_enabled):
+    def test_publish_copies_files_forward(self):
         skill = self.create_skill(name="files-carry", body="# V1")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -460,7 +458,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish with edits (find/replace) ---
 
-    def test_publish_with_edits_applies_single_replacement(self, mock_feature_enabled):
+    def test_publish_with_edits_applies_single_replacement(self):
         self.create_skill(name="edit-me", body="# Title\n\nHello world.\n")
 
         response = self.client.patch(
@@ -477,7 +475,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["version"] == 2
         assert data["body"] == "# Title\n\nHello there.\n"
 
-    def test_publish_with_edits_applies_sequential_replacements(self, mock_feature_enabled):
+    def test_publish_with_edits_applies_sequential_replacements(self):
         self.create_skill(name="seq-edits", body="alpha\nbeta\ngamma\n")
 
         response = self.client.patch(
@@ -501,7 +499,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("multi_matches", "pick pick pick\n", [{"old": "pick", "new": "chose"}], "3 times"),
         ]
     )
-    def test_publish_with_edits_apply_errors(self, mock_feature_enabled, label, initial_body, edits, detail_fragment):
+    def test_publish_with_edits_apply_errors(self, label, initial_body, edits, detail_fragment):
         skill_name = f"edit-apply-err-{label.replace('_', '-')}"
         self.create_skill(name=skill_name, body=initial_body)
 
@@ -530,7 +528,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("empty_edits_list", {"edits": [], "base_version": 1}),
         ]
     )
-    def test_publish_rejects_invalid_edit_requests(self, mock_feature_enabled, label, payload):
+    def test_publish_rejects_invalid_edit_requests(self, label, payload):
         skill_name = f"invalid-{label.replace('_', '-')}"
         self.create_skill(name=skill_name, body="content\n")
 
@@ -542,7 +540,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_publish_with_edits_exceeding_body_size_limit_fails(self, mock_feature_enabled):
+    def test_publish_with_edits_exceeding_body_size_limit_fails(self):
         # Seed a body just under the 1 MB limit, then edit to push the result over.
         seeded_body = "x" * (1_000_000 - len("MARKER")) + "MARKER"
         self.create_skill(name="size-edit", body=seeded_body)
@@ -561,7 +559,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert body_resp["edit_index"] == 0
         assert "size limit" in body_resp["detail"]
 
-    def test_publish_with_edits_carries_files_forward(self, mock_feature_enabled):
+    def test_publish_with_edits_carries_files_forward(self):
         skill = self.create_skill(name="edits-files", body="original\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
 
@@ -581,7 +579,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish with file_edits (per-file find/replace) ---
 
-    def test_publish_with_file_edits_patches_single_file(self, mock_feature_enabled):
+    def test_publish_with_file_edits_patches_single_file(self):
         skill = self.create_skill(name="file-patch", body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/ranking.md", content="rank high\n")
         LLMSkillFile.objects.create(skill=skill, path="references/other.md", content="untouched\n")
@@ -607,7 +605,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert ranking.content == "rank higher\n"
         assert other.content == "untouched\n"
 
-    def test_publish_with_file_edits_patches_multiple_files(self, mock_feature_enabled):
+    def test_publish_with_file_edits_patches_multiple_files(self):
         skill = self.create_skill(name="multi-patch", body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="alpha\n")
         LLMSkillFile.objects.create(skill=skill, path="references/b.md", content="beta\n")
@@ -662,7 +660,6 @@ class TestLLMSkillAPI(APIBaseTest):
     )
     def test_publish_with_file_edits_apply_errors(
         self,
-        mock_feature_enabled,
         label,
         seed_path,
         seed_content,
@@ -732,7 +729,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ),
         ]
     )
-    def test_publish_rejects_invalid_file_edit_requests(self, mock_feature_enabled, label, payload):
+    def test_publish_rejects_invalid_file_edit_requests(self, label, payload):
         skill_name = f"invalid-file-edit-{label.replace('_', '-')}"
         skill = self.create_skill(name=skill_name, body="# Body\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="hello\n")
@@ -745,7 +742,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_publish_combines_body_edits_and_file_edits(self, mock_feature_enabled):
+    def test_publish_combines_body_edits_and_file_edits(self):
         skill = self.create_skill(name="body-and-file", body="# Title\noriginal\n")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="old\n")
 
@@ -766,7 +763,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Archive ---
 
-    def test_archive_skill(self, mock_feature_enabled):
+    def test_archive_skill(self):
         self.create_skill(name="to-archive")
 
         response = self.client.post(self._url("name/to-archive/archive"))
@@ -776,7 +773,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Duplicate ---
 
-    def test_duplicate_skill(self, mock_feature_enabled):
+    def test_duplicate_skill(self):
         skill = self.create_skill(name="original", description="Original skill.", body="# Original")
         LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
 
@@ -795,7 +792,7 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
-    def test_duplicate_to_existing_name_fails(self, mock_feature_enabled):
+    def test_duplicate_to_existing_name_fails(self):
         self.create_skill(name="source")
         self.create_skill(name="taken")
 
@@ -809,7 +806,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Get file ---
 
-    def test_get_file_by_path(self, mock_feature_enabled):
+    def test_get_file_by_path(self):
         skill = self.create_skill(name="file-skill")
         LLMSkillFile.objects.create(
             skill=skill,
@@ -826,7 +823,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["content"] == "#!/bin/bash\necho hello"
         assert data["content_type"] == "text/x-shellscript"
 
-    def test_get_nonexistent_file_returns_404(self, mock_feature_enabled):
+    def test_get_nonexistent_file_returns_404(self):
         self.create_skill(name="no-files")
 
         response = self.client.get(self._url("name/no-files/files/missing.txt"))
@@ -835,7 +832,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- File CRUD (create / delete / rename) ---
 
-    def test_create_file_adds_file_and_bumps_version(self, mock_feature_enabled):
+    def test_create_file_adds_file_and_bumps_version(self):
         self.create_skill(name="crud-create", body="# V1")
 
         response = self.client.post(
@@ -851,7 +848,7 @@ class TestLLMSkillAPI(APIBaseTest):
         stored = LLMSkillFile.objects.get(skill__name="crud-create", skill__is_latest=True, path="scripts/setup.sh")
         assert stored.content == "#!/bin/bash\necho hi"
 
-    def test_create_file_carries_existing_files_forward(self, mock_feature_enabled):
+    def test_create_file_carries_existing_files_forward(self):
         skill = self.create_skill(name="crud-carry")
         LLMSkillFile.objects.create(skill=skill, path="references/a.md", content="A")
 
@@ -865,7 +862,7 @@ class TestLLMSkillAPI(APIBaseTest):
         paths = {f["path"] for f in response.json()["files"]}
         assert paths == {"references/a.md", "references/b.md"}
 
-    def test_create_file_fails_when_path_exists(self, mock_feature_enabled):
+    def test_create_file_fails_when_path_exists(self):
         skill = self.create_skill(name="crud-dup")
         LLMSkillFile.objects.create(skill=skill, path="dup.md", content="existing")
 
@@ -878,7 +875,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "already exists" in response.json()["detail"]
 
-    def test_create_file_rejects_path_traversal(self, mock_feature_enabled):
+    def test_create_file_rejects_path_traversal(self):
         self.create_skill(name="crud-traversal")
 
         response = self.client.post(
@@ -889,7 +886,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_file_enforces_max_file_count(self, mock_feature_enabled):
+    def test_create_file_enforces_max_file_count(self):
         skill = self.create_skill(name="crud-max")
         LLMSkillFile.objects.bulk_create(
             [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]
@@ -904,7 +901,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
 
-    def test_create_file_on_unknown_skill_returns_404(self, mock_feature_enabled):
+    def test_create_file_on_unknown_skill_returns_404(self):
         response = self.client.post(
             self._url("name/missing/files"),
             data={"path": "a.md", "content": "A"},
@@ -913,7 +910,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_file_removes_file_and_bumps_version(self, mock_feature_enabled):
+    def test_delete_file_removes_file_and_bumps_version(self):
         skill = self.create_skill(name="crud-delete")
         LLMSkillFile.objects.create(skill=skill, path="keep.md", content="K")
         LLMSkillFile.objects.create(skill=skill, path="remove.md", content="R")
@@ -926,14 +923,14 @@ class TestLLMSkillAPI(APIBaseTest):
         paths = {f["path"] for f in data["files"]}
         assert paths == {"keep.md"}
 
-    def test_delete_file_returns_404_when_path_missing(self, mock_feature_enabled):
+    def test_delete_file_returns_404_when_path_missing(self):
         self.create_skill(name="crud-delete-missing")
 
         response = self.client.delete(self._url("name/crud-delete-missing/files/nope.md"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_file_rejects_path_traversal(self, mock_feature_enabled):
+    def test_delete_file_rejects_path_traversal(self):
         self.create_skill(name="crud-delete-traversal")
 
         response = self.client.delete(self._url("name/crud-delete-traversal/files/..%2Fetc%2Fpasswd"))
@@ -956,7 +953,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("write_scope_allowed", ["llm_skill:write"], status.HTTP_200_OK),
         ]
     )
-    def test_delete_file_pak_scope_end_to_end(self, mock_feature_enabled, _label, scopes, expected_status):
+    def test_delete_file_pak_scope_end_to_end(self, _label, scopes, expected_status):
         skill = self.create_skill(name="pak-scope-delete")
         LLMSkillFile.objects.create(skill=skill, path="doomed.md", content="bye")
         api_key = self.create_personal_api_key_with_scopes(scopes)
@@ -980,7 +977,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("head_with_read_scope", "head"),
         ]
     )
-    def test_get_file_pak_read_scope_end_to_end(self, mock_feature_enabled, _label, method):
+    def test_get_file_pak_read_scope_end_to_end(self, _label, method):
         skill = self.create_skill(name="pak-scope-get")
         LLMSkillFile.objects.create(skill=skill, path="readable.md", content="hello")
         api_key = self.create_personal_api_key_with_scopes(["llm_skill:read"])
@@ -991,7 +988,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_rename_file_moves_file_and_bumps_version(self, mock_feature_enabled):
+    def test_rename_file_moves_file_and_bumps_version(self):
         skill = self.create_skill(name="crud-rename")
         LLMSkillFile.objects.create(skill=skill, path="old/name.md", content="X", content_type="text/markdown")
 
@@ -1011,7 +1008,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert new_file.content == "X"
         assert new_file.content_type == "text/markdown"
 
-    def test_rename_file_returns_404_when_old_path_missing(self, mock_feature_enabled):
+    def test_rename_file_returns_404_when_old_path_missing(self):
         self.create_skill(name="crud-rename-missing")
 
         response = self.client.post(
@@ -1022,7 +1019,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_rename_file_returns_409_when_new_path_exists(self, mock_feature_enabled):
+    def test_rename_file_returns_409_when_new_path_exists(self):
         skill = self.create_skill(name="crud-rename-conflict")
         LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
         LLMSkillFile.objects.create(skill=skill, path="b.md", content="B")
@@ -1035,7 +1032,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_rename_file_rejects_same_path(self, mock_feature_enabled):
+    def test_rename_file_rejects_same_path(self):
         skill = self.create_skill(name="crud-rename-noop")
         LLMSkillFile.objects.create(skill=skill, path="a.md", content="A")
 
@@ -1054,7 +1051,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("rename",),
         ]
     )
-    def test_file_write_respects_base_version(self, mock_feature_enabled, endpoint):
+    def test_file_write_respects_base_version(self, endpoint):
         skill_name = f"crud-{endpoint}-bv"
         skill = self.create_skill(name=skill_name, body="# V1")
         LLMSkillFile.objects.create(skill=skill, path="target.md", content="T")
@@ -1078,7 +1075,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["current_version"] == 1
         assert LLMSkillFile.objects.filter(skill__name=skill_name, path="target.md").exists()
 
-    def test_file_crud_sequence_is_chainable_with_base_version(self, mock_feature_enabled):
+    def test_file_crud_sequence_is_chainable_with_base_version(self):
         """Agents should be able to chain create/rename/delete via base_version."""
         self.create_skill(name="crud-chain", body="# V1")
 
@@ -1108,7 +1105,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Resolve ---
 
-    def test_resolve_returns_skill_with_version_history(self, mock_feature_enabled):
+    def test_resolve_returns_skill_with_version_history(self):
         self.create_skill(name="versioned", body="# V1", version=1, is_latest=False)
         self.create_skill(name="versioned", body="# V2", version=2, is_latest=True)
 
@@ -1120,12 +1117,3 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
-
-    # --- Feature flag ---
-
-    def test_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-
-        response = self.client.get(self._url())
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN

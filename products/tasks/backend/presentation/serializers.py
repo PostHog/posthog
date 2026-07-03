@@ -1,14 +1,17 @@
 import base64
+import logging
 import binascii
-from typing import cast
+from typing import Any, cast
 from zoneinfo import available_timezones
 
+import posthoganalytics
 from croniter import croniter
 from drf_spectacular.utils import PolymorphicProxySerializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
@@ -33,6 +36,51 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def _capture_rejected_reasoning_effort(
+    context: dict[str, Any],
+    *,
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    error: str,
+) -> None:
+    """Record a rejected runtime_adapter/model/reasoning_effort combination server-side.
+
+    This validation only ever reached the caller as a 400 response body, so recurring
+    misconfigurations (e.g. a model missing from the supported-effort map) were invisible
+    beyond individual client-side error toasts.
+    """
+    team = context.get("team")
+    logger.warning(
+        "Rejected task run reasoning_effort/model combination",
+        extra={
+            "team_id": getattr(team, "id", None),
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        },
+    )
+
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="task run reasoning effort rejected",
+        properties={
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "error": error,
+        },
+        groups=groups(team=team),
+    )
+
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
     """Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output."""
@@ -51,8 +99,11 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
     "artifact",
     "tree_snapshot",
     "user_attachment",
+    "skill_bundle",
 ]
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
+TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
+TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
 
 
 def get_task_run_artifact_max_size_bytes(
@@ -125,6 +176,43 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     )
 
 
+class TaskRunArtifactMetadataSerializer(serializers.Serializer):
+    skill_name = serializers.CharField(
+        allow_blank=False,
+        max_length=255,
+        help_text="Name of the local skill included in a skill_bundle artifact.",
+    )
+    skill_source = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_SOURCE_CHOICES,
+        help_text="Local source for the uploaded skill bundle, such as user or repo.",
+    )
+    content_sha256 = serializers.RegexField(
+        regex=r"^[a-f0-9]{64}$",
+        help_text="SHA-256 hex digest of the uploaded skill bundle bytes.",
+    )
+    bundle_format = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
+        help_text="Archive format used for the local skill bundle.",
+    )
+    schema_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Version of the local skill bundle metadata schema.",
+    )
+
+
+def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:
+    artifact_type = attrs.get("type")
+    metadata = attrs.get("metadata")
+
+    if artifact_type != "skill_bundle":
+        return attrs
+
+    if not metadata:
+        raise serializers.ValidationError({"metadata": "Skill bundle artifacts require metadata"})
+
+    return attrs
+
+
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, help_text="Stable identifier for the artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
@@ -136,6 +224,10 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(required=False, help_text="Artifact size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
 
@@ -326,6 +418,51 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Branch the user has selected for this cloud task. Write-only and not persisted on the "
+            "task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch "
+            "is otherwise carried on the run). Omit to match a warm Run on the default branch."
+        ),
+    )
+    # These three warm-reuse hints are all optional: clients send an explicit
+    # null when nothing is selected, so they take allow_null=True (null == "no
+    # selection", same as omitting the key — it's read back as None downstream).
+    # null and "" are not interchangeable: model keeps allow_blank=False so an
+    # empty string, which is never a valid model id, is still rejected.
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: "
+            "used only to reuse a pre-warmed Run started on the same runtime. A value differing from the "
+            "warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -441,7 +578,17 @@ class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
 
 
 class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=10000)
+    text = serializers.CharField(
+        max_length=10000,
+        help_text="Joined message body. Used when text_parts is absent.",
+    )
+    # Kept optional for forward/backward compatibility during rollout; will be aligned once deployed.
+    text_parts = serializers.ListField(
+        child=serializers.CharField(max_length=10000, allow_blank=True),
+        required=False,
+        allow_empty=True,
+        help_text="Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.",
+    )
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
@@ -467,8 +614,13 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact",
     )
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
 
     def validate(self, attrs):
+        attrs = validate_task_run_artifact_metadata(attrs)
         content = attrs["content"]
         content_encoding = attrs.get("content_encoding", "utf-8")
 
@@ -527,8 +679,13 @@ class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact upload",
     )
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
 
     def validate(self, attrs):
+        attrs = validate_task_run_artifact_metadata(attrs)
         max_size_bytes = get_task_run_artifact_max_size_bytes(
             attrs.get("name"),
             attrs.get("content_type"),
@@ -569,6 +726,10 @@ class TaskRunArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(help_text="Expected upload size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
     storage_path = serializers.CharField(help_text="S3 object key reserved for the artifact")
     expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
     presigned_post = S3PresignedPostSerializer(help_text="Presigned S3 POST configuration for uploading the file")
@@ -598,6 +759,13 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type recorded for the artifact",
     )
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
+
+    def validate(self, attrs):
+        return validate_task_run_artifact_metadata(attrs)
 
 
 class TaskRunArtifactsFinalizeUploadRequestSerializer(serializers.Serializer):
@@ -634,8 +802,13 @@ class TaskStagedArtifactPrepareUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact upload",
     )
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
 
     def validate(self, attrs):
+        attrs = validate_task_run_artifact_metadata(attrs)
         max_size_bytes = get_task_run_artifact_max_size_bytes(
             attrs.get("name"),
             attrs.get("content_type"),
@@ -670,9 +843,19 @@ class TaskStagedArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(help_text="Expected upload size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
     storage_path = serializers.CharField(help_text="S3 object key reserved for the staged artifact")
     expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
     presigned_post = S3PresignedPostSerializer(help_text="Presigned S3 POST configuration for uploading the file")
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if data.get("metadata") is None:
+            data.pop("metadata", None)
+        return data
 
 
 class TaskStagedArtifactsPrepareUploadResponseSerializer(serializers.Serializer):
@@ -699,6 +882,13 @@ class TaskStagedArtifactFinalizeUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type recorded for the artifact",
     )
+    metadata = TaskRunArtifactMetadataSerializer(
+        required=False,
+        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+    )
+
+    def validate(self, attrs):
+        return validate_task_run_artifact_metadata(attrs)
 
 
 class TaskStagedArtifactsFinalizeUploadRequestSerializer(serializers.Serializer):
@@ -780,9 +970,15 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
-    internal = serializers.BooleanField(
+    internal = serializers.ChoiceField(
         required=False,
-        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether "
+            "it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal "
+            "and user-facing tasks, or 'true' to list only internal tasks. All values are available to any "
+            "team member; access stays governed by task visibility."
+        ),
     )
     archived = serializers.ChoiceField(
         required=False,
@@ -852,6 +1048,22 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class StreamReadTokenResponseSerializer(serializers.Serializer):
+    """Response containing a JWT token (and resolved base URL) for reading a task run's live event stream"""
+
+    token = serializers.CharField(
+        help_text="Run-scoped JWT the browser presents to the agent-proxy to read this run's live event stream"
+    )
+    stream_base_url = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Base URL of the agent-proxy to read the stream from when routing via the proxy is enabled for "
+            "this user. Null means read from the Django endpoint directly (same-origin). The client appends "
+            "the run's stream path and sends the token as a Bearer header when this is set."
+        ),
+    )
 
 
 class TaskRunCreateRequestSerializer(serializers.Serializer):
@@ -1003,6 +1215,13 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -1142,11 +1361,87 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)
 
         return attrs
+
+
+class WarmTaskRequestSerializer(serializers.Serializer):
+    """Request body for warming a full idling Run while composing a Code-app cloud task.
+
+    Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+    interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+    the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+    it to the caller's team before use.
+    """
+
+    repository = serializers.CharField(
+        max_length=255,
+        help_text="Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
+    )
+    github_integration = serializers.IntegerField(
+        help_text="Primary key of the team's GitHub integration to clone with.",
+    )
+    branch = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+        help_text="Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the "
+            "agent on this runtime so a matching submit reuses it; a submit selecting a different runtime "
+            "falls through to a cold Run instead of reusing a mismatched warm session."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        allow_null=True,
+        help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
+class WarmTaskResponseSerializer(serializers.Serializer):
+    """Response for a successful warm request — the draft Task + idling warm Run reused on submit."""
+
+    task_id = serializers.UUIDField(
+        help_text="Id of the draft Task birthed for the warm Run.",
+    )
+    run_id = serializers.UUIDField(
+        help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
+    )
 
 
 class TaskRunStartRequestSerializer(serializers.Serializer):
@@ -1585,6 +1880,15 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
                     )
+                if tasks_facade.is_blocked_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is not allowed: it can change how sandbox "
+                        "processes execute code (e.g. NODE_OPTIONS, LD_PRELOAD)."
+                    )
+                if tasks_facade.is_reserved_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
+                    )
         return value
 
 
@@ -1745,4 +2049,46 @@ class SlackThreadContextResponseSerializer(serializers.Serializer):
     runs = SlackThreadContextRunSerializer(
         many=True,
         help_text="All runs on the task, oldest first. Empty when no mapping was found.",
+    )
+
+
+class AgentProxyCallbackRequestSerializer(serializers.Serializer):
+    """Request body for the agent-proxy side-effect callback.
+
+    Called by the standalone Node agent-proxy after it accepts an ingest event
+    that triggers a Temporal heartbeat or an awaiting-input push notification.
+    The request is authenticated with the original sandbox event ingest JWT so
+    Django can re-validate claims without an extra token round-trip.
+    """
+
+    kind = serializers.ChoiceField(
+        choices=["heartbeat", "awaiting_input"],
+        help_text=(
+            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
+            "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
+            "interactive run finishes a turn and is waiting for user input."
+        ),
+    )
+    agent_active = serializers.BooleanField(
+        help_text=(
+            "Whether the agent is currently active (true) or idle (false). "
+            "For 'heartbeat' callbacks this is always true. "
+            "For 'awaiting_input' callbacks this is always false."
+        ),
+    )
+    task_id = serializers.CharField(
+        max_length=36,
+        help_text="UUID of the Task that owns this run. Must match the JWT claim.",
+    )
+    team_id = serializers.IntegerField(
+        min_value=1,
+        help_text="Numeric team (project) ID. Must match the JWT claim.",
+    )
+
+
+class AgentProxyCallbackResponseSerializer(serializers.Serializer):
+    """Response from the agent-proxy side-effect callback."""
+
+    dispatched = serializers.BooleanField(
+        help_text="True when the requested side effect was dispatched; false when skipped (e.g. run not found)."
     )

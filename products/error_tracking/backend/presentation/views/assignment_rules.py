@@ -78,6 +78,15 @@ class ErrorTrackingAssignmentRuleCreateRequestSerializer(serializers.Serializer)
     assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
         help_text="User or role to assign matching issues to."
     )
+    order_key = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text=(
+            "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. "
+            "Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a "
+            "deterministic order."
+        ),
+    )
 
 
 class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer):
@@ -186,6 +195,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
                 self.team.id,
                 filters=request.validated_data["filters"],
                 assignee=request.validated_data["assignee"],
+                order_key=request.validated_data.get("order_key", 0),
             )
         except error_tracking_api.InvalidBytecodeError as err:
             raise ValidationError(str(err)) from err

@@ -4,7 +4,6 @@ import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/ic
 import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -80,7 +79,6 @@ export function LegalDocumentsScene(): JSX.Element {
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
 
     if (!isCloudOrDev) {
         return (
@@ -91,20 +89,6 @@ export function LegalDocumentsScene(): JSX.Element {
                 />
                 <LemonBanner type="info">
                     <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
-                </LemonBanner>
-            </SceneContent>
-        )
-    }
-
-    if (!isEnabled) {
-        return (
-            <SceneContent>
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.LegalDocuments].name}
-                    resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
-                />
-                <LemonBanner type="info">
-                    <p className="mb-0">Legal documents aren't available for your organization yet.</p>
                 </LemonBanner>
             </SceneContent>
         )

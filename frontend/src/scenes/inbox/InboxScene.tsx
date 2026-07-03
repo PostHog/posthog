@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -11,10 +11,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
-import { AgentRunDetail } from './components/detail/AgentRunDetail'
-import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -25,7 +25,7 @@ import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
-import { InboxTabKey, SignalReport } from './types'
+import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport, SignalRun } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -40,7 +40,15 @@ function isReportListTab(tab: InboxTabKey): boolean {
     return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable' || tab === 'archived'
 }
 
-function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: SignalReport[] }): JSX.Element {
+function ActiveTabBody({
+    tab,
+    signalRuns,
+    signalRunsLoading,
+}: {
+    tab: InboxTabKey
+    signalRuns: SignalRun[]
+    signalRunsLoading: boolean
+}): JSX.Element {
     switch (tab) {
         case 'pulls':
             return <PullRequestsTab />
@@ -51,7 +59,7 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
         case 'archived':
             return <ArchivedTab />
         case 'runs':
-            return <RunsTab reports={runsReports} />
+            return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
             return <AgentSetupColumn layout="stacked" />
     }
@@ -66,7 +74,7 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
  * and chrome-less.
  */
 function InboxListView(): JSX.Element {
-    const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
@@ -85,8 +93,9 @@ function InboxListView(): JSX.Element {
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
-                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
+                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
+                    pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
+                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
                     {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">
@@ -98,7 +107,11 @@ function InboxListView(): JSX.Element {
                     {onboarding ? (
                         <InboxOnboardingTakeover />
                     ) : (
-                        <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                        <ActiveTabBody
+                            tab={effectiveTab}
+                            signalRuns={signalRuns}
+                            signalRunsLoading={signalRunsLoading}
+                        />
                     )}
                 </div>
             </div>
@@ -113,20 +126,11 @@ function InboxListView(): JSX.Element {
 
 /**
  * Detail view: replaces the list full-width. Report / PR / Not actionable render the unified
- * `ReportDetail`, which owns its own merged header (back link, title, copy link). The Runs view
- * keeps `AgentRunDetail` under the shared `InboxDetailHeader`.
+ * `ReportDetail`, which owns its own merged header (back link, title, copy link). The Runs tab no
+ * longer opens an in-inbox detail — its rows link out to the standalone Tasks scene.
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
-
-    if (activeTab === 'runs') {
-        return (
-            <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-                <InboxDetailHeader report={report} tab={activeTab} />
-                <AgentRunDetail report={report} />
-            </div>
-        )
-    }
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
@@ -135,15 +139,41 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/**
+ * Shared chrome for the full-width scout panels (scratchpad, findings): a "Scouts" back link over the
+ * panel body, rendered full-width over the list like the scout detail. Reached from their callouts.
+ */
+function InboxPanelView({ onBack, children }: { onBack: () => void; children: JSX.Element }): JSX.Element {
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={onBack}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            {children}
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
     const {
+        activeTab,
         isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
         selectedReportLoading,
         selectedScoutSkillName,
+        isScratchpadOpen,
+        isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
@@ -151,16 +181,20 @@ export function InboxScene(): JSX.Element {
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId || !!selectedScoutSkillName
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
-                    // The takeover's hero carries its own headline + pitch, so the scene description
-                    // would be redundant there; keep it for the normal/banner states.
-                    description="Self-driving for your product. Look through work done by PostHog agents – code changes and reports."
+                    // The description explains the active tab so new users can orient themselves.
+                    // In the onboarding takeover the tabs are locked, so keep the overall pitch.
+                    description={
+                        onboardingMode === 'takeover'
+                            ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
+                            : INBOX_TAB_DESCRIPTION[activeTab]
+                    }
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (
@@ -192,7 +226,15 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedScoutSkillName ? (
+                    {isFindingsOpen ? (
+                        <InboxPanelView onBack={() => setFindingsOpen(false)}>
+                            <FindingsPanel />
+                        </InboxPanelView>
+                    ) : isScratchpadOpen ? (
+                        <InboxPanelView onBack={() => setScratchpadOpen(false)}>
+                            <ScratchpadPanel />
+                        </InboxPanelView>
+                    ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />

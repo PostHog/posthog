@@ -21,19 +21,32 @@ playground flow:
 
 from __future__ import annotations
 
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from ..models import AgentApplication, AgentRevision
 from ..presentation.serializers import PreviewProxyInvokeRequestSerializer
 from ..presentation.views import AgentApplicationViewSet, EventStreamRenderer
+
+
+def _base_spec() -> dict[str, Any]:
+    return {
+        "model": "anthropic/claude-sonnet-4-6",
+        "triggers": [{"type": "chat", "config": {}, "auth": {"modes": [{"type": "posthog", "scopes": []}]}}],
+        "tools": [],
+        "mcps": [],
+        "skills": [],
+        "secrets": [],
+        "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
+    }
 
 
 class TestPreviewProxyScope(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -56,8 +69,6 @@ class TestPreviewProxyScope(APIBaseTest):
 class TestPreviewProxyRendering(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -99,3 +110,37 @@ class TestPreviewProxyInvokeBody(APIBaseTest):
         self.assertTrue(
             PreviewProxyInvokeRequestSerializer(data={"session_id": "s-1", "message": "another"}).is_valid()
         )
+
+
+class TestPreviewProxyCrossAppRejection(APIBaseTest):
+    """Tenant boundary: minting via preview-proxy must not let a revision_id
+    from one app smuggle through under a sibling app's slug. Same contract as
+    `preview-token`, enforced via the same `application=application` filter."""
+
+    databases = {
+        "default",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str) -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name=slug, description="")
+
+    def _revision(self, app: AgentApplication) -> AgentRevision:
+        return AgentRevision.all_teams.create(
+            application=app, state="draft", bundle_uri=f"local://{app.slug}/v1", spec=_base_spec()
+        )
+
+    def test_revision_from_different_app_in_same_team_rejected(self) -> None:
+        app_a = self._app("preview-proxy-bot-a")
+        app_b = self._app("preview-proxy-bot-b")
+        rev_b = self._revision(app_b)
+        # Hit POST /run (the canonical mutating invoke). The view rejects
+        # before any upstream call, so no ingress is required.
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/agent_applications/{app_a.slug}/preview-proxy/run/?revision_id={rev_b.id}",
+            data={"message": "hi"},
+            format="json",
+        )
+        assert res.status_code == 404, res.content
+        assert "Revision not found in this application" in res.content.decode()

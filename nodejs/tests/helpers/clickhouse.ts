@@ -3,6 +3,13 @@ import { performance } from 'perf_hooks'
 import { Readable } from 'stream'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { isTestEnv } from '~/common/utils/env-utils'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
+import { delay, escapeClickHouseString } from '~/common/utils/utils'
 import {
     ClickHouseEvent,
     ClickHousePerson,
@@ -13,14 +20,7 @@ import {
     RawClickHouseEvent,
     RawSessionRecordingEvent,
 } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { isTestEnv } from '~/utils/env-utils'
-import { parseRawClickHouseEvent } from '~/utils/event'
-import { parseJSON } from '~/utils/json-parse'
-import { fetch } from '~/utils/request'
 
-import { logger } from '../../src/utils/logger'
-import { delay, escapeClickHouseString } from '../../src/utils/utils'
 import { assertTestDatabaseName } from './database-guard'
 
 // Extracts the topic(s) a ClickHouse Kafka engine table consumes from its `engine_full` string.

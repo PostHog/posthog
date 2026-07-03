@@ -41,6 +41,9 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
 
 class FieldOrTable(BaseModel):
     hidden: bool = False
+    # Optional human/agent-facing description of this table or column. Surfaced through the
+    # `system.information_schema` tables so agents can discover and disambiguate the schema.
+    description: Optional[str] = None
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
@@ -271,6 +274,10 @@ class TableNode(BaseModel):
     # When True, the table is reachable by the resolver (so other tables can reference it
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
+    # When True, this node may be reached by a case-insensitive name match (used for Snowflake,
+    # which stores identifiers uppercase but resolves unquoted names case-insensitively). Only
+    # opt-in nodes participate in the fallback, so ClickHouse/event tables stay exact-match.
+    case_insensitive: bool = False
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
@@ -288,6 +295,19 @@ class TableNode(BaseModel):
 
         return self.table
 
+    def _match_child(self, name: str) -> Optional["TableNode"]:
+        child = self.children.get(name)
+        if child is not None:
+            return child
+        # Fall back to a case-insensitive match, but only to children that opt in — keeps
+        # ClickHouse/event tables exact-match while letting Snowflake schemas/tables resolve
+        # the way Snowflake itself does (unquoted identifiers fold case).
+        target = name.lower()
+        for key, node in self.children.items():
+            if node.case_insensitive and key.lower() == target:
+                return node
+        return None
+
     # NOTE: This only returns True if the path we pass in
     # is a valid path to a child table - not just any path.
     def has_child(self, path: list[str]) -> bool:
@@ -295,20 +315,22 @@ class TableNode(BaseModel):
             return self.table is not None
 
         first, *rest_of_path = path
-        if first not in self.children:
+        child = self._match_child(first)
+        if child is None:
             return False
 
-        return self.children[first].has_child(rest_of_path)
+        return child.has_child(rest_of_path)
 
     def get_child(self, path: list[str]) -> "TableNode":
         if len(path) == 0:
             return self
 
         first, *rest_of_path = path
-        if first not in self.children:
+        child = self._match_child(first)
+        if child is None:
             raise ResolutionError(f"Unknown table `{first}`.")
 
-        return self.children[first].get_child(rest_of_path)
+        return child.get_child(rest_of_path)
 
     def add_child(
         self,
@@ -396,14 +418,14 @@ class TableNode(BaseModel):
         return names
 
     @staticmethod
-    def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
+    def create_nested_for_chain(chain: list[str], table: Table, *, case_insensitive: bool = False) -> "TableNode":
         assert len(chain) > 0
 
         # Create a deeply nested table node structure
-        start: TableNode = TableNode(name=chain[0])
+        start: TableNode = TableNode(name=chain[0], case_insensitive=case_insensitive)
         current: TableNode = start
         for name in chain[1:]:
-            child = TableNode(name=name)
+            child = TableNode(name=name, case_insensitive=case_insensitive)
             current.add_child(child)
             current = child
 
@@ -514,13 +536,13 @@ class SavedQuery(Table):
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
+        from products.data_modeling.backend.facade.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
+        from products.data_modeling.backend.facade.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name

@@ -28,6 +28,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.experiments.backend.models.experiment import live_experiment_exists
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -134,6 +135,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # Cache projection: stored in Redis but not a DB field. Avoids N+1 queries
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
+
+    # Cache projection: whether the flag backs an experiment. Annotated via a bulk
+    # Exists query (or read from cache) to avoid a per-flag experiment lookup.
+    _has_experiment: Optional[bool] = None
 
     last_called_at = models.DateTimeField(
         null=True,
@@ -359,6 +364,15 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):
+            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
+            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
+            # references; modern SDKs raise InconclusiveMatchError on unknown property types
+            # and fall back to /flags/, where the Rust matcher handles them.
+            #
+            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
+            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
+            # `match_property` in particular dispatches purely on `key` and would silently
+            # produce a wrong-but-not-erroring result.
             return self.conditions
 
         if any(property.negation for property in cohort.properties.flat):
@@ -430,6 +444,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         using_database: str = "default",
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
+        stop_traversal_at_static: bool = False,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -463,6 +478,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     cohort,
                                     using_database=using_database,
                                     seen_cohorts_cache=seen_cohorts_cache,
+                                    stop_traversal_at_static=stop_traversal_at_static,
                                 )
                             ]
                         )
@@ -659,7 +675,8 @@ def get_feature_flags(
             "flag_evaluation_contexts__evaluation_context__name",
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
-        )
+        ),
+        has_experiment_agg=live_experiment_exists(),
     )
 
     all_feature_flags = list(qs)
@@ -674,6 +691,7 @@ def get_feature_flags(
         except AttributeError:
             # evaluation_tag_names_agg field missing from aggregation query
             _flag._evaluation_tag_names = None
+        _flag._has_experiment = _flag.has_experiment_agg
 
     return all_feature_flags
 
@@ -688,9 +706,9 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     Returns:
         List of serialized flag dictionaries
     """
-    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
-    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    serialized_data = EvaluationFeatureFlagSerializer(flags, many=True).data
     return list(serialized_data)
 
 
@@ -747,10 +765,11 @@ def _feature_flag_model_field_names() -> frozenset[str]:
 def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
     """Reconstruct a FeatureFlag from one cached payload entry.
 
-    The cache payload comes from MinimalFeatureFlagSerializer, which emits
-    SerializerMethodFields (e.g. `evaluation_contexts`) that are not model fields.
-    Keep only real model fields so unknown extras are ignored rather than crashing
-    the FeatureFlag(**...) constructor; known extras are then assigned onto the instance.
+    The cache payload comes from EvaluationFeatureFlagSerializer, which emits
+    SerializerMethodFields (e.g. `evaluation_contexts`, `has_experiment`) that are not
+    model fields. Keep only real model fields so unknown extras are ignored rather than
+    crashing the FeatureFlag(**...) constructor; known extras are then assigned onto the
+    instance.
     """
     model_field_names = _feature_flag_model_field_names()
     model_fields = {key: value for key, value in entry.items() if key in model_field_names}
@@ -760,6 +779,8 @@ def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
     # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
     # written before the rename.
     flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
+    # Preserve has_experiment so a cache-read flag answers without a per-flag experiment query.
+    flag._has_experiment = entry.get("has_experiment")
     return flag
 
 

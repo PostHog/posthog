@@ -38,7 +38,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
-from .dcr import validate_client_name
+from .client_name import sanitize_client_name, validate_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -370,6 +370,24 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     return filtered
 
 
+def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve `com.posthog.optional_scopes` — the declinable subset a partner offers on top
+    of its required `scopes`, so a CIMD client gets the same required/optional consent split as
+    any other app. Returns None when the field is absent (leave existing scopes untouched),
+    otherwise the grantable-filtered list. Unlike `scopes`, an empty result is benign (it just
+    means no optional scopes, with no widen-to-default fallback), so a fully non-grantable list
+    resolves to `[]` rather than rejecting the registration.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: guard the real type rather than trust the TypedDict.
+    raw_optional: object = com_posthog.get("optional_scopes")
+    if not isinstance(raw_optional, list):
+        return None
+    return filter_to_unprivileged_scopes(raw_optional)
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -377,11 +395,14 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         validate_client_name(client_name)
     except Exception:
         client_name = "CIMD Client"
+    # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
+    client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
     verification = _resolve_verification_token(metadata)
     resolved_scopes = _resolve_scopes(metadata)
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -397,6 +418,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
         scopes=resolved_scopes if resolved_scopes is not None else [],
+        optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
     )
     app.full_clean()
@@ -429,7 +451,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if client_name:
         try:
             validate_client_name(client_name)
-            app.name = client_name
+            app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
 
@@ -447,6 +469,12 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if resolved_scopes is not None:
         app.scopes = resolved_scopes
         update_fields.append("scopes")
+    # Refresh `optional_scopes` from the same metadata so the required/optional split never
+    # drifts: both fields are rewritten together on every fetch.
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes is not None:
+        app.optional_scopes = resolved_optional_scopes
+        update_fields.append("optional_scopes")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:
@@ -584,7 +612,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -611,7 +642,10 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
                 )
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_registration_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -631,8 +665,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
     if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
-        if not cache.get(_cache_key(url)):
-            refresh_cimd_metadata_task.delay(url)
+        enqueue_cimd_refresh_if_stale(url)
         return app
 
     # New client: synchronous fetch
@@ -648,6 +681,18 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
             return app
 
     raise CIMDFetchError(f"Another request is already registering this client ({url}). Please try again.")
+
+
+def enqueue_cimd_refresh_if_stale(url: str) -> None:
+    """Fire a background metadata refresh if the cached document has gone stale.
+
+    Single source of the freshness check, used both by get_or_create_cimd_application
+    and by callers that resolve an existing CIMD app via a direct lookup (the agentic
+    provisioning auth path) so document changes are picked up on the same TTL, instead
+    of freezing the app's scopes and config at first registration.
+    """
+    if not cache.get(_cache_key(url)):
+        refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:

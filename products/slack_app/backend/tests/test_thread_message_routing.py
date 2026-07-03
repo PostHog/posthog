@@ -92,7 +92,9 @@ class TestRouteThreadMessage(TestCase):
         # All routing tests assume the per-org feature flag is on. The
         # dedicated ``test_feature_flag_off_dropped`` test stops the patcher
         # to exercise the off path.
-        self._ff_patcher = patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=True)
+        self._ff_patcher = patch(
+            "products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=True
+        )
         self._ff_patcher.start()
         self.addCleanup(self._ff_patcher.stop)
 
@@ -182,7 +184,7 @@ class TestRouteThreadMessage(TestCase):
 
         self._ff_patcher.stop()
         with (
-            patch("products.slack_app.backend.api._untagged_thread_followups_enabled", return_value=False),
+            patch("products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=False),
             patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):

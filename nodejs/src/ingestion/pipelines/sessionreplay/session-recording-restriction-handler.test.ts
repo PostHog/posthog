@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'

@@ -148,9 +148,41 @@ def get_hog_function_templates() -> requests.Response:
     )
 
 
-def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
+def create_batch_hog_flow_job_invocation(
+    team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT, max_audience_size: int | None = None
+) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
+        json={"max_audience_size": max_audience_size},
+        headers=get_internal_api_headers(),
+    )
+
+
+def rerun_hog_invocations(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    payload: dict,
+) -> requests.Response:
+    """
+    Trigger a rerun of past hog function / hog flow invocations.
+
+    `payload` is one of:
+      - {"invocation_ids": ["uuid", ...]}                   -> rerun these specific runs
+      - {"filter": {"window_start": "...", "window_end": "...", "status": [...], ...}}
+
+    The Node side (`nodejs/src/cdp/rerun`) reads the matching rows from
+    `hog_invocation_results`, rehydrates the invocation from the stored
+    `invocation_globals`, and re-enqueues onto cyclotron with `is_retry=1`.
+    """
+    logger.info(
+        "Triggering rerun of hog invocations",
+        function_kind=function_kind,
+        function_id=function_id,
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/rerun",
+        json=payload,
         headers=get_internal_api_headers(),
     )
 

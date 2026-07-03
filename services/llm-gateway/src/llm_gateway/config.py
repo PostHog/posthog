@@ -30,7 +30,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
-    "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
 }
 
@@ -54,9 +54,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
     "signals": UserCostLimit(
-        burst_limit_usd=500.0,
+        burst_limit_usd=2500.0,
         burst_window_seconds=604800,
-        sustained_limit_usd=1000.0,
+        sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
 }
@@ -138,15 +138,15 @@ class Settings(BaseSettings):
     openai_organization: str | None = None
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
+    cloudflare_api_key: str | None = None
+    cloudflare_account_id: str | None = None
 
     # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
-    # Optional secondary capture target. When set, every $ai_generation event
-    # is mirrored to this PostHog instance after the primary capture, so the
-    # EU deployment can land EU customer events on EU PostHog (team_id=1)
-    # for the regional billing usage_report to attribute them.
+    # Optional secondary capture target — mirrors every $ai_generation after the primary,
+    # so the EU deployment lands EU events on EU PostHog (team_id=1) for regional billing.
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
@@ -173,17 +173,14 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
-    # Billing recomputes quota state on at most an hourly cadence, so we are
-    # comfortable letting a team go slightly over their limit in exchange for
-    # avoiding a Django roundtrip on every billable request.
+    # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
+    # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes
     billing_period_days: int = 30
 
-    # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic
-    # path crosses `failure_threshold` (with at least `min_requests` observations in the
-    # window), the breaker is "open": each request that has opted in to Bedrock fallback
-    # gets routed straight to Bedrock with probability `bypass_probability`, leaving the
-    # remainder as probe traffic to detect recovery.
+    # Anthropic → Bedrock circuit breaker. When the trailing failure rate crosses `failure_threshold`
+    # (over ≥ `min_requests` in the window), the breaker opens: opted-in requests route straight to
+    # Bedrock with probability `bypass_probability`, the rest stay as probe traffic to detect recovery.
     anthropic_circuit_breaker_enabled: bool = True
     anthropic_circuit_breaker_failure_threshold: float = 0.25
     anthropic_circuit_breaker_window_seconds: int = 300

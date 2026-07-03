@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
+import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
+import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import {
     InternalPerson,
@@ -11,8 +13,6 @@ import {
     Team,
     TeamId,
 } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
-import { TransactionClient } from '~/utils/db/postgres'
 
 import { InternalPersonWithDistinctId } from './person-repository'
 

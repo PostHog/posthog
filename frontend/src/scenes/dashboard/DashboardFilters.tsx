@@ -4,12 +4,12 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar, IconCollapse, IconEllipsis, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { QuickFilterSelector } from 'lib/components/QuickFilters/QuickFilterSelector'
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,7 +33,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
     return (
         <>
             <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
-                <AppShortcut
+                <Shortcut
                     name="DashboardDateFilter"
                     keybind={[keyBinds.dateFilter]}
                     intent="Date filter"
@@ -61,7 +61,7 @@ export function DashboardPrimaryFilters(): JSX.Element {
                             </>
                         )}
                     />
-                </AppShortcut>
+                </Shortcut>
             </div>
 
             {canEditDashboard && dashboard && (

@@ -9,10 +9,10 @@
  *   - `close()` — best-effort transport shutdown.
  *
  * Auth resolution:
- *   - `auth.integration` → `integrations[ref].access_token` →
- *     `Authorization: Bearer <token>`. Host-bound by the worker's
- *     `integrationHostValidator` so a spec author can't redirect a team's
- *     OAuth token to an arbitrary URL.
+ *   - `auth.provider` → resolve the asker's linked identity via `ctx.identity`
+ *     → `Authorization: Bearer <token>`. Host-bound by the provider's own
+ *     `allowedHosts()` so a spec author can't redirect a user's OAuth token to
+ *     an arbitrary URL; an unlinked asker surfaces a relayable authorize link.
  *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
  *     `${NAME}` placeholders in the URL + author-supplied headers before
  *     opening the transport. Each substitution is gated on the secret's
@@ -48,8 +48,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import {
     HttpFetcher,
     type IdentityResolution,
-    IntegrationCredentials,
     isDev,
+    type McpConnectionResolution,
     McpRef,
     secretHostMatches,
 } from '@posthog/agent-shared'
@@ -88,14 +88,24 @@ export interface OpenedMcp {
  * upstream error string, which often leaks transport URLs / docs links /
  * provider-side stack hints). The agent owner gets the full reason via
  * log_entries.
+ *   - `connection_dead` — a `kind: 'agent'` SHARED connection is permanently
+ *                   broken: the installing owner's token can't refresh
+ *                   (`needs_reauth`), they disabled the install (`disabled`),
+ *                   or the install is gone (`not_found`). The asker can't fix
+ *                   someone else's shared credential and a retry won't heal it —
+ *                   only the owner/admin reconnecting will. Kept distinct from
+ *                   `auth` (per-asker) so the prompt says "an admin must
+ *                   reconnect" instead of "retry shortly". A TRANSIENT refresh
+ *                   blip (`mcp_connection_refresh_failed`, 5xx/429) is NOT this —
+ *                   it self-heals, so it stays `auth`.
  *   - `auth`      — credentials / token / secret resolution problem
- *                   (`mcp_secret_not_resolved`, `mcp_integration_*`,
+ *                   (`mcp_secret_not_resolved`, `mcp_identity_*`,
  *                   401/403 from the remote)
  *   - `network`   — couldn't reach the server (DNS, refused, timeout, 5xx)
  *   - `not_found` — server responded but said the endpoint is gone (404, 410)
  *   - `unknown`   — anything else; default bucket for novel transport errors
  */
-export type McpFailureCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+export type McpFailureCategory = 'connection_dead' | 'auth' | 'network' | 'not_found' | 'unknown'
 
 export interface McpOpenFailure {
     ref: McpRef
@@ -133,10 +143,26 @@ class McpIdentityLinkRequiredError extends Error {
  */
 export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     const msg = err.message.toLowerCase()
+    // Checked FIRST: a permanently-dead shared connection. These three are
+    // terminal states `resolve()` returns for an `mcp_store` install the asker
+    // can't fix (it's the owner's credential) and a retry won't heal — only the
+    // owner/admin reconnecting will. Must precede the generic `auth`/`not_found`
+    // matches below (which would otherwise swallow needs_reauth/disabled →
+    // `auth` and not_found → `not_found`). The TRANSIENT `refresh_failed` is
+    // deliberately absent — it self-heals next session, so it falls through to
+    // `auth` as retryable.
+    if (
+        msg.includes('mcp_connection_needs_reauth') ||
+        msg.includes('mcp_connection_disabled') ||
+        msg.includes('mcp_connection_not_found')
+    ) {
+        return 'connection_dead'
+    }
     if (
         msg.includes('mcp_secret_') ||
-        msg.includes('mcp_integration_') ||
         msg.includes('mcp_identity_') ||
+        // Transient shared-credential refresh blip (5xx/429) → retryable auth.
+        msg.includes('mcp_connection_refresh_failed') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
         msg.includes(' 401') ||
@@ -178,20 +204,7 @@ export function categorizeMcpOpenError(err: Error): McpFailureCategory {
  */
 export type McpTransportFactory = (target: { url: string; headers: Record<string, string> }) => Transport
 
-/**
- * Per-call validator the runner consults before stamping a connected
- * integration's bearer token on an outbound MCP request. Returns `true` to
- * allow attachment, `false` to reject. The worker is expected to wire a
- * validator that maps the integration kind (e.g. `linear`, `github`) to
- * the host pattern that integration is authorised for; without a wired
- * validator, every `auth.integration`-bearing ref is **refused at open
- * time** so a malicious spec author can't redirect a team's OAuth token
- * to an arbitrary URL.
- */
-export type IntegrationHostValidator = (integrationRef: string, url: URL) => boolean
-
 export interface OpenMcpClientsDeps {
-    integrations: Record<string, IntegrationCredentials>
     /** Resolved plaintext secrets keyed by name (same shape `runSession`
      *  already threads through). Only the names listed on a given ref's
      *  `secrets[]` are substituted into that ref's URL. */
@@ -215,18 +228,9 @@ export interface OpenMcpClientsDeps {
      *  runner's own name + a static version stamp. */
     clientInfo?: { name: string; version: string }
     /**
-     * Validator that decides whether a connected integration's bearer token
-     * may be attached to a given MCP URL. Fail-closed: when unset, any
-     * `auth.integration`-bearing external ref is refused at open time
-     * (`mcp_integration_host_validator_not_wired`). See the type definition
-     * for the threat model.
-     */
-    integrationHostValidator?: IntegrationHostValidator
-    /**
      * Per-asker identity resolver (from `buildAskerIdentity`). Resolves a
-     * `ref.auth.provider` to the asker's bearer, same posture as
-     * `auth.integration` (https + the resolver's own host allowlist). Absent →
-     * any `auth.provider` ref is refused at open time.
+     * `ref.auth.provider` to the asker's bearer (https + the resolver's own
+     * host allowlist). Absent → any `auth.provider` ref is refused at open time.
      */
     identity?: {
         resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
@@ -236,11 +240,19 @@ export interface OpenMcpClientsDeps {
         relink?(provider: string): Promise<string | null>
     }
     /**
-     * Dev-only bearer attached to `kind: external` MCP requests when the
-     * ref has no `auth.integration` of its own (`ref.auth` wins if set).
-     * Bridges the local-dev auth gap until external-MCP credentials are
-     * sourced from the per-session credential broker. Production refuses
-     * to set this at boot.
+     * Agent-level shared-credential resolver (`ref.connection` → a native
+     * `mcp_store` installation), team-bound by the worker. Returns the upstream
+     * URL + bearer; absent → a `connection` ref is refused. Wins over
+     * `auth.provider` / `secrets` / `headers`.
+     */
+    connections?: {
+        resolve(connectionId: string): Promise<McpConnectionResolution>
+    }
+    /**
+     * Dev-only bearer attached to MCP requests when the ref has no
+     * `auth.provider` of its own (`ref.auth` wins if set). Bridges the
+     * local-dev auth gap until external-MCP credentials are sourced from
+     * the per-session credential broker. Production refuses to set this at boot.
      */
     devMcpBearerToken?: string
     /**
@@ -379,13 +391,47 @@ function isLoopbackHost(hostname: string): boolean {
 async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+    url: string
+    headers: Record<string, string>
+}> {
+    // Shared-credential path (`ref.connection`): bearer + URL come from the
+    // referenced installation, ignoring auth/secrets/headers. No author secrets
+    // substituted → no cross-host exfiltration; just refuse non-https (loopback
+    // dev-only). Smokescreen handles SSRF.
+    if (ref.connection) {
+        if (!deps.connections) {
+            throw new Error(`mcp_connection_not_wired: ${ref.connection}`)
+        }
+        const res = await deps.connections.resolve(ref.connection)
+        if (res.kind === 'not_found') {
+            throw new Error(`mcp_connection_not_found: ${ref.connection}`)
+        }
+        if (res.kind === 'disabled') {
+            throw new Error(`mcp_connection_disabled: ${ref.connection}`)
+        }
+        if (res.kind === 'needs_reauth') {
+            // Owner must reconnect; asker can't fix a shared credential. → `auth`.
+            throw new Error(`mcp_connection_needs_reauth: ${ref.connection}`)
+        }
+        const parsed = new URL(res.url)
+        const loopback = isLoopbackHost(parsed.hostname) && isDev()
+        if (!loopback && parsed.protocol !== 'https:') {
+            throw new Error(`mcp_connection_unsafe_scheme: ${ref.connection} → ${parsed.protocol}`)
+        }
+        return {
+            url: res.url,
+            headers: { Authorization: `Bearer ${res.bearer}` },
+        }
+    }
+
     // SSRF protection is handled at the infra layer by smokescreen (see
     // charts/shared/agent-platform/common.yaml `httpProxy.enabled: true`).
     // Author chose the URL; smokescreen denies RFC1918 / loopback /
     // link-local / cloud-IMDS + closes the DNS-rebinding gap via per-IP
     // resolution at connect time. The runner only handles the logical-binding
-    // check (integration → host allowlist), which smokescreen can't do.
+    // check (identity provider → its own host allowlist), which smokescreen
+    // can't do.
     //
     // Fail-closed when the host lookup isn't wired: treat every secret as
     // unbound so substitution refuses rather than sending it to any host.
@@ -397,37 +443,7 @@ async function resolveTarget(
     // `@posthog/http-request`'s URL-first host binding.
     const { url, host } = substituteUrlAndExtractHost(ref.url, ref.secrets, allowedHostsFor, deps.secrets)
     const headers: Record<string, string> = {}
-    if (ref.auth?.integration) {
-        const cred = deps.integrations[ref.auth.integration]
-        if (!cred) {
-            throw new Error(`mcp_integration_not_resolved: ${ref.auth.integration}`)
-        }
-        // Fail-closed integration host binding: an author can't redirect a
-        // team's OAuth token to an arbitrary URL because the worker's
-        // validator gates which host each integration kind is allowed to
-        // talk to. The unwired-validator branch refuses unconditionally so
-        // a config-drift / deploy issue can't silently regress to "attach
-        // bearer to anything." See `IntegrationHostValidator` doc + the
-        // PR-6 security thread.
-        if (!deps.integrationHostValidator) {
-            throw new Error(`mcp_integration_host_validator_not_wired: ${ref.auth.integration}`)
-        }
-        const parsed = new URL(url)
-        // Smokescreen owns SSRF, but it can't guarantee the OAuth bearer isn't
-        // sent in cleartext to an allowlisted public host — it filters by
-        // destination, not scheme. The host validator below only checks
-        // `url.host`, so without this an author could set `http://api.slack.com`
-        // and have the team's token stamped onto a plaintext request. Enforce
-        // https on the credential path only; non-auth external URLs stay
-        // smokescreen's concern.
-        if (parsed.protocol !== 'https:') {
-            throw new Error(`mcp_integration_unsafe_scheme: ${ref.auth.integration} → ${parsed.protocol}`)
-        }
-        if (!deps.integrationHostValidator(ref.auth.integration, parsed)) {
-            throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
-        }
-        headers['Authorization'] = `Bearer ${cred.access_token}`
-    } else if (ref.auth?.provider) {
+    if (ref.auth?.provider) {
         if (!deps.identity) {
             throw new Error(`mcp_identity_not_wired: ${ref.auth.provider}`)
         }
@@ -463,14 +479,14 @@ async function resolveTarget(
         }
         headers['Authorization'] = `Bearer ${token}`
     } else if (deps.devMcpBearerToken) {
-        // Dev-only fallback. The bundle declared no integration auth, but
+        // Dev-only fallback. The bundle declared no provider auth, but
         // the operator wired a global dev bearer (their PAT, typically) so
         // the local MCP server accepts the call. `ref.auth` always wins
         // when set; this branch only fires when the spec is auth-less.
         headers['Authorization'] = `Bearer ${deps.devMcpBearerToken}`
     }
     // Author-supplied headers — the BYO-bearer-token path. Walked after the
-    // integration / dev-bearer blocks so explicit author entries take
+    // provider / dev-bearer blocks so explicit author entries take
     // precedence on duplicate keys (matches `http-request`'s "caller-set
     // values are not silently overwritten" rule). Each `${NAME}` is gated on
     // the secret's `allowed_hosts` against the final URL host — a header

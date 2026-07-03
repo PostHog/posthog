@@ -11,6 +11,7 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_RUNS_WINDOW_SPAN, scoutRunsWindowLabel } from '../../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
+import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRowCard } from './ScoutRowCard'
 import { ScoutRunHistorySection } from './ScoutRunHistorySection'
 
@@ -58,6 +59,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <>
                     <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
 
+                    {config.description ? (
+                        <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>
+                    ) : null}
+
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-default uppercase tracking-wide">
                             Last {SCOUT_RUNS_WINDOW_SPAN}
@@ -67,6 +72,12 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                                 <>
                                     {pluralize(rollup.runCount, 'run')} · {rollup.completedCount} completed ·{' '}
                                     {rollup.failedCount} failed · {pluralize(rollup.emittedCount, 'signal')} emitted
+                                    {rollup.authoredReportIds.size > 0 && (
+                                        <> · {pluralize(rollup.authoredReportIds.size, 'report')} authored</>
+                                    )}
+                                    {rollup.editedReportIds.size > 0 && (
+                                        <> · {pluralize(rollup.editedReportIds.size, 'report')} edited</>
+                                    )}
                                 </>
                             ) : (
                                 'No runs in this window.'
@@ -77,10 +88,49 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                         </span>
                     </div>
 
+                    <ScoutReportsSection skillName={skillName} />
+
                     <ScoutSignalsSection skillName={skillName} />
 
                     <ScoutRunHistorySection skillName={skillName} />
                 </>
+            )}
+        </div>
+    )
+}
+
+/**
+ * The Reports section: the inbox reports this scout authored or edited directly via the report
+ * channel (`emit_report` / `edit_report`) in the recent window, newest-updated first. Distinct from
+ * the Signals section, which lists weak `emit_signal` findings. Hidden entirely for the common scout
+ * that never authors a report, so it only appears for report-channel scouts.
+ */
+function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element | null {
+    const { reportRows, touchedReports, scoutReportsLoading, runsWindowLoadedOnce } = useValues(
+        scoutDetailLogic({ skillName })
+    )
+
+    // Most scouts never author a report — keep the section out entirely rather than show an empty box.
+    if (touchedReports.length === 0) {
+        return null
+    }
+
+    const loading = !runsWindowLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
+            {loading ? (
+                <LemonSkeleton className="h-12 w-full rounded" />
+            ) : reportRows.length === 0 ? (
+                // Touched ids exist but none resolved — the reports were deleted, or the fetch failed.
+                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                    Couldn’t load the reports this scout authored.
+                </div>
+            ) : (
+                reportRows.map(({ report, action }) => (
+                    <ScoutReportCard key={report.id} report={report} action={action} />
+                ))
             )}
         </div>
     )

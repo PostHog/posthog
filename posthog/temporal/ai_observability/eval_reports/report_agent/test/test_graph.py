@@ -1,9 +1,12 @@
 """Tests for the v2 graph helpers: _fallback_content and _validate_agent_output."""
 
+from unittest.mock import MagicMock, patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.temporal.ai_observability.eval_reports.report_agent import graph
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
     _fallback_content,
@@ -206,3 +209,51 @@ class TestAppendReferencesSection(SimpleTestCase):
         # Agent's last section is preserved
         self.assertEqual(content.sections[MAX_REPORT_SECTIONS - 1].title, f"S{MAX_REPORT_SECTIONS - 1}")
         self.assertEqual(content.sections[-1].title, "References")
+
+
+class TestRunEvalReportAgentRouting(SimpleTestCase):
+    """The report agent builds its LLM client via the shared ai-gateway helper.
+
+    Pins the gateway routing at the call site: reverting to a direct ChatOpenAI(...)
+    fails this test even though the agent run itself is mocked out.
+    """
+
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_routes_llm_through_gateway_helper(self, mock_metrics, mock_build_llm, mock_create_agent, mock_pha):
+        from posthog.temporal.ai_observability.eval_reports.constants import (
+            EVAL_REPORT_AGENT_MODEL,
+            EVAL_REPORT_AGENT_TIMEOUT,
+        )
+
+        mock_pha.default_client = None  # skip the analytics callback
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "report": EvalReportContent(
+                title="A report",
+                sections=[ReportSection(title="Summary", content="A finding.")],
+                metrics=EvalReportMetrics(),
+            )
+        }
+        mock_create_agent.return_value = mock_agent
+
+        graph.run_eval_report_agent(
+            team_id=1,
+            evaluation_id="eval-1",
+            evaluation_name="Relevance",
+            evaluation_description="",
+            evaluation_prompt="",
+            evaluation_type="llm_judge",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+
+        mock_build_llm.assert_called_once_with(
+            EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports"
+        )
+        # the agent is built with the gateway-helper client, not a directly-constructed one
+        self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)

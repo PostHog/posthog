@@ -24,7 +24,7 @@ the standalone Skills product — see `products/skills/skills/`.
 ## Adding a new skill
 
 ```bash
-hogli init:skill -- --product llm_analytics --name my-new-skill
+hogli init:skill -- --product ai_observability --name my-new-skill
 ```
 
 See `products/posthog_ai/scripts/build_skills.py` for the build pipeline

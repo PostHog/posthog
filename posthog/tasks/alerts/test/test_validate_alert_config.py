@@ -33,6 +33,17 @@ def _hogql_query() -> dict[str, Any]:
     return {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
 
 
+def _funnels_config(metric: str = "conversion_from_start") -> dict[str, Any]:
+    return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": None}
+
+
+def _funnels_query() -> dict[str, Any]:
+    return {
+        "kind": "FunnelsQuery",
+        "series": [{"kind": "EventsNode", "event": "a"}, {"kind": "EventsNode", "event": "b"}],
+    }
+
+
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
     if bounds is None:
@@ -280,6 +291,114 @@ class TestValidateAlertConfig:
                 "daily",
                 "Absolute value alerts require an absolute threshold",
             ),
+            (
+                "valid_funnels_config",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_config_with_trends_query_rejected",
+                _base_query(),
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "Funnel alert config requires a FunnelsQuery insight",
+            ),
+            (
+                "funnels_relative_decrease_rejected",
+                _funnels_query(),
+                _base_condition("relative_decrease"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "This funnel only supports absolute value conditions",
+            ),
+            (
+                "funnels_relative_increase_rejected",
+                _funnels_query(),
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "This funnel only supports absolute value conditions",
+            ),
+            (
+                "funnels_from_previous_at_step_zero_rejected",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 0},
+                _base_threshold(),
+                "daily",
+                "undefined at the first step",
+            ),
+            (
+                "funnels_negative_step_rejected",
+                _funnels_query(),
+                _base_condition("absolute_value"),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": -1},
+                _base_threshold(),
+                "daily",
+                "funnel_step must be >= 0",
+            ),
+            (
+                "funnels_step_out_of_range_rejected",
+                _funnels_query(),  # a 2-step funnel
+                _base_condition("absolute_value"),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": 5},
+                _base_threshold(),
+                "daily",
+                r"funnel_step 5 is out of range \(funnel has 2 steps\)",
+            ),
+            (
+                "funnels_trends_viz_accepted",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_time_to_convert_viz_rejected",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "time_to_convert"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "aren't supported for the",
+            ),
+            (
+                "funnels_flow_viz_rejected",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "flow"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "aren't supported for the",
+            ),
+            (
+                "funnels_trends_relative_condition_accepted",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "trends"}},
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
+                "funnels_steps_relative_condition_rejected",
+                _funnels_query(),  # defaults to a steps funnel
+                _base_condition("relative_increase"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "only supports absolute value conditions",
+            ),
         ]
     )
     def test_validate_alert_config(
@@ -365,12 +484,38 @@ class TestValidateAlertConfig:
             "daily",
         )
 
-    def test_detector_config_rejected_for_non_trends_insight(self) -> None:
-        with pytest.raises(ValueError, match="Anomaly detection alerts are only supported for trends insights"):
+    def test_detector_config_accepted_for_hogql_insight(self) -> None:
+        # SQL/HogQL insights support anomaly detection (last/first-row series), so a detector_config
+        # is accepted — not rejected like genuinely-unsupported kinds.
+        validate_alert_config(
+            _hogql_query(),
+            _base_condition(),
+            _hogql_config(),
+            _base_threshold(),
+            "daily",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+        )
+
+    def test_detector_config_rejected_for_any_row_hogql_alert(self) -> None:
+        # any_row rows are entities, not a time series — reject anomaly detection at config time
+        # so the alert can't be saved only to fail every check.
+        with pytest.raises(ValueError, match="Anomaly detection isn't supported for any-row SQL alerts"):
             validate_alert_config(
                 _hogql_query(),
                 _base_condition(),
-                _hogql_config(),
+                {"type": "HogQLAlertConfig", "evaluation": "any_row"},
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
+
+    def test_detector_config_rejected_for_unsupported_insight(self) -> None:
+        # Funnels have no detector extractor, so a detector_config is rejected at config time.
+        with pytest.raises(ValueError, match="Anomaly detection alerts aren't supported"):
+            validate_alert_config(
+                {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "a"}]},
+                _base_condition(),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
                 _base_threshold(),
                 "daily",
                 detector_config={"type": "zscore", "threshold": 0.95, "window": 30},

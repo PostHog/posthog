@@ -2,12 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -40,7 +41,8 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
+import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -54,7 +56,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DashboardInsightActions } from './DashboardInsightActions'
+import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
@@ -90,6 +92,7 @@ interface InsightMetaProps extends Pick<
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    persistDisplayOptions?: (node: Node) => void
 }
 
 export function InsightMeta({
@@ -119,6 +122,7 @@ export function InsightMeta({
     placement,
     surveyOpportunity,
     onDragHandleMouseDown,
+    persistDisplayOptions,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -129,13 +133,9 @@ export function InsightMeta({
         filtersOverride: filtersOverride ?? null,
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
+        setQuery: persistDisplayOptions,
     }
-    const {
-        insightFeedback,
-        canToggleDisplayLabelsForInsight,
-        canToggleLegendForInsight,
-        canToggleAnnotationsForInsight,
-    } = useValues(insightLogic(insightLogicProps))
+    const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -197,11 +197,13 @@ export function InsightMeta({
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+        funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
     })
 
-    const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
-    const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
-    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
+    const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
+    // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
+    // portal, which cascades into closing the dropdown before the user can interact with it.
+    const { items: displayOptionItems } = useInsightDisplayOptions()
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -298,20 +300,11 @@ export function InsightMeta({
     // dashboards, matching the "⋯" menu (which is already gated there).
     const refreshControl =
         refresh && showEditingControls && !tileRefreshing ? (
-            <LemonButton
-                className="CardMeta__refresh"
-                icon={<IconRefresh />}
-                size="small"
-                onClick={() => refresh()}
+            <CardMetaRefreshButton
+                onRefresh={() => refresh()}
+                lastRefresh={insight.last_refresh}
                 disabledReason={refreshDisabledReason}
-                tooltip={
-                    refreshDisabledReason
-                        ? undefined
-                        : insight.last_refresh
-                          ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
-                          : 'Refresh data'
-                }
-                data-attr="insight-card-refresh"
+                dataAttr="insight-card-refresh"
             />
         ) : null
 
@@ -472,20 +465,11 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        <DashboardInsightActions
-                            insight={insight}
-                            insightLogicProps={insightLogicProps}
-                            dashboardId={dashboardId}
-                            canToggleDisplayLabels={canToggleDisplayLabels}
-                            canToggleLegend={canToggleLegend}
-                            canToggleAnnotations={canToggleAnnotations}
-                        />
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayOptionItems} />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -497,9 +481,7 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -631,6 +613,7 @@ export function InsightMeta({
                     insightId={insight.id}
                     insightShortId={short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                     deferInitialAlertsLoad
                 />
             ) : null}

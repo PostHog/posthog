@@ -20,6 +20,7 @@ from posthog.schema import (
     AlertCondition,
     AlertState,
     DetectorConfig,
+    FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
     NodeKind,
@@ -41,6 +42,7 @@ from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -50,12 +52,22 @@ from products.product_analytics.backend.models.insight import Insight
 def _validate_every_15_minutes_interval(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
-    request,
     organization,
 ) -> None:
     if error := AlertConfiguration.every_15_minutes_interval_validation_error(
         calculation_interval=calculation_interval,
-        user_distinct_id=str(request.user.distinct_id),
+        organization=organization,
+    ):
+        raise ValidationError({"calculation_interval": [error]})
+
+
+def _validate_real_time_interval(
+    *,
+    calculation_interval: str | AlertCalculationInterval | None,
+    organization,
+) -> None:
+    if error := AlertConfiguration.real_time_interval_validation_error(
+        calculation_interval=calculation_interval,
         organization=organization,
     ):
         raise ValidationError({"calculation_interval": [error]})
@@ -82,7 +94,7 @@ class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
 
-    root: Annotated[TrendsAlertConfig | HogQLAlertConfig, PydanticField(discriminator="type")]
+    root: Annotated[TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig, PydanticField(discriminator="type")]
 
 
 @extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
@@ -225,7 +237,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
             "the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, "
             "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
-            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode)."
+            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode). "
+            "FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall "
+            "last step), metric ('conversion_from_start' or 'conversion_from_previous'), and "
+            "check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). "
+            "Steps funnels support only absolute_value conditions; historical-trend funnels also support "
+            "relative_increase/relative_decrease (compared against the prior period)."
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
@@ -253,7 +270,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -543,18 +560,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError("Alerts are not supported for this insight.")
         if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
             raise ValidationError("SQL insight alerts are not enabled for your account.")
+        if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
+            raise ValidationError("Funnel insight alerts are not enabled for your account.")
 
     def _hogql_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("hogql-insight-alerts")
+
+    def _funnel_alerts_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("funnel-insight-alerts")
+
+    def _insight_alert_flag_enabled(self, flag: str) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
         # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create a SQL alert in a team where the flag is disabled. get_organization
-        # is always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
         # invariant can't silently degrade to an unscoped check.
         user = self.context["request"].user
         org = self.context["get_organization"]()
         return bool(
             posthoganalytics.feature_enabled(
-                "hogql-insight-alerts",
+                flag,
                 str(user.distinct_id),
                 groups={"organization": str(org.id)},
             )
@@ -627,7 +652,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         organization = self.context["get_organization"]()
         _validate_every_15_minutes_interval(
             calculation_interval=calculation_interval,
-            request=self.context["request"],
+            organization=organization,
+        )
+        _validate_real_time_interval(
+            calculation_interval=calculation_interval,
             organization=organization,
         )
 
@@ -666,12 +694,47 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        # only validate alert count when creating a new alert
-        if self.context["request"].method != "POST":
-            return attrs
+        # Total alert count only checked on create.
+        if self.context["request"].method == "POST":
+            if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
+                raise ValidationError({"alert": [msg]})
 
-        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
-            raise ValidationError({"alert": [msg]})
+        # Real-time limit applies on create and on any update that would increase the active count:
+        # switching an alert to real_time, or enabling an already-real_time alert.
+        is_create = self.context["request"].method == "POST"
+        existing_interval = self.instance.calculation_interval if self.instance else None
+        existing_enabled = self.instance.enabled if self.instance else True
+        becoming_real_time = (
+            is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and attrs.get("enabled", True) is True
+        )
+        switching_to_real_time = (
+            not is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and existing_interval != AlertCalculationInterval.REAL_TIME
+        )
+        enabling_real_time = (
+            not is_create
+            and calculation_interval == AlertCalculationInterval.REAL_TIME
+            and attrs.get("enabled", existing_enabled) is True
+            and not existing_enabled
+        )
+        if becoming_real_time or switching_to_real_time or enabling_real_time:
+            exclude_id = str(self.instance.pk) if self.instance else None
+            if msg := AlertConfiguration.check_real_time_alert_limit(
+                self.context["team_id"], organization, exclude_id=exclude_id
+            ):
+                posthoganalytics.capture(
+                    distinct_id=str(self.context["request"].user.distinct_id),
+                    event="real time alert limit reached",
+                    properties={
+                        "team_id": self.context["team_id"],
+                        "organization_id": str(organization.id),
+                    },
+                    groups={"organization": str(organization.id)},
+                )
+                raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
 
@@ -684,16 +747,28 @@ class AlertSimulateSerializer(serializers.Serializer):
     detector_config = DetectorConfigField(
         help_text="Detector configuration to simulate.",
     )
+    # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
+    # kind needs a range knob. They stay flat today because date_from is a preview-only range with
+    # no home in the persisted alert config, and trends is the only kind with a range knob — but the
+    # duplication (series_index already lives in TrendsAlertConfig) should be removed at that point.
     series_index = serializers.IntegerField(
         default=0,
-        help_text="Zero-based index of the series to analyze.",
+        help_text="Zero-based index of the series to analyze (trends insights only).",
     )
     date_from = serializers.CharField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
-        "If not provided, uses the detector's minimum required samples.",
+        "If not provided, uses the detector's minimum required samples. Trends insights only — a SQL "
+        "query's own rows are the series.",
+    )
+    config = AlertConfigField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Per-insight-kind alert config. For SQL insights, selects the evaluated column and "
+        "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
 
     def validate_insight(self, value):
@@ -974,7 +1049,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: AlertSimulateResponseSerializer},
         description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
+    # Returns an insight's computed result series, so it requires insight read in addition to
+    # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
+    # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read", "insight:read"])
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
@@ -983,6 +1061,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detector_config = serializer.validated_data["detector_config"]
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
+        config = serializer.validated_data.get("config")
 
         try:
             result = simulate_detector_on_insight(
@@ -992,8 +1071,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 series_index=series_index,
                 date_from=date_from,
                 user=cast(User, request.user),
+                config=config,
             )
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")

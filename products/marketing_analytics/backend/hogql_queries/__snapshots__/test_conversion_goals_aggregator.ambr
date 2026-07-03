@@ -96,9 +96,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -115,9 +130,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -229,9 +258,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -248,9 +292,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -362,9 +420,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -381,9 +454,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -495,9 +582,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -514,9 +616,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -632,9 +748,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -651,9 +782,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -750,9 +895,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -769,9 +929,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -868,9 +1042,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000004')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000004')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -887,9 +1076,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -1003,9 +1206,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -1022,9 +1240,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -1120,9 +1352,24 @@
               arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
               arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              marketing_conversions_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS c
             LEFT JOIN (
@@ -1139,9 +1386,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions

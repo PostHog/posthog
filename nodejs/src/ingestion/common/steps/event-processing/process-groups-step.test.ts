@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { TeamManager } from '~/common/utils/team-manager'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
-import { TeamManager } from '~/utils/team-manager'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { createProcessGroupsStep } from './process-groups-step'
 

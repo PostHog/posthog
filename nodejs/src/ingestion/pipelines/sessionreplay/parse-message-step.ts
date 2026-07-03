@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { gunzipSync } from 'zlib'
 
+import { parseJSON } from '~/common/utils/json-parse'
+import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
@@ -12,8 +14,8 @@ import {
     SnapshotEventSchema,
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { parseJSON } from '~/utils/json-parse'
-import { normalizeSessionId } from '~/utils/utils'
+
+import { SessionReplayHeaders } from './validate-headers-step'
 
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
@@ -22,6 +24,7 @@ const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 
 export interface ParseMessageStepInput {
     message: Message
+    headers: SessionReplayHeaders
 }
 
 export interface ParseMessageStepOutput {
@@ -187,8 +190,16 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             )
         }
 
-        const tokenHeader = message.headers?.find((header: MessageHeader) => header.token)?.token
-        const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
+        // session_id and distinct_id are carried both in the headers (set by capture) and in the
+        // message body; they must agree — a mismatch means the message is corrupt or mis-routed.
+        // headers.session_id is already normalized by the validate step, matching the body's.
+        const { headers } = input
+        if (headers.session_id !== sessionId) {
+            return dlq('session_id_header_body_mismatch')
+        }
+        if (headers.distinct_id !== messageResult.data.distinct_id) {
+            return dlq('distinct_id_header_body_mismatch')
+        }
 
         const parsedMessage: ParsedMessageData = {
             metadata: {
@@ -198,10 +209,9 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
                 offset: message.offset,
                 timestamp: message.timestamp,
             },
-            headers: message.headers,
             distinct_id: messageResult.data.distinct_id,
             session_id: sessionId,
-            token: token ?? null,
+            token: headers.token,
             eventsByWindowId: {
                 [$window_id ?? '']: validEvents,
             },

@@ -10,10 +10,11 @@ from __future__ import annotations
 import re
 import html
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
@@ -28,10 +29,13 @@ from django.utils import timezone
 import structlog
 
 if TYPE_CHECKING:
+    import requests
+
     from posthog.models.integration import GitHubIntegration
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
-from posthog.models.integration import GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -167,7 +171,7 @@ def get_or_create_artifact(
 ) -> tuple[Artifact, bool]:
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     return Artifact.objects.get_or_create(
@@ -224,7 +228,7 @@ def write_artifact_bytes(
 
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
@@ -422,21 +426,12 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
-    from urllib.parse import quote
-
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
     try:
-        response = github_request(
+        response = github.api_request(
             "GET",
-            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            access_token=access_token,
-            timeout=10,
+            f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
         )
-    except requests.RequestException:
+    except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
         return None
 
@@ -462,31 +457,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
-    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
+    """The repo's default branch via the integration's cached verb. Falls back to 'master'."""
     try:
-        response = github_request(
-            "GET",
-            f"https://api.github.com/repos/{repo_full_name}",
-            access_token=access_token,
-            timeout=10,
-        )
-    except requests.RequestException:
+        return github.get_default_branch(repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
-
-    if response.status_code == 200:
-        return response.json().get("default_branch", "master")
-    logger.warning(
-        "visual_review.default_branch_fetch_failed",
-        repo=repo_full_name,
-        status=response.status_code,
-    )
-    return "master"
 
 
 def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
@@ -501,8 +479,6 @@ def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return False
@@ -518,8 +494,6 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}
@@ -550,8 +524,6 @@ def _resolve_baselines_with_merge_base(
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
@@ -1299,12 +1271,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
     # gives us head_sha and the owning workflow run (run_id) in one call.
     try:
-        job_response = _github_api_request(
-            "GET",
-            repo,
-            f"actions/jobs/{check_run_id}",
-            timeout=10,
-        )
+        job_response = _github_api_request("GET", repo, f"actions/jobs/{check_run_id}")
     except Exception:
         return False, "Failed to verify CI job ownership"
 
@@ -1337,12 +1304,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
         return False, "CI job does not belong to this run's workflow"
 
     try:
-        response = _github_api_request(
-            "POST",
-            repo,
-            f"actions/jobs/{check_run_id}/rerun",
-            timeout=10,
-        )
+        response = _github_api_request("POST", repo, f"actions/jobs/{check_run_id}/rerun")
     except Exception:
         return False, "Failed to trigger job rerun"
 
@@ -1366,7 +1328,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration)
+    return GitHubIntegration(integration, source="visual_review")
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
@@ -1377,15 +1339,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repositories/{repo_external_id}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repositories/{repo_external_id}")
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1395,8 +1349,10 @@ def _github_api_request(
     method: str,
     repo: Repo,
     path: str,
-    **kwargs,
-):
+    *,
+    json: Mapping[str, object] | None = None,
+    timeout: int = 10,
+) -> requests.Response:
     """
     Make a GitHub API request, auto-resolving renamed repos on 404.
 
@@ -1404,18 +1360,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    from urllib.parse import quote
-
-    from .github import github_request
-
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    access_token = github.get_access_token()
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = github_request(method, url, access_token=access_token, **kwargs)
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1429,8 +1379,9 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = github_request(method, url, access_token=access_token, **kwargs)
+            response = github.api_request(
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+            )
 
     return response
 
@@ -1441,16 +1392,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1472,33 +1414,21 @@ def _fetch_baseline_file(
     identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
     If the file doesn't exist, returns ``({}, None)``.
     """
-    import base64
-
     import yaml
 
-    from .github import github_request
+    try:
+        result = github.get_file_contents(repo_full_name, file_path, ref=branch)
+    except GitHubRateLimitError:
+        raise
+    except GitHubIntegrationError as e:
+        raise GitHubCommitError(f"Failed to fetch baseline file: {e}") from e
 
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
-        access_token=access_token,
-        params={"ref": branch},
-        timeout=10,
-    )
-
-    if response.status_code == 404:
+    if result is None:
         return {}, None
 
-    if response.status_code != 200:
-        raise GitHubCommitError(f"Failed to fetch baseline file: {response.status_code} {response.text}")
+    file_sha = result["sha"]
 
-    data = response.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    file_sha = data["sha"]
-
-    parsed = yaml.safe_load(content)
+    parsed = yaml.safe_load(result["content"])
     if not parsed or parsed.get("version") != 1:
         return {}, file_sha
 
@@ -1579,8 +1509,6 @@ def _post_commit_status(
     if not repo.repo_full_name:
         return
 
-    from .github import github_request
-
     context = f"PostHog Visual Review / {run.run_type}"
     # Tracking-only (observe) and partial runs must never satisfy the gating context that
     # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
@@ -1594,27 +1522,22 @@ def _post_commit_status(
 
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.get_access_token()
     target_url = _run_url(run, repo)
 
     try:
-        response = github_request(
+        response = github.api_request(
             "POST",
-            f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
-            access_token=access_token,
-            json={
+            f"/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            json_body={
                 "state": state,
                 "description": description[:140],
                 "context": context,
                 "target_url": target_url,
             },
-            timeout=10,
         )
 
         if response.status_code != 201:
@@ -1663,9 +1586,6 @@ def _commit_baseline_to_github(
         raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
 
     github = get_github_integration_for_repo(repo)
-
-    if github.access_token_expired():
-        github.refresh_access_token()
 
     if run.pr_number is None:
         raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
@@ -1777,7 +1697,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
                 repo=repo,
                 path=f"issues/comments/{existing_comment_id}",
                 json={"body": comment_body},
-                timeout=10,
             )
             if response.status_code == 200:
                 run.metadata["github_comment_id"] = existing_comment_id
@@ -1796,7 +1715,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             repo=repo,
             path=f"issues/{run.pr_number}/comments",
             json={"body": comment_body},
-            timeout=10,
         )
         if response.status_code == 201:
             comment_id = response.json().get("id")
@@ -1841,17 +1759,17 @@ _MAX_COMMENT_IMAGES = 8
 
 
 def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
-    """Presigned URL for embedding a snapshot image in a PR comment.
+    """Presigned URL for the full-resolution snapshot image in a PR comment.
 
-    Prefers the thumbnail to keep the comment lightweight. Returns None when the
-    artifact is missing or object storage is disabled — the caller renders an
-    empty cell in that case.
+    Serves the original artifact (not the thumbnail) so the embedded image opens at full
+    resolution when clicked — GitHub constrains the rendered size via the ``<img width>``
+    attribute but links the original. Returns None when the artifact is missing or object
+    storage is disabled — the caller renders an empty cell in that case.
     """
     if artifact is None:
         return None
-    display = artifact.thumbnail or artifact
     storage = ArtifactStorage(str(repo.id))
-    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    return storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
 
 
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -1887,7 +1805,12 @@ def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str
 
 
 def _image_cell(url: str | None, alt: str) -> str:
-    """Render an image (or an empty placeholder) for a before/after table cell."""
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    The image is constrained to ``_COMMENT_IMAGE_WIDTH`` so the table stays compact, but
+    ``src`` points at the full-resolution original — GitHub opens that original when the
+    image is clicked.
+    """
     if not url:
         return "_(none)_"
     # Escape both attributes — a URL containing a quote would otherwise break out of src.
@@ -1927,9 +1850,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
         _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
-            "current_artifact__thumbnail",
             "baseline_artifact",
-            "baseline_artifact__thumbnail",
         )
         .order_by("identifier")
     )
@@ -2276,8 +2197,6 @@ def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
     current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
 
     snapshots = list(run.snapshots.all())

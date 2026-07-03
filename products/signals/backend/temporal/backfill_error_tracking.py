@@ -33,7 +33,7 @@ class EmitBackfillSignalInput:
 @scoped_temporal()
 @close_db_connections
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
-    """Fetch the 100 most recent error tracking issues ordered by first seen."""
+    """Fetch the 5 most recent error tracking issues ordered by first seen."""
     from posthog.schema import DateRange, ErrorTrackingQuery
 
     from posthog.models import Team
@@ -52,7 +52,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
                 orderBy="first_seen",
                 orderDirection="DESC",
                 volumeResolution=1,
-                limit=100,
+                limit=5,
                 withFirstEvent=True,
                 withAggregations=False,
             ),

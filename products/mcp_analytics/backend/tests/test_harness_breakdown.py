@@ -60,12 +60,49 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         )
         return {row.harness: row for row in runner.calculate().results}
 
+    def test_tool_name_scopes_to_effective_tool_and_new_sdk(self) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(distinct_id="d1", properties={"$mcp_client_name": "claude-ai", **new_sdk})
+        self._emit(
+            distinct_id="d2",
+            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "cursor-vscode", **new_sdk},
+        )
+        # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name.
+        self._emit(
+            distinct_id="d3",
+            properties={
+                "$mcp_tool_name": "exec",
+                "$mcp_exec_tool_call_name": "query_run",
+                "$mcp_client_name": "windsurf",
+                **new_sdk,
+            },
+        )
+        # Same tool but missing the new-SDK source marker -> excluded.
+        self._emit(distinct_id="d4", properties={"$mcp_client_name": "claude-ai"})
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        rows = {row.harness: row for row in runner.calculate().results}
+
+        assert set(rows) == {"Claude.ai", "Windsurf"}
+
     @parameterized.expand(
         [
             ("vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
             ("vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             ("session_codex", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
             ("session_cursor", {"mcp_session_client_name": "cursor-vscode"}, "Cursor"),
+            # The posthog-node MCP analytics SDK reports clientInfo.name as $mcp_client_name,
+            # not the hosted server's mcp_session_client_name. Both must classify.
+            ("sdk_client_name_claudeai", {"$mcp_client_name": "claude-ai"}, "Claude.ai"),
+            (
+                "sdk_client_name_mcp_remote_stripped",
+                {"$mcp_client_name": "claude-ai (via mcp-remote 0.1.37)"},
+                "Claude.ai",
+            ),
             ("ua_claude_cli", {"$mcp_client_user_agent": "claude-code/2.1.0 (cli)"}, "Claude Code"),
             (
                 "ua_claude_sdk",

@@ -49,6 +49,8 @@ def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | No
 # don't have task context. The CI follow-up timing lives in `task_management`.
 INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 
+WARM_IDLE_TIMEOUT = timedelta(minutes=10)
+
 # CI follow-up cadence after the agent has been idle.
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 

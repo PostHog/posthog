@@ -4,14 +4,14 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
 
 import {
     EmitEventStepConfig,
@@ -26,7 +26,7 @@ jest.mock('~/ingestion/common/ingestion-warnings', () => ({
 }))
 
 // Mock the metrics module
-jest.mock('~/ingestion/common/event-pipeline/metrics', () => ({
+jest.mock('~/ingestion/common/metrics', () => ({
     eventProcessedAndIngestedCounter: {
         inc: jest.fn(),
     },

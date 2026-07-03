@@ -1,6 +1,4 @@
-import { GenericMcpToolRenderer } from 'products/posthog_ai/frontend/sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxDataToolRow } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxDataToolRow'
-import type { SandboxToolRendererProps } from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
 
 import { ErrorTrackingFiltersWidget } from '../UIPayloadAnswer'
 import { extractErrorTrackingResponse } from './extractors'
@@ -11,7 +9,7 @@ import { extractErrorTrackingResponse } from './extractors'
  * pushes filters into the error-tracking scene when it is active). Pre-completion or missing output
  * falls back to the generic card.
  */
-export function ErrorTrackingWidget(props: SandboxToolRendererProps): JSX.Element {
+export function ErrorTrackingWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const filters = message.status === 'completed' ? extractErrorTrackingResponse(message) : null
 
@@ -20,8 +18,8 @@ export function ErrorTrackingWidget(props: SandboxToolRendererProps): JSX.Elemen
     }
 
     return (
-        <SandboxDataToolRow {...props}>
+        <DataToolRow {...props}>
             <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} embedded />
-        </SandboxDataToolRow>
+        </DataToolRow>
     )
 }

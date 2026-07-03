@@ -11,7 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 export function SuperpowersModal(): JSX.Element | null {

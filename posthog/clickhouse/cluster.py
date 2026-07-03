@@ -62,6 +62,7 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-aux": ("localhost", 9200),
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
+    "clickhouse-logs": ("localhost", 9500),
 }
 
 

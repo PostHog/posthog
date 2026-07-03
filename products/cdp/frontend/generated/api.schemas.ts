@@ -269,6 +269,7 @@ export const HogFunctionTypeEnumApi = {
  * * `posthog_ticket_tags` - posthog_ticket_tags
  * * `posthog_business_hours` - posthog_business_hours
  * * `non_failure_status_codes` - non_failure_status_codes
+ * * `customer_analytics_account_properties` - customer_analytics_account_properties
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -287,6 +288,7 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogTicketTags: 'posthog_ticket_tags',
     PosthogBusinessHours: 'posthog_business_hours',
     NonFailureStatusCodes: 'non_failure_status_codes',
+    CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -564,6 +566,74 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+/**
+ * * `running` - running
+ * * `succeeded` - succeeded
+ * * `failed` - failed
+ */
+export type HogInvocationRerunFilterStatusEnumApi =
+    (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
+
+export const HogInvocationRerunFilterStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+} as const
+
+/**
+ * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+ */
+export interface HogInvocationRerunFilterApi {
+    /** Inclusive lower bound on `scheduled_at` (UTC). */
+    window_start: string
+    /** Exclusive upper bound on `scheduled_at` (UTC). */
+    window_end: string
+    /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+    status?: HogInvocationRerunFilterStatusEnumApi[]
+    /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+    error_kind?: string[]
+    /**
+     * Skip invocations that have already been attempted this many times or more.
+     * @minimum 1
+     * @maximum 255
+     */
+    max_attempts?: number
+    /**
+     * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+     * @minimum 1
+     * @maximum 10000
+     */
+    max_count?: number
+    /**
+     * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+}
+
+/**
+ * Rerun invocations of a hog function or hog flow from their stored payloads.
+ */
+export interface HogInvocationRerunRequestApi {
+    /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+    filter: HogInvocationRerunFilterApi
+}
+
+/**
+ * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+ * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+ * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+ * Use `rerun_job_id` to look up progress on the wrapper job later.
+ */
+export interface HogInvocationRerunResponseApi {
+    /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+    rerun_job_id: string
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    queued_count: number
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    skipped_count: number
 }
 
 /**

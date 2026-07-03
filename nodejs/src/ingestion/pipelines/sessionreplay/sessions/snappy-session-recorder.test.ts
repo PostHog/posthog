@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { parseJSON } from '~/utils/json-parse'
 
 import { SnappySessionRecorder } from './snappy-session-recorder'
 

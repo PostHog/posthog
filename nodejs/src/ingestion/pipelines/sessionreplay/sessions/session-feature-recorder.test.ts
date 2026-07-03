@@ -1,17 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/config/config'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
-
-jest.mock('~/config/config', () => ({
-    defaultConfig: {
-        SESSION_RECORDING_FEATURES_ENABLED: true,
-        SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 100,
-    },
-}))
 
 const createMessage = (events: SnapshotEvent[], distinctId = 'user1'): ParsedMessageData => ({
     distinct_id: distinctId,
@@ -95,7 +87,7 @@ describe('SessionFeatureRecorder', () => {
     let recorder: SessionFeatureRecorder
 
     beforeEach(() => {
-        recorder = new SessionFeatureRecorder('session1', 1, 'batch1')
+        recorder = new SessionFeatureRecorder('session1', 1, 'batch1', 100)
     })
 
     describe('Basic lifecycle', () => {
@@ -1602,28 +1594,21 @@ describe('SessionFeatureRecorder', () => {
     })
 
     describe('Rollout gating', () => {
-        afterEach(() => {
-            ;(defaultConfig as any).SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE = 100
-        })
-
         it('should return null from end() when rollout is 0', () => {
-            ;(defaultConfig as any).SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE = 0
-            const gatedRecorder = new SessionFeatureRecorder('session1', 1, 'batch1')
+            const gatedRecorder = new SessionFeatureRecorder('session1', 1, 'batch1', 0)
             gatedRecorder.recordMessage(createMessage([makeClickEvent(1000)]))
             expect(gatedRecorder.end()).toBeNull()
         })
 
         it('should return features when rollout is 100', () => {
-            ;(defaultConfig as any).SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE = 100
-            const gatedRecorder = new SessionFeatureRecorder('session1', 1, 'batch1')
+            const gatedRecorder = new SessionFeatureRecorder('session1', 1, 'batch1', 100)
             gatedRecorder.recordMessage(createMessage([makeClickEvent(1000)]))
             expect(gatedRecorder.end()).not.toBeNull()
         })
 
         it('should be deterministic for the same session ID', () => {
-            ;(defaultConfig as any).SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE = 50
             const results = Array.from({ length: 10 }, () => {
-                const r = new SessionFeatureRecorder('fixed-session-id', 1, 'batch1')
+                const r = new SessionFeatureRecorder('fixed-session-id', 1, 'batch1', 50)
                 return r.end()
             })
             const allNull = results.every((r) => r === null)

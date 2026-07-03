@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-CLEANUP_PATH = "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.cleanup_cdc_resources_on_deletion"
+CLEANUP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.cleanup_cdc_resources_on_deletion"
 
 
 class TestExternalDataSourceSoftDelete(BaseTest):

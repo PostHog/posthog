@@ -86,6 +86,8 @@ export function createInsightStory(
                         // sql insights
                         columns: (insight as any).columns,
                         types: (insight as any).types,
+                        // funnel steps header reads the total median from this top-level field
+                        total_median_conversion_time: (insight as any).total_median_conversion_time,
                     },
                 ],
             },

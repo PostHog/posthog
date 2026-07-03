@@ -64,6 +64,7 @@ from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
+from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_password_reset,
@@ -958,6 +959,10 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         # (invite-accept, Vercel-provisioned), or True.
         user.is_email_verified = True
         user.save()
+
+        # The reset flow doesn't log the user in, and a reset is the canonical compromise-recovery
+        # action, so revoke every existing login session for this user.
+        revoke_other_sessions(user, keep_session_key=None)
 
         report_user_password_reset(user)
         return {"email": user.email}

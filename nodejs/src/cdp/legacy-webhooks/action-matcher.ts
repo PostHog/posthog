@@ -2,6 +2,11 @@ import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 
+import { stringToBoolean } from '~/common/utils/env-utils'
+import { mutatePostIngestionEventWithElementsList } from '~/common/utils/event'
+import { captureException } from '~/common/utils/posthog'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { stringify } from '~/common/utils/utils'
 import { Properties } from '~/plugin-scaffold'
 
 import {
@@ -18,11 +23,6 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { stringToBoolean } from '../../utils/env-utils'
-import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
-import { captureException } from '../../utils/posthog'
-import { createTrackedRE2 } from '../../utils/tracked-re2'
-import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */

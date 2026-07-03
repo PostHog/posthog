@@ -20,7 +20,9 @@ import { Static, TSchema, Type } from 'typebox'
 import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
+import type { GatewayCatalog } from '../runtime/gateway-catalog'
 import type { HttpFetcher } from '../runtime/http-client'
+import type { WebSearchProvider } from '../runtime/web-search'
 
 export type { Static, TSchema }
 
@@ -53,8 +55,6 @@ export interface ToolContext {
     /** The agent (application) running this session — the memory scope key. */
     applicationId: string
     sessionId: string
-    /** Resolved integration tokens, keyed by integration id ("slack:T01..."). */
-    integrations: Record<string, IntegrationCredentials>
     /** Fetch resolved secret value for a name from spec.secrets. */
     secret(name: string): string | undefined
     /**
@@ -64,9 +64,7 @@ export interface ToolContext {
      *     UNBOUND — `@posthog/http-request` refuses substitution).
      *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
      *
-     * Fail-closed by design: the bare-string `null` return is the same shape
-     * as `mcp-clients.ts` refusing an `auth.integration` ref when its host
-     * validator isn't wired. Authors who want to call out to a service with
+     * Fail-closed by design: an author who wants to call out to a service with
      * a secret MUST pin that secret to the destination host(s) — a prompt-
      * injected `${TOKEN}` against an attacker URL then refuses before fetch
      * rather than leaking the credential.
@@ -150,13 +148,21 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
-}
-
-export interface IntegrationCredentials {
-    kind: string
-    access_token: string
-    refresh_token?: string
-    metadata?: Record<string, unknown>
+    /**
+     * Served-model catalog for the `@posthog/agent-applications-models` tool.
+     * Read it here, not via `ctx.http` — the catalog routes through a
+     * DirectHttpClient (the gateway is cluster-internal; smokescreen would deny
+     * a proxy-bound call). Absent when the gateway is off.
+     */
+    gatewayCatalog?: GatewayCatalog
+    /**
+     * Ordered web-search provider chain for `@posthog/web-search` (primary
+     * first, configured fallbacks next). Built from `AGENT_WEB_SEARCH_*`
+     * config at runner boot and injected here. Empty / absent → the tool is
+     * gated out of the session surface in `buildAgentTools`, so a session
+     * never sees a tool that just throws `web_search_not_configured`.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 /** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.

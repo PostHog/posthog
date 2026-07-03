@@ -51,9 +51,9 @@ from posthog.hogql.visitor import clear_locations
 class _SharedParserSnapshotExtension(AmberSnapshotExtension):
     """One shared `.ambr` across all backend subclasses, keyed by test-method name only.
 
-    Every backend (cpp-json / python / rust-json / rust-py) must construct the identical
+    Every backend (cpp-json / rust-json / rust-py) must construct the identical
     AST — including source positions — so there is exactly one expected snapshot per
-    assertion, recorded once and asserted by all four. Default syrupy would key by class
+    assertion, recorded once and asserted by all three. Default syrupy would key by class
     (`TestParserCppJson` vs `TestParserRustJson`) and write a `.ambr` per test file.
     """
 
@@ -94,7 +94,7 @@ def _snapshot_key(src: str) -> str:
 
 
 def parser_test_factory(backend: HogQLParserBackend):
-    base_classes = (BaseTest,) if backend == "python" else (MemoryLeakTestMixin, BaseTest)
+    base_classes = (MemoryLeakTestMixin, BaseTest)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -114,8 +114,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Parse `src` on this backend and check it against the shared cross-backend snapshot.
             # cpp-json / rust-json / rust-py assert the FULL positioned AST (one recorded `.ambr`
             # entry per source — positions verified, cpp regressions caught, no live self-compare).
-            # python is the legacy backend and not a position-parity target, so it only verifies
-            # STRUCTURE against the live cpp parse (clear_locations) — no position-divergence noise.
             parse_fn = {
                 "expr": parse_expr,
                 "select": parse_select,
@@ -128,15 +126,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 kwargs["placeholders"] = placeholders
             # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
             # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
-            # / the cpp oracle parse allocate per call, so comparing on every rerun would trip the
-            # leak check with test-machinery growth that isn't a parser leak.
+            # allocate per call, so comparing on every rerun would trip the leak check with
+            # test-machinery growth that isn't a parser leak.
             parsed = parse_fn(src, **kwargs)
-            # python has no leak mixin (runs once), so the attr is absent → treat as run 0.
             if getattr(self, "_memory_leak_run_index", 0) != 0:
-                return
-            if backend == "python":
-                oracle_kwargs = {**kwargs, "backend": "cpp-json"}
-                assert clear_locations(parsed) == clear_locations(parse_fn(src, **oracle_kwargs))
                 return
             if not hasattr(self, "_shared_ast_snapshot"):
                 self._shared_ast_snapshot = self.snapshot.use_extension(_SharedParserSnapshotExtension)
@@ -185,8 +178,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("hex_negative", "-0x1F", -31),
                 ("hex_positive_sign", "+0x1F", 31),
                 # Hex digits include 'e' — must be dispatched before the float guard,
-                # or "0xfe" routes through float()/stod and either raises (Python)
-                # or silently returns a double (C++) instead of an int64.
+                # or "0xfe" is misparsed as a float (a double) instead of an int64.
                 ("hex_with_e_digit", "0xfe", 254),
                 ("hex_negative_with_e_digit", "-0xae", -174),
                 # Near 2^60 the double mantissa is 8 bits short, so a stod-based hex parse rounds wrong.
@@ -2535,7 +2527,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_select_set_level_limit_offset_divergences(self):
-            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query — Python dropped both. C++ was already correct.
+            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query must land on the set query, not be dropped.
             parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
             assert isinstance(parsed, ast.SelectSetQuery)
             self.assertEqual(parsed.limit, ast.Constant(value=3))
@@ -2919,7 +2911,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIn("synthetic post_init failure", str(caught.exception))
 
         def test_deeply_nested_input_does_not_stack_overflow(self):
-            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp / python have their own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp has its own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             if backend not in ("rust-json", "rust-py"):
                 self.skipTest("rust-specific recursion cap")
             parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
@@ -3420,7 +3412,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
 
         def test_return_hogqlx_tag_value(self):
-            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp and python accept it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
+            # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp accepts it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
             prog = cast(ast.Program, self._program("return <Sparkline />"))
             stmt = cast(ast.ReturnStatement, prog.declarations[0])
             self.assertIsInstance(stmt, ast.ReturnStatement)
@@ -6462,12 +6454,36 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
-                ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
-                ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
-                ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
+                ("INTERVAL 'twenty days'", "Unsupported interval count: 'twenty' is not a valid integer"),
+                ("INTERVAL '-1 day'", "Unsupported interval count: '-1' is not a valid integer"),
+                ("INTERVAL '1.5 days'", "Unsupported interval count: '1.5' is not a valid integer"),
+                # A space-but-empty count (`' '`, `' day'`) is reported the same way — the count before the space isn't a valid integer.
+                ("INTERVAL ' '", "Unsupported interval count: '' is not a valid integer"),
+                ("INTERVAL ' day'", "Unsupported interval count: '' is not a valid integer"),
+                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64); a value past Int64 max is rejected as too large. Both parsers emit this exact message (no leaked stdlib `stoll` text), so assert it in full.
+                (
+                    "INTERVAL '9223372036854775808 day'",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                (
+                    "INTERVAL '99999999999999999999 day'",
+                    "Unsupported interval count: '99999999999999999999' is too large",
+                ),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
+                # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
+                ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),
+                ("INTERVAL '1 secondss'", "Unsupported interval unit: secondss"),
+                # A string with no internal space can't be `<count> <unit>`: cpp commits to ColumnExprIntervalString and its visitor rejects with this message. rust used to fall through to the expr+unit form and raise a "expected interval unit keyword" SyntaxError instead — same base class, so only the message asserts the divergence.
+                ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                ("now() - INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                # A nested string-valued interval (`INTERVAL INTERVAL '<count> <unit>' <unit>`) reaches the same count/unit validation through a different call site; assert the edge cases there too so the two sites can't drift.
+                ("INTERVAL INTERVAL ' day' MONTH", "Unsupported interval count: '' is not a valid integer"),
+                (
+                    "INTERVAL INTERVAL '9223372036854775808 day' MONTH",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                ("INTERVAL INTERVAL '1 dayss' MONTH", "Unsupported interval unit: dayss"),
             )
             for src, expected_msg in cases:
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
@@ -6479,6 +6495,19 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
                 self._assert_ast(src, "expr")
+            # Guard: a no-space string that is only the HEAD of a longer
+            # unit-terminated value still parses as `ColumnExprInterval` (expr+unit)
+            # on both backends — the fall-back to the string-form rejection must not
+            # pre-empt these. `interval 'x' day` takes the same path with the unit
+            # immediately after the string.
+            # Counts past int32 (`2147483648`) up to Int64 max (`9223372036854775807`) must parse — ClickHouse stores intervals as Int64, so `std::stoll` accepts the whole range. This guards the boundary against the out_of_range reject case above.
+            for src in (
+                "INTERVAL 'a' || 'b' hour",
+                "INTERVAL 'x' day",
+                "INTERVAL '2147483648 day'",
+                "INTERVAL '9223372036854775807 day'",
+            ):
+                self.assertEqual(parse_expr(src, backend="cpp-json"), parse_expr(src, backend=backend), msg=src)
 
         def test_in_cohort_falls_back_to_identifier_when_rhs_missing(self):
             # `IN COHORT` only commits when a columnExpr follows; otherwise `cohort` is the IN rhs identifier (`a IN cohort` → Compare(a, "in", Field('cohort'))).
@@ -7746,14 +7775,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr(r"f'\é'"), ast.Constant(value=""))
             self.assertEqual(self._expr(r"f'\😀z'"), ast.Constant(value="z"))
             self.assertEqual(self._expr(r"f'\éxyz'"), ast.Constant(value="xyz"))
-            # Full position parity against cpp for the position-carrying backends; python spans f-strings over the whole token, so it only checks structure.
+            # Full position parity against cpp for the position-carrying backends.
             for src in (r"f'\é'", r"f'\éxyz'", r"f'\😀z'", r"f'ab\écd'", r"f'\é{1}\😀'"):
                 expected = parse_expr(src, backend="cpp-json")
                 actual = parse_expr(src, backend=backend)
-                if backend == "python":
-                    self.assertEqual(clear_locations(actual), clear_locations(expected), msg=src)
-                else:
-                    self.assertEqual(actual, expected, msg=src)
+                self.assertEqual(actual, expected, msg=src)
 
         def test_interpolate_expr_carries_positions(self):
             # The INTERPOLATE item node (InterpolateExpr) was built without a position
@@ -7997,9 +8023,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
             # Guard: a bad inner string with a SINGLE trailing unit has no
-            # value-expr escape hatch, so it rejects when VISITED. (The empty
-            # `''` single-unit form is left out — the legacy python backend
-            # surfaces it as a bare ValueError, an unrelated pre-existing quirk.)
+            # value-expr escape hatch, so it rejects when VISITED.
             with self.assertRaises((BaseHogQLError, SyntaxError), msg="interval interval 'bm ' day"):
                 parse_expr("interval interval 'bm ' day", backend=backend)
 
@@ -8163,14 +8187,6 @@ def parser_test_factory(backend: HogQLParserBackend):
             # never visits it, so DATE/TIMESTAMP/INTERVAL string literals and
             # ColumnTypeExprEnum cast types accept; aggregate FILTER (no OVER)
             # visits and rejects them. Pin both arms of the cpp/rust boundary.
-            # python is excluded: its visitor visits the window-FILTER body
-            # (diverging from cpp) and has a pre-existing `interval ''` crash
-            # (`text.split(" ")` ValueError), neither of which this rust-parity
-            # test is about.
-            if backend == "python":
-                self.skipTest(
-                    "python visits the window-FILTER body and pre-existing interval-'' crash; cpp/rust are the parity targets"
-                )
             for query in (
                 "f() FILTER (WHERE date '') OVER w",
                 "f() FILTER (WHERE timestamp '') OVER w",

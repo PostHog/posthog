@@ -1,6 +1,6 @@
 import type { CommonConfig } from '~/common/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 

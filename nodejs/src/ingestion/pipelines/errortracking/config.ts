@@ -7,12 +7,12 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_INGESTION_WARNINGS,
     KAFKA_LOG_ENTRIES,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import { IngestionLane } from '~/ingestion/config'
 
 export type ErrorTrackingConsumerConfig = {

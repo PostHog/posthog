@@ -48,6 +48,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
@@ -85,6 +90,11 @@ capabilities:
 
     llm_gateway:
         description: 'LLM gateway for AI features'
+        requires: [core_infra]
+        docker_profiles: []
+
+    agent_proxy:
+        description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
         requires: [core_infra]
         docker_profiles: []
 
@@ -239,6 +249,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
                 property_values,
@@ -356,6 +367,7 @@ intents:
                 property_definitions,
                 property_values,
                 temporal_workflows,
+                agent_proxy,
             ]
 
     logs:

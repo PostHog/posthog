@@ -138,13 +138,69 @@ const SERVICE_FACET: FacetConfig = {
     maxHeight: 300,
 }
 
-/** The rail is rendered entirely from this list — append a config to add a facet (or a new group). */
-export const FACETS: FacetConfig[] = [LEVEL_FACET, SERVICE_FACET]
+// Curated OTel resource attributes worth faceting. Keys are the stable OTel semantic-convention names;
+// `deployment.environment.name` is the 1.27+ stable key (older data may use `deployment.environment`).
+function resourceAttributeFacet(key: string, slug: string, title: string, group: string): FacetConfig {
+    return {
+        key: slug,
+        title,
+        group,
+        kind: 'dynamic',
+        source: { type: 'resourceAttribute', key },
+        searchable: true,
+        searchPlaceholder: `Search ${title.toLowerCase()}…`,
+        emptyLabel: `No ${title.toLowerCase()} values`,
+        maxHeight: 300,
+    }
+}
 
-/** `FACETS` grouped by `group`, preserving first-appearance order of both groups and facets. */
-export function facetsByGroup(): [string, FacetConfig[]][] {
+const ENVIRONMENT_FACET = resourceAttributeFacet(
+    'deployment.environment.name',
+    'environment',
+    'Environment',
+    'Standard'
+)
+const NAMESPACE_FACET = resourceAttributeFacet('k8s.namespace.name', 'namespace', 'Namespace', 'Kubernetes')
+const DEPLOYMENT_FACET = resourceAttributeFacet('k8s.deployment.name', 'deployment', 'Deployment', 'Kubernetes')
+const POD_FACET = resourceAttributeFacet('k8s.pod.name', 'pod', 'Pod', 'Kubernetes')
+const NODE_FACET = resourceAttributeFacet('k8s.node.name', 'node', 'Node', 'Kubernetes')
+const HOST_FACET = resourceAttributeFacet('host.name', 'host', 'Host', 'Infrastructure')
+
+/**
+ * The rail is rendered entirely from this list — append a config to add a facet (or a new group).
+ * Ordered by group (Standard → Kubernetes → Infrastructure) since facetsByGroup keeps first-appearance order.
+ * Resource-attribute facets only render when the tenant actually emits the key (see facetCountsLogic).
+ */
+export const FACETS: FacetConfig[] = [
+    LEVEL_FACET,
+    SERVICE_FACET,
+    ENVIRONMENT_FACET,
+    NAMESPACE_FACET,
+    DEPLOYMENT_FACET,
+    POD_FACET,
+    NODE_FACET,
+    HOST_FACET,
+]
+
+/**
+ * Filter facets by a free-text query matching the field name or its group (case-insensitive
+ * substring) — powers the rail's "search facets" box. A blank query returns everything, so
+ * `facetsByGroup` then drops any group left with no matching facets for free.
+ */
+export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) {
+        return facets
+    }
+    return facets.filter(
+        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
+    )
+}
+
+/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
+export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
     const groups: [string, FacetConfig[]][] = []
-    for (const facet of FACETS) {
+    for (const facet of facets) {
         const existing = groups.find(([group]) => group === facet.group)
         if (existing) {
             existing[1].push(facet)

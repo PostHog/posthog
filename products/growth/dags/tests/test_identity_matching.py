@@ -181,6 +181,9 @@ def _run_job(cluster: ClickhouseCluster, **config_overrides: Any) -> tuple[dagst
         "ip_window_device_cap": 20,
         "rule_min_score": 1.0,
         "rule_min_margin": 0.0,
+        # Keep every best-per-orphan logreg link on the tiny fixture; the prod default (0.5) would
+        # filter on the model's unstable probabilities and make link assertions flaky.
+        "logreg_min_prob": 0.0,
         "min_training_positives": 2,
         "min_training_negatives": 1,
         **config_overrides,
@@ -267,6 +270,24 @@ def test_logreg_skips_without_labels(cluster: ClickhouseCluster) -> None:
         return count
 
     assert cluster.any_host(get_logreg_link_count).result() == 0
+
+
+def test_eval_labels_survive_edge_truncation(cluster: ClickhouseCluster) -> None:
+    cluster.any_host(_insert_fixture_events).result()
+
+    # Exactly 4 identity edges precede window end and 2 post-window merges follow. Capping at 4
+    # fills the anchor-edge budget entirely, so the single oldest-first query the job used to run
+    # would drop both post-window merges and yield zero labels; the split fetch keeps them.
+    result, job_id = _run_job(cluster, max_identity_edges=4)
+    assert result.success
+
+    def get_labels(client: Client) -> dict[str, str]:
+        rows = _read_dataset(
+            client, PERSON_TIMELINE, job_id, "distinct_id, label_person_key", "WHERE label_person_key != ''"
+        )
+        return dict(rows)
+
+    assert cluster.any_host(get_labels).result() == {"phone-anna": "anna@x.com", "phone-bob": "bob@x.com"}
 
 
 @pytest.mark.parametrize(

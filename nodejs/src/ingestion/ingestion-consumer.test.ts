@@ -11,6 +11,10 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
@@ -18,23 +22,19 @@ import {
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { UUIDT } from '~/utils/utils'
+import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
 
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -47,10 +47,10 @@ jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => 
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/utils/token-bucket'),
+        ...jest.requireActual('~/common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -99,25 +99,25 @@ const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
 
 describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
-    let hub: Hub
+    let infra: IngestionTestInfra
     let team: Team
     let team2: Team
     let fixedTime: DateTime
 
     const createIngestionConsumer = async (
-        hub: Hub,
+        infra: IngestionTestInfra,
         overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
     ) => {
         const outputs = createTestIngestionOutputs(mockProducer)
         const ingester = new IngestionConsumer(
-            hub,
+            infra.config,
             {
-                ...hub,
+                ...infra,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
                 aiSubpipelineFactory: createAiEventSubpipeline,
-                hogTransformer: createHogTransformerService(hub, {
-                    ...hub,
+                hogTransformer: createHogTransformerService(infra.config, {
+                    ...infra,
                     monitoringOutputs: createTestMonitoringOutputs(mockProducer),
                 }),
             },
@@ -177,24 +177,24 @@ describe('IngestionConsumer', () => {
 
         offsetIncrementer = 0
         await resetTestDatabase()
-        hub = await createHub()
+        infra = await createIngestionTestInfra()
 
         // mockProducer = mockProducer
-        team = await getFirstTeam(hub.postgres)
-        const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
-        team2 = (await getTeam(hub.postgres, team2Id))!
+        team = await getFirstTeam(infra.postgres)
+        const team2Id = await createTeam(infra.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
+        team2 = (await getTeam(infra.postgres, team2Id))!
 
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
             const original = jest.requireActual('~/ingestion/common/steps/event-processing/prepare-event-step')
             return original.createPrepareEventStep(...args)
         })
 
-        ingester = await createIngestionConsumer(hub)
+        ingester = await createIngestionConsumer(infra)
     })
 
     afterEach(async () => {
         await ingester.stop()
-        await closeHub(hub)
+        await infra.close()
     })
 
     afterAll(() => {
@@ -215,7 +215,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await hub.postgres.query(
+            await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Stateful, team.id],
@@ -227,7 +227,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should drop a cookieless event if the team has cookieless disabled', async () => {
-            await hub.postgres.query(
+            await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Disabled, team.id],
@@ -283,7 +283,7 @@ describe('IngestionConsumer', () => {
             const now = () => DateTime.now().toMillis()
             beforeEach(() => {
                 // Just to make it easy to see what is configured
-                expect(hub.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+                expect(infra.config.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
@@ -309,7 +309,7 @@ describe('IngestionConsumer', () => {
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
                 // Create a new consumer that consumes from the overflow topic
-                const overflowIngester = await createIngestionConsumer(hub, {
+                const overflowIngester = await createIngestionConsumer(infra, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
 
@@ -333,12 +333,12 @@ describe('IngestionConsumer', () => {
             describe('stateful overflow redirect', () => {
                 it('refreshes Redis TTL when processing events in overflow lane', async () => {
                     // Enable stateful overflow
-                    hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
-                    hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
-                    hub.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
+                    infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
+                    infra.config.INGESTION_LANE = 'overflow'
 
                     // Create overflow lane consumer
-                    const overflowIngester = await createIngestionConsumer(hub, {
+                    const overflowIngester = await createIngestionConsumer(infra, {
                         INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                     })
 
@@ -346,7 +346,7 @@ describe('IngestionConsumer', () => {
                     expect(overflowIngester['overflowLaneTTLRefreshService']).toBeDefined()
 
                     // Pre-seed Redis with overflow flags (simulating main lane has flagged these keys)
-                    const redis = await hub.redisPool.acquire()
+                    const redis = await infra.redisPool.acquire()
                     const redisKey = `@posthog/stateful-overflow/events:${team.api_token}:overflow-user`
                     await redis.set(redisKey, '1', 'EX', 300)
 
@@ -371,22 +371,22 @@ describe('IngestionConsumer', () => {
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(1)
 
-                    await hub.redisPool.release(redis)
+                    await infra.redisPool.release(redis)
                     await overflowIngester.stop()
                 })
 
                 it('does not create keys when refreshing TTL for non-existent keys', async () => {
                     // Enable stateful overflow
-                    hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
-                    hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
-                    hub.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
+                    infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
+                    infra.config.INGESTION_LANE = 'overflow'
 
                     // Create overflow lane consumer
-                    const overflowIngester = await createIngestionConsumer(hub, {
+                    const overflowIngester = await createIngestionConsumer(infra, {
                         INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                     })
 
-                    const redis = await hub.redisPool.acquire()
+                    const redis = await infra.redisPool.acquire()
                     const redisKey = `@posthog/stateful-overflow/events:${team.api_token}:new-user`
 
                     // Verify key doesn't exist initially
@@ -404,7 +404,7 @@ describe('IngestionConsumer', () => {
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(1)
 
-                    await hub.redisPool.release(redis)
+                    await infra.redisPool.release(redis)
                     await overflowIngester.stop()
                 })
             })
@@ -417,8 +417,8 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should force events with matching token:distinct_id to overflow', async () => {
-                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
-                    ingester = await createIngestionConsumer(hub)
+                    infra.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
+                    ingester = await createIngestionConsumer(infra)
 
                     const messages = [
                         createKafkaMessage(createEvent({ distinct_id: 'team1-user' }), team.api_token), // should overflow
@@ -452,8 +452,8 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should handle multiple token:distinct_id pairs in force overflow setting', async () => {
-                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
-                    ingester = await createIngestionConsumer(hub)
+                    infra.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
+                    ingester = await createIngestionConsumer(infra)
 
                     const messages = [
                         createKafkaMessage(createEvent({ distinct_id: 'user1' }), team.api_token), // should overflow
@@ -498,8 +498,8 @@ describe('IngestionConsumer', () => {
 
                 describe('via headers (preprocessing)', () => {
                     it('forces overflow using headers even if payload token/distinct_id differ', async () => {
-                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
-                        ingester = await createIngestionConsumer(hub)
+                        infra.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        ingester = await createIngestionConsumer(infra)
 
                         const event = createEvent({ distinct_id: 'not-forced' })
                         const [message] = createKafkaMessages([event])
@@ -523,10 +523,10 @@ describe('IngestionConsumer', () => {
 
                     it('preserves partition locality when not skipping person; drops key when skipping person', async () => {
                         // Not skipping person -> key preserved
-                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
-                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
-                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
-                        ingester = await createIngestionConsumer(hub)
+                        infra.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        infra.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
+                        infra.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
+                        ingester = await createIngestionConsumer(infra)
 
                         const eventA = createEvent({ distinct_id: 'not-forced' })
                         const [messageA] = createKafkaMessages([eventA])
@@ -547,10 +547,10 @@ describe('IngestionConsumer', () => {
 
                         // Skipping person -> key dropped when preserve locality disabled by config
                         await ingester.stop()
-                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
-                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
-                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = false
-                        ingester = await createIngestionConsumer(hub)
+                        infra.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        infra.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        infra.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = false
+                        ingester = await createIngestionConsumer(infra)
 
                         const eventB = createEvent({ distinct_id: 'not-forced' })
                         const [messageB] = createKafkaMessages([eventB])
@@ -659,8 +659,8 @@ describe('IngestionConsumer', () => {
 
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
-                    hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
-                    ingester = await createIngestionConsumer(hub)
+                    infra.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
+                    ingester = await createIngestionConsumer(infra)
                 })
                 it('should drop events with matching token and distinct_id', async () => {
                     const messages = createKafkaMessages([
@@ -708,8 +708,8 @@ describe('IngestionConsumer', () => {
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops all team events when only token is listed', () => {
                 beforeEach(async () => {
                     const distinct_id_to_drop = 'team1_user_to_drop'
-                    hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:${distinct_id_to_drop},${team2.api_token}`
-                    ingester = await createIngestionConsumer(hub)
+                    infra.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:${distinct_id_to_drop},${team2.api_token}`
+                    ingester = await createIngestionConsumer(infra)
                 })
 
                 it('should still drop events with matching token and distinct_id (event key)', async () => {
@@ -769,7 +769,7 @@ describe('IngestionConsumer', () => {
 
     describe('event batching', () => {
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = await createIngestionConsumer(infra)
         })
 
         it('should validate historical_migration flag based on timestamp age', async () => {
@@ -917,12 +917,9 @@ describe('IngestionConsumer', () => {
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
         })
 
-        it('should split AI events with large properties when splitting is enabled', async () => {
+        it('should split AI events with large properties into events + ai_events', async () => {
             await ingester.stop()
-            hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
-            hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            hub.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS = '*'
-            ingester = await createIngestionConsumer(hub)
+            ingester = await createIngestionConsumer(infra)
 
             const events = [
                 createEvent({
@@ -990,7 +987,7 @@ describe('IngestionConsumer', () => {
                 }
             })
 
-            const ingester = await createIngestionConsumer(hub)
+            const ingester = await createIngestionConsumer(infra)
             await ingester.handleKafkaBatch(messages)
 
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
@@ -1009,7 +1006,7 @@ describe('IngestionConsumer', () => {
                 }
             })
 
-            const ingester = await createIngestionConsumer(hub)
+            const ingester = await createIngestionConsumer(infra)
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
 
@@ -1025,7 +1022,7 @@ describe('IngestionConsumer', () => {
                 }
             })
 
-            const ingester = await createIngestionConsumer(hub)
+            const ingester = await createIngestionConsumer(infra)
             await ingester.handleKafkaBatch(messages)
 
             // Should not produce to clickhouse
@@ -1048,7 +1045,7 @@ describe('IngestionConsumer', () => {
          */
 
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = await createIngestionConsumer(infra)
         })
 
         const eventTests: [string, () => PipelineEvent[]][] = [
@@ -1261,7 +1258,7 @@ describe('IngestionConsumer', () => {
 
         const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
             const { hog, bytecode, name } = hogFunction
-            const item = await _insertHogFunction(hub.postgres, team.id, {
+            const item = await _insertHogFunction(infra.postgres, team.id, {
                 hog,
                 bytecode,
                 name: name || 'Test Function',
@@ -1279,15 +1276,15 @@ describe('IngestionConsumer', () => {
                 bytecode: hogByteCode,
             })
 
-            ingester = await createIngestionConsumer(hub)
+            ingester = await createIngestionConsumer(infra)
         })
 
         it(
             'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
             async () => {
                 // Create a new ingester with the sample rate we want to test
-                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-                const localIngester = await createIngestionConsumer(hub)
+                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+                const localIngester = await createIngestionConsumer(infra)
 
                 // Create spies for methods after the service is configured. The consumer exposes the
                 // transformer via its interface, so cast to the concrete service for these internal spies.
@@ -1332,8 +1329,8 @@ describe('IngestionConsumer', () => {
             'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
             async () => {
                 // Create a new ingester with the sample rate we want to test
-                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
-                const localIngester = await createIngestionConsumer(hub)
+                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+                const localIngester = await createIngestionConsumer(infra)
 
                 // Create spies for methods after the service is configured (cast to the concrete service)
                 const concreteTransformer = localIngester.hogTransformer as HogTransformerService
@@ -1588,7 +1585,7 @@ describe('IngestionConsumer', () => {
                 createKafkaMessages([createEvent({ properties: { $set: { name: 'Alice' } } })])
             )
 
-            const personsAfterBatch1 = await fetchPostgresPersons(hub.postgres, team.id)
+            const personsAfterBatch1 = await fetchPostgresPersons(infra.postgres, team.id)
             expect(personsAfterBatch1).toHaveLength(1)
             expect(personsAfterBatch1[0].properties).toMatchObject({ name: 'Alice' })
 
@@ -1596,7 +1593,7 @@ describe('IngestionConsumer', () => {
                 createKafkaMessages([createEvent({ properties: { $set: { email: 'alice@example.com' } } })])
             )
 
-            const personsAfterBatch2 = await fetchPostgresPersons(hub.postgres, team.id)
+            const personsAfterBatch2 = await fetchPostgresPersons(infra.postgres, team.id)
             expect(personsAfterBatch2).toHaveLength(1)
             expect(personsAfterBatch2[0].properties).toMatchObject({
                 name: 'Alice',

@@ -74,6 +74,10 @@ pub struct ResolverConfig {
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // Comma-separated previous secrets still accepted for verification during zero-downtime rotation.
+    #[envconfig(default = "")]
+    pub internal_api_secret_fallbacks: String,
 }
 
 impl ResolverConfig {

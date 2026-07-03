@@ -11,6 +11,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
+import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 
 /** Truncated mono identifier rendering for the footer finding id. */
@@ -37,6 +38,7 @@ export function ScoutEmissionCard({
     run,
     report,
     isDeepLinked = false,
+    showScout = false,
 }: {
     skillName: string
     emission: SignalScoutEmission
@@ -45,6 +47,8 @@ export function ScoutEmissionCard({
     report: LinkedSignalReport | null
     /** True when this finding is the one the current URL deep-links to. */
     isDeepLinked?: boolean
+    /** Cross-fleet listings set this to surface the scout (name in the header, "View scout" footer link). */
+    showScout?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
     const confidencePercent = Math.round((emission.confidence ?? 0) * 100)
@@ -86,6 +90,11 @@ export function ScoutEmissionCard({
                         className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                     />
                     <SignalReportPriorityBadge priority={emission.severity} />
+                    {showScout && (
+                        <span className="truncate text-xs font-medium text-default">
+                            {prettifyScoutSkillName(skillName)}
+                        </span>
+                    )}
                     <span className="whitespace-nowrap text-[11px] text-muted tabular-nums">
                         {confidencePercent}% confidence
                     </span>
@@ -135,6 +144,14 @@ export function ScoutEmissionCard({
                 {expanded && (
                     <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
                         <MonoId label="Finding" value={emission.finding_id} />
+                        {showScout && (
+                            <Link
+                                to={urls.inboxScout(skillName)}
+                                className="flex items-center gap-1 font-medium shrink-0"
+                            >
+                                View {prettifyScoutSkillName(skillName)} <IconArrowRight className="size-3" />
+                            </Link>
+                        )}
                         {run.task_url && (
                             <>
                                 <span className="flex-1" />

@@ -4,6 +4,9 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
@@ -126,6 +129,27 @@ describe('TrendsBarChart (ActionsBar)', () => {
             { timeout: 5000 }
         )
         expect(personsModal.title()).toMatch(/12 Jun/)
+    })
+
+    describe('shared mode', () => {
+        beforeEach(() => {
+            // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+        })
+
+        afterEach(() => {
+            delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+        })
+
+        it('clicking a bar does not open the persons modal', async () => {
+            renderInsight({ query: trendsBar(), inSharedMode: true })
+            await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+            await chart.clickAtIndex(2)
+
+            // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
@@ -527,6 +551,9 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         }
         renderInsight({
             query: aggregatedBar({ compareFilter: { compare: true } }),
+            // Pin to the legacy InsightTooltip path — the glyph/ribbon assertions are specific
+            // to that rendering and will get a quill-flavoured equivalent when the flag ships.
+            featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: false },
             mocks: {
                 additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: compareResults }],
             },
@@ -695,4 +722,30 @@ describe('TrendsBarChart overlays', () => {
             )
         }
     )
+
+    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
+        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+        const twoSeriesBar = trendsBar({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsBar, showLegend: true },
+        })
+
+        const getInChartLegend = (container: HTMLElement): HTMLElement =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
+
+        it('renders the in-chart legend with a row per series', async () => {
+            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('Pageview')
+            expect(legendEl.textContent).toContain('Napped')
+        })
+    })
 })

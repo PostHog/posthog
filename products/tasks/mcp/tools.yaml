@@ -234,6 +234,9 @@ tools:
     tasks-runs-stream-retrieve:
         operation: tasks_runs_stream_retrieve
         enabled: false
+    tasks-runs-stream-token-retrieve:
+        operation: tasks_runs_stream_token_retrieve
+        enabled: false
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve
         enabled: false
@@ -248,4 +251,7 @@ tools:
         enabled: false
     tasks-update:
         operation: tasks_update
+        enabled: false
+    tasks-warm-create:
+        operation: tasks_warm_create
         enabled: false

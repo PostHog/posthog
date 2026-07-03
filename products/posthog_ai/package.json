@@ -4,18 +4,23 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ scripts/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-primitives": "workspace:*",
+        "@tanstack/react-virtual": "*",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
-        "posthog-js": "*",
+        "monaco-editor": "^0.55.1",
+        "posthog-js": "catalog:",
+        "react-intersection-observer": "^9.5.3",
         "tailwind-merge": "*"
     },
     "devDependencies": {
         "@testing-library/react": "*",
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "msw": "*"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",

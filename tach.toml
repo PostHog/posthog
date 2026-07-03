@@ -42,6 +42,8 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.data_tools",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -71,6 +73,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.analytics_platform",
+    "products.approvals",
     "products.batch_exports",
     "products.business_knowledge",
     "products.cdp",
@@ -79,8 +82,10 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -109,7 +114,6 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
-    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -133,6 +137,7 @@ layer = "modules"
 path = "products.agent_platform"
 depends_on = [
     "posthog",
+    "products.skills",
 ]
 layer = "modules"
 
@@ -155,6 +160,16 @@ layer = "modules"
 path = "products.analytics_platform"
 depends_on = [
     "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.approvals"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.feature_flags",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -190,8 +205,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog",
-    "products.posthog_ai", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -205,8 +219,10 @@ depends_on = [
     "products.error_tracking",
     "products.experiments",
     "products.feature_flags",
+    "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -229,10 +245,16 @@ layer = "modules"
 [[modules]]
 path = "products.warehouse_sources"
 depends_on = [
+    "ee",
     "posthog",
+    "products.cdp",
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
+    "products.posthog_ai",
+    "products.warehouse_sources_queue",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -242,16 +264,26 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
-    "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
 ]
 layer = "modules"
 
 [[modules]]
-path = "products.desktop_recordings"
+path = "products.demo"
 depends_on = [
     "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -259,6 +291,7 @@ layer = "modules"
 path = "products.early_access_features"
 depends_on = [
     "posthog",
+    "ee",
     "products.feature_flags",
 ]
 layer = "modules"
@@ -282,6 +315,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -299,6 +333,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
@@ -308,6 +343,7 @@ depends_on = [
     "products.notifications",
     "products.product_tours",
     "products.surveys",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -317,6 +353,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.approvals",
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
@@ -482,6 +519,7 @@ depends_on = [
     "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -522,6 +560,7 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.exports",
     "products.signals",
 ]
@@ -539,11 +578,13 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    "ee",
     "products.cohorts",
     "posthog",
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
@@ -577,6 +618,7 @@ depends_on = [
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -602,6 +644,8 @@ depends_on = [
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -684,6 +728,7 @@ depends_on = [
     "products.actions",
     "products.cdp",
     "products.feature_flags",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -696,7 +741,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -765,6 +810,25 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
+# products, and data_warehouse still import its models, shared types, and temporal
+# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
+# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
+# move behind the facade. Keeps backend:contract-check off package.json (the temporal
+# coupling is permanent). Also hosts the shared warehouse-table test helpers
+# (test.utils, tests.api) that many products' tests use to build warehouse tables.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.types.*",
+    "backend\\.temporal.*",
+    "backend\\.test.*",
+    "backend\\.tests.*",
+]
+from = [
+    "products.warehouse_sources",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
@@ -915,7 +979,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

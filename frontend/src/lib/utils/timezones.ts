@@ -21,6 +21,11 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     }
 }
 
+/** The viewer's own IANA timezone (e.g. 'America/New_York'), as resolved by the browser. */
+export function getLocalTimeZone(): string {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
 export function timeZoneLabel(timeZone: string, offset: number): string {
     const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
     const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'

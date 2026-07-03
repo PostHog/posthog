@@ -102,6 +102,9 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
     if (!query) {
         return false
     }
+    if (isHogQLQuery(query)) {
+        return true
+    }
     if (isNodeWithSource(query)) {
         return isHogQLQuery(query.source)
     }

@@ -8,6 +8,11 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.tasks.backend.temporal.code_workstreams.activities.discover_branch_prs import (
+    DiscoverBranchPrsInput,
+    DiscoverBranchPrsOutput,
+    discover_branch_prs,
+)
 from products.tasks.backend.temporal.code_workstreams.activities.list_active_teams import (
     ListActiveCodeTeamsOutput,
     list_active_code_teams,
@@ -25,7 +30,10 @@ from products.tasks.backend.temporal.code_workstreams.activities.rebuild_workstr
     RebuildTeamWorkstreamsInput,
     rebuild_team_workstreams,
 )
-from products.tasks.backend.temporal.code_workstreams.constants import TEAM_FANOUT_CONCURRENCY
+from products.tasks.backend.temporal.code_workstreams.constants import (
+    MAX_PRS_PER_TEAM_PER_CYCLE,
+    TEAM_FANOUT_CONCURRENCY,
+)
 
 
 @dataclass
@@ -54,10 +62,29 @@ class EvaluateTeamCodeWorkstreamsWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        if pr_urls.prs:
+        prs = list(pr_urls.prs)
+
+        # Branch discovery surfaces PRs whose run never wrote output.pr_url. It calls GitHub, so it
+        # runs as its own heartbeated activity rather than blocking the DB-only load step.
+        budget = MAX_PRS_PER_TEAM_PER_CYCLE - len(prs)
+        if budget > 0:
+            discovered: DiscoverBranchPrsOutput = await workflow.execute_activity(
+                discover_branch_prs,
+                DiscoverBranchPrsInput(
+                    team_id=input.team_id,
+                    known_pr_urls=[pr.pr_url for pr in prs],
+                    budget=budget,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            prs.extend(discovered.prs)
+
+        if prs:
             await workflow.execute_activity(
                 poll_team_pull_requests,
-                PollTeamPullRequestsInput(team_id=input.team_id, prs=pr_urls.prs),
+                PollTeamPullRequestsInput(team_id=input.team_id, prs=prs),
                 start_to_close_timeout=timedelta(minutes=10),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),

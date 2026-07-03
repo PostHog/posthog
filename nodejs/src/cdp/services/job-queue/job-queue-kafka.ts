@@ -6,11 +6,12 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
-import { parseJSON } from '../../../utils/json-parse'
-import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'

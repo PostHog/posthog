@@ -7,6 +7,8 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    FunnelsAlertConfig,
+    FunnelsQuery,
     HogQLAlertConfig,
     HogQLAlertEvaluation,
     InsightThreshold,
@@ -20,6 +22,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_tr
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
+from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -86,6 +89,10 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
     ):
         # Rows are entities in any_row mode, not a time axis — relative change is meaningless.
         raise ValueError("Any-row SQL alerts only support absolute value conditions")
+    if ctx.detector_config is not None and parsed.evaluation == HogQLAlertEvaluation.ANY_ROW:
+        # Same reason anomaly detection rejects any_row at evaluation time: its rows aren't a time
+        # series. Reject at config time so the alert can't be saved only to fail every check.
+        raise ValueError("Anomaly detection isn't supported for any-row SQL alerts — use last-row or first-row")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     if ctx.require_threshold_bounds and ctx.detector_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
@@ -137,11 +144,36 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
+def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
+    if ctx.query_kind != NodeKind.FUNNELS_QUERY:
+        raise ValueError(f"Funnel alert config requires a FunnelsQuery insight, got '{ctx.query_kind}'")
+    try:
+        parsed = FunnelsAlertConfig.model_validate(ctx.config)
+    except Exception:
+        raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")
+    try:
+        funnels_query = FunnelsQuery.model_validate(ctx.query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+    # Resolve the strategy first (rejects unsupported viz types), then delegate viz-specific rules to
+    # the same strategy the extractor uses at eval time, so config-time and eval-time views can't drift.
+    viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
+    strategy = strategy_for_viz(viz)
+    # Relative conditions need a prior value, which only a time-series viz (historical trends) has.
+    if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE and not strategy.supports_relative_conditions:
+        raise ValueError("This funnel only supports absolute value conditions")
+    strategy.validate_config(funnels_query, parsed)
+    _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
+    if ctx.require_threshold_bounds and ctx.detector_config is None:
+        validate_threshold_bounds_required(ctx.threshold_config)
+
+
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
 # config type the threshold path supports. Adding a kind = adding an entry here and an extractor.
 _ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], None]] = {
     "HogQLAlertConfig": _validate_hogql_alert_config,
     "TrendsAlertConfig": _validate_trends_alert_config,
+    "FunnelsAlertConfig": _validate_funnels_alert_config,
 }
 
 
@@ -181,7 +213,7 @@ def validate_alert_config(
     # alert would raise at evaluation time, so reject it here at configuration time. Reading the
     # dispatcher's registry directly keeps the config-time and evaluation-time views from drifting.
     if detector_config is not None and kind not in DETECTOR_EXTRACTORS:
-        raise ValueError("Anomaly detection alerts are only supported for trends insights")
+        raise ValueError(f"Anomaly detection alerts aren't supported for {kind} insights")
 
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:

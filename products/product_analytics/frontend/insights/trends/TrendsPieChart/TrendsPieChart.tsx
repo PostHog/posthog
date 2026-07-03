@@ -5,7 +5,9 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -20,13 +22,13 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -45,9 +47,9 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 }
 
 export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
     const { baseCurrency } = useValues(teamLogic)
@@ -204,20 +206,24 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
-                context={ctx}
-                breakdownFilter={breakdownFilter ?? undefined}
-                trendsFilter={trendsFilter}
-                formula={formula}
-                baseCurrency={baseCurrency}
-                groupTypeLabel={resolvedGroupTypeLabel}
-                formatCompareLabel={context?.formatCompareLabel}
-                onRowClick={onRowClick}
-                showHeader={false}
-                renderCount={renderCount}
-            />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const sharedProps = {
+                context: ctx,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                showHeader: false as const,
+                renderCount,
+            }
+            return quillTooltipEnabled ? (
+                <InsightSeriesTooltip {...sharedProps} />
+            ) : (
+                <TrendsTooltip {...sharedProps} formula={formula} />
+            )
+        },
         [
             breakdownFilter,
             trendsFilter,
@@ -227,6 +233,7 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
             context?.formatCompareLabel,
             onRowClick,
             renderCount,
+            quillTooltipEnabled,
         ]
     )
 

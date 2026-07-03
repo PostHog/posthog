@@ -1,5 +1,5 @@
 {
-    "model": "openai/gpt-5.5",
+    "models": { "mode": "manual", "models": [{ "model": "openai/gpt-5.5" }] },
     "triggers": [
         {
             "type": "slack",
@@ -16,13 +16,14 @@
     "tools": [],
     "mcps": [
         {
+            "kind": "principal",
             "id": "posthog",
             "url": "http://localhost:8787/mcp",
+            "default_tool_approval": "allow",
             "auth": { "provider": "posthog" }
         }
     ],
     "skills": [],
-    "integrations": [],
     "identity_providers": [
         {
             "kind": "posthog",
@@ -54,6 +55,5 @@
         "max_tool_calls": 100,
         "max_wall_seconds": 600
     },
-    "reasoning": "medium",
-    "entrypoint": "agent.md"
+    "reasoning": "medium"
 }

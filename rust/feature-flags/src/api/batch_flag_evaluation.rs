@@ -8,7 +8,8 @@
 //!
 //! Deliberate differences from the live `/flags` pipeline:
 //! - Auth is the `INTERNAL_REQUEST_TOKEN` bearer token only — no SDK token, no team lookup
-//!   by token.
+//!   by token. The team is still loaded by id (once per page) to read its timezone, so
+//!   naive datetime filters evaluate in the team's local time exactly like live `/flags`.
 //! - The handler bypasses the `/flags` request pipeline entirely, so no billing or
 //!   flag-analytics counters are emitted, and dedicated `flags_batch_eval_*` ops metrics
 //!   track batch traffic. The per-person matcher still emits its own evaluation metrics
@@ -418,6 +419,18 @@ async fn handle_batch_flag_evaluation(
         .realtime_cohort_evaluation_team_ids
         .includes_team(request.team_id);
 
+    // Read the team's timezone from Postgres so naive datetime filter values (IS_DATE_* and
+    // relative dates) are interpreted in the team's local time, matching live `/flags`
+    // evaluation and HogQL/ClickHouse cohort membership. The live path reads the same
+    // `team.timezone`; this is one PK lookup per page, negligible against the per-page
+    // person scan. Falls back to UTC for an unrecognized timezone string.
+    let team = state
+        .flag_service()
+        .get_team_by_id(request.team_id)
+        .await
+        .map_err(BatchFlagEvaluationError::Upstream)?;
+    let team_timezone = team.parsed_timezone();
+
     let mut matched_person_uuids: Vec<Uuid> = Vec::new();
     let mut errors_count: u64 = 0;
 
@@ -445,7 +458,8 @@ async fn handle_batch_flag_evaluation(
         .with_rayon_dispatcher(state.rayon_dispatcher.clone())
         .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
         // Read-only: experience-continuity overrides are consulted but never written.
-        .with_skip_writes(true);
+        .with_skip_writes(true)
+        .with_timezone(team_timezone);
 
         let evaluation = matcher
             .evaluate_all_feature_flags(

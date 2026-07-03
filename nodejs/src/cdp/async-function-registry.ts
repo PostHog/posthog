@@ -1,4 +1,5 @@
-import { TeamManager } from '../utils/team-manager'
+import { TeamManager } from '~/common/utils/team-manager'
+
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,

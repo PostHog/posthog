@@ -1,11 +1,10 @@
 import time
+import operator
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional
-
-import re2
 
 from common.hogvm.python.debugger import color_bytecode, debugger
 from common.hogvm.python.objects import (
@@ -20,7 +19,6 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
-    _CASE_INSENSITIVE_OPTS,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
@@ -28,6 +26,7 @@ from common.hogvm.python.utils import (
     calculate_cost,
     get_nested_value,
     like,
+    regex_match,
     set_nested_value,
     unify_comparison_types,
 )
@@ -45,6 +44,13 @@ class BytecodeResult:
     result: Any
     bytecodes: dict[str, Any]
     stdout: list[str]
+
+
+def _compare_values(left: Any, right: Any, comparison: Callable[[Any, Any], bool]) -> bool:
+    try:
+        return comparison(left, right)
+    except TypeError as e:
+        raise HogVMException(str(e)) from e
 
 
 def execute_bytecode(
@@ -253,16 +259,16 @@ def execute_bytecode(
                 push_stack(var1 != var2)
             case Operation.GT:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 > var2)
+                push_stack(_compare_values(var1, var2, operator.gt))
             case Operation.GT_EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 >= var2)
+                push_stack(_compare_values(var1, var2, operator.ge))
             case Operation.LT:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 < var2)
+                push_stack(_compare_values(var1, var2, operator.lt))
             case Operation.LT_EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
-                push_stack(var1 <= var2)
+                push_stack(_compare_values(var1, var2, operator.le))
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
@@ -277,24 +283,16 @@ def execute_bytecode(
                 push_stack(pop_stack() not in pop_stack())
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(regex_match(args[0], args[1]))
             case Operation.NOT_REGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(not bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(not regex_match(args[0], args[1]) if args[0] and args[1] else False)
             case Operation.IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(
-                    bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
-                    if args[0] and args[1]
-                    else False
-                )
+                push_stack(regex_match(args[0], args[1], case_insensitive=True))
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(
-                    not bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
-                    if args[0] and args[1]
-                    else False
-                )
+                push_stack(not regex_match(args[0], args[1], case_insensitive=True) if args[0] and args[1] else False)
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
                 if chunk_globals and chain[0] in chunk_globals:

@@ -1,8 +1,13 @@
 import type { StorybookConfig } from '@storybook/react-vite'
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import chokidar from 'chokidar'
 import path from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
+
+// Storybook 10 loads the config as a native ES module, where `__dirname` is
+// not defined — derive it from the module URL instead.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * Regenerates @posthog/quill-tokens dist CSS whenever the tokens source
@@ -91,12 +96,7 @@ const config: StorybookConfig = {
         // Also pick up stories co-located in packages
         '../../../packages/*/src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
     ],
-    addons: [
-        '@storybook/addon-docs',
-        '@storybook/addon-toolbars',
-        'storybook-addon-pseudo-states',
-        'storybook-dark-mode',
-    ],
+    addons: ['@storybook/addon-docs', 'storybook-addon-pseudo-states', 'storybook-dark-mode'],
     framework: {
         name: '@storybook/react-vite',
         options: {},

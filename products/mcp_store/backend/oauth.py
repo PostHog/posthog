@@ -16,6 +16,8 @@ from .models import MCPServerInstallation
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
+SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
+DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
 
 
 class SSRFBlockedError(Exception):
@@ -34,6 +36,97 @@ def _validate_url(url: str) -> None:
     allowed, reason = is_url_allowed(url)
     if not allowed:
         raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
+
+
+def _canonical_origin(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        return None
+
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname.lower()
+    default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
+    netloc = hostname if port is None or default_port else f"{hostname}:{port}"
+    return f"{scheme}://{netloc}"
+
+
+def _validate_resource_bound_to_server(resource: object, server_url: str) -> str:
+    if not isinstance(resource, str) or not resource:
+        raise ValueError("OAuth protected resource metadata resource must be a non-empty string")
+
+    parsed_resource = urlparse(resource)
+    if not parsed_resource.scheme or not parsed_resource.netloc:
+        raise ValueError("OAuth protected resource metadata resource is not an absolute URL")
+    if parsed_resource.fragment:
+        raise ValueError("OAuth protected resource metadata resource must not include a fragment")
+
+    resource_origin = _canonical_origin(resource)
+    server_origin = _canonical_origin(server_url)
+    if not resource_origin or not server_origin or resource_origin != server_origin:
+        logger.warning(
+            "OAuth protected resource metadata resource is not bound to MCP server",
+            server_url=server_url,
+            resource=resource,
+        )
+        raise ValueError("OAuth protected resource metadata resource is not bound to MCP server")
+
+    return resource
+
+
+def _as_string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def requested_oauth_scopes(metadata: dict) -> list[str]:
+    """Return the exact scopes we should request from this provider."""
+    resource_scopes = _as_string_list(metadata.get("resource_scopes_supported"))
+    if resource_scopes:
+        return resource_scopes
+    return _as_string_list(metadata.get("scopes_supported"))
+
+
+def requested_oauth_grant_types(metadata: dict) -> list[str]:
+    grant_types = ["authorization_code"]
+    supported_grants = _as_string_list(metadata.get("grant_types_supported"))
+    if "refresh_token" in supported_grants:
+        grant_types.append("refresh_token")
+    return grant_types
+
+
+def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool = False) -> str:
+    """Pick the token endpoint auth method we can actually use.
+
+    Prefer public PKCE clients when the provider allows them. Otherwise use a
+    client-secret method we support, keeping the registered method with the
+    per-installation DCR credentials for token exchange and refresh.
+    """
+    supported_methods = _as_string_list(metadata.get("token_endpoint_auth_methods_supported"))
+    preferred_methods = (
+        ("client_secret_post", "client_secret_basic", "none")
+        if has_client_secret
+        else SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS
+    )
+    if not supported_methods:
+        return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if has_client_secret else "none"
+    for method in preferred_methods:
+        if method in supported_methods:
+            return method
+
+    raise ValueError(f"Unsupported token_endpoint_auth_methods_supported: {', '.join(supported_methods)}")
+
+
+def oauth_resource(metadata: dict) -> str:
+    resource = metadata.get("resource")
+    return resource if isinstance(resource, str) else ""
 
 
 def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
@@ -179,10 +272,17 @@ def discover_oauth_metadata(server_url: str) -> dict:
 
     if resource_resp.ok:
         resource_data = resource_resp.json()
+        bound_resource = None
+        if "resource" in resource_data:
+            bound_resource = _validate_resource_bound_to_server(resource_data["resource"], server_url)
         auth_servers = resource_data.get("authorization_servers", [])
         if auth_servers:
             auth_server_url = auth_servers[0]
             metadata = _resolve_issuer(_fetch_auth_server_metadata(auth_server_url), auth_server_url)
+            if bound_resource:
+                metadata["resource"] = bound_resource
+            if "scopes_supported" in resource_data:
+                metadata["resource_scopes_supported"] = resource_data["scopes_supported"]
             # Carry scopes from the protected resource metadata when the auth
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
@@ -201,30 +301,32 @@ def discover_oauth_metadata(server_url: str) -> dict:
     return metadata
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None]:
+def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None, str]:
     """Run RFC 7591 Dynamic Client Registration.
 
-    Returns ``(client_id, client_secret)``. Some servers (e.g. Supabase) ignore
-    our ``token_endpoint_auth_method: "none"`` request and register a
-    confidential client — in which case we must keep the returned secret or
-    token exchange fails with ``Required parameter: client_secret``.
+    Returns ``(client_id, client_secret, token_endpoint_auth_method)``. Some
+    servers (e.g. Supabase) register a confidential client even when we ask for
+    a public one, so the auth method is persisted with the minted client.
     """
     registration_endpoint = metadata.get("registration_endpoint")
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
 
+    token_endpoint_auth_method = select_token_endpoint_auth_method(metadata)
     payload: dict[str, object] = {
         "client_name": "MCP Store (PostHog)",
         "redirect_uris": [redirect_uri],
-        "grant_types": ["authorization_code"],
+        "grant_types": requested_oauth_grant_types(metadata),
         "response_types": ["code"],
-        "token_endpoint_auth_method": "none",
+        "token_endpoint_auth_method": token_endpoint_auth_method,
     }
-    if scope := metadata.get("scopes_supported"):
-        payload["scope"] = " ".join(scope)
+    if scopes := requested_oauth_scopes(metadata):
+        payload["scope"] = " ".join(scopes)
 
     _validate_url(registration_endpoint)
-    resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT)
+    resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT, allow_redirects=False)
+    if 300 <= resp.status_code < 400:
+        raise ValueError("Dynamic Client Registration endpoint redirected")
     if not resp.ok:
         logger.error(
             "DCR registration request rejected",
@@ -239,10 +341,21 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
     if not client_id:
         raise ValueError("No client_id in DCR response")
 
-    returned_secret = data.get("client_secret")
-    client_secret = returned_secret if returned_secret and data.get("token_endpoint_auth_method") != "none" else None
+    returned_secret = data.get("client_secret") or ""
+    returned_auth_method_value = data.get("token_endpoint_auth_method")
+    if isinstance(returned_auth_method_value, str) and returned_auth_method_value:
+        returned_auth_method = returned_auth_method_value
+    elif returned_secret and token_endpoint_auth_method == "none":
+        returned_auth_method = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD
+    else:
+        returned_auth_method = token_endpoint_auth_method
+    if returned_auth_method not in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
+        raise ValueError(f"Unsupported token_endpoint_auth_method from DCR response: {returned_auth_method}")
+    if returned_auth_method != "none" and not returned_secret:
+        raise ValueError("DCR response registered a confidential client without client_secret")
+    client_secret = returned_secret if returned_secret and returned_auth_method != "none" else None
 
-    return client_id, client_secret
+    return client_id, client_secret, returned_auth_method
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -267,12 +380,19 @@ class TokenRefreshError(Exception):
     pass
 
 
-def resolve_installation_oauth_context(installation: MCPServerInstallation) -> tuple[dict, str, str | None]:
+def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None) -> str:
+    method = credentials.get(auth_method_key)
+    if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
+        return method
+    return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"
+
+
+def resolve_installation_oauth_context(installation: MCPServerInstallation) -> tuple[dict, str, str | None, str]:
     """Resolve the OAuth metadata + client credentials for an installation.
 
-    Returns ``(metadata, client_id, client_secret)``. Secrets come from the
-    shared template when set, or from the installation's encrypted
-    ``sensitive_configuration`` for user-added servers.
+    Returns ``(metadata, client_id, client_secret, token_endpoint_auth_method)``.
+    Secrets come from the shared template when set, or from the installation's
+    encrypted ``sensitive_configuration`` for user-added servers.
 
     Raises ``ValueError`` if the installation is missing required OAuth state.
     """
@@ -290,7 +410,8 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
             client_secret = credentials.get("client_secret") or None
-            return metadata, shared_client_id, client_secret
+            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret)
+            return metadata, shared_client_id, client_secret, auth_method
         # DCR template: each installation ran discovery + DCR at install
         # time. Both the metadata and the minted client live on the
         # installation — the template is never written back to, so a
@@ -300,14 +421,36 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
         client_secret = sensitive.get("dcr_client_secret") or None
         if not metadata or not client_id:
             raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
-        return metadata, client_id, client_secret
+        auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
+        return metadata, client_id, client_secret, auth_method
 
     metadata = dict(installation.oauth_metadata or {})
     client_id = sensitive.get("dcr_client_id", "")
     client_secret = sensitive.get("dcr_client_secret") or None
     if not metadata or not client_id:
         raise ValueError("Installation missing OAuth metadata or client_id")
-    return metadata, client_id, client_secret
+    auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
+    return metadata, client_id, client_secret, auth_method
+
+
+def _token_request_auth(
+    form: dict[str, str],
+    *,
+    client_id: str,
+    client_secret: str | None,
+    token_endpoint_auth_method: str,
+) -> tuple[dict[str, str], tuple[str, str] | None]:
+    if token_endpoint_auth_method == "client_secret_basic":
+        if not client_secret:
+            raise ValueError("Missing client_secret for client_secret_basic token auth")
+        return form, (client_id, client_secret)
+
+    form["client_id"] = client_id
+    if token_endpoint_auth_method == "client_secret_post":
+        if not client_secret:
+            raise ValueError("Missing client_secret for client_secret_post token auth")
+        form["client_secret"] = client_secret
+    return form, None
 
 
 def refresh_oauth_token(
@@ -316,27 +459,41 @@ def refresh_oauth_token(
     refresh_token: str,
     client_id: str,
     client_secret: str | None = None,
+    token_endpoint_auth_method: str | None = None,
+    resource: str = "",
 ) -> dict:
     data: dict[str, str] = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
-        "client_id": client_id,
     }
-    if client_secret:
-        data["client_secret"] = client_secret
+    if resource:
+        data["resource"] = resource
+
+    try:
+        data, auth = _token_request_auth(
+            data,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_endpoint_auth_method=token_endpoint_auth_method
+            or (DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"),
+        )
+    except ValueError as exc:
+        raise TokenRefreshError(str(exc))
 
     try:
         _validate_url(token_url)
-        resp = requests.post(token_url, data=data, timeout=TIMEOUT)
+        resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
+        if 300 <= resp.status_code < 400:
+            raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException as exc:
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
-            status_code=status_code,
+            status_code=failed_status_code,
         )
         raise TokenRefreshError("Token refresh request failed")
 
@@ -356,7 +513,9 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
         raise TokenRefreshError("No refresh token available")
 
     try:
-        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+        metadata, client_id, client_secret, token_endpoint_auth_method = resolve_installation_oauth_context(
+            installation
+        )
     except ValueError as exc:
         raise TokenRefreshError(str(exc))
 
@@ -369,6 +528,8 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
         refresh_token=refresh_token_value,
         client_id=client_id,
         client_secret=client_secret,
+        token_endpoint_auth_method=token_endpoint_auth_method,
+        resource=oauth_resource(metadata),
     )
 
     # Preserve non-token keys (needs_reauth, dcr_client_id, dcr_client_secret, etc.) across refresh.
@@ -404,7 +565,9 @@ def exchange_oauth_token(
         raise OAuthTokenExchangeError("Missing PKCE verifier")
 
     try:
-        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+        metadata, client_id, client_secret, token_endpoint_auth_method = resolve_installation_oauth_context(
+            installation
+        )
     except ValueError as exc:
         raise OAuthTokenExchangeError(str(exc))
 
@@ -421,18 +584,29 @@ def exchange_oauth_token(
         raise OAuthTokenExchangeError("Token endpoint must use HTTPS")
 
     form: dict[str, str] = {
-        "client_id": client_id,
         "code": code,
         "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
         "code_verifier": pkce_verifier,
     }
-    if client_secret:
-        form["client_secret"] = client_secret
+    if resource := oauth_resource(metadata):
+        form["resource"] = resource
 
-    token_response = requests.post(token_endpoint, data=form, timeout=TIMEOUT)
+    try:
+        form, auth = _token_request_auth(
+            form,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_endpoint_auth_method=token_endpoint_auth_method,
+        )
+    except ValueError as exc:
+        raise OAuthTokenExchangeError(str(exc))
+
+    token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
 
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
+    if 300 <= token_response.status_code < 400:
+        raise OAuthTokenExchangeError("Token endpoint redirected")
     if not token_response.ok:
         logger.error(
             "OAuth token exchange failed",

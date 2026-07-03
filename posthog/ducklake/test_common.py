@@ -13,7 +13,7 @@ from posthog.ducklake.common import (
     reset_ducklake_catalog,
     upsert_duckgres_server_for_org,
 )
-from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
 from posthog.models import Organization, Team
 
 
@@ -54,10 +54,10 @@ class TestEnableTeamBackfill:
         suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="my_prod_env")
 
         assert suffix == "my_prod_env"
-        assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).exists()
-        backfill = DuckLakeBackfill.objects.get(team_id=team.id)
-        assert backfill.enabled is True
-        assert backfill.table_suffix == "my_prod_env"
+        link = DuckgresServerTeam.objects.get(team_id=team.id)
+        assert link.server_id == server.id
+        assert link.backfill_enabled is True
+        assert link.table_suffix == "my_prod_env"
 
     def test_rejects_an_invalid_table_name(self):
         org = Organization.objects.create(name="Org")
@@ -71,8 +71,8 @@ class TestEnableTeamBackfill:
         org = Organization.objects.create(name="Org")
         team_a = Team.objects.create(organization=org)
         team_b = Team.objects.create(organization=org)
-        self._server(org)
-        DuckLakeBackfill.objects.create(team=team_a, table_suffix="shared")
+        server = self._server(org)
+        DuckgresServerTeam.objects.create(server=server, team=team_a, table_suffix="shared")
 
         with pytest.raises(DucklingBackfillEnableError):
             enable_team_backfill(team_id=team_b.id, organization_id=org.id, table_name="shared")
@@ -86,7 +86,6 @@ class TestEnableTeamBackfill:
         suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
 
         assert suffix == "prod"
-        assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
         assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
 
     def test_refuses_to_change_a_set_suffix(self):
@@ -97,17 +96,17 @@ class TestEnableTeamBackfill:
 
         with pytest.raises(DucklingBackfillEnableError):
             enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="second")
-        assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix == "first"
+        assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix == "first"
 
     def test_refuses_to_set_a_suffix_on_a_legacy_shared_team(self):
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
-        self._server(org)
-        DuckLakeBackfill.objects.create(team=team, enabled=True, table_suffix=None)
+        server = self._server(org)
+        DuckgresServerTeam.objects.create(server=server, team=team, backfill_enabled=True, table_suffix=None)
 
         with pytest.raises(DucklingBackfillEnableError):
             enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="new_name")
-        assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix is None
+        assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix is None
 
     def test_requires_a_provisioned_server(self):
         org = Organization.objects.create(name="Org")
@@ -119,20 +118,27 @@ class TestEnableTeamBackfill:
 
 @pytest.mark.django_db
 class TestGetTeamBackfillState:
+    def _server_team(self, table_suffix: str | None) -> Team:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = DuckgresServer.objects.create(
+            organization=org, host="h", port=5432, database="ducklake", username="root", password="x"
+        )
+        DuckgresServerTeam.objects.create(server=server, team=team, table_suffix=table_suffix)
+        return team
+
     def test_no_backfill(self):
         team = Team.objects.create(organization=Organization.objects.create(name="Org"))
 
         assert get_team_backfill_state(team.id) == {"has_backfill": False, "table_suffix": None}
 
     def test_legacy_shared_backfill(self):
-        team = Team.objects.create(organization=Organization.objects.create(name="Org"))
-        DuckLakeBackfill.objects.create(team=team, table_suffix=None)
+        team = self._server_team(table_suffix=None)
 
         assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": None}
 
     def test_suffixed_backfill(self):
-        team = Team.objects.create(organization=Organization.objects.create(name="Org"))
-        DuckLakeBackfill.objects.create(team=team, table_suffix="prod")
+        team = self._server_team(table_suffix="prod")
 
         assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": "prod"}
 
@@ -332,3 +338,68 @@ class TestInitializeDucklake:
 
         assert result is True
         mock_reset.assert_called_once_with(TEST_CONFIG)
+
+
+class TestValidateDuckgresIdentifier:
+    @parameterized.expand(["prod", "us_prod", "team_42", "abc123"])
+    def test_accepts_safe_identifiers(self, ident):
+        from posthog.ducklake.common import validate_duckgres_identifier
+
+        validate_duckgres_identifier(ident)  # no raise
+
+    @parameterized.expand(["", "a-b", "a b", "a;drop", "a.b", "a$b", '"x"'])
+    def test_rejects_unsafe_identifiers(self, ident):
+        from posthog.ducklake.common import validate_duckgres_identifier
+
+        with pytest.raises(ValueError):
+            validate_duckgres_identifier(ident)
+
+
+@pytest.mark.django_db
+class TestDuckgresDataImportsSchema:
+    def _team(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="o")
+        return Team.objects.create(organization=org, name="t")
+
+    def _server_team(self, team: Team, table_suffix: str | None) -> DuckgresServerTeam:
+        server = DuckgresServer.objects.create(
+            organization_id=team.organization_id,
+            host="h",
+            port=5432,
+            database="ducklake",
+            username="root",
+            password="x",
+        )
+        return DuckgresServerTeam.objects.create(server=server, team=team, table_suffix=table_suffix)
+
+    def test_falls_back_to_team_id_when_no_backfill_row(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+
+        team = self._team()
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+
+    def test_falls_back_to_team_id_when_suffix_null_or_empty(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+
+        team = self._team()
+        link = self._server_team(team, table_suffix=None)
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+        DuckgresServerTeam.objects.filter(pk=link.pk).update(table_suffix="")
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+
+    def test_uses_suffix_when_set(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+
+        team = self._team()
+        self._server_team(team, table_suffix="us_prod")
+        assert duckgres_data_imports_schema(team.id) == "posthog_data_imports_us_prod"
+
+    def test_rejects_unsafe_suffix(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+
+        team = self._team()
+        self._server_team(team, table_suffix="a;drop")
+        with pytest.raises(ValueError):
+            duckgres_data_imports_schema(team.id)

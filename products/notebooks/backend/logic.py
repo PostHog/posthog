@@ -6,11 +6,12 @@ facade, which maps them to framework-free contracts. Nothing outside the product
 should import this module — cross-product callers go through ``facade.api``.
 """
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -205,8 +206,26 @@ def _account_notebook_queryset(account_id: str | UUID) -> Any:
     ).select_related("created_by", "last_modified_by")
 
 
-def list_account_notebooks(account_id: str | UUID) -> list[Notebook]:
-    return list(_account_notebook_queryset(account_id).order_by("-last_modified_at"))
+# Author sorting fans out to the user's name columns so the order matches what the UI shows.
+_ACCOUNT_NOTEBOOK_ORDERING: dict[str, tuple[str, ...]] = {
+    "created_at": ("created_at",),
+    "-created_at": ("-created_at",),
+    "created_by": ("created_by__first_name", "created_by__last_name"),
+    "-created_by": ("-created_by__first_name", "-created_by__last_name"),
+}
+_DEFAULT_ACCOUNT_NOTEBOOK_ORDERING = ("-created_at",)
+
+
+def list_account_notebooks(
+    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+) -> list[Notebook]:
+    queryset = _account_notebook_queryset(account_id)
+    if search:
+        # Mirror the main notebooks list: full-text over title and content (some notebooks
+        # have no text_content until their next save, so title is matched too).
+        queryset = queryset.filter(Q(title__search=search) | Q(text_content__search=search))
+    ordering = _ACCOUNT_NOTEBOOK_ORDERING.get(order or "", _DEFAULT_ACCOUNT_NOTEBOOK_ORDERING)
+    return list(queryset.order_by(*ordering))
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> Notebook | None:
@@ -219,3 +238,43 @@ def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
         return False
     notebook.delete()
     return True
+
+
+def list_team_account_notes(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: Iterable[int] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[ResourceNotebook], int]:
+    """Team-wide account notes: internal notebooks linked to any account, newest-modified first.
+
+    ``account_ids`` restricts to the given accounts (callers pass the caller-accessible set —
+    a lazy ``values_list`` queryset compiles to a SQL subquery). ``account_id`` narrows to a
+    single account, ``created_by_ids`` to notes authored by the given users. ``search`` is
+    full-text over notebook title/content plus substring over the linked account's name.
+    Returns ``(page, total_count)``.
+    """
+    queryset = ResourceNotebook.objects.filter(
+        account__isnull=False,
+        notebook__team_id=team_id,
+        notebook__deleted=False,
+        notebook__visibility=Notebook.Visibility.INTERNAL,
+    ).select_related("notebook", "notebook__created_by", "account")
+    if account_ids is not None:
+        queryset = queryset.filter(account_id__in=account_ids)
+    if account_id is not None:
+        queryset = queryset.filter(account_id=account_id)
+    if created_by_ids is not None:
+        queryset = queryset.filter(notebook__created_by_id__in=created_by_ids)
+    if search:
+        queryset = queryset.filter(
+            Q(notebook__title__search=search)
+            | Q(notebook__text_content__search=search)
+            | Q(account__name__icontains=search)
+        )
+    queryset = queryset.order_by("-notebook__last_modified_at")
+    return list(queryset[offset : offset + limit]), queryset.count()

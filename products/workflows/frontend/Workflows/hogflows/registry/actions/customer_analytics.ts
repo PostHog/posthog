@@ -15,8 +15,14 @@ export const buildAccountExternalIdInputs = (
         return undefined
     }
     const groupType = groupTypes.get(accountGroupTypeIndex as GroupTypeIndex)?.group_type
-    // Quote the group type as a property key — an ingested name with template delimiters must not break out of the Hog expression.
-    return groupType ? { external_id: { value: `{groups[${JSON.stringify(groupType)}].id}` } } : undefined
+    if (!groupType) {
+        return undefined
+    }
+    // Backtick-quote the group type as an identifier. Bracket access (`groups["x"]`) compiles the index as a
+    // separate global lookup and fails at runtime; backtick quoting escapes any name (delimiters, spaces, backticks
+    // via doubling) without breaking out of the Hog expression.
+    const quotedGroupType = groupType.replace(/`/g, '``')
+    return { external_id: { value: `{groups.\`${quotedGroupType}\`.id}` } }
 }
 
 const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
@@ -80,6 +86,14 @@ registerActionNodeCategory({
             name: 'Update account',
             description: 'Assign role contacts or tag a Customer analytics account.',
             config: { template_id: 'template-posthog-update-account', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null },
+        },
+        {
+            type: 'function',
+            name: 'Update account property',
+            description: 'Set custom property values on a Customer analytics account.',
+            config: { template_id: 'template-posthog-update-account-property', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null },
         },

@@ -16,10 +16,11 @@ import { Experiment } from '~/types'
 import { addExperimentsToNotebookModalLogic } from './addExperimentsToNotebookModalLogic'
 
 type ExperimentsNotebookTableProps = {
-    insertionPosition: number | null
+    insertionPosition?: number | null
+    onSelect?: (experimentId: number) => void
 }
 
-export function ExperimentsNotebookTable({ insertionPosition }: ExperimentsNotebookTableProps): JSX.Element {
+export function ExperimentsNotebookTable({ insertionPosition, onSelect }: ExperimentsNotebookTableProps): JSX.Element {
     const { experiments, experimentsLoading, filters, sorting, experimentsPerPage, count, modalPage } = useValues(
         addExperimentsToNotebookModalLogic
     )
@@ -29,10 +30,17 @@ export function ExperimentsNotebookTable({ insertionPosition }: ExperimentsNoteb
     const { addExperimentToNotebook } = useActions(notebookLogic)
 
     const isSelected = (experiment: Experiment): boolean => {
+        if (onSelect) {
+            return false
+        }
         return experimentIdsInNotebook?.includes(experiment.id as number) ?? false
     }
 
     const onToggle = (experiment: Experiment): void => {
+        if (onSelect) {
+            onSelect(experiment.id as number)
+            return
+        }
         // If already in notebook, remove it
         if (isSelected(experiment)) {
             const nodeLogic = findNodeLogic(NotebookNodeType.Experiment, { id: experiment.id })

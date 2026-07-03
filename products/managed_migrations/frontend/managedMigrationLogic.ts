@@ -98,8 +98,16 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 generate_group_identify_events,
             }: ManagedMigrationForm) => {
                 const errors: Record<string, string | null> = {
-                    access_key: !access_key ? 'Access key is required' : null,
-                    secret_key: !secret_key ? 'Secret key is required' : null,
+                    secret_key: !secret_key
+                        ? source_type === 'mixpanel'
+                            ? 'Project secret is required'
+                            : 'Secret key is required'
+                        : null,
+                }
+
+                // Mixpanel authenticates with the project secret alone — no access key.
+                if (source_type !== 'mixpanel') {
+                    errors.access_key = !access_key ? 'Access key is required' : null
                 }
 
                 if (source_type === 's3' || source_type === 's3_gzip') {

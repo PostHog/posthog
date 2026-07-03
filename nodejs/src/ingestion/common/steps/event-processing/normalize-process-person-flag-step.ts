@@ -1,9 +1,9 @@
+import { normalizeProcessPerson } from '~/common/utils/event'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders } from '~/types'
-import { normalizeProcessPerson } from '~/utils/event'
 
 type NormalizeProcessPersonFlagInput = {
     event: PluginEvent

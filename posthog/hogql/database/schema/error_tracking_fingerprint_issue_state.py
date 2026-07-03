@@ -22,14 +22,34 @@ PENDING_UPDATES_HOGQL_CONTEXT_KEY = "error_tracking_fingerprints"
 
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "fingerprint": StringDatabaseField(name="fingerprint", nullable=False),
-    "issue_id": StringDatabaseField(name="issue_id", nullable=True),
-    "issue_name": StringDatabaseField(name="issue_name", nullable=True),
-    "issue_description": StringDatabaseField(name="issue_description", nullable=True),
-    "issue_status": StringDatabaseField(name="issue_status", nullable=True),
-    "assigned_user_id": IntegerDatabaseField(name="assigned_user_id", nullable=True),
-    "assigned_role_id": UUIDDatabaseField(name="assigned_role_id", nullable=True),
-    "first_seen": DateTimeDatabaseField(name="first_seen", nullable=True),
+    "fingerprint": StringDatabaseField(
+        name="fingerprint",
+        nullable=False,
+        description="Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
+    ),
+    "issue_id": StringDatabaseField(
+        name="issue_id",
+        nullable=True,
+        description="Identifier of the error tracking issue this fingerprint belongs to.",
+    ),
+    "issue_name": StringDatabaseField(
+        name="issue_name", nullable=True, description="Display name of the issue (latest version)."
+    ),
+    "issue_description": StringDatabaseField(
+        name="issue_description", nullable=True, description="Description of the issue (latest version)."
+    ),
+    "issue_status": StringDatabaseField(
+        name="issue_status", nullable=True, description="Current status of the issue, e.g. 'active', 'resolved'."
+    ),
+    "assigned_user_id": IntegerDatabaseField(
+        name="assigned_user_id", nullable=True, description="User the issue is assigned to, if any."
+    ),
+    "assigned_role_id": UUIDDatabaseField(
+        name="assigned_role_id", nullable=True, description="Role the issue is assigned to, if any."
+    ),
+    "first_seen": DateTimeDatabaseField(
+        name="first_seen", nullable=True, description="When the issue was first observed (in UTC)."
+    ),
 }
 
 RAW_TABLE_NAME = "raw_error_tracking_fingerprint_issue_state"
@@ -226,10 +246,22 @@ def _pending_update_select(row: dict[str, Any]):
 
 
 class RawErrorTrackingFingerprintIssueStateTable(Table):
+    description: str = (
+        "Raw ReplacingMergeTree backing the issue state of each exception fingerprint; "
+        "rows are versioned, so query the deduplicated `error_tracking_fingerprint_issue_state` table instead."
+    )
     fields: dict[str, FieldOrTable] = {
         **ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
-        "version": IntegerDatabaseField(name="version", nullable=False),
+        "is_deleted": BooleanDatabaseField(
+            name="is_deleted",
+            nullable=False,
+            description="Whether this version marks the fingerprint state as deleted.",
+        ),
+        "version": IntegerDatabaseField(
+            name="version",
+            nullable=False,
+            description="Monotonic version; the latest version wins after deduplication.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
@@ -240,11 +272,17 @@ class RawErrorTrackingFingerprintIssueStateTable(Table):
 
 
 class ErrorTrackingFingerprintIssueStateTable(LazyTable):
+    description: str = (
+        "Deduplicated latest issue state for each exception fingerprint; "
+        "join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint."
+    )
     # `fp_hash` is a computed alias produced by `lazy_select`, not a physical
     # column — so it lives here, not on the raw table.
     fields: dict[str, FieldOrTable] = {
         **ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS,
-        "fp_hash": IntegerDatabaseField(name="fp_hash", nullable=False),
+        "fp_hash": IntegerDatabaseField(
+            name="fp_hash", nullable=False, description="cityHash64 of the fingerprint, used as the join/group key."
+        ),
     }
 
     def lazy_select(

@@ -7,11 +7,13 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
 import requests as http_requests
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -64,6 +66,7 @@ from products.tasks.backend.presentation.serializers import (
     SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
+    StreamReadTokenResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
     TaskListQuerySerializer,
@@ -99,11 +102,16 @@ from products.tasks.backend.presentation.serializers import (
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
     TaskWriteSerializer,
+    WarmTaskRequestSerializer,
+    WarmTaskResponseSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
 
 logger = logging.getLogger(__name__)
+
+TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
@@ -113,10 +121,17 @@ TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
 TASK_RUN_STREAM_END_EVENT_NAME = "end"
 TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
+# Distinct from the rotation `end` event above: this fires once when the run itself
+# completes, so clients stop reconnecting instead of resuming from Last-Event-ID.
+TASK_RUN_STREAM_COMPLETE_EVENT_NAME = "stream-end"
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
+
+
+SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
 def _is_internal_debug_team(team_id: int | None) -> bool:
@@ -206,19 +221,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
         filters = {key: request.query_params.get(key) for key in request.query_params}
-        # internal/archived come from the validated query serializer (typed bool / choice).
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
-        is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
-            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
-        )
+        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
         page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        assert page is not None, "TaskViewSet list requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -500,6 +511,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
+        include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
@@ -516,6 +528,73 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result.error is not None:
             return self._task_error_response(result.error)
         return Response(TaskSerializer(result.task).data)
+
+    def _warm_enabled(self) -> bool:
+        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error."""
+        user = self.request.user
+        distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
+        organization_id = str(getattr(self.team, "organization_id", "") or "")
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    TASKS_PREWARM_SANDBOX_FLAG,
+                    distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            logger.exception("tasks-prewarm-sandbox flag check failed; treating as disabled")
+            return False
+
+    @validated_request(
+        request_serializer=WarmTaskRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WarmTaskResponseSerializer,
+                description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
+            ),
+        },
+        summary="Warm a task sandbox",
+        description=(
+            "Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, "
+            "clone the repo, check out the branch, and start the agent, then idle awaiting the first "
+            "message. On submit the normal create+run path transparently reuses and activates this Run; "
+            "abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty "
+            "body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't "
+            "belong to the team."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
+    def warm(self, request, **kwargs):
+        if not self._warm_enabled():
+            return Response(status=status.HTTP_200_OK)
+
+        user_id = self._user_id()
+        if user_id is None:
+            return Response(status=status.HTTP_200_OK)
+
+        github_integration_id = tasks_facade.resolve_team_github_integration_id(
+            self.team_id, request.validated_data["github_integration"]
+        )
+        if github_integration_id is None:
+            return Response(status=status.HTTP_200_OK)
+
+        result = tasks_facade.warm_task_sandbox(
+            self.team_id,
+            user_id,
+            repository=request.validated_data["repository"],
+            github_integration_id=github_integration_id,
+            branch=request.validated_data.get("branch"),
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
+        )
+        if result is None:
+            return Response(status=status.HTTP_200_OK)
+        return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
 
     @staticmethod
     def _task_error_response(error: tasks_contracts.TaskValidationError) -> Response:
@@ -666,6 +745,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
         return task_id
 
     def _user_id(self) -> int | None:
@@ -680,7 +763,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._task_id()
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve", "logs", "session_logs", "stream")
+            and self.action in ("list", "retrieve", "logs", "session_logs", "stream", "stream_token")
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not tasks_facade.task_accessible_for_run_view(
@@ -741,6 +824,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
+        include_serializer_context=True,
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
@@ -940,7 +1024,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         relay_status, relay_id = tasks_facade.relay_task_run_message(
-            pk, task_id, self.team_id, text=request.validated_data["text"]
+            pk,
+            task_id,
+            self.team_id,
+            text=request.validated_data["text"],
+            text_parts=request.validated_data.get("text_parts"),
         )
         if relay_status == "failed":
             return Response(
@@ -1210,6 +1298,33 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=StreamReadTokenResponseSerializer,
+                description="Run-scoped token for reading the live event stream via the agent-proxy",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run stream read token",
+        description="Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stream_token",
+        required_scopes=["task:read"],
+    )
+    def stream_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
+        if token is None:
+            raise NotFound()
+        stream_base_url = tasks_facade.resolve_stream_base_url(
+            distinct_id=request.user.distinct_id, organization_id=self.team.organization_id
+        )
+        return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
+
+    @validated_request(
         request_serializer=TaskRunCommandRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -1456,7 +1571,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
 
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_session_log_content(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 
@@ -1520,7 +1635,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filtered.append(entry)
 
         matching_count = len(filtered)
-        page = filtered[offset : offset + limit]
+
+        page: list = []
+        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
+        for entry in filtered[offset : offset + limit]:
+            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
+            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
+                break
+            page.append(entry)
+            page_bytes += entry_bytes
+
         has_more = offset + len(page) < matching_count
 
         response = JsonResponse(page, safe=False)
@@ -1738,6 +1862,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             )
                             return
                     outcome = "completed"
+                    # read_stream_entries only returns on the completion sentinel; emit an
+                    # explicit terminal event so the client stops reconnecting without
+                    # consulting run status (a dropped connection never reaches here).
+                    yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
                 except TaskRunStreamError as e:
                     outcome = "stream_error"
                     logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
@@ -1751,7 +1879,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # long-lived stream begins — see sse_streaming_response. The stream body is
         # Redis-only, so it never re-acquires one.
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            endpoint="task_run_log",
         )
 
     @staticmethod

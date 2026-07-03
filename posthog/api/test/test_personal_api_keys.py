@@ -777,6 +777,41 @@ class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'comment:read'"
 
 
+class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
+    # Regression: batch_by_distinct_ids and batch_by_uuids shipped without
+    # `required_scopes`, so APIScopePermission rejected every personal API key —
+    # even one scoped `*` — with "This action does not support personal API key
+    # access". Both are reads, so they must accept `person:read`.
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_allows_batch_endpoint_with_person_read_scope(self, action):
+        self.key.scopes = ["person:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": {}}
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_denies_batch_endpoint_without_person_scope(self, action):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'person:read'"
+
+
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
@@ -821,7 +856,7 @@ class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'approvals:read'"
 
     def _create_change_request(self):
-        from posthog.approvals.models import ChangeRequest, ChangeRequestState
+        from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 
         return ChangeRequest.objects.create(
             team=self.team,

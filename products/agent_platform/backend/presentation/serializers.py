@@ -8,20 +8,20 @@ deferred to the eventual MCP redesign (see TODO B5 in agent-shared).
 
 from __future__ import annotations
 
+import json
 import string
 import secrets
 from typing import Any
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import IntegrityError
 
-import jsonschema
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.models import User
 
-from ..logic.spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
 from ..models import AgentApplication, AgentRevision
 
 # Opaque random slug: leading letter (DNS-label-safe) + lowercase alphanumerics.
@@ -242,16 +242,93 @@ def _slack_path_url(slug: str, suffix: str) -> str | None:
     return agent_ingress_route_url(slug, f"/slack/{suffix}")
 
 
-@extend_schema_field(AGENT_SPEC_JSON_SCHEMA)
 class AgentSpecField(serializers.JSONField):
-    """Spec JSON typed against `AGENT_SPEC_JSON_SCHEMA` so drf-spectacular
-    publishes the real shape downstream — generated TS types, MCP tool
-    descriptions, and the OpenAPI doc all see real fields instead of an
-    opaque `{}`."""
+    """The agent spec JSON. Opaque to OpenAPI on purpose: the authoritative,
+    richly-described shape is served live by the `agent-applications-spec-schema`
+    tool, emitted from the canonical zod `AgentSpecSchema`. We deliberately do
+    not carry a second hand-maintained JSON Schema here just to annotate the
+    field — that mirror was the source of the drift this endpoint removed."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        # The MCP write tools expose `spec` as an opaque arg, so an authoring
+        # model sometimes sends the whole spec as a stringified JSON blob rather
+        # than an object. Stored verbatim it's the characters of a string, which
+        # the janitor rejects (`invalid_request`). Parse it back to an object so
+        # it stores structured; reject a string that isn't a JSON object.
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("spec must be a JSON object, not a string.")
+            if not isinstance(data, dict):
+                raise serializers.ValidationError("spec must be a JSON object.")
+        return super().to_internal_value(data)
+
+
+# Bound the number of skill references on a revision so freeze (one store fetch +
+# one janitor write per ref) can't fan out without limit. Enforced both at
+# `set_skill_refs` and again at freeze (refs can reach the column via fork / raw write).
+MAX_SKILL_REFS = 50
+
+
+class SkillRefSerializer(serializers.Serializer):
+    """One reference to a versioned skill in the llma-skill store, pinned into
+    this agent's bundle at freeze."""
+
+    from_template = serializers.CharField(
+        # Mirrors the store's `LLMSkill.name` max_length so an unresolvable,
+        # oversized name can't be persisted into the JSON column.
+        max_length=64,
+        help_text=(
+            "Name of the skill in the llma-skill store to pin into this agent. "
+            "Resolved at freeze to the chosen `version` and materialized into the bundle."
+        ),
+    )
+    alias = serializers.CharField(
+        max_length=64,
+        validators=[
+            RegexValidator(
+                r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$",
+                message="alias must be lowercase letters, digits, hyphens or underscores, and must start "
+                "and end with a letter or digit.",
+            )
+        ],
+        help_text=(
+            "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). "
+            "Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; "
+            "must be unique within the revision."
+        ),
+    )
+    version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Specific published version to pin. Omit to pin the store's latest version at freeze time.",
+    )
+
+
+class SetSkillRefsRequestSerializer(serializers.Serializer):
+    """Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references."""
+
+    skill_refs = SkillRefSerializer(
+        many=True,
+        # `many=True` builds a ListSerializer, which accepts max_length to bound the
+        # list — drf-stubs types the call against the child and misses the kwarg.
+        max_length=MAX_SKILL_REFS,  # type: ignore[call-arg]
+        help_text="The complete set of store-skill references for this draft; replaces any existing references.",
+    )
 
 
 class AgentRevisionSerializer(serializers.ModelSerializer):
     spec = AgentSpecField(required=False, default=dict)
+    skill_refs = SkillRefSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Store-skill references for this draft, set via the `skill_refs` action and resolved into the "
+            "bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward "
+            "when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`."
+        ),
+    )
     created_by = serializers.SerializerMethodField(
         help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
     )
@@ -261,14 +338,20 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         return _resolve_created_by(self.context, obj.created_by_id)
 
     def validate_spec(self, value: Any) -> Any:
-        # Same shape the janitor's `AgentSpecSchema.parse` will reject on
-        # read. Catching it here turns a future 500 / process-level surprise
-        # into a clean 400 at write time.
-        try:
-            jsonschema.validate(value, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE)
-        except jsonschema.ValidationError as e:
-            path = ".".join(str(p) for p in e.absolute_path) or "<root>"
-            raise serializers.ValidationError(f"spec.{path}: {e.message}") from e
+        # `skills[]` is server-derived — resolved from `skill_refs` and stamped
+        # with provenance at freeze, never author-authored. Pin it to the existing
+        # server value (empty on create) so an author spec edit can neither change
+        # which skills materialize nor forge `source_version_id` to defeat the
+        # freeze legacy guard. `new_draft`/`clone_from` set spec on the model
+        # directly (not via this serializer), so a fork's carried skills survive.
+        if isinstance(value, dict):
+            existing = getattr(self.instance, "spec", None)
+            value["skills"] = existing.get("skills", []) if isinstance(existing, dict) else []
+        # Structural validation against the spec schema is the janitor's job (the
+        # zod `AgentSpecSchema`): the explicit `validate` action, freeze, and the
+        # runner all parse against it. There is no Python schema mirror to check
+        # here — keeping one in lockstep with zod was the drift this removed. We
+        # still enforce the cross-field invariant the serializer owns.
         _validate_mcp_tool_names_unique(value)
         return value
 
@@ -282,18 +365,21 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
             "bundle_uri",
             "bundle_sha256",
             "spec",
+            "skill_refs",
             "created_by_id",
             "created_by",
             "created_at",
             "updated_at",
         ]
         # state transitions happen through promote / archive actions; spec is
-        # mutable only while state='draft' (enforced in the view).
+        # mutable only while state='draft' (enforced in the view). skill_refs is
+        # set through the dedicated `skill_refs` action, not this serializer.
         read_only_fields = [
             "id",
             "application",
             "state",
             "bundle_sha256",
+            "skill_refs",
             "created_by_id",
             "created_at",
             "updated_at",
@@ -362,22 +448,6 @@ class WriteSpecRequestSerializer(serializers.Serializer):
     spec = serializers.DictField(child=serializers.JSONField())
 
 
-class WriteSkillRequestSerializer(serializers.Serializer):
-    """Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-    at the canonical `skills/<skill_id>/SKILL.md` path in the bundle."""
-
-    description = serializers.CharField(
-        allow_blank=False,
-        trim_whitespace=False,
-        help_text="One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
-    )
-    body = serializers.CharField(
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
-    )
-
-
 class WriteToolRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/tools/<tool_id>/."""
 
@@ -388,30 +458,24 @@ class WriteToolRequestSerializer(serializers.Serializer):
 
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-    payload."""
+    payload. Skills are not authored here: they come from the llma-skill store
+    via `skill_refs` and are materialized into the bundle at freeze."""
 
     agent_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    skills = serializers.ListField(child=WriteSkillRequestSerializer(), required=False, default=list)
     tools = serializers.ListField(child=WriteToolRequestSerializer(), required=False, default=list)
     spec = serializers.DictField(child=serializers.JSONField())
 
     def to_internal_value(self, data: dict) -> dict:
-        """Skill / tool items carry an `id` field that the nested serializer
-        doesn't declare (it lives in the URL for the single-resource PUTs).
-        Stash + restore so the per-item validation still passes."""
-        skills = data.get("skills", [])
+        """Tool items carry an `id` field that the nested serializer doesn't
+        declare (it lives in the URL for the single-resource PUTs). Stash +
+        restore so the per-item validation still passes."""
         tools = data.get("tools", [])
-        skill_ids = [s.get("id") for s in skills]
         tool_ids = [t.get("id") for t in tools]
-        # Strip ids so the inner serializers don't complain about unknowns.
         stripped = {
             **data,
-            "skills": [{k: v for k, v in s.items() if k != "id"} for s in skills],
             "tools": [{k: v for k, v in t.items() if k != "id"} for t in tools],
         }
         out = super().to_internal_value(stripped)
-        # Reattach ids — janitor wants them.
-        out["skills"] = [{**s, "id": skill_ids[i]} for i, s in enumerate(out.get("skills", []))]
         out["tools"] = [{**t, "id": tool_ids[i]} for i, t in enumerate(out.get("tools", []))]
         return out
 

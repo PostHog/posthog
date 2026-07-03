@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
@@ -45,12 +46,33 @@ class TestInternalAPIAuth(APIBaseTest):
             self.authentication.authenticate(request)
 
     @override_settings(INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET, DEBUG=False, TEST=False)
-    def test_local_dev_secret_denied_outside_debug_or_test(self):
+    def test_explicitly_configured_secret_allows_access_outside_debug_or_test(self):
+        # The value is not policed — any explicitly-set secret is accepted (e.g. CI sets posthog123).
         request = Request(
             self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET)
         )
+        user, _ = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
+
+    @parameterized.expand([("primary", "new-secret"), ("fallback", "old-secret"), ("older_fallback", "older-secret")])
+    @override_settings(INTERNAL_API_SECRET="new-secret", INTERNAL_API_SECRET_FALLBACKS=["old-secret", "older-secret"])
+    def test_primary_and_fallback_secrets_allow_access(self, _name, provided):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=provided))
+        user, auth = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
+        self.assertIsNone(auth)
+
+    @override_settings(INTERNAL_API_SECRET="new-secret", INTERNAL_API_SECRET_FALLBACKS=["old-secret"])
+    def test_unknown_secret_denied_when_fallbacks_configured(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="bogus-secret"))
         with self.assertRaises(AuthenticationFailed):
             self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET="secret-value")
+    def test_surrounding_whitespace_in_header_is_ignored(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="  secret-value  "))
+        user, _ = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_team_and_organization_inferred_from_url_params(self):

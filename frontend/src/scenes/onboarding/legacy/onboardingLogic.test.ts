@@ -20,7 +20,7 @@ import { INSTALL_DEDUP_KEYS } from './types'
  * Test focus:
  *   1. Flow shape per single product and representative multi-product combos
  *   2. Install-step dedup behaviour (POSTHOG_JS, OPENTELEMETRY, no-dedup)
- *   3. Bucket sort: all installs first, posthog-js install first among them
+ *   3. Bucket sort: all installs first, the primary product's install first among them
  *   4. URL parsing defenses (cap, dedupe, filter)
  *   5. Navigation correctness (next/prev, bad stepId reconciliation)
  *   6. Completion: visited-product credit, idempotency, additionalProductKeys merge
@@ -264,6 +264,19 @@ describe('onboardingLogic — flow composition', () => {
             expect(paInstallIdx).toBe(0)
             expect(logsInstallIdx).toBe(1)
             expect(firstNonInstall).toBeGreaterThan(logsInstallIdx)
+        })
+
+        it('puts the primary product install first, even when a posthog-js install is secondary', () => {
+            // "Monitor AI applications" use case → AI observability + product analytics.
+            // When the user picks AI observability as the "Start with" product, its install
+            // (which has no posthog-js dedup key) must render before the product analytics
+            // install — the primary choice decides ordering, not the SDK.
+            logic.actions.setProductKey(ProductKey.AI_OBSERVABILITY)
+            logic.actions.setSecondaryProductKeys([ProductKey.PRODUCT_ANALYTICS])
+
+            const ids = flowIds()
+            expect(ids.indexOf('install:llm_analytics')).toBe(0)
+            expect(ids.indexOf('install:llm_analytics')).toBeLessThan(ids.indexOf('install:product_analytics'))
         })
     })
 
@@ -596,9 +609,9 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onboardingFlowVariant).toBe('legacy')
         })
 
-        it('returns redesign when the flag selects it', () => {
-            setVariant('redesign')
-            expect(logic.values.onboardingFlowVariant).toBe('redesign')
+        it('returns self-driving when the flag selects it', () => {
+            setVariant('self-driving')
+            expect(logic.values.onboardingFlowVariant).toBe('self-driving')
         })
 
         it('falls back to legacy for an unregistered variant', () => {
