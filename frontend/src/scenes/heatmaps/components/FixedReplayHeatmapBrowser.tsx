@@ -34,8 +34,10 @@ export function FixedReplayHeatmapBrowser({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: widthOverride, height: heightOverride }}
                             srcDoc={replayIframeData?.html}
-                            // allow-same-origin (without allow-scripts, so the snapshot stays inert)
-                            // lets the app measure the snapshot's elements for the clickmap overlay
+                            // allow-same-origin lets the app measure the snapshot's elements for the
+                            // clickmap overlay. NEVER add allow-scripts: combined with allow-same-origin
+                            // that would let recorded customer-page content run script on the app origin.
+                            // The app only ever reads geometry from the snapshot, never its content.
                             sandbox="allow-same-origin"
                             onLoad={onIframeLoad}
                             allow=""

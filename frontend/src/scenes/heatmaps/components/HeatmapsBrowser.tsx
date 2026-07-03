@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function ExportButton({
     iframeRef,
@@ -345,8 +346,11 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { clickmapEnabled } = useValues(clickmapLogic)
+    const { setClickmapEnabled } = useActions(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -355,7 +359,10 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapEnabled={hasValidReplayIframeData ? clickmapEnabled : undefined}
+                        onClickmapEnabledChange={hasValidReplayIframeData ? setClickmapEnabled : undefined}
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
                         {hasValidReplayIframeData ? (
