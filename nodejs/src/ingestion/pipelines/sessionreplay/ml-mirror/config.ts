@@ -22,30 +22,17 @@ export type MlMirrorConfig = {
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
-    /** Consumer group id for the image-scrub deployment that drains the image topic. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
-    /** S3 key prefix under the bucket for the scrubbed-image shards + index. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
-    /** Base URL of the co-located scrub sidecar (bytes -> scrubbed bytes). */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
-    /** Roll up scrubbed images into one shard + index at least this often. Stays below max.poll.interval.ms. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
-    /** Image count that forces a flush before the interval (bounds memory). */
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
-    /** Buffered-bytes cap that forces a flush before the interval. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
-    /** Max concurrent sidecar scrub requests in flight per batch. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
-    /** Per-request timeout for a sidecar scrub call. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
-    /** Retries on a transient (busy/network) sidecar failure before the batch replays. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
-    /**
-     * Wall-clock cap on scrubbing one Kafka batch. Must stay well under `max.poll.interval.ms` (300s), or a hung
-     * sidecar holds the poll loop past it, we get evicted mid-batch, and the window livelocks. On timeout the
-     * in-flight scrubs abort and the batch replays.
-     */
-    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_DEADLINE_MS: number
+    /** Caps the per-batch scrub phase (not the S3 write). Keep it plus the S3 write under max.poll.interval.ms (300s), or a hung sidecar gets us evicted mid-batch and the window livelocks. */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -68,6 +55,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_DEADLINE_MS: 120 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
     }
 }

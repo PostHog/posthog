@@ -48,7 +48,7 @@ const options = {
     maxImages: 1000,
     maxBytes: 1e9,
     scrubConcurrency: 4,
-    batchDeadlineMs: 30_000,
+    maxBatchScrubMs: 30_000,
 }
 
 describe('ImageBatcher', () => {
@@ -100,7 +100,7 @@ describe('ImageBatcher', () => {
             store as unknown as ImageShardStore,
             offsets,
             hangingClient,
-            { ...options, batchDeadlineMs: 5 },
+            { ...options, maxBatchScrubMs: 5 },
             0
         )
 

@@ -81,7 +81,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 maxImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES,
                 maxBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES,
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
-                batchDeadlineMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_DEADLINE_MS,
+                maxBatchScrubMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS,
             },
             Date.now()
         )

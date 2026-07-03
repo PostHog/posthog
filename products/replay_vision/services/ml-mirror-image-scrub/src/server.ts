@@ -17,8 +17,7 @@ import { UndecodableImageError, blurOnly } from './blur.ts'
 import { loadConfig } from './config.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 
-/** Thrown when the consumer hangs up before we finish; we drop the request instead of scrubbing/responding. */
-class AbortError extends Error {}
+class ConsumerHungUpError extends Error {}
 
 /**
  * Stage-1 scrub. Stage 2 replaces the body with the ML pipeline; the (bytes -> bytes) shape is fixed.
@@ -28,7 +27,7 @@ class AbortError extends Error {}
  */
 async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
     if (signal.aborted) {
-        throw new AbortError()
+        throw new ConsumerHungUpError()
     }
     return blurOnly(input)
 }
@@ -67,7 +66,7 @@ export function startServer(port: number, maxConcurrency: number): ReturnType<ty
             return
         }
         inFlight += 1
-        const done = ScrubMetrics.startTimer()
+        const stopTimer = ScrubMetrics.startTimer()
         // Abort in-progress work if the consumer hangs up before we respond: don't scrub for a dead socket
         // (and, in Stage 2, cut long ML work short). `res` fires 'close' once the response is done too, so
         // only treat it as an abort while we haven't finished writing.
@@ -91,7 +90,7 @@ export function startServer(port: number, maxConcurrency: number): ReturnType<ty
                 res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(out)
             })
             .catch((e) => {
-                if (controller.signal.aborted || e instanceof AbortError) {
+                if (controller.signal.aborted || e instanceof ConsumerHungUpError) {
                     ScrubMetrics.incAborted()
                     return
                 }
@@ -108,7 +107,7 @@ export function startServer(port: number, maxConcurrency: number): ReturnType<ty
             })
             .finally(() => {
                 inFlight -= 1
-                done()
+                stopTimer()
             })
     })
     // Bind loopback only: the consumer shares the pod's network namespace, so it reaches us via localhost,

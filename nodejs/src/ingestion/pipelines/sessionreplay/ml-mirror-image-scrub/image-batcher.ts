@@ -20,10 +20,7 @@ export interface ImageBatcherOptions {
     maxImages: number
     maxBytes: number
     scrubConcurrency: number
-    /** Wall-clock cap on scrubbing one Kafka batch. Must stay under the consumer's max.poll.interval.ms: if a
-     *  hung sidecar held the poll loop past it, the broker would evict us mid-batch and the window would
-     *  livelock. On timeout we abort the in-flight scrubs and throw, so the window replays cleanly instead. */
-    batchDeadlineMs: number
+    maxBatchScrubMs: number
 }
 
 export class ImageBatcher {
@@ -62,10 +59,10 @@ export class ImageBatcher {
     }
 
     /** Scrub every message with bounded concurrency; skips resolve to null, transient failures reject out
-     *  of here (→ the batch replays). The deadline (see batchDeadlineMs) aborts the whole batch. */
+     *  of here (→ the batch replays). maxBatchScrubMs aborts the whole batch if scrubbing runs long. */
     private async scrubBatch(messages: Message[]): Promise<ScrubbedImage[]> {
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), this.options.batchDeadlineMs)
+        const timer = setTimeout(() => controller.abort(), this.options.maxBatchScrubMs)
         try {
             const scrubbed = await Promise.all(
                 messages.map((m) =>

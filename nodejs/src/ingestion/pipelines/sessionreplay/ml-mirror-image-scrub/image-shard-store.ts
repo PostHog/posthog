@@ -1,15 +1,13 @@
 /**
- * Scrubbed images written as batched shards + a parquet index, keyed by content hash + pseudonymous team
- * (not replay id); one shard + index per FLUSH (a flush spans many teams). Writing one S3 object per image
- * would explode request costs (a page can inline hundreds), and one object per team per flush degenerates to
- * the same when a window spans many teams with ~1 image each, so we concatenate a whole flush into one blob.
- * Read `image:{pseudo_team}:{hash}` by scanning the index for (pseudo_team, hash) then range-GET the shard.
+ * Scrubbed images written as one shard blob + one parquet index per FLUSH (a flush spans many teams): one
+ * S3 object per image would explode request costs (a page can inline hundreds), so we concatenate. Read
+ * `image:{pseudo_team}:{hash}` by scanning the index for (pseudo_team, hash) then range-GET the shard.
  *
  *   {prefix}/shards/{node}-{ts}-{seq}.bin       raw concat of scrubbed image bytes (many teams)
  *   {prefix}/index/{node}-{ts}-{seq}.parquet    rows: pseudo_team, hash, shard, offset, length
  *
  * The team segment is a non-reversible HMAC pseudonym (ml-mirror/pseudonymize.ts), so no raw team id reaches
- * the ML bucket — neither in object keys nor in the index — matching the block-metadata dataset.
+ * the ML bucket, matching the block-metadata dataset.
  */
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
@@ -17,7 +15,6 @@ import { randomUUID } from 'node:crypto'
 
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
-/** `bytes` are the scrubbed image; `pseudoTeam` is the non-reversible tenant pseudonym, `hash` the original content hash. */
 export interface ScrubbedImage {
     pseudoTeam: string
     hash: string

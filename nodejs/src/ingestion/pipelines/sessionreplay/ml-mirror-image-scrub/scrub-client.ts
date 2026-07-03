@@ -2,10 +2,9 @@ import { request } from 'node:http'
 
 import { promiseRetry } from '~/common/utils/retries'
 
-/** Sidecar 422 = undecodable input: permanent, so it must not be retried (promiseRetry treats it as non-retriable). */
+/** Sidecar 422 (undecodable input): permanent, never retried. */
 class PermanentScrubReject extends Error {}
 
-/** The batch deadline passed (or the batch was cancelled): stop retrying and let it propagate so the window replays. */
 class ScrubAborted extends Error {}
 
 /**
