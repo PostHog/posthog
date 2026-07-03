@@ -1,5 +1,6 @@
 // oxlint-disable-next-line no-restricted-imports
 import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
+import advancedFormat from 'dayjs/plugin/advancedFormat'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
@@ -13,6 +14,7 @@ import utc from 'dayjs/plugin/utc'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
 
 // necessary for parsing custom date formats like 'YYYYMMDD_HHmmss'
+dayjs.extend(advancedFormat)
 dayjs.extend(customParseFormat)
 // necessary for any localized date formatting to work
 dayjs.extend(LocalizedFormat)

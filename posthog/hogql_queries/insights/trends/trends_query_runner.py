@@ -531,12 +531,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
         # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
         # weekend date buckets from the response so the chart x-axis shows weekdays.
-        # For week/month intervals we keep all buckets since they span multiple days.
+        # For week and longer intervals we keep all buckets since they span multiple days.
         # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
         if (
             self.query.trendsFilter
             and self.query.trendsFilter.hideWeekends
-            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
+            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month", "quarter", "year")
         ):
             final_result = self._filter_weekend_buckets(final_result)
 

@@ -98,6 +98,26 @@ class TestQueryDateRange(APIBaseTest):
                 parser.isoparse("2021-08-25T00:00:00Z"),
             ],
         )
+        self.assertEqual(
+            QueryDateRange(
+                team=self.team, date_range=DateRange(date_from="-7m"), interval=IntervalType.QUARTER, now=now
+            ).all_values(),
+            [
+                parser.isoparse("2021-01-01T00:00:00Z"),
+                parser.isoparse("2021-04-01T00:00:00Z"),
+                parser.isoparse("2021-07-01T00:00:00Z"),
+            ],
+        )
+        self.assertEqual(
+            QueryDateRange(
+                team=self.team, date_range=DateRange(date_from="-2y"), interval=IntervalType.YEAR, now=now
+            ).all_values(),
+            [
+                parser.isoparse("2019-01-01T00:00:00Z"),
+                parser.isoparse("2020-01-01T00:00:00Z"),
+                parser.isoparse("2021-01-01T00:00:00Z"),
+            ],
+        )
 
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
