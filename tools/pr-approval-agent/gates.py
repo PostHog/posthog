@@ -72,6 +72,20 @@ DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
 
 _ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e.lockfiles for e in DEPENDENCY_ECOSYSTEMS.values()))
 
+# Call sites match against Path(...).name.lower(), so a mixed-case table entry
+# would silently never match — a fail-open hole in a security gate. Enforce the
+# invariant at import so a bad entry fails the gate closed (the tool crashes
+# instead of auto-approving). A raise, not an assert, so python -O can't strip
+# it; test_dependency_ecosystem_names_are_lowercase covers it once the suite is
+# wired into CI.
+if any(
+    n != n.lower()
+    for spec in DEPENDENCY_ECOSYSTEMS.values()
+    for names in (spec.manifests, spec.lockfiles)
+    for n in names
+):
+    raise ValueError("DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()")
+
 
 def _dependency_ecosystem(name: str) -> str | None:
     for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
