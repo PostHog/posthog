@@ -28,6 +28,8 @@
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
+- Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
+  **Agents must use it too**: when a hogli command or dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Agent-sent feedback is tagged as such, and it's the fastest signal the devex team gets, so use it liberally rather than suffering friction silently.
 
 ## Commits and Pull Requests
 
