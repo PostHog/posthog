@@ -34,8 +34,8 @@ async def enrich_view_semantics_activity(inputs: EnrichViewSemanticsInputs) -> d
                 inputs.team_id, inputs.saved_query_id
             )
         except Exception as e:
-            # Surface unexpected failures (DB errors, etc.) to Sentry and structured logs — keyed by
-            # saved_query_id/team_id — then re-raise so Temporal retries.
+            # Surface unexpected failures (DB errors, etc.) to error tracking and structured logs — keyed
+            # by saved_query_id/team_id — then re-raise so Temporal retries.
             capture_exception(e)
             logger.exception(
                 "view_enrichment.activity_failed",

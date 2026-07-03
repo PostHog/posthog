@@ -42,7 +42,7 @@ class SucceedMaterializationResult:
     saved_query_id: str | None = None
 
 
-def _view_enrichment_needed(node) -> tuple[bool, str | None]:
+def _view_enrichment_needed(node: Node | None) -> tuple[bool, str | None]:
     """Whether the view's descriptions are stale vs the just-materialized state.
 
     Compares the current enrichment hash to the one stored on the saved query so a steady-state
@@ -71,8 +71,10 @@ def _view_enrichment_needed(node) -> tuple[bool, str | None]:
 
 
 @database_sync_to_async_pool
-def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
-    node = None
+def _succeed_node_and_data_modeling_job(
+    inputs: SucceedMaterializationInputs,
+) -> tuple[Node | None, DataModelingJob, bool, str | None]:
+    node: Node | None = None
     if inputs.update_node:
         with transaction.atomic():
             # of=("self",) + select_related: skip the extra node.saved_query query without locking the joined row.

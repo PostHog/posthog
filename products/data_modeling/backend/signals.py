@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -22,7 +24,7 @@ def sync_saved_query_name_to_node(sender, instance: DataWarehouseSavedQuery, **k
 
 
 @receiver(post_save, sender=DataWarehouseSavedQuery)
-def trigger_view_semantic_enrichment(sender, instance: DataWarehouseSavedQuery, **kwargs):
+def trigger_view_semantic_enrichment(sender: type, instance: DataWarehouseSavedQuery, **kwargs: Any) -> None:
     """Draft/refresh the view's AI semantic descriptions when its definition or columns change.
 
     Only the query text or the column set can change what the descriptions should say, so saves that
