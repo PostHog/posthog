@@ -7,6 +7,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -49,6 +51,13 @@ def normalize_host(host: str) -> str:
     parsed = urlparse(host)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError(f"Invalid n8n host: {host}")
+    # The API key rides in the X-N8N-API-KEY header on every request, so plaintext http
+    # would leak it to any network observer. On PostHog Cloud the request egresses over the
+    # public internet, so require https. Self-hosted operators control their own network path
+    # (e.g. an internal n8n reachable only over http), so http stays allowed there — mirroring
+    # how host IP safety is only enforced on cloud.
+    if parsed.scheme == "http" and is_cloud():
+        raise ValueError("n8n instance URL must use https")
     # SSRF guard: urlparse treats a backslash as userinfo and an "@" as a userinfo
     # separator, but urllib3/requests treat the backslash as an authority separator, so
     # `http://127.0.0.1\@example.com` validates as example.com yet connects to 127.0.0.1.

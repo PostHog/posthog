@@ -74,6 +74,25 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
+    @pytest.mark.parametrize(
+        "cloud, host, expect_raise",
+        [
+            # On cloud the API key would egress over the public internet, so plaintext
+            # http is rejected while https is fine.
+            (True, "http://n8n.example.com", True),
+            (True, "https://n8n.example.com", False),
+            # Self-hosted operators control their network path, so http stays allowed.
+            (False, "http://n8n.internal:5678", False),
+        ],
+    )
+    def test_http_requires_https_only_on_cloud(self, cloud, host, expect_raise):
+        with mock.patch(f"{_MODULE}.is_cloud", return_value=cloud):
+            if expect_raise:
+                with pytest.raises(ValueError):
+                    normalize_host(host)
+            else:
+                assert normalize_host(host) == host
+
     def test_hostname_of(self):
         assert hostname_of("https://myorg.app.n8n.cloud/api/v1") == "myorg.app.n8n.cloud"
 
