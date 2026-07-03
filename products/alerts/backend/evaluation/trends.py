@@ -23,6 +23,7 @@ from posthog.tasks.alerts.trends import (
     _has_breakdown,
     _is_non_time_series_trend,
     _pick_series_result,
+    query_excludes_incomplete_periods,
 )
 
 from products.alerts.backend.evaluation.contract import (
@@ -71,6 +72,9 @@ class TrendsExtractor:
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
         check_current_interval = bool(config.check_ongoing_interval)
+        # When the query clips the ongoing interval, the trailing point is complete —
+        # anchor on it instead of skipping back one more period.
+        already_complete = query_excludes_incomplete_periods(query)
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 
@@ -95,7 +99,7 @@ class TrendsExtractor:
                     raise ValueError(
                         "check_ongoing_interval is only supported for alert condition ABSOLUTE_VALUE when upper threshold is specified"
                     )
-                anchor_is_current = check_current_interval or is_non_time_series
+                anchor_is_current = check_current_interval or is_non_time_series or already_complete
 
             case AlertConditionType.RELATIVE_INCREASE:
                 if is_non_time_series:
@@ -114,7 +118,7 @@ class TrendsExtractor:
                     raise ValueError(
                         "check_ongoing_interval is only supported for alert condition RELATIVE_INCREASE when upper threshold is specified"
                     )
-                anchor_is_current = check_current_interval
+                anchor_is_current = check_current_interval or already_complete
 
             case AlertConditionType.RELATIVE_DECREASE:
                 if is_non_time_series:
@@ -127,7 +131,7 @@ class TrendsExtractor:
                     )
                 ) is not None:
                     return empty
-                anchor_is_current = False
+                anchor_is_current = already_complete
 
             case _:
                 raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")

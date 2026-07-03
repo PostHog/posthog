@@ -21,7 +21,13 @@ from posthog.tasks.alerts.detector import (
     _prepare_series,
 )
 from posthog.tasks.alerts.detectors import get_detector
-from posthog.tasks.alerts.trends import TrendResult, _has_breakdown, _is_non_time_series_trend, _pick_series_result
+from posthog.tasks.alerts.trends import (
+    TrendResult,
+    _has_breakdown,
+    _is_non_time_series_trend,
+    _pick_series_result,
+    query_excludes_incomplete_periods,
+)
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
@@ -57,6 +63,7 @@ def extract_detector_series(
     """
     min_samples = _compute_min_samples_for_detector(detector_config) + 1
     is_non_time_series = _is_non_time_series_trend(query)
+    drop_current = not query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
 
     if is_non_time_series:
@@ -90,7 +97,7 @@ def extract_detector_series(
 
     series: list[ComparableSeries] = []
     for result in results:
-        prepared = _prepare_series(result, is_non_time_series)
+        prepared = _prepare_series(result, is_non_time_series, drop_current=drop_current)
         if prepared is None:
             continue
         points = [

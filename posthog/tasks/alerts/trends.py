@@ -33,17 +33,25 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
+def query_excludes_incomplete_periods(query: TrendsQuery) -> bool:
+    """When the insight already clips the ongoing interval via
+    DateRange.excludeIncompletePeriods, every returned point is complete and
+    the alert machinery must not drop or skip the trailing one."""
+    return bool(query.dateRange and query.dateRange.excludeIncompletePeriods)
+
+
 def _drop_incomplete_current_interval(
-    data: np.ndarray, dates: list[str], is_non_time_series: bool
+    data: np.ndarray, dates: list[str], is_non_time_series: bool, *, drop_current: bool = True
 ) -> tuple[np.ndarray, list[str]]:
     """Drop the current (incomplete) interval — always the last element.
 
     The query does not set date_to, so the result includes the ongoing
     interval whose value is still accumulating.  Comparing this partial
     value against complete historical intervals causes systematic false
-    positives.
+    positives. Pass drop_current=False when the query already excludes
+    incomplete periods, so a complete trailing interval isn't lost too.
     """
-    if not is_non_time_series and len(data) > 1:
+    if drop_current and not is_non_time_series and len(data) > 1:
         data = data[:-1]
         dates = dates[:-1] if dates else dates
     return data, dates
