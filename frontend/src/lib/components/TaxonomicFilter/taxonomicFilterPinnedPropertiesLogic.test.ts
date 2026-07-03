@@ -1,3 +1,8 @@
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -284,14 +289,27 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
     })
 
     describe('seeding default pinned filters', () => {
-        const mountFreshWith = (hasPageview: boolean, hasPersonEmail: boolean): void => {
+        const seededState = (seeded: string[], touched = false): string => JSON.stringify({ seeded, touched })
+
+        const mountWith = (
+            hasPageview: boolean,
+            hasPersonEmail: boolean,
+            { flagEnabled = true, freshStorage = true }: { flagEnabled?: boolean; freshStorage?: boolean } = {}
+        ): void => {
             logic.unmount()
-            localStorage.clear()
+            if (freshStorage) {
+                localStorage.clear()
+            }
             window.POSTHOG_APP_CONTEXT = {
                 has_pageview: hasPageview,
                 has_person_email: hasPersonEmail,
             } as unknown as AppContext
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                [],
+                flagEnabled ? { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true } : {}
+            )
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
         }
@@ -329,57 +347,74 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 expected: [],
             },
         ])('$description', ({ hasPageview, hasPersonEmail, expected }) => {
-            mountFreshWith(hasPageview, hasPersonEmail)
+            mountWith(hasPageview, hasPersonEmail)
 
             expect(logic.values.pinnedFilters.map((f) => ({ value: f.value, groupType: f.groupType }))).toEqual(
                 expected
             )
-            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(expected.length > 0 ? '1' : null)
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(
+                expected.length > 0 ? seededState(expected.map((e) => e.value)) : null
+            )
         })
 
-        it('re-seeds on a later mount once the team starts sending a default property', () => {
-            mountFreshWith(false, false)
+        it('seeds nothing when the feature flag is disabled', () => {
+            mountWith(true, true, { flagEnabled: false })
+
             expect(logic.values.pinnedFilters).toEqual([])
             expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBeNull()
-
-            logic.unmount()
-            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: false } as unknown as AppContext
-            initKeaTests()
-            logic = taxonomicFilterPinnedPropertiesLogic.build()
-            logic.mount()
-
-            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url'])
-            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe('1')
         })
 
-        it('does not seed over a user who already has pinned filters', () => {
-            mountFreshWith(false, false)
+        it('tops up a default that becomes available on a later mount', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            mountWith(true, false)
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url'])
+
+            mountWith(true, true, { freshStorage: false })
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState(['$current_url', 'email']))
+            expect(captureSpy).toHaveBeenCalledWith('taxonomic filter default pins seeded', { values: ['email'] })
+        })
+
+        it('any pin interaction opts the user out of all future seeding', () => {
+            mountWith(true, false)
+            logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$current_url', {
+                name: '$current_url',
+            })
+            expect(logic.values.pinnedFilters).toEqual([])
+
+            mountWith(true, true, { freshStorage: false })
+
+            expect(logic.values.pinnedFilters).toEqual([])
+        })
+
+        it('does not seed over pins that predate the seeded-state record', () => {
+            mountWith(false, false)
             logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
                 name: '$browser',
             })
-            logic.unmount()
             localStorage.removeItem(DEFAULTS_SEEDED_KEY)
-            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
 
-            initKeaTests()
-            logic = taxonomicFilterPinnedPropertiesLogic.build()
-            logic.mount()
+            mountWith(true, true, { freshStorage: false })
 
             expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$browser'])
-            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe('1')
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState([], true))
         })
 
-        it('does not seed again once defaults have been seeded', () => {
+        it('does not seed over quick filters migrated in the same mount', () => {
             logic.unmount()
             localStorage.clear()
-            localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+            localStorage.setItem(OLD_PERSIST_KEY, JSON.stringify(['name', '$os']))
             window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
 
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true })
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
 
-            expect(logic.values.pinnedFilters).toEqual([])
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['name', '$os'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState([], true))
         })
     })
 

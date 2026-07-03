@@ -1,14 +1,16 @@
 from django.contrib.postgres.indexes import GinIndex
-from django.db import models
+from django.db import models, transaction
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
+
+PERSON_EMAIL_PROPERTY_NAME = "email"
 
 
 class PropertyType(models.TextChoices):
@@ -134,17 +136,16 @@ class PropertyDefinition(UUIDTModel):
         return None
 
 
-def _is_person_email(instance: PropertyDefinition) -> bool:
-    return instance.type == PropertyDefinition.Type.PERSON and instance.name == "email"
-
-
+# Deliberately no post_delete receiver: any delete listener on PropertyDefinition would
+# disable Django's fast-path cascade delete for this very large table (team/project/org
+# deletion), and delete staleness is already bounded by the cache TTLs.
 @receiver(post_save, sender=PropertyDefinition)
-@receiver(post_delete, sender=PropertyDefinition)
-def _invalidate_has_person_email_on_change(
+def _invalidate_has_person_email_on_save(
     sender: type[PropertyDefinition], instance: PropertyDefinition, **kwargs
 ) -> None:
-    if _is_person_email(instance):
-        invalidate_has_person_email_cache(instance.project_id or instance.team_id)
+    if instance.type == PropertyDefinition.Type.PERSON and instance.name == PERSON_EMAIL_PROPERTY_NAME:
+        project_id = instance.project_id or instance.team_id
+        transaction.on_commit(lambda: invalidate_has_person_email_cache(project_id))
 
 
 # ClickHouse Table DDL

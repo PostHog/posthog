@@ -870,6 +870,8 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 def get_has_person_email(team: "Team") -> bool:
     from posthog.models import PropertyDefinition
 
+    from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
+
     cache_key = _has_person_email_cache_key(team.project_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
@@ -879,7 +881,9 @@ def get_has_person_email(team: "Team") -> bool:
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
-        .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name="email")
+        .filter(
+            effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME
+        )
         .exists()
     )
 

@@ -1,5 +1,8 @@
-import { actions, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -77,22 +80,61 @@ function makeDefaultPinnedFilter(
     return { groupType, groupName, value, item: { name: value }, timestamp: Date.now() }
 }
 
+const DEFAULT_PIN_CANDIDATES = [
+    {
+        contextFlag: 'has_pageview' as const,
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        groupName: 'Event properties',
+        value: '$current_url',
+    },
+    {
+        contextFlag: 'has_person_email' as const,
+        groupType: TaxonomicFilterGroupType.PersonProperties,
+        groupName: 'Person properties',
+        value: 'email',
+    },
+]
+
 function buildDefaultPinnedFilters(): PinnedTaxonomicFilter[] {
     const appContext = getAppContext()
-    const defaults: PinnedTaxonomicFilter[] = []
-    if (appContext?.has_pageview) {
-        defaults.push(
-            makeDefaultPinnedFilter(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$current_url')
-        )
+    return DEFAULT_PIN_CANDIDATES.filter((candidate) => appContext?.[candidate.contextFlag]).map((candidate) =>
+        makeDefaultPinnedFilter(candidate.groupType, candidate.groupName, candidate.value)
+    )
+}
+
+/**
+ * Which default values have been offered to this user, and whether they have
+ * ever touched a pin themselves. `seeded` lets a later mount top up a default
+ * that wasn't available yet (e.g. `email` arriving days after `$pageview`);
+ * `touched` opts the user out of all future seeding the moment they pin or
+ * unpin anything.
+ */
+interface SeededDefaultsState {
+    seeded: string[]
+    touched: boolean
+}
+
+function readSeededDefaultsState(): SeededDefaultsState {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(DEFAULTS_SEEDED_KEY) ?? '')
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.seeded)) {
+            return { seeded: parsed.seeded, touched: !!parsed.touched }
+        }
+    } catch {
+        // fall through to the fresh state
     }
-    if (appContext?.has_person_email) {
-        defaults.push(makeDefaultPinnedFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'email'))
-    }
-    return defaults
+    return { seeded: [], touched: false }
+}
+
+function writeSeededDefaultsState(state: SeededDefaultsState): void {
+    localStorage.setItem(DEFAULTS_SEEDED_KEY, JSON.stringify(state))
 }
 
 export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPropertiesLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterPinnedPropertiesLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         togglePin: (
             groupType: TaxonomicFilterGroupType,
@@ -162,6 +204,22 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                     pinnedFilters.some((f) => f.groupType === groupType && f.value === value),
         ],
     }),
+    listeners(({ values }) => ({
+        togglePin: ({ groupType, value }) => {
+            if (META_GROUP_TYPES.has(groupType) || value == null) {
+                return
+            }
+            const state = readSeededDefaultsState()
+            if (!state.touched) {
+                writeSeededDefaultsState({ ...state, touched: true })
+            }
+            posthog.capture('taxonomic filter pin toggled', {
+                groupType,
+                value: String(value),
+                pinned: values.isPinned(groupType, value),
+            })
+        },
+    })),
     events(({ actions, values }) => ({
         afterMount: () => {
             if (typeof window === 'undefined') {
@@ -190,6 +248,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                             )
                             actions.setPinnedFilters(migrated)
                             localStorage.removeItem(OLD_PERSIST_KEY)
+                            writeSeededDefaultsState({ seeded: [], touched: true })
                         }
                     }
                 } catch {
@@ -198,23 +257,40 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                 localStorage.setItem(MIGRATION_KEY, '1')
             }
 
-            const seedDefaultsForUntouchedUsers = (): void => {
-                if (localStorage.getItem(DEFAULTS_SEEDED_KEY)) {
+            const seedDefaultPinnedFilters = (): void => {
+                if (!values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]) {
                     return
                 }
-                if (values.pinnedFilters.length > 0) {
-                    localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+                const state = readSeededDefaultsState()
+                if (state.touched) {
                     return
                 }
-                const defaults = buildDefaultPinnedFilters()
-                if (defaults.length > 0) {
-                    actions.setPinnedFilters(defaults)
-                    localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+                if (values.pinnedFilters.length > 0 && state.seeded.length === 0) {
+                    writeSeededDefaultsState({ seeded: [], touched: true })
+                    return
                 }
+                const toSeed = buildDefaultPinnedFilters().filter(
+                    (candidate) =>
+                        !state.seeded.includes(candidate.value as string) &&
+                        !values.pinnedFilters.some(
+                            (f) => f.groupType === candidate.groupType && f.value === candidate.value
+                        )
+                )
+                if (toSeed.length === 0) {
+                    return
+                }
+                actions.setPinnedFilters([...values.pinnedFilters, ...toSeed])
+                writeSeededDefaultsState({
+                    seeded: [...state.seeded, ...toSeed.map((candidate) => candidate.value as string)],
+                    touched: false,
+                })
+                posthog.capture('taxonomic filter default pins seeded', {
+                    values: toSeed.map((candidate) => candidate.value),
+                })
             }
 
             migrateOldQuickFilters()
-            seedDefaultsForUntouchedUsers()
+            seedDefaultPinnedFilters()
         },
     })),
     permanentlyMount(),

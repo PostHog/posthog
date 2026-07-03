@@ -622,23 +622,25 @@ class TestDefaultEventName(BaseTest):
         with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is False
 
-        PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        with self.captureOnCommitCallbacks(execute=True):
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
         assert get_has_person_email(self.team) is True
 
-    def test_has_person_email_cache_invalidated_when_email_property_deleted(self):
+    def test_delete_does_not_invalidate_so_cascade_fast_delete_stays_enabled(self):
         pd = PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
         assert get_has_person_email(self.team) is True
+
+        with self.captureOnCommitCallbacks(execute=True):
+            pd.delete()
         with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is True
-
-        pd.delete()
-        assert get_has_person_email(self.team) is False
 
     def test_has_person_email_cache_not_invalidated_when_unrelated_property_created(self):
         PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
         assert get_has_person_email(self.team) is True
 
-        PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
+        with self.captureOnCommitCallbacks(execute=True):
+            PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
         with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is True
 
