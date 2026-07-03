@@ -47,12 +47,6 @@ DEPENDENCY_ECOSYSTEMS: dict[str, dict[str, frozenset[str]]] = {
         "manifests": frozenset({"go.mod"}),
         "lockfiles": frozenset({"go.sum"}),
     },
-    # tsconfig configures the compiler, not dependencies — no lockfile ever
-    # pairs with it, so a tsconfig change is always flagged for scrutiny.
-    "typescript-config": {
-        "manifests": frozenset(),
-        "lockfiles": frozenset(),
-    },
 }
 
 _ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e["lockfiles"] for e in DEPENDENCY_ECOSYSTEMS.values()))
@@ -60,6 +54,8 @@ _ALL_MANIFEST_NAMES: frozenset[str] = frozenset().union(*(e["manifests"] for e i
 
 
 def _dependency_ecosystem(name: str) -> str | None:
+    # tsconfig configures the compiler, not dependencies — no lockfile ever
+    # pairs with it, so a tsconfig change is always flagged for scrutiny.
     if name.startswith("tsconfig") and name.endswith(".json"):
         return "typescript-config"
     for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
