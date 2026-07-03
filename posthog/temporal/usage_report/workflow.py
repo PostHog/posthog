@@ -53,12 +53,16 @@ def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> 
     `now`. For `day_offset=0` (today) the tail of the window is in the
     future and simply matches no events, so intraday and finalizer runs
     share one code path.
+
+    `now` (the workflow start instant) also rides along on the context to
+    billing so it can measure end-to-end flow latency.
     """
     report_day = (now.astimezone(UTC) - timedelta(days=inputs.day_offset)).date()
     period_start = datetime.combine(report_day, time.min, tzinfo=UTC)
     period_end = datetime.combine(report_day, time.max, tzinfo=UTC)
     return WorkflowContext(
         run_id=run_id,
+        workflow_started_at=now,
         period_start=period_start,
         period_end=period_end,
         date_str=period_start.strftime("%Y-%m-%d"),
@@ -85,7 +89,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         started_at = workflow.now()
         status = "FAILED"
         try:
-            ctx = build_context(inputs, run_id=workflow.info().run_id, now=workflow.now())
+            ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={

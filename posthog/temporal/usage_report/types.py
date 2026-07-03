@@ -32,6 +32,10 @@ class WorkflowContext(BaseModel):
     """Snapshot of the workflow run, threaded through every activity."""
 
     run_id: str
+    # Optional so an activity input serialized before this field existed
+    # (in-flight or retried across a deploy) still decodes through the pydantic
+    # converter. New runs always populate it in build_context.
+    workflow_started_at: Optional[datetime] = None
     period_start: datetime
     period_end: datetime
     date_str: str

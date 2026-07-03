@@ -620,7 +620,8 @@ class ChargedeskSourceConfig(config.Config):
 
 @config.config
 class ChargifySourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
