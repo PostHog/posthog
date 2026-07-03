@@ -179,6 +179,26 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         return table.name
 
+    def _setup_data_warehouse_with_decoy_timestamp(self) -> str:
+        # Table whose real event time lives in `event_time`, but which also has a DateTime column
+        # literally named `timestamp` (e.g. an ingestion timestamp). The DataWarehouseEventsModifier
+        # skips injecting a virtual `timestamp` field in this case, so a runner that hardcodes
+        # `e.timestamp` would silently bucket/filter on the wrong column.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "stickiness_dw_decoy_timestamp.csv",
+            table_name="test_table_stickiness_decoy",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "event_time": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
     def _create_test_events(self):
         self._create_events(
             [
@@ -346,6 +366,34 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, StickinessQueryResponse)
         assert response.results[0]["label"] == table_name
         assert response.results[0]["data"] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0]["days"] == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_stickiness_data_warehouse_uses_configured_timestamp_field(self):
+        # Regression: the configured `timestamp_field` must drive interval bucketing even when the
+        # source table has its own DateTime column named `timestamp`. u1 has activity on 3 distinct
+        # `event_time` days and u2 on 1, so bucketing by `event_time` yields one actor in 1 interval
+        # and one actor in 3. Bucketing by the decoy `timestamp` (all 2023-01-04) would instead put
+        # both actors in a single interval -> [2, 0, 0, 0, 0, 0, 0].
+        table_name = self._setup_data_warehouse_with_decoy_timestamp()
+
+        with freeze_time("2023-01-07"):
+            response = self._run_query(
+                series=[
+                    DataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="id",
+                        distinct_id_field="id",
+                        timestamp_field="event_time",
+                    )
+                ],
+                date_from="2023-01-01",
+                date_to="2023-01-07",
+            )
+
+        assert isinstance(response, StickinessQueryResponse)
+        assert response.results[0]["label"] == table_name
+        assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0]
         assert response.results[0]["days"] == [1, 2, 3, 4, 5, 6, 7]
 
     def test_days(self):

@@ -1828,6 +1828,9 @@ class ExternalDataSourceType(StrEnum):
     PODIUM = "Podium"
     LOOPS = "Loops"
     REDIS = "Redis"
+    MERCURY = "Mercury"
+    GOJIBERRY = "Gojiberry"
+    TEACHABLE = "Teachable"
 
 
 class ExternalQueryErrorCode(StrEnum):

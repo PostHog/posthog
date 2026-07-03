@@ -1,7 +1,7 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
-import { ProducerName } from '~/ingestion/common/producers'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'

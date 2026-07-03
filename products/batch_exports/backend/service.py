@@ -147,6 +147,11 @@ class BatchExportEventPropertyFilter:
     value: list[str]
 
 
+# Single source of truth for the serialized filter `type` values we accept. Enforced at write
+# time by the batch export serializer and at query time by `compose_filters_clause`.
+SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
+
+
 @dataclass
 class BatchExportModel:
     name: str
