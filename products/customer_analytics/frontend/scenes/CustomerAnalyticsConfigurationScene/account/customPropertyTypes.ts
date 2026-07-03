@@ -33,6 +33,10 @@ export const OPTION_COLOR_TOKENS: DataColorToken[] = Array.from(
     (_, index) => `preset-${index + 1}` as DataColorToken
 )
 
+// New options get a client-side id for a stable React key; the server mints the real id, so
+// these are stripped from the payload on save.
+export const NEW_OPTION_ID_PREFIX = 'new-'
+
 export function optionLabelError(options: CustomPropertyOptionApi[], index: number): string | undefined {
     const label = options[index].label.trim()
     if (!label) {

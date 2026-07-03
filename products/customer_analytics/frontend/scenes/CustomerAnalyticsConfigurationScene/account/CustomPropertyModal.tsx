@@ -25,7 +25,12 @@ import { urls } from 'scenes/urls'
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { CustomPropertySourceMode, customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
-import { DISPLAY_TYPE_OPTIONS, OPTION_COLOR_TOKENS, isNumericDisplayType } from './customPropertyTypes'
+import {
+    DISPLAY_TYPE_OPTIONS,
+    NEW_OPTION_ID_PREFIX,
+    OPTION_COLOR_TOKENS,
+    isNumericDisplayType,
+} from './customPropertyTypes'
 
 const SOURCE_MODE_OPTIONS: { value: CustomPropertySourceMode; label: string }[] = [
     { value: 'manual', label: 'Manual' },
@@ -79,6 +84,7 @@ function CustomPropertyOptionsEditor(): JSX.Element {
                     setOptions([
                         ...options,
                         {
+                            id: `${NEW_OPTION_ID_PREFIX}${crypto.randomUUID()}`,
                             label: '',
                             color: OPTION_COLOR_TOKENS[
                                 options.length % OPTION_COLOR_TOKENS.length

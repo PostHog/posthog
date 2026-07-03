@@ -27,7 +27,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
-import { isNumericDisplayType, optionLabelError } from './customPropertyTypes'
+import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 
@@ -79,7 +79,7 @@ const serializeDefinition = ({
     ...(displayType === 'select'
         ? {
               options: options.map(({ id, label, color }) => ({
-                  ...(id ? { id } : {}),
+                  ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
                   label: label.trim(),
                   color,
               })),
