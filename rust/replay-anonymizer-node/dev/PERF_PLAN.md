@@ -109,6 +109,21 @@ blocks (76% web / 24% mobile, 451 MB decompressed). Findings that synthetic fixt
   tree-parsing it. The traversal wins measured on uncompressed fixtures still stand, but they
   apply to the uncompressed minority of today's traffic mix.
 
+Provenance checks on the corpus (it is the *output* of the TS scrubber, so know the biases):
+
+- **cv-gzip is SDK-origin, not a storage artifact**: `cv: "2024-10"` is set by posthog-js
+  (`lazy-loaded-session-recorder.ts`), which gzips large event payloads client-side; the block
+  bytes carry the gzip magic (`\u001f\u008b\b`) as latin-1-in-JSON. The scrubber keeps or
+  re-compresses cv payloads, so the ~40% share is representative of consumer input.
+- **Event-level key order in the blocks is zod-normalized** (`timestamp` first) by the TS parse
+  step — true consumer input is capture-alphabetized at every level. Node-level order in the
+  blocks is untouched and confirms the alphabetization.
+- **Text is already scrubbed** (redaction-mark runs tokenize as non-words), so the corpus
+  understates scrub-change rates — and therefore cv *re-compression* cost, which only changed
+  payloads pay and which is several times the decompress cost. Real input costs more than the
+  measured 9.6 ms/msg for every implementation, weighted toward the cv path — strengthening,
+  not weakening, the cv-lever conclusion.
+
 ## Remaining TS-side work (from the framework audit)
 
 Nothing on the `useRustAnonymizer` path parses the Kafka payload in TS anymore. What's left, by cost:
