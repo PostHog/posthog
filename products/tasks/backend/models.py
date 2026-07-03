@@ -1116,23 +1116,26 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
-        effective_ttl_days = self.resolve_ttl_days(self.DEFAULT_LOG_TTL_DAYS) if ttl_days == "auto" else ttl_days
-        if is_new_file and effective_ttl_days is not None:
-            try:
-                object_storage.tag(
-                    self.log_url,
-                    {
-                        "ttl_days": str(effective_ttl_days),
-                        "team_id": str(self.team_id),
-                    },
-                )
-            except Exception as e:
-                logger.warning(
-                    "task_run.failed_to_tag_logs",
-                    task_run_id=str(self.id),
-                    log_url=self.log_url,
-                    error=str(e),
-                )
+        if is_new_file:
+            # Resolve inside the guard so appends after the first don't pay for it (a potential
+            # DB hit to lazy-load the org off self.team).
+            effective_ttl_days = self.resolve_ttl_days(self.DEFAULT_LOG_TTL_DAYS) if ttl_days == "auto" else ttl_days
+            if effective_ttl_days is not None:
+                try:
+                    object_storage.tag(
+                        self.log_url,
+                        {
+                            "ttl_days": str(effective_ttl_days),
+                            "team_id": str(self.team_id),
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "task_run.failed_to_tag_logs",
+                        task_run_id=str(self.id),
+                        log_url=self.log_url,
+                        error=str(e),
+                    )
 
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:

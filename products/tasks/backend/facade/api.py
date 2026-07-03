@@ -1527,20 +1527,16 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
 
 
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         RUN_ARTIFACT_TTL_DAYS,
+        tag_task_artifact,
     )
 
-    ttl_days = run.resolve_ttl_days(int(RUN_ARTIFACT_TTL_DAYS))
-    try:
-        object_storage.tag(storage_path, {"ttl_days": str(ttl_days), "team_id": str(run.team_id)})
-    except Exception as exc:
-        logger.warning(
-            "task_run.artifact_tag_failed",
-            extra={"task_run_id": str(run.id), "storage_path": storage_path, "error": str(exc)},
-        )
+    tag_task_artifact(
+        storage_path,
+        ttl_days=str(run.resolve_ttl_days(int(RUN_ARTIFACT_TTL_DAYS))),
+        team_id=run.team_id,
+    )
 
 
 def _build_artifact_manifest_entry(
@@ -3454,13 +3450,10 @@ def run_task(
 
     if pending_user_artifact_ids:
         run_artifacts: list[dict] = []
+        run_ttl_days = str(task_run.resolve_ttl_days(int(RUN_ARTIFACT_TTL_DAYS)))
         for staged_artifact in staged_artifacts:
             storage_path = str(staged_artifact["storage_path"])
-            tag_task_artifact(
-                storage_path,
-                ttl_days=str(task_run.resolve_ttl_days(int(RUN_ARTIFACT_TTL_DAYS))),
-                team_id=task.team_id,
-            )
+            tag_task_artifact(storage_path, ttl_days=run_ttl_days, team_id=task.team_id)
             run_artifacts.append(dict(staged_artifact))
 
         task_run.artifacts = run_artifacts
