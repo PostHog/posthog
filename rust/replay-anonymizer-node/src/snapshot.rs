@@ -22,8 +22,6 @@
 //! is an error — the caller drops (or DLQs) the message rather than letting un-anonymized bytes
 //! through.
 
-use std::borrow::Cow;
-
 use serde::Serialize;
 use simd_json::borrowed::Value;
 use simd_json::prelude::Writable;
@@ -157,7 +155,7 @@ pub fn anonymize_kafka_payload(
         // retried against the now-rewritten bytes.
         let len = scan::unescape_in_place(payload, data_span)
             .map_err(|e| Failure::new(FailKind::InvalidJson, format!("data string: {}", e.0)))?;
-        let inner = &payload[data_span.0 + 1..data_span.0 + 1 + len];
+        let inner = &mut payload[data_span.0 + 1..data_span.0 + 1 + len];
         // The parse it replaces validated the whole payload's UTF-8; the scan path must not let
         // invalid bytes flow through pass-through events into the output.
         if std::str::from_utf8(inner).is_err() {
@@ -265,14 +263,18 @@ fn anonymize_kafka_payload_via_parse(
             "missing data string",
         ));
     };
-    anonymize_snapshot_data(allow, distinct_id, data.as_bytes())
+    // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
+    let mut data_bytes = data.as_bytes().to_vec();
+    anonymize_snapshot_data(allow, distinct_id, &mut data_bytes)
 }
 
-/// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string).
+/// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
+/// consumed: scrub-routed data spans are parsed in place (each is fully re-serialized from its
+/// tree, so nothing reads a consumed span afterwards).
 pub fn anonymize_snapshot_data(
     allow: &AllowLists,
     distinct_id: &str,
-    inner: &[u8],
+    inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
     // JSON.parse on the TS side dies on pathological nesting too (stack overflow -> caught ->
     // received_non_snapshot_message); the guard keeps the recursive parse/walk off the thread stack.
@@ -311,30 +313,157 @@ enum Scanned {
     NeedFullParse,
 }
 
+/// The five envelope fields captured from `properties`, plus the object's end position.
+#[derive(Default)]
+struct PropsScan {
+    end: usize,
+    items: Option<Span>,
+    session_id: Option<Span>,
+    window_id: Option<Span>,
+    snapshot_source: Option<Span>,
+    lib: Option<Span>,
+}
+
+enum PropsScanned {
+    Props(PropsScan),
+    NeedFullParse,
+}
+
+/// Depth-1 walk of the `properties` object, capturing the envelope fields while discovering the
+/// object's end. Escaped or duplicate keys route to the full parse, whose JSON.parse semantics
+/// (last occurrence wins) are exact where a byte scanner's would be guesswork.
+fn scan_props(inner: &[u8], start: usize) -> SResult<PropsScanned> {
+    let mut p = PropsScan::default();
+    let mut pos = start + 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        // At an entry boundary `}` can only close the object (keys must start with `"`).
+        if inner.get(pos) == Some(&b'}') {
+            p.end = pos + 1;
+            return Ok(PropsScanned::Props(p));
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return Err(non_snapshot("expected ',' between object entries"));
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        if inner.get(pos) != Some(&b'"') {
+            return Err(non_snapshot("expected object key"));
+        }
+        let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
+        let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            return Ok(PropsScanned::NeedFullParse);
+        }
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return Err(non_snapshot("expected ':' after object key"));
+        }
+        let vspan = scan::locate_value(inner, pos + 1).map_err(|e| non_snapshot(e.0))?;
+        let slot = match key {
+            b"$snapshot_items" => &mut p.items,
+            b"$session_id" => &mut p.session_id,
+            b"$window_id" => &mut p.window_id,
+            b"$snapshot_source" => &mut p.snapshot_source,
+            b"$lib" => &mut p.lib,
+            _ => {
+                pos = vspan.1;
+                continue;
+            }
+        };
+        if slot.replace(vspan).is_some() {
+            return Ok(PropsScanned::NeedFullParse);
+        }
+        pos = vspan.1;
+    }
+}
+
 /// Locate `$snapshot_items` + the envelope strings by scanning, enforcing the same shape checks the
 /// TS zod schemas apply (`EventSchema` + the `$snapshot_items`/`$session_id` presence checks).
+///
+/// One walk: the root entries are iterated directly and `properties` is captured inline while its
+/// end is discovered, instead of locating each value and then re-iterating it.
 fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
-    let root = scan::locate_value(inner, 0).map_err(|e| non_snapshot(e.0))?;
-    if scan::skip_ws(inner, root.1) != inner.len() {
-        return Err(non_snapshot("trailing bytes after event json"));
-    }
-    if !scan::is_object(inner, root) {
+    let start = scan::skip_ws(inner, 0);
+    if inner.get(start) != Some(&b'{') {
+        // Preserve the old classification for non-object roots (including trailing-byte checks).
+        let root = scan::locate_value(inner, 0).map_err(|e| non_snapshot(e.0))?;
+        if scan::skip_ws(inner, root.1) != inner.len() {
+            return Err(non_snapshot("trailing bytes after event json"));
+        }
         return Err(non_snapshot("event json is not an object"));
     }
 
-    // Last occurrence wins, matching JSON.parse duplicate-key semantics.
     let mut event_span: Option<Span> = None;
-    let mut props_span: Option<Span> = None;
-    for entry in scan::object_entries(inner, root).map_err(|e| non_snapshot(e.0))? {
-        let entry = entry.map_err(|e| non_snapshot(e.0))?;
-        if entry.key_escaped {
+    let mut props: Option<PropsScan> = None;
+    let mut props_not_object = false;
+    let mut pos = start + 1;
+    let mut first = true;
+    let root_end = loop {
+        pos = scan::skip_ws(inner, pos);
+        if inner.get(pos) == Some(&b'}') {
+            break pos + 1;
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return Err(non_snapshot("expected ',' between object entries"));
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        if inner.get(pos) != Some(&b'"') {
+            return Err(non_snapshot("expected object key"));
+        }
+        let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
+        let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
             return Ok(Scanned::NeedFullParse);
         }
-        match &inner[entry.key.0..entry.key.1] {
-            b"event" => event_span = Some(entry.value),
-            b"properties" => props_span = Some(entry.value),
-            _ => {}
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return Err(non_snapshot("expected ':' after object key"));
         }
+        pos += 1;
+        let vstart = scan::skip_ws(inner, pos);
+        match key {
+            // Duplicate envelope keys route to the full parse: JSON.parse's last-occurrence-wins
+            // only falls out of a real parse.
+            b"properties" => {
+                if props.is_some() || props_not_object {
+                    return Ok(Scanned::NeedFullParse);
+                }
+                if inner.get(vstart) == Some(&b'{') {
+                    match scan_props(inner, vstart)? {
+                        PropsScanned::NeedFullParse => return Ok(Scanned::NeedFullParse),
+                        PropsScanned::Props(p) => {
+                            pos = p.end;
+                            props = Some(p);
+                        }
+                    }
+                } else {
+                    let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+                    props_not_object = true;
+                    pos = vspan.1;
+                }
+            }
+            b"event" => {
+                let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+                if event_span.replace(vspan).is_some() {
+                    return Ok(Scanned::NeedFullParse);
+                }
+                pos = vspan.1;
+            }
+            _ => {
+                let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+                pos = vspan.1;
+            }
+        }
+    };
+    if scan::skip_ws(inner, root_end) != inner.len() {
+        return Err(non_snapshot("trailing bytes after event json"));
     }
 
     let Some(event_span) = event_span.filter(|s| scan::is_string(inner, *s)) else {
@@ -344,29 +473,17 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
     if event_name != "$snapshot_items" {
         return Err(non_snapshot("not a $snapshot_items event"));
     }
-    let Some(props_span) = props_span.filter(|s| scan::is_object(inner, *s)) else {
+    let Some(props) = props else {
         return Err(non_snapshot("missing properties object"));
     };
-
-    let mut items: Option<Span> = None;
-    let mut session_id: Option<Span> = None;
-    let mut window_id: Option<Span> = None;
-    let mut snapshot_source: Option<Span> = None;
-    let mut lib: Option<Span> = None;
-    for entry in scan::object_entries(inner, props_span).map_err(|e| non_snapshot(e.0))? {
-        let entry = entry.map_err(|e| non_snapshot(e.0))?;
-        if entry.key_escaped {
-            return Ok(Scanned::NeedFullParse);
-        }
-        match &inner[entry.key.0..entry.key.1] {
-            b"$snapshot_items" => items = Some(entry.value),
-            b"$session_id" => session_id = Some(entry.value),
-            b"$window_id" => window_id = Some(entry.value),
-            b"$snapshot_source" => snapshot_source = Some(entry.value),
-            b"$lib" => lib = Some(entry.value),
-            _ => {}
-        }
-    }
+    let PropsScan {
+        end: _,
+        items,
+        session_id,
+        window_id,
+        snapshot_source,
+        lib,
+    } = props;
 
     // zod: `$snapshot_items` must be an array when present; the step then requires it present.
     let Some(items) = items else {
@@ -412,7 +529,6 @@ struct Sink {
     lines: Vec<u8>,
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
-    scratch: Vec<u8>,
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
 }
@@ -428,7 +544,6 @@ impl Sink {
             lines: Vec::with_capacity(capacity_hint + capacity_hint / 8),
             events: Vec::new(),
             console: [0; 3],
-            scratch: Vec::new(),
             buffers: simd_json::Buffers::default(),
         }
     }
@@ -445,15 +560,29 @@ impl Sink {
 fn stream_events(
     ctx: &Ctx<'_>,
     distinct_id: &str,
-    inner: &[u8],
+    inner: &mut [u8],
     env: ScannedEnvelope,
 ) -> SResult<AnonymizedMessage> {
     let window_id = env.window_id.clone().unwrap_or_default();
     let mut sink = Sink::new(&window_id, env.items.1 - env.items.0);
 
-    for item in scan::array_items(inner, env.items).map_err(|e| non_snapshot(e.0))? {
-        let span = item.map_err(|e| non_snapshot(e.0))?;
-        process_event(ctx, inner, span, &mut sink)?;
+    // Manual item iteration: each event's end position comes out of its own processing walk, so the
+    // array layer never pre-walks event spans just to find the commas.
+    let mut pos = env.items.0 + 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        if inner.get(pos) == Some(&b']') {
+            break;
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return Err(non_snapshot("expected ',' between array items"));
+            }
+            pos += 1;
+        }
+        first = false;
+        pos = process_event_at(ctx, inner, pos, &mut sink)?;
     }
 
     finish(distinct_id, env, sink)
@@ -495,129 +624,195 @@ fn to_small_uint(n: f64) -> Option<u8> {
     (n.fract() == 0.0 && (0.0..=u8::MAX as f64).contains(&n)).then_some(n as u8)
 }
 
-/// Depth-1 scan of an event's `data` object for the fields the router and the meta need.
+/// Everything the router and the meta need from one event, captured in a single walk.
 #[derive(Default)]
-struct DataScan {
-    source: Option<Span>,
+struct EventScan {
     ty: Option<Span>,
+    ts: Option<Span>,
+    data: Option<Span>,
+    cv: Option<Span>,
+    data_is_object: bool,
+    // Depth-1 spans inside `data` (only set when `data_is_object`).
+    source: Option<Span>,
+    interaction: Option<Span>, // data.type
     href: Option<Span>,
     payload: Option<Span>,
-    fallback: bool, // escaped or duplicate key -> full event parse
+    /// Escaped or duplicate keys anywhere routing-relevant: only a real parse is safe.
+    fallback: bool,
 }
 
-fn scan_data(inner: &[u8], data: Span) -> SResult<DataScan> {
-    let mut out = DataScan::default();
+/// Walk the event object starting at `start` (must be at `{`), capturing routing fields and the
+/// event's end position in one pass. A `data` object gets its depth-1 fields read by the same walk
+/// that discovers its end — the span skip `locate_value` would do reads the routing keys instead.
+fn scan_event(inner: &[u8], start: usize) -> SResult<(EventScan, usize)> {
+    let mut es = EventScan::default();
     let mut seen = [false; 4];
-    for entry in scan::object_entries(inner, data).map_err(|e| non_snapshot(e.0))? {
-        let entry = entry.map_err(|e| non_snapshot(e.0))?;
-        if entry.key_escaped {
-            out.fallback = true;
-            return Ok(out);
+    let mut pos = start + 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        // At an entry boundary `}` can only close the object (keys must start with `"`).
+        if inner.get(pos) == Some(&b'}') {
+            return Ok((es, pos + 1));
         }
-        let (slot, idx) = match &inner[entry.key.0..entry.key.1] {
-            b"source" => (&mut out.source, 0),
-            b"type" => (&mut out.ty, 1),
-            b"href" => (&mut out.href, 2),
-            b"payload" => (&mut out.payload, 3),
-            _ => continue,
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return Err(non_snapshot("expected ',' between object entries"));
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        if inner.get(pos) != Some(&b'"') {
+            return Err(non_snapshot("expected object key"));
+        }
+        let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
+        let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            es.fallback = true;
+        }
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return Err(non_snapshot("expected ':' after object key"));
+        }
+        pos += 1;
+        let vstart = scan::skip_ws(inner, pos);
+        if key == b"data" && !seen[2] && inner.get(vstart) == Some(&b'{') {
+            seen[2] = true;
+            let dend = scan_event_data(inner, vstart, &mut es)?;
+            es.data = Some((vstart, dend));
+            es.data_is_object = true;
+            pos = dend;
+            continue;
+        }
+        let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+        let (slot, idx) = match key {
+            b"type" => (&mut es.ty, 0),
+            b"timestamp" => (&mut es.ts, 1),
+            b"data" => (&mut es.data, 2),
+            b"cv" => (&mut es.cv, 3),
+            _ => {
+                pos = vspan.1;
+                continue;
+            }
         };
         if seen[idx] {
-            // A duplicate routing key means the raw bytes hold content JSON.parse would discard;
-            // only a real parse (which dedupes) is safe to emit.
-            out.fallback = true;
-            return Ok(out);
+            // A duplicate key means the raw bytes hold content JSON.parse would discard; only a
+            // real parse (which dedupes) is safe to emit.
+            es.fallback = true;
         }
         seen[idx] = true;
-        *slot = Some(entry.value);
+        *slot = Some(vspan);
+        pos = vspan.1;
     }
-    Ok(out)
 }
 
-fn process_event(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SResult<()> {
+/// Depth-1 walk of an event's `data` object: captures the router/meta fields and returns the
+/// object's end position.
+fn scan_event_data(inner: &[u8], start: usize, es: &mut EventScan) -> SResult<usize> {
+    let mut seen = [false; 4];
+    let mut pos = start + 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        if inner.get(pos) == Some(&b'}') {
+            return Ok(pos + 1);
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return Err(non_snapshot("expected ',' between object entries"));
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        if inner.get(pos) != Some(&b'"') {
+            return Err(non_snapshot("expected object key"));
+        }
+        let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
+        let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            es.fallback = true;
+        }
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return Err(non_snapshot("expected ':' after object key"));
+        }
+        let vspan = scan::locate_value(inner, pos + 1).map_err(|e| non_snapshot(e.0))?;
+        let (slot, idx) = match key {
+            b"source" => (&mut es.source, 0),
+            b"type" => (&mut es.interaction, 1),
+            b"href" => (&mut es.href, 2),
+            b"payload" => (&mut es.payload, 3),
+            _ => {
+                pos = vspan.1;
+                continue;
+            }
+        };
+        if seen[idx] {
+            es.fallback = true;
+        }
+        seen[idx] = true;
+        *slot = Some(vspan);
+        pos = vspan.1;
+    }
+}
+
+/// Process the array item starting at (or after whitespace from) `item_pos`; returns the position
+/// just past the event.
+fn process_event_at(
+    ctx: &Ctx<'_>,
+    inner: &mut [u8],
+    item_pos: usize,
+    sink: &mut Sink,
+) -> SResult<usize> {
+    let start = scan::skip_ws(inner, item_pos);
     // Non-object events fail SnapshotEventSchema and are silently skipped, like the TS parse step.
-    if !scan::is_object(inner, span) {
-        return Ok(());
+    if inner.get(start) != Some(&b'{') {
+        let span = scan::locate_value(inner, start).map_err(|e| non_snapshot(e.0))?;
+        return Ok(span.1);
     }
 
-    // Raw newlines between an event's tokens (pretty-printed input) would break the one-record-per-
-    // line block framing if memcpy'd; re-serializing through a parse collapses them.
-    if memchr::memchr2(b'\n', b'\r', &inner[span.0..span.1]).is_some() {
-        return process_event_via_tree(ctx, inner, span, sink);
+    let (es, end) = scan_event(inner, start)?;
+    let span = (start, end);
+
+    // Raw newlines anywhere in the event bytes (pretty-printed input between tokens, or invalid
+    // JSON inside strings) would break the one-record-per-line block framing if memcpy'd;
+    // re-serializing through a parse collapses or rejects them.
+    if es.fallback || memchr::memchr2(b'\n', b'\r', &inner[span.0..span.1]).is_some() {
+        process_event_via_tree(ctx, inner, span, sink)?;
+        return Ok(end);
     }
 
-    let mut ty_span: Option<Span> = None;
-    let mut ts_span: Option<Span> = None;
-    let mut data_span: Option<Span> = None;
-    let mut cv_span: Option<Span> = None;
-    let mut seen = [false; 4];
-    for entry in scan::object_entries(inner, span).map_err(|e| non_snapshot(e.0))? {
-        let entry = entry.map_err(|e| non_snapshot(e.0))?;
-        if entry.key_escaped {
-            return process_event_via_tree(ctx, inner, span, sink);
-        }
-        let (slot, idx) = match &inner[entry.key.0..entry.key.1] {
-            b"type" => (&mut ty_span, 0),
-            b"timestamp" => (&mut ts_span, 1),
-            b"data" => (&mut data_span, 2),
-            b"cv" => (&mut cv_span, 3),
-            _ => continue,
-        };
-        if seen[idx] {
-            return process_event_via_tree(ctx, inner, span, sink);
-        }
-        seen[idx] = true;
-        *slot = Some(entry.value);
-    }
-
-    let Some(ts) = valid_timestamp(ts_span.and_then(|s| scan::parse_number(inner, s))) else {
-        return Ok(()); // invalid/missing timestamp: the event is filtered out
+    let Some(ts) = valid_timestamp(es.ts.and_then(|s| scan::parse_number(inner, s))) else {
+        return Ok(end); // invalid/missing timestamp: the event is filtered out
     };
-    let ty = ty_span
+    let ty = es
+        .ty
         .and_then(|s| scan::parse_number(inner, s))
         .and_then(to_small_uint);
-    let compressed = cv_span.map(|s| !scan::is_null(inner, s)).unwrap_or(false);
+    let compressed = es.cv.map(|s| !scan::is_null(inner, s)).unwrap_or(false);
 
     // Everything the scrubbers touch lives inside `data`; events with no data object (or whose
     // type/source never routes to a scrubber) pass through byte-identical.
-    let data_is_object = data_span
-        .map(|s| scan::is_object(inner, s))
-        .unwrap_or(false);
-    let data = match data_span {
-        Some(d) => d,
-        None => {
-            pass_through(inner, span, ts, ty, None, sink);
-            return Ok(());
-        }
+    let Some(data) = es.data else {
+        pass_through(inner, span, ts, ty, None, sink);
+        return Ok(end);
     };
 
     let needs_parse = match ty {
         Some(TYPE_FULL_SNAPSHOT) => true,
         Some(TYPE_INCREMENTAL) | Some(TYPE_META) | Some(TYPE_CUSTOM) | Some(TYPE_PLUGIN) => {
-            data_is_object
+            es.data_is_object
         }
         _ => false,
     };
     if !needs_parse {
-        let dscan = if data_is_object {
-            let d = scan_data(inner, data)?;
-            if d.fallback {
-                return process_event_via_tree(ctx, inner, span, sink);
-            }
-            Some(d)
-        } else {
-            None
-        };
-        pass_through(inner, span, ts, ty, dscan.map(|d| (d, data)), sink);
-        return Ok(());
+        pass_through(inner, span, ts, ty, es.data_is_object.then_some(&es), sink);
+        return Ok(end);
     }
 
     // Incremental events only route to a scrubber for mutation/input/canvas sources.
     if ty == Some(TYPE_INCREMENTAL) {
-        let dscan = scan_data(inner, data)?;
-        if dscan.fallback {
-            return process_event_via_tree(ctx, inner, span, sink);
-        }
-        let source = dscan
+        let source = es
             .source
             .and_then(|s| scan::parse_number(inner, s))
             .and_then(to_small_uint);
@@ -625,38 +820,40 @@ fn process_event(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SR
             source,
             Some(SOURCE_MUTATION) | Some(SOURCE_INPUT) | Some(SOURCE_CANVAS_MUTATION)
         ) {
-            pass_through(inner, span, ts, ty, Some((dscan, data)), sink);
-            return Ok(());
+            pass_through(inner, span, ts, ty, Some(&es), sink);
+            return Ok(end);
         }
     }
 
-    // Scrub route: parse only the data span (own scratch — simd-json mutates its input) and splice
-    // the re-serialized value back between the untouched surrounding bytes. The splice happens even
-    // when nothing changed: JSON.parse dedupes duplicate keys, so re-serializing from the parsed tree
-    // guarantees no shadowed duplicate content inside `data` survives in the raw bytes.
-    sink.scratch.clear();
-    sink.scratch.extend_from_slice(&inner[data.0..data.1]);
-    let mut scratch = std::mem::take(&mut sink.scratch);
+    // Scrub route: parse the data span in place — simd-json only mutates within the span, and the
+    // splice reads only the disjoint prefix/suffix — then splice the re-serialized value back
+    // between the untouched surrounding bytes. The splice happens even when nothing changed:
+    // JSON.parse dedupes duplicate keys, so re-serializing from the parsed tree guarantees no
+    // shadowed duplicate content inside `data` survives in the raw bytes. Later events sit entirely
+    // past `end`, so the consumed span is never re-read.
     let mut buffers = std::mem::take(&mut sink.buffers);
     let result = (|| -> SResult<()> {
-        let mut value = parse_untrusted_with_buffers(&mut scratch, &mut buffers)
+        let (before, rest) = inner.split_at_mut(data.0);
+        let (data_bytes, after) = rest.split_at_mut(data.1 - data.0);
+        let prefix = &before[span.0..];
+        let suffix = &after[..span.1 - data.1];
+        let mut value = parse_untrusted_with_buffers(data_bytes, &mut buffers)
             .map_err(|e| non_snapshot(format!("event data: {e}")))?;
         route_data(ctx, ty, compressed, &mut value)
             .map_err(|e| Failure::new(FailKind::AnonymizeFailed, e.to_string()))?;
         sink.open_line();
-        sink.lines.extend_from_slice(&inner[span.0..data.0]);
+        sink.lines.extend_from_slice(prefix);
         value
             .write(&mut sink.lines)
             .expect("writing json to a Vec cannot fail");
-        sink.lines.extend_from_slice(&inner[data.1..span.1]);
+        sink.lines.extend_from_slice(suffix);
         sink.close_line();
         push_meta_from_data(ty, ts, Some(&value), sink);
         Ok(())
     })();
-    sink.scratch = scratch;
-    sink.scratch.clear();
     sink.buffers = buffers;
-    result
+    result?;
+    Ok(end)
 }
 
 /// Emit a pass-through event: memcpy the span, derive meta from the scans.
@@ -665,19 +862,20 @@ fn pass_through(
     span: Span,
     ts: f64,
     ty: Option<u8>,
-    data: Option<(DataScan, Span)>,
+    data: Option<&EventScan>,
     sink: &mut Sink,
 ) {
     sink.open_line();
     sink.lines.extend_from_slice(&inner[span.0..span.1]);
     sink.close_line();
 
-    let (source, interaction, href) = match &data {
-        Some((d, _)) => (
+    let (source, interaction, href) = match data {
+        Some(d) => (
             d.source
                 .and_then(|s| scan::parse_number(inner, s))
                 .and_then(to_small_uint),
-            d.ty.and_then(|s| scan::parse_number(inner, s))
+            d.interaction
+                .and_then(|s| scan::parse_number(inner, s))
                 .and_then(to_small_uint),
             scanned_href(inner, d),
         ),
@@ -692,7 +890,7 @@ fn pass_through(
 
 /// `hrefFrom` over scanned spans: `data.href` (string, trimmed, non-empty) falling back to
 /// `data.payload.href`.
-fn scanned_href(inner: &[u8], d: &DataScan) -> Option<String> {
+fn scanned_href(inner: &[u8], d: &EventScan) -> Option<String> {
     let read = |span: Span| -> Option<String> {
         if !scan::is_string(inner, span) {
             return None;

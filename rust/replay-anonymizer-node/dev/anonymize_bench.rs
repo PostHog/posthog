@@ -153,13 +153,15 @@ fn main() {
             let mut b = payload.clone();
             black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
         });
-        // Streaming minus the outer-envelope parse: what the scan+splice itself costs.
+        // Streaming minus the outer-envelope parse: what the scan+splice itself costs (plus one
+        // buffer clone — the in-place path consumes its input).
         let stream_inner = p50(3, n, || {
+            let mut b = inner.as_bytes().to_vec();
             black_box(
                 replay_anonymizer_node::snapshot::anonymize_snapshot_data(
                     &allow,
                     "bench-user",
-                    inner.as_bytes(),
+                    &mut b,
                 )
                 .unwrap(),
             );
