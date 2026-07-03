@@ -70,7 +70,7 @@ function Login(): JSX.Element {
     )
 
     return (
-        <PaperDeskScene notes={['// welcome back', '// 100,000+ teams ship here']}>
+        <PaperDeskScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
