@@ -124,8 +124,8 @@ function DatePickerQuill({
     clearable,
     format,
     fullWidth = true,
-    size,
-    type,
+    size = 'medium',
+    type = 'secondary',
     className,
     disabledReason,
     maxDate,
@@ -152,13 +152,13 @@ function DatePickerQuill({
                 <PopoverTrigger
                     render={
                         <Button
-                            variant={type ? QUILL_TRIGGER_VARIANT[type] : 'outline'}
-                            size={size ? QUILL_TRIGGER_SIZE[size] : 'default'}
+                            variant={QUILL_TRIGGER_VARIANT[type]}
+                            size={QUILL_TRIGGER_SIZE[size]}
                             data-attr={dataAttr}
                             data-quill
                             disabled={!!disabledReason}
                             title={disabledReason}
-                            className={cn(fullWidth ? 'w-full justify-start' : 'justify-start', className)}
+                            className={cn('justify-start', fullWidth && 'w-full', className)}
                         >
                             <IconCalendar />
                             {label}
@@ -180,7 +180,7 @@ function DatePickerQuill({
             {clearable && value && !disabledReason && (
                 <Button
                     variant="outline"
-                    size={size ? QUILL_TRIGGER_SIZE[size] : 'default'}
+                    size={QUILL_TRIGGER_SIZE[size]}
                     aria-label="Clear date"
                     data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
                     onClick={() => onChange(null)}
