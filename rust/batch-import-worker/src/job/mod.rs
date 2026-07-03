@@ -365,6 +365,38 @@ pub(crate) async fn select_and_fetch_next_chunk(
     Ok(Some((key, parsed, true)))
 }
 
+/// Free a committed part's staging once it is fully consumed, best-effort.
+///
+/// Called from `do_commit` after `complete_commit` persists the advanced offsets. Checks
+/// the *persisted* model view (not the in-memory fetch state, which runs one iteration
+/// ahead) so staging is only freed for parts whose completion is durable. Failures are
+/// logged and counted, never propagated: a missed delete leaks only transient storage,
+/// reclaimed by `cleanup_after_job` and (for the temp bucket) the bucket TTL.
+pub(crate) async fn cleanup_committed_part_if_done(
+    source: &dyn DataSource,
+    model: &Mutex<JobModel>,
+    key: &str,
+) {
+    let part_done = {
+        let model = model.lock().await;
+        model
+            .state
+            .as_ref()
+            .and_then(|state| state.parts.iter().find(|p| p.key == key))
+            .is_some_and(|part| part.is_done())
+    };
+    if !part_done {
+        return;
+    }
+    match source.cleanup_key(key).await {
+        Ok(()) => crate::metrics::part_cleanup("ok"),
+        Err(e) => {
+            warn!("Failed to clean up staging for committed part {key}: {e:#}");
+            crate::metrics::part_cleanup("error");
+        }
+    }
+}
+
 pub struct Job {
     pub context: Arc<AppContext>,
     handle: Handle,
@@ -708,6 +740,15 @@ impl Job {
         info!(job_id = %self.job_id, "Finishing PG part commit");
         self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
+
+        // The committed part may now be fully consumed: free its staging eagerly, exactly
+        // once, and only after its offsets are durable. Safe against concurrent reads: the
+        // in-memory state marked this part done one iteration before this commit (offsets
+        // advance at fetch time), so the read loop can never re-select it. A rollback or a
+        // crash between the two commit stages returns/aborts before reaching this point,
+        // preserving the staged data for the byte-identical re-read on resume.
+        cleanup_committed_part_if_done(self.source.as_ref(), &self.model, &key).await;
+
         info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
         tokio::select! {
             _ = tokio::time::sleep(to_sleep) => {},
@@ -2012,6 +2053,269 @@ mod tests {
                 assert!(part.is_done(), "part {} must complete", part.key);
                 assert_eq!(part.total_size, Some(body.len() as u64));
             }
+        }
+
+        /// Wraps a source to observe (and optionally fail) `cleanup_key` calls, so the
+        /// post-commit hook's exactly-once / best-effort behavior is observable.
+        struct SpySource<S> {
+            inner: S,
+            cleanup_calls: std::sync::atomic::AtomicUsize,
+            fail_cleanup: bool,
+        }
+
+        impl<S> SpySource<S> {
+            fn new(inner: S, fail_cleanup: bool) -> Self {
+                Self {
+                    inner,
+                    cleanup_calls: std::sync::atomic::AtomicUsize::new(0),
+                    fail_cleanup,
+                }
+            }
+
+            fn cleanups(&self) -> usize {
+                self.cleanup_calls.load(std::sync::atomic::Ordering::SeqCst)
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl<S: DataSource> DataSource for SpySource<S> {
+            async fn keys(&self) -> Result<Vec<String>, Error> {
+                self.inner.keys().await
+            }
+            async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
+                self.inner.size(key).await
+            }
+            async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
+                self.inner.get_chunk(key, offset, size).await
+            }
+            async fn prepare_key(&self, key: &str) -> Result<(), Error> {
+                self.inner.prepare_key(key).await
+            }
+            async fn prepare_for_job(&self) -> Result<(), Error> {
+                self.inner.prepare_for_job().await
+            }
+            async fn cleanup_after_job(&self) -> Result<(), Error> {
+                self.inner.cleanup_after_job().await
+            }
+            async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
+                self.cleanup_calls
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if self.fail_cleanup {
+                    return Err(Error::msg("simulated cleanup failure"));
+                }
+                self.inner.cleanup_key(key).await
+            }
+        }
+
+        fn remote_staging_for(
+            store: Arc<object_store::memory::InMemory>,
+        ) -> crate::source::RemoteStaging {
+            crate::source::RemoteStaging {
+                backend: Arc::new(crate::staging::TempBucketBackend::new(
+                    store, "staging/", "job-HOOK",
+                )),
+                extractor_type: ExtractorType::PlainGzip,
+                max_plaintext_bytes: 0,
+            }
+        }
+
+        /// Drive the real fetch loop over a remote source, mirroring do_commit's
+        /// post-complete sequence per checkpoint: persist the offset advance to the model,
+        /// then invoke the hook. Returns the spy so callers can assert cleanup counts.
+        async fn run_loop_with_hook(
+            source: &SpySource<DateRangeExportSource>,
+            keys: &[String],
+        ) -> (Mutex<JobModel>, usize) {
+            let state = Mutex::new(job_state(keys));
+            let model = Mutex::new(dummy_model(job_state(keys)));
+            let transform = newline_consumed_transform();
+            let mut commits = 0usize;
+            loop {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                let Some((key, parsed, _)) = next else { break };
+                {
+                    let mut model = model.lock().await;
+                    model
+                        .state
+                        .as_mut()
+                        .unwrap()
+                        .advance_part_offset(&key, parsed.consumed as u64)
+                        .unwrap();
+                }
+                cleanup_committed_part_if_done(source, &model, &key).await;
+                commits += 1;
+            }
+            (model, commits)
+        }
+
+        #[tokio::test]
+        async fn test_post_commit_hook_frees_each_remote_part_exactly_once() {
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..500 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let store = Arc::new(object_store::memory::InMemory::new());
+            let remote = remote_staging_for(Arc::clone(&store));
+            let backend = Arc::clone(&remote.backend);
+            let source = SpySource::new(
+                build_source_with(
+                    server.url("/export"),
+                    staging.path(),
+                    2,
+                    ExtractorType::PlainGzip,
+                    Some(remote),
+                ),
+                false,
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let (_model, commits) = run_loop_with_hook(&source, &keys).await;
+
+            // Multiple commits per part (small chunk size), but exactly one cleanup per
+            // part: the hook fires only on the commit that makes the part done.
+            assert!(commits > keys.len(), "expected multiple commits per part");
+            assert_eq!(source.cleanups(), keys.len());
+            for key in &keys {
+                assert_eq!(
+                    backend.size(key).await.unwrap(),
+                    None,
+                    "staged object for a committed part must be deleted"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn test_post_commit_hook_preserves_staging_until_part_is_done() {
+            // Encodes the rollback / crash-between-commit-stages guarantee: the hook only
+            // fires for a durably-done part, so a part mid-flight (or with its offset
+            // reverted) keeps its staged object for the byte-identical re-read.
+            let server = MockServer::start();
+            let body = b"{\"event\":\"a\"}\n{\"event\":\"b\"}\n";
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let store = Arc::new(object_store::memory::InMemory::new());
+            let remote = remote_staging_for(Arc::clone(&store));
+            let backend = Arc::clone(&remote.backend);
+            let source = SpySource::new(
+                build_source_with(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    ExtractorType::PlainGzip,
+                    Some(remote),
+                ),
+                false,
+            );
+            source.prepare_for_job().await.unwrap();
+            let key = source.keys().await.unwrap().remove(0);
+            source.prepare_key(&key).await.unwrap();
+
+            let model = Mutex::new(dummy_model(job_state(std::slice::from_ref(&key))));
+            {
+                let mut model = model.lock().await;
+                let state = model.state.as_mut().unwrap();
+                state.parts[0].total_size = Some(body.len() as u64);
+                // Partially consumed (e.g. after a rollback reverted a later advance).
+                state.parts[0].current_offset = 14;
+            }
+
+            cleanup_committed_part_if_done(&source, &model, &key).await;
+            assert_eq!(
+                source.cleanups(),
+                0,
+                "hook must not fire for a part mid-flight"
+            );
+            assert_eq!(
+                backend.size(&key).await.unwrap(),
+                Some(body.len() as u64),
+                "staged object must survive for the re-read"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_post_commit_hook_cleanup_failure_is_best_effort() {
+            let server = MockServer::start();
+            let body = b"{\"event\":\"a\"}\n";
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let store = Arc::new(object_store::memory::InMemory::new());
+            let remote = remote_staging_for(Arc::clone(&store));
+            let source = SpySource::new(
+                build_source_with(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    ExtractorType::PlainGzip,
+                    Some(remote),
+                ),
+                true, // cleanup_key always fails
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            // The loop must run to completion despite every cleanup failing.
+            let (_model, _commits) = run_loop_with_hook(&source, &keys).await;
+            assert_eq!(source.cleanups(), 1, "hook attempted the cleanup");
+        }
+
+        #[tokio::test]
+        async fn test_post_commit_hook_empty_part_cleanup_is_no_op() {
+            let server = MockServer::start();
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(404);
+            });
+
+            let staging = TempDir::new().unwrap();
+            let store = Arc::new(object_store::memory::InMemory::new());
+            let remote = remote_staging_for(Arc::clone(&store));
+            let backend = Arc::clone(&remote.backend);
+            let source = SpySource::new(
+                build_source_with(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    ExtractorType::PlainGzip,
+                    Some(remote),
+                ),
+                false,
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let (model, _commits) = run_loop_with_hook(&source, &keys).await;
+
+            // The empty part commits to done (0 == 0), the hook fires, and the delete of
+            // the (empty) staged object succeeds; a second invocation is a no-op.
+            assert_eq!(source.cleanups(), 1);
+            assert_eq!(backend.size(&keys[0]).await.unwrap(), None);
+            cleanup_committed_part_if_done(&source, &model, &keys[0]).await;
+            assert_eq!(source.cleanups(), 2, "double cleanup is tolerated");
         }
     }
 

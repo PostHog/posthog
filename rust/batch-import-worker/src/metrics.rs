@@ -12,6 +12,7 @@ pub const TEMP_BUCKET_READ_DURATION_SECONDS: &str =
     "batch_import_temp_bucket_read_duration_seconds";
 pub const STAGED_PLAINTEXT_CEILING_TRIPPED: &str =
     "batch_import_staged_plaintext_ceiling_tripped_total";
+pub const PART_CLEANUP_TOTAL: &str = "batch_import_part_cleanup_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -57,4 +58,10 @@ pub fn temp_bucket_read(duration_secs: f64) {
 /// Count a part that breached STAGED_PLAINTEXT_MAX_BYTES and paused the job.
 pub fn staged_plaintext_ceiling_tripped() {
     counter!(STAGED_PLAINTEXT_CEILING_TRIPPED).increment(1);
+}
+
+/// Count post-commit staging cleanup of a completed part, by outcome ("ok" / "error").
+/// A failed cleanup leaks only transient storage (reclaimed by job cleanup / bucket TTL).
+pub fn part_cleanup(outcome: &'static str) {
+    counter!(PART_CLEANUP_TOTAL, "outcome" => outcome).increment(1);
 }
