@@ -15,8 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
-
-import { sampleDataStateLogic } from './sampleDataStateLogic'
+import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 
 export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'funnel' | 'number' | 'table'
 
@@ -127,7 +126,7 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
 }
 
 function SampleDataTooltipContent(): JSX.Element {
-    const { setupStatus } = useValues(sampleDataStateLogic)
+    const { setupStatus } = useValues(setupWizardStatusLogic)
 
     return (
         <div className="max-w-72 space-y-1.5 p-0.5">
@@ -163,7 +162,7 @@ function SampleDataTooltipContent(): JSX.Element {
 
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
 export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVariant }): JSX.Element {
-    const { setupStatus, setupStatusLoading } = useValues(sampleDataStateLogic)
+    const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const isStatic =
         inStorybook() ||
