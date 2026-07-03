@@ -1,6 +1,8 @@
-from posthog.test.base import BaseTest
-from parameterized import parameterized
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from posthog.test.base import BaseTest
 
 from products.signals.backend.implementation_pr import (
     PrCloseReason,
