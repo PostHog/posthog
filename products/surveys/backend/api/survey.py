@@ -2,7 +2,7 @@ import re
 import builtins
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -70,16 +70,25 @@ from products.feature_flags.backend.api.feature_flag import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
-from products.surveys.backend.responses import fetch_per_question_stats, fetch_response_rows
+from products.surveys.backend.responses import (
+    SurveyRates,
+    SurveyStats,
+    archived_responses_filter,
+    calculate_rates,
+    fetch_per_question_stats,
+    fetch_response_rows,
+    get_survey_stats,
+    partial_responses_filter,
+    process_survey_results,
+    validate_and_parse_dates,
+)
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
     SurveyEventName,
     SurveyEventProperties,
     get_archived_response_uuids,
-    get_survey_property_bool_expr,
     get_survey_property_string_expr,
-    get_unique_survey_event_uuids_sql_subquery,
 )
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
@@ -266,31 +275,9 @@ else:
     READ_DB_FOR_SURVEYS = "default"
 
 
-class EventStats(TypedDict):
-    total_count: int
-    total_count_only_seen: int
-    unique_persons: int
-    unique_persons_only_seen: int  # unique_persons - dismissed - sent
-    first_seen: str | None
-    last_seen: str | None
-
-
-class SurveyRates(TypedDict):
-    response_rate: float
-    dismissal_rate: float
-    unique_users_response_rate: float
-    unique_users_dismissal_rate: float
-
-
-# Ideally we'd use SurveyEventName here, but enum values are not valid as keys in TypedDicts
-SurveyStats = TypedDict(
-    "SurveyStats",
-    {
-        "survey shown": EventStats,
-        "survey dismissed": EventStats,
-        "survey sent": EventStats,
-    },
-)
+# EventStats / SurveyRates / SurveyStats and the stats-computation helpers now live in
+# products.surveys.backend.responses.stats so the survey widget shares one query path. They are
+# re-imported above and re-exported here for existing importers.
 
 
 def get_survey_conditions_with_actions(
@@ -2088,7 +2075,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     raise serializers.ValidationError(
                         {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
                     )
+                # Search applies its own exact-first relevance ordering — don't override it.
                 queryset = self._apply_search(queryset, search)
+            else:
+                # Newest first — stable order for pagination and surfaces recent surveys first in pickers.
+                queryset = queryset.order_by("-created_at")
         return queryset
 
     @tracer.start_as_current_span("SurveyViewSet.list")
@@ -2245,20 +2236,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
 
     def _get_partial_responses_filter(self, base_conditions_sql: builtins.list[str]) -> str:
-        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-            base_conditions_sql=base_conditions_sql,
-        )
-
-        return f"uuid IN {unique_uuids_subquery}"
+        return partial_responses_filter(base_conditions_sql)
 
     def _get_archived_responses_filter(self, survey_id: str | None = None) -> tuple[str, dict]:
-        archived_uuids = get_archived_response_uuids(survey_id, self.team_id)
-
-        if not archived_uuids:
-            return "", {}
-
-        params = {"archived_uuids": list(archived_uuids)}
-        return "uuid NOT IN %(archived_uuids)s", params
+        return archived_responses_filter(survey_id, self.team_id)
 
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
@@ -2333,131 +2314,18 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def _validate_and_parse_dates(
         self, date_from: str | None, date_to: str | None
     ) -> tuple[datetime | None, datetime | None]:
-        """Validate and parse date_from and date_to.
-
-        Args:
-            date_from: Optional ISO timestamp for start date with timezone info
-            date_to: Optional ISO timestamp for end date with timezone info
-
-        Returns:
-            Tuple of (parsed_date_from, parsed_date_to) in UTC
-
-        Raises:
-            ValidationError: If dates are invalid or if date_from is after date_to
-        """
-        parsed_from = None
-        parsed_to = None
-
         try:
-            if date_from:
-                parsed_from = datetime.fromisoformat(date_from).astimezone(UTC)
-
-            if date_to:
-                parsed_to = datetime.fromisoformat(date_to).astimezone(UTC)
-
-            if parsed_from and parsed_to and parsed_from > parsed_to:
-                raise exceptions.ValidationError("date_from must be before date_to")
-
-            return parsed_from, parsed_to
-
-        except ValueError:
-            raise exceptions.ValidationError(
-                "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
-            )
+            return validate_and_parse_dates(date_from, date_to)
+        except ValueError as exc:
+            raise exceptions.ValidationError(str(exc)) from exc
 
     def _process_survey_results(
         self, results: builtins.list[tuple[str, int, int, datetime | None, datetime | None]]
     ) -> SurveyStats:
-        """Process raw survey event results into stats format.
-
-        Args:
-            results: Raw results from ClickHouse query containing event stats
-
-        Returns:
-            Dictionary containing processed stats for each event type
-        """
-        # Initialize stats with zero values for all event types
-        stats: SurveyStats = {
-            SurveyEventName.SHOWN.value: {
-                "total_count": 0,
-                "unique_persons": 0,
-                "first_seen": None,
-                "last_seen": None,
-                "unique_persons_only_seen": 0,  # Calculated later in _get_survey_stats
-                "total_count_only_seen": 0,  # Calculated later in _get_survey_stats
-            },
-            SurveyEventName.DISMISSED.value: {
-                "total_count": 0,
-                "unique_persons": 0,
-                "first_seen": None,
-                "last_seen": None,
-                # These fields are not applicable/calculated for dismissed/sent
-                "unique_persons_only_seen": 0,
-                "total_count_only_seen": 0,
-            },
-            SurveyEventName.SENT.value: {
-                "total_count": 0,
-                "unique_persons": 0,
-                "first_seen": None,
-                "last_seen": None,
-                # These fields are not applicable/calculated for dismissed/sent
-                "unique_persons_only_seen": 0,
-                "total_count_only_seen": 0,
-            },
-        }
-
-        # Update stats with actual results
-        for event_name, total_count, unique_persons, first_seen, last_seen in results:
-            event_stats: EventStats = {
-                "total_count": total_count,
-                "unique_persons": unique_persons,
-                "first_seen": first_seen.isoformat() + "Z" if first_seen else None,
-                "last_seen": last_seen.isoformat() + "Z" if last_seen else None,
-                # Ensure these are initialized to 0
-                "unique_persons_only_seen": 0,
-                "total_count_only_seen": 0,
-            }
-
-            if event_name == SurveyEventName.SHOWN.value:
-                stats[SurveyEventName.SHOWN.value] = event_stats
-            elif event_name == SurveyEventName.DISMISSED.value:
-                stats[SurveyEventName.DISMISSED.value] = event_stats
-            elif event_name == SurveyEventName.SENT.value:
-                stats[SurveyEventName.SENT.value] = event_stats
-
-        # REMOVED calculation block for _only_seen fields from here.
-        return stats
+        return process_survey_results(results)
 
     def _calculate_rates(self, stats: SurveyStats) -> SurveyRates:
-        """Calculate response and dismissal rates from stats.
-
-        Args:
-            stats: Dictionary containing event stats
-
-        Returns:
-            Dictionary containing calculated rates
-        """
-        rates: SurveyRates = {
-            "response_rate": 0.0,
-            "dismissal_rate": 0.0,
-            "unique_users_response_rate": 0.0,
-            "unique_users_dismissal_rate": 0.0,
-        }
-
-        shown_count = stats[SurveyEventName.SHOWN.value]["total_count"]
-        if shown_count > 0:
-            sent_count = stats[SurveyEventName.SENT.value]["total_count"]
-            dismissed_count = stats[SurveyEventName.DISMISSED.value]["total_count"]
-            unique_users_shown_count = stats[SurveyEventName.SHOWN.value]["unique_persons"]
-            unique_users_sent_count = stats[SurveyEventName.SENT.value]["unique_persons"]
-            unique_users_dismissed_count = stats[SurveyEventName.DISMISSED.value]["unique_persons"]
-            rates = {
-                "response_rate": round(sent_count / shown_count * 100, 2),
-                "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
-                "unique_users_response_rate": round(unique_users_sent_count / unique_users_shown_count * 100, 2),
-                "unique_users_dismissal_rate": round(unique_users_dismissed_count / unique_users_shown_count * 100, 2),
-            }
-        return rates
+        return calculate_rates(stats)
 
     def _get_survey_stats(
         self, date_from: str | None, date_to: str | None, survey_id: str | None = None, exclude_archived: bool = False
@@ -2473,189 +2341,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         Returns:
             Dictionary containing survey statistics and rates
         """
-        parsed_from, parsed_to = self._validate_and_parse_dates(date_from, date_to)
-
-        # Build query parameters
-        params: dict[str, Any] = {"team_id": str(self.team_id)}
-        date_filter = ""
-        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
-        survey_partially_completed_expr = get_survey_property_bool_expr(
-            SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED
-        )
-        effective_from = parsed_from
-        effective_to = parsed_to
-
-        if survey_id:
-            survey_dates = (
-                Survey.objects.filter(team_id=self.team_id, id=survey_id)
-                .values("start_date", "created_at", "end_date")
-                .first()
+        # Shared helper raises ValueError for bad dates; surface it as a REST 400 here.
+        try:
+            return get_survey_stats(
+                team_id=self.team_id,
+                date_from=date_from,
+                date_to=date_to,
+                survey_id=survey_id,
+                exclude_archived=exclude_archived,
             )
-
-            if survey_dates:
-                survey_start = survey_dates["start_date"] or survey_dates["created_at"]
-                survey_end = survey_dates["end_date"]
-
-                if survey_start:
-                    effective_from = max(filter(None, [parsed_from, survey_start]), default=survey_start)
-
-                if survey_end:
-                    effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
-
-        if effective_from:
-            date_filter += " AND timestamp >= %(date_from)s"
-            params["date_from"] = effective_from
-        if effective_to:
-            date_filter += " AND timestamp <= %(date_to)s"
-            params["date_to"] = effective_to
-
-        # Add archive filter if needed
-        archive_filter = ""
-        if survey_id and exclude_archived:
-            archive_filter_sql, archive_params = self._get_archived_responses_filter(survey_id)
-            if archive_filter_sql:
-                archive_filter = f"AND {archive_filter_sql}"
-                params.update(archive_params)
-
-        # Add survey filter if specific survey
-        survey_filter = ""
-        if survey_id:
-            survey_filter = f"AND {survey_id_expr} = %(survey_id)s"
-            params["survey_id"] = str(survey_id)
-        else:
-            # For global stats, only include non-archived surveys
-            active_survey_ids = list(
-                Survey.objects.filter(team_id=self.team_id, archived=False).values_list("id", flat=True)
-            )
-            if not active_survey_ids:
-                return {
-                    "stats": {},
-                    "rates": {
-                        "response_rate": 0.0,
-                        "dismissal_rate": 0.0,
-                        "unique_users_response_rate": 0.0,
-                        "unique_users_dismissal_rate": 0.0,
-                    },
-                }
-            survey_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
-            params["survey_ids"] = [str(id) for id in active_survey_ids]
-
-        partial_responses_base_conditions = ["team_id = %(team_id)s"]
-        if effective_from:
-            partial_responses_base_conditions.append("timestamp >= %(date_from)s")
-        if effective_to:
-            partial_responses_base_conditions.append("timestamp <= %(date_to)s")
-
-        partial_responses_filter = self._get_partial_responses_filter(
-            base_conditions_sql=partial_responses_base_conditions,
-        )
-
-        # Query 1: Base Stats (Similar to original query)
-        base_stats_query = f"""
-            SELECT
-                event as event_name,
-                count() as total_count,
-                count(DISTINCT person_id) as unique_persons,
-                if(count() > 0, min(timestamp), null) as first_seen,
-                if(count() > 0, max(timestamp), null) as last_seen
-            FROM events
-            WHERE team_id = %(team_id)s
-            AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
-            {survey_filter}
-            {date_filter}
-                {archive_filter}
-                AND (
-                    event != %(dismissed)s
-                    OR
-                    COALESCE({survey_partially_completed_expr}, False) = False
-                )
-                AND (
-                    event != %(sent)s
-                OR
-                {partial_responses_filter}
-            )
-            GROUP BY event
-        """
-        query_params = {
-            **params,
-            "shown": SurveyEventName.SHOWN.value,
-            "dismissed": SurveyEventName.DISMISSED.value,
-            "sent": SurveyEventName.SENT.value,
-        }
-        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
-        results_base = sync_execute(base_stats_query, query_params)
-
-        # Query 2: Count of unique persons who both dismissed AND sent
-        dismissed_and_sent_query = f"""
-            SELECT count()
-            FROM (
-                SELECT person_id
-                FROM events
-                WHERE team_id = %(team_id)s
-                  AND event IN (%(dismissed)s, %(sent)s)
-                  {survey_filter}
-                  {date_filter}
-                  {archive_filter}
-                AND (
-                    event != %(dismissed)s
-                    OR
-                    COALESCE({survey_partially_completed_expr}, False) = False
-                )
-                GROUP BY person_id
-                HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
-                   AND sum(if(event = %(sent)s, 1, 0)) > 0
-            ) AS PersonsWithBothEvents
-        """
-        dismissed_and_sent_count_result = sync_execute(dismissed_and_sent_query, query_params)
-        dismissed_and_sent_count = dismissed_and_sent_count_result[0][0] if dismissed_and_sent_count_result else 0
-
-        # Process initial stats
-        stats = self._process_survey_results(results_base)
-
-        # Adjust dismissed unique count
-        if SurveyEventName.DISMISSED.value in stats:
-            stats[SurveyEventName.DISMISSED.value]["unique_persons"] -= dismissed_and_sent_count
-            # Ensure it doesn't go below zero, although logically it shouldn't
-            stats[SurveyEventName.DISMISSED.value]["unique_persons"] = max(
-                0, stats[SurveyEventName.DISMISSED.value]["unique_persons"]
-            )
-
-        # Recalculate derived 'only_seen' counts based on final counts
-        if SurveyEventName.SHOWN.value in stats:
-            # Get final counts, defaulting to 0 if a category has no events
-            unique_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("unique_persons", 0)
-            unique_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get(
-                "unique_persons", 0
-            )  # Use adjusted count
-            unique_sent = stats.get(SurveyEventName.SENT.value, {}).get("unique_persons", 0)
-
-            total_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("total_count", 0)
-            total_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get("total_count", 0)
-            total_sent = stats.get(SurveyEventName.SENT.value, {}).get("total_count", 0)
-
-            # Calculate unique persons who only saw the survey
-            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = (
-                unique_shown - unique_dismissed - unique_sent
-            )
-            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = max(
-                0, stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"]
-            )
-
-            # Calculate total count for those who only saw the survey
-            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
-            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = max(
-                0, stats[SurveyEventName.SHOWN.value]["total_count_only_seen"]
-            )
-
-        # Calculate rates using the adjusted stats
-        rates = self._calculate_rates(stats)
-
-        response_data = {
-            "stats": stats,
-            "rates": rates,
-        }
-
-        return response_data
+        except ValueError as exc:
+            raise exceptions.ValidationError(str(exc)) from exc
 
     @extend_schema(
         parameters=[
