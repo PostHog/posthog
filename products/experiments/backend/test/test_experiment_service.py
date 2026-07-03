@@ -31,6 +31,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
@@ -3129,6 +3130,7 @@ class TestExperimentService(APIBaseTest):
         for group in groups:
             assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in group["properties"]
             assert group[EXPOSURE_FROZEN_GROUP_KEY] is True
+            assert group[EXPOSURE_FROZEN_COHORT_KEY] == cohort.id
             assert EXPOSURE_FROZEN_GROUP_MARKER in group["description"]
 
         # Variants left byte-for-byte unchanged so enrolled users keep their variant.

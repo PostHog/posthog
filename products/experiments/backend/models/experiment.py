@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 # that pass-through contract is pinned by test_flag_update_after_freeze_preserves_frozen_state.
 EXPOSURE_FROZEN_GROUP_KEY = "exposure_frozen"
 
+# Companion key recording which snapshot cohort the freeze AND-ed into the group, so unfreezing
+# can remove exactly that condition even if users added their own cohort conditions meanwhile.
+EXPOSURE_FROZEN_COHORT_KEY = "exposure_frozen_cohort"
+
 # Human-readable note prepended to each release group's `description` when freezing. Purely
 # informational — the description stays user-editable prose and carries no state.
 EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."

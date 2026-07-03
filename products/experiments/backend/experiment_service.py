@@ -51,6 +51,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     LEGACY_METRIC_KINDS,
@@ -1893,6 +1894,7 @@ class ExperimentService:
             new_group = deepcopy(group)
             new_group["properties"] = [*new_group.get("properties", []), cohort_condition]
             new_group[EXPOSURE_FROZEN_GROUP_KEY] = True
+            new_group[EXPOSURE_FROZEN_COHORT_KEY] = cohort_id
             existing_description = new_group.get("description")
             new_group["description"] = (
                 f"{EXPOSURE_FROZEN_GROUP_MARKER} {existing_description}"
