@@ -41,6 +41,7 @@ OUTPUT_PATH = Path(__file__).resolve().parents[1] / "backend" / "hogql_queries" 
 
 
 def fetch_networks(url: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (urls come from the hardcoded PROVIDERS constant, never user input)
     with urllib.request.urlopen(url, timeout=30) as response:
         data = json.load(response)
     prefixes = data.get("prefixes")
@@ -56,14 +57,14 @@ def fetch_networks(url: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Netwo
 
 
 def collapse(networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> list[str]:
-    v4 = sorted(ipaddress.collapse_addresses(n for n in networks if n.version == 4))
-    v6 = sorted(ipaddress.collapse_addresses(n for n in networks if n.version == 6))
-    for net in v4:
-        if net.prefixlen < MIN_V4_PREFIXLEN:
-            raise ValueError(f"IPv4 range {net} wider than /{MIN_V4_PREFIXLEN} floor — refusing")
-    for net in v6:
-        if net.prefixlen < MIN_V6_PREFIXLEN:
-            raise ValueError(f"IPv6 range {net} wider than /{MIN_V6_PREFIXLEN} floor — refusing")
+    v4 = sorted(ipaddress.collapse_addresses(n for n in networks if isinstance(n, ipaddress.IPv4Network)))
+    v6 = sorted(ipaddress.collapse_addresses(n for n in networks if isinstance(n, ipaddress.IPv6Network)))
+    for v4_net in v4:
+        if v4_net.prefixlen < MIN_V4_PREFIXLEN:
+            raise ValueError(f"IPv4 range {v4_net} wider than /{MIN_V4_PREFIXLEN} floor — refusing")
+    for v6_net in v6:
+        if v6_net.prefixlen < MIN_V6_PREFIXLEN:
+            raise ValueError(f"IPv6 range {v6_net} wider than /{MIN_V6_PREFIXLEN} floor — refusing")
     return [str(n) for n in [*v4, *v6]]
 
 
