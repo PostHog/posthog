@@ -16,7 +16,7 @@ def test_level_filters_split_info_from_warnings() -> None:
 
 
 def test_logging_config_can_be_applied() -> None:
-    logging.config.dictConfig(logs.LOGGING)
+    logging.config.dictConfig({**logs.LOGGING, "disable_existing_loggers": False})
 
 
 def test_default_console_logging_handler_keeps_default_stream() -> None:

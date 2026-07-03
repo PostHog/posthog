@@ -738,7 +738,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
         assert result.total == result.cache_miss_fixed
         assert len(result.fixed_team_ids) == result.total
 
-    def test_fixed_batches_under_progress_interval_do_not_emit_info_logs(self):
+    def test_fixed_batches_under_progress_interval_emit_batch_fix_logs(self):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
         mock_config = MagicMock()
@@ -766,7 +766,15 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
         assert result.total == 2
         assert result.total_fixed == 2
-        mock_info.assert_not_called()
+        assert [mock_call.args for mock_call in mock_info.call_args_list] == [
+            ("Batch completed with fixes",),
+            ("Batch completed with fixes",),
+        ]
+        assert [mock_call.kwargs["batch_number"] for mock_call in mock_info.call_args_list] == [1, 2]
+        assert [mock_call.kwargs["batch_verified"] for mock_call in mock_info.call_args_list] == [1, 1]
+        assert [mock_call.kwargs["batch_fixed"] for mock_call in mock_info.call_args_list] == [1, 1]
+        assert [mock_call.kwargs["teams_verified_total"] for mock_call in mock_info.call_args_list] == [1, 2]
+        assert [mock_call.kwargs["teams_fixed_total"] for mock_call in mock_info.call_args_list] == [1, 2]
 
     def test_fix_detail_info_logs_are_capped_during_verification_run(self):
         teams = [
@@ -821,7 +829,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
         with (
             patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 0),
-            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 2),
+            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 1),
             patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
             patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
         ):
@@ -829,7 +837,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
                 config=mock_config,
                 verify_team_fn=verify_fn,
                 cache_type="test_cache",
-                chunk_size=1,
+                chunk_size=2,
             )
 
         assert result.total == 2
@@ -839,7 +847,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
         call_args = mock_info.call_args
         assert call_args.args == ("Verification progress",)
-        assert call_args.kwargs["batch_fixed"] == 0
+        assert call_args.kwargs["batch_fixed"] == 1
         assert call_args.kwargs["batch_fix_failures"] == 1
         assert call_args.kwargs["teams_verified_total"] == 2
         assert call_args.kwargs["teams_fixed_total"] == 1
