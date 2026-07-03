@@ -9,6 +9,58 @@ from collections import Counter
 from fnmatch import fnmatch
 from pathlib import Path
 
+# ── Dependency ecosystems ────────────────────────────────────────
+#
+# Single source of truth for how each package ecosystem pairs manifests with
+# lockfiles. The deps_toolchain deny patterns, the manifest/lockfile helper
+# sets, and has_dependency_changes all derive from this table — add a new
+# ecosystem here, not in three places. (DISMISS_TIME_LOCKFILES stays
+# separate: it serves the dismiss-time gate with its own, stricter rationale.)
+
+DEPENDENCY_ECOSYSTEMS: dict[str, dict[str, frozenset[str]]] = {
+    "node": {
+        "manifests": frozenset({"package.json"}),
+        "lockfiles": frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}),
+    },
+    "python": {
+        # setup.py/setup.cfg execute code at install/build time even though
+        # no lockfile pairs with them in this repo.
+        "manifests": frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
+        "lockfiles": frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
+    },
+    "ruby": {
+        "manifests": frozenset({"gemfile"}),
+        "lockfiles": frozenset({"gemfile.lock"}),
+    },
+    "rust": {
+        "manifests": frozenset({"cargo.toml"}),
+        "lockfiles": frozenset({"cargo.lock"}),
+    },
+    "go": {
+        "manifests": frozenset({"go.mod"}),
+        "lockfiles": frozenset({"go.sum"}),
+    },
+    # tsconfig configures the compiler, not dependencies — no lockfile ever
+    # pairs with it, so a tsconfig change is always flagged for scrutiny.
+    "typescript-config": {
+        "manifests": frozenset(),
+        "lockfiles": frozenset(),
+    },
+}
+
+_ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e["lockfiles"] for e in DEPENDENCY_ECOSYSTEMS.values()))
+_ALL_MANIFEST_NAMES: frozenset[str] = frozenset().union(*(e["manifests"] for e in DEPENDENCY_ECOSYSTEMS.values()))
+
+
+def _dependency_ecosystem(name: str) -> str | None:
+    if name.startswith("tsconfig") and name.endswith(".json"):
+        return "typescript-config"
+    for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
+        if name in spec["manifests"]:
+            return ecosystem
+    return None
+
+
 # ── Pattern data ─────────────────────────────────────────────────
 
 # Deny patterns use word-boundary matching (\b) to avoid false positives
@@ -160,13 +212,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         # lockfile involved. .nvmrc/.tool-versions stay: they change the
         # runtime for every CI job. Makefile/Dockerfile stay: they execute.
         "paths": [
-            "pnpm-lock",
-            "package-lock",
-            r"yarn\.lock",
-            r"uv\.lock",
-            r"cargo\.lock",
-            r"go\.sum",
-            r"poetry\.lock",
+            *(re.escape(name) for name in sorted(_ALL_LOCKFILE_NAMES)),
             r"requirements[-\w]*\.(txt|in)",
             "Makefile",
             "Dockerfile",
@@ -480,52 +526,39 @@ def detect_title_scrutiny_flags(subject: str) -> list[str]:
 
 
 def has_dependency_changes(files: list[str]) -> bool:
-    dep_files = {
-        "package.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "package-lock.json",
-        "requirements.txt",
-        "pyproject.toml",
-        "uv.lock",
-        "Cargo.toml",
-        "go.mod",
-        "go.sum",
-    }
-    dep_files_lower = {d.lower() for d in dep_files}
-    return any(Path(f).name.lower() in dep_files_lower for f in files)
-
-
-_LOCKFILE_NAMES = DISMISS_TIME_LOCKFILES | frozenset({"go.sum"})
-
-# setup.py/setup.cfg/Pipfile/Gemfile execute code at install/build time even
-# though no lockfile pairs with them in this repo — they need the same
-# reviewer scrutiny as the lockfile-paired manifests.
-_DEP_MANIFEST_NAMES = frozenset(
-    {"package.json", "pyproject.toml", "cargo.toml", "go.mod", "setup.py", "setup.cfg", "pipfile", "gemfile"}
-)
+    for f in files:
+        name = Path(f).name.lower()
+        if name in _ALL_LOCKFILE_NAMES or _dependency_ecosystem(name) is not None:
+            return True
+        if name.startswith("requirements") and name.endswith((".txt", ".in")):
+            return True
+    return False
 
 
 def is_dependency_manifest(path: str) -> bool:
-    name = Path(path).name.lower()
-    if name in _DEP_MANIFEST_NAMES:
-        return True
-    return name.startswith("tsconfig") and name.endswith(".json")
+    return _dependency_ecosystem(Path(path).name.lower()) is not None
 
 
 def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
-    """Manifest files changed with no lockfile in the change set.
+    """Manifest files changed without their own ecosystem's lockfile.
 
     Such a change cannot install new third-party code (CI installs are
     frozen-lockfile), so it passes the deny-list — but manifest scripts/hooks
-    execute in CI, so the reviewer prompt gets these paths and must REFUSE if
-    scripts changed. Any lockfile in the change set suppresses the flag: the
-    lockfile itself hard-denies, which forces the stronger human-review path.
+    execute in CI, so these paths feed the deterministic scripts scan and the
+    reviewer prompt. The lockfile check is per-ecosystem: a Cargo.lock bump
+    hard-denies on its own but must not silence the scripts guard on an
+    unrelated package.json edit in the same PR.
     """
     names = {Path(f).name.lower() for f in files}
-    if names & _LOCKFILE_NAMES:
-        return []
-    return sorted(f for f in files if is_dependency_manifest(f))
+    ecosystems_with_lockfile_change = {
+        ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec["lockfiles"]
+    }
+    return sorted(
+        f
+        for f in files
+        if (ecosystem := _dependency_ecosystem(Path(f).name.lower())) is not None
+        and ecosystem not in ecosystems_with_lockfile_change
+    )
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:

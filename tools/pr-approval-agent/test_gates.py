@@ -400,8 +400,13 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
         ),
         pytest.param(
             ["frontend/package.json", "rust/Cargo.lock"],
-            [],
-            id="unrelated-lockfile-suppresses-flag-but-lockfile-denies",
+            ["frontend/package.json"],
+            id="unrelated-ecosystem-lockfile-does-not-suppress",
+        ),
+        pytest.param(
+            ["common/esbuilder/tsconfig.json", "pnpm-lock.yaml"],
+            ["common/esbuilder/tsconfig.json"],
+            id="tsconfig-has-no-lockfile-always-flagged",
         ),
         pytest.param(
             ["docs/some_tsconfig_notes.md"],
