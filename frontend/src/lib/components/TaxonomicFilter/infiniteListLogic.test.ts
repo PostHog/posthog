@@ -20,6 +20,7 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from './taxonomicFilterPinnedPropertiesLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -909,6 +910,82 @@ describe('infiniteListLogic', () => {
             } else {
                 expect(emptyCalls).toHaveLength(0)
             }
+        })
+    })
+
+    describe('suggested list dedupes pinned against recents', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const seedRecentAndPins = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$current_url',
+                item: { name: '$current_url' },
+            })
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$current_url',
+                {
+                    name: '$current_url',
+                }
+            )
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
+                name: '$browser',
+            })
+        }
+
+        const mountSuggestedList = (): ReturnType<typeof infiniteListLogic.build> => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-pinned-dedupe-test',
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        const pinnedValues = (results: unknown[]): unknown[] =>
+            results.filter((item) => hasPinnedContext(item)).map((item) => item._pinnedContext.value)
+
+        it('shows an item that is both recent and pinned once, under recents', () => {
+            seedRecentAndPins()
+            const listLogic = mountSuggestedList()
+
+            const results = listLogic.values.items.results
+            expect(pinnedValues(results)).toEqual(['$browser'])
+            expect(
+                results.filter((item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url')
+            ).toHaveLength(1)
+        })
+
+        it('dedupes search matches the same way', async () => {
+            seedRecentAndPins()
+            const listLogic = mountSuggestedList()
+
+            listLogic.actions.setSearchQuery('current')
+            await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+
+            const results = listLogic.values.items.results
+            expect(pinnedValues(results)).toEqual([])
+            expect(
+                results.filter((item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url')
+            ).toHaveLength(1)
         })
     })
 
