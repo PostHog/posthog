@@ -34,7 +34,8 @@ allowed_tools:
   - edit_report
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and reports).
+  (read-only analytics plus signal_scout_report:write for reports and
+  signal_scout_internal:write for scratchpad).
   Assumes the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
   scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report)
   plus whatever query tools the scope needs (e.g. execute-sql, read-data-schema,
@@ -127,8 +128,8 @@ allowed_tools:
   - edit_report
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write). Assumes the signals-scout MCP
-  family plus <the query tools this scope needs>.
+  (read-only analytics plus signal_scout_report:write and signal_scout_internal:write).
+  Assumes the signals-scout MCP family plus <the query tools this scope needs>.
 metadata:
   owner_team: <team>
   scope: <scope>

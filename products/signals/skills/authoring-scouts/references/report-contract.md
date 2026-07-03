@@ -160,8 +160,8 @@ allowed_tools:
 ```
 
 **Every scout needs this** — a scout that omits it falls back to a deprecated legacy channel (weak `emit-signal` findings a pipeline consolidated) and can't write reports at all.
-Don't author new scouts without the opt-in; if you find an old custom scout missing it, add it and rework the scout's Decide section onto this contract.
-The entire canonical fleet runs on this channel; `signals-scout-anomaly-detection`'s `references/report-contract.md` keeps a worked, surface-specific shape (its notebook write-up + embedded-chart recipe).
+Don't author new scouts without the opt-in; if you find an existing scout missing it, add it and rework the scout's Decide section onto this contract.
+The canonical fleet runs on this channel; `signals-scout-anomaly-detection`'s `references/report-contract.md` keeps a worked, surface-specific shape (its notebook write-up + embedded-chart recipe).
 Add a short body section telling the scout what's report-shaped for its surface.
 Keep it lean — the field-level detail lives here (and in the harness prompt), not in the body.
 

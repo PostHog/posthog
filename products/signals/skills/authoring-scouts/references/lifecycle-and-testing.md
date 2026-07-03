@@ -60,8 +60,8 @@ Notes:
   Every write bumps an immutable `version`; chain further edits via `base_version`.
 - **Divergence:** once you edit a canonical scout's row for your team, canonical sync treats it as **diverged** and stops force-updating it — you keep your edits but lose upstream improvements to that scout.
   To customize _without_ diverging, `duplicate` the canonical scout into a new `signals-scout-<your-scope>` row and edit that; leave the original alone.
-- Writing reports needs the `signal_scout_internal:write` scope (the sandbox has it).
-  Authoring a scout doesn't require it — only the harness writes.
+- Writing reports needs the `signal_scout_report:write` scope, and the scratchpad needs `signal_scout_internal:write` (the sandbox has both).
+  Authoring a scout doesn't require either — only the harness writes.
 
 ## Path B — canonical (in-repo, for PostHog contributors)
 

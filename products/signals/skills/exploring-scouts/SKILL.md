@@ -25,8 +25,8 @@ A project may also have **custom scouts** beyond the canonical fleet — any `si
 This skill helps you **understand and explore what a project's scouts are doing and how they're performing** — entirely through read-only MCP tools.
 It is the observability counterpart to the `authoring-scouts` skill (which teaches writing and tuning) and to the `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 
-**A scout's output is inbox reports, written 1:1.** Every scout on the current fleet lists `emit_report` / `edit_report` in its `allowed_tools` and **authors or edits inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
-The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from a deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On today's scouts they stay `0` / empty even on a productive run; they're only populated on historical runs and on old custom scouts that never opted into the report channel.
+**A scout's output is inbox reports, written 1:1.** Scouts list `emit_report` / `edit_report` in their `allowed_tools` and **author or edit inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
+The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
 
 There are five things you can observe about the fleet, each with its own tool:
@@ -161,9 +161,9 @@ Fetch the **full** log and let the script reassemble each call (it groups by `to
 A productive run typically has one id there and a summary like `Report authored: <id>`; resolve any id via `inbox-reports-retrieve` to read the report itself.
 Don't parse the prose `summary` for output — a phrase like "already reported P1 … did not re-file" describes a _prior_ run, so substring-matching the summary is unreliable; the id columns are the authoritative tally.
 
-**Legacy runs: `emitted_count` / `emitted_finding_ids`.** Runs from the deprecated signal-emitting channel (historical runs, or an old custom scout that never opted into the report channel) tally their output as `emitted_count` weak findings instead; each `finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`.
+**Legacy runs: `emitted_count` / `emitted_finding_ids`.** Runs from the deprecated signal-emitting channel (a scout without the `allowed_tools` opt-in — an old custom scout, or a canonical scout not yet ported) tally their output as `emitted_count` weak findings instead; each `finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`.
 For those runs only, `signals-scout-runs-emission-reports` (pass the `run_id`) maps each emitted finding to the inbox report its signal grouped into (or `null` if it never surfaced).
-On current scouts these fields are always `0` / empty — don't diagnose off them.
+On report-channel scouts these fields are always `0` / empty — don't diagnose off them.
 See [`references/scout-data-model.md`](references/scout-data-model.md) for the full field reference.
 
 A run with `status` complete and an empty-handed summary ("surface at baseline, nothing to report") is a **healthy** outcome, not a failure — most runs should close out empty.
@@ -323,8 +323,8 @@ The report rate reads the run rows' `emitted_report_ids` / `edited_report_ids` d
   Don't report a wall of clean, empty runs as a problem.
 - **What a run wrote is a first-class run field.** Read `emitted_report_ids` / `edited_report_ids` per run (or filter with `runs-list?emitted=true`) to find what was written, without parsing the prose `summary`.
   The `source_product: "signals_scout"` inbox filter lists the _reports_ the fleet surfaced; an empty result there means it hasn't written anything yet (scouts hold a high bar), not that the filter is broken.
-- **`emitted_count: 0` does not mean "did nothing".** `emitted_count` / `emitted_finding_ids` are legacy signal-channel fields — they stay `0` / empty on every current scout, productive or not.
-  Judge output by the report columns; the legacy fields only matter on historical runs (or an old custom scout that never opted into the report channel).
+- **`emitted_count: 0` does not mean "did nothing".** `emitted_count` / `emitted_finding_ids` are legacy signal-channel fields — they stay `0` / empty on report-channel scouts, productive or not.
+  Judge output by the report columns; a non-zero legacy tally means the run came from a scout still on the legacy channel, and is that run's real output.
 - **A ~30-min run that `failed` is usually a timeout, not a broken scout.** Completed runs finish in a couple of minutes.
   Most often the scout over-investigated and ran the full budget (the fleet self-corrects by writing "tight-run recipe" scratchpad entries) — but some are false timeouts where the scout actually finished in a few minutes and the run then hung on a dropped close-out.
   The session log (above) tells them apart: real over-investigation shows tool calls right up to the wall; a false timeout goes silent long before it.

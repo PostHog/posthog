@@ -319,8 +319,9 @@ per-scout reference. The generalist keeps one bundled reference:
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The entire canonical fleet is on the **report channel** (ported one scout per PR,
-biggest reach first — see the `scouts-emit-reports` spec). A report-channel scout is
+The canonical fleet is on the **report channel** (ported one scout per PR,
+biggest reach first — see the `scouts-emit-reports` spec; `signals-scout-web-vitals`
+is the last one still on the signal channel, with its port planned as a follow-up). A report-channel scout is
 report-only — its frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it
 carries only its _domain-specific_ report framing **inline in its body** (what's
 report-shaped for its surface, its `reviewer:<domain>` / `report:<domain>` scratchpad
@@ -329,9 +330,10 @@ bundles **no** `report.md`. The exception is `signals-scout-anomaly-detection`, 
 slimmed `references/report-contract.md` for its genuinely scout-specific **notebook write-up +
 embedded-chart recipe** (it defers the generic contract to the prompt). The legacy signal
 channel (weak `emit_signal` findings for the pipeline to cluster) still exists in the
-harness for old custom scouts that never opted in via `allowed_tools`, but it is
-deprecated: no canonical scout uses it, and the user-facing skills (`authoring-scouts`,
-`exploring-scouts`) no longer teach it — new scouts always list the report tools.
+harness for scouts that never opted in via `allowed_tools`, but it is deprecated: the
+user-facing skills (`authoring-scouts`, `exploring-scouts`) no longer teach it — new
+scouts always list the report tools. When the last signal-channel scout is ported,
+update this note.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

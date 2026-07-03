@@ -23,8 +23,8 @@ PostHog ships a fleet of **canonical scouts** (a cross-product generalist plus p
 This skill helps you and your agent **adapt those canonical scouts to a specific project**, or **author new scouts from scratch** for a use case the fleet doesn't cover.
 
 A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
-The entire canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
-(A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for old custom scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
+The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+(A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
 A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
 The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
