@@ -461,15 +461,18 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Six tiles: KPI + the five breakdown queries.
-            expect(reloads.length).toBe(6)
+            // Seven tiles: KPI + users + the five breakdown queries.
+            expect(reloads.length).toBe(7)
             // The five breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
             expect(breakdowns).toHaveLength(5)
-            // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
+            // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+            const usersTile = reloads.find((call) => call.query?.includes('current_users'))
+            expect(usersTile?.filters.dateRange.date_from).not.toBe('-30d')
+            expect(dayjs(usersTile?.filters.dateRange.date_from).isValid()).toBe(true)
         })
 
         it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
@@ -486,7 +489,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(6)
+            expect(reloads.length).toBe(7)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -499,7 +502,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.length).toBeGreaterThanOrEqual(7)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -531,7 +534,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(6)
+            expect(reloads.length).toBe(7)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)

@@ -45,6 +45,23 @@ GROUP BY bucket
 ORDER BY bucket
 `
 
+// Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
+// Counted over the doubled window like the KPI query, then split into the selected period
+// and its equal-length predecessor with a single conditional uniq so the comparison is a
+// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// active on more than one day). `__CUR_START__` is the selected-period boundary, injected
+// as a timezone-aware toDateTime at call time.
+const USERS_QUERY = `
+SELECT
+    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+FROM events
+WHERE event = '$mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND {filters}
+`
+
 // Per-session rollup powering the Notable sessions block. The selector
 // applies fixed rules over this set; no per-rule SQL.
 const SESSION_ROWS_QUERY = `
@@ -471,6 +488,38 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        users: [
+            EMPTY_METRIC,
+            {
+                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                    const { interval, timezone } = values
+                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                    // Boundary is the selected period's start in the team timezone — make it a
+                    // tz-aware DateTime so the split lands on the same instant ClickHouse buckets on.
+                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                        filters: {
+                            ...values.queryFilters,
+                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
+                        },
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    const row = (response?.results as unknown[][])?.[0] ?? []
+                    const value = Number(row[0] ?? 0)
+                    const previousValue = Number(row[1] ?? 0)
+                    return {
+                        value,
+                        previousValue,
+                        deltaPct: deltaPct(value, previousValue),
+                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
+                        sparkline: [],
+                        goodDirection: 'up',
+                    }
+                },
+            },
+        ],
         toolRows: [
             [] as ToolRow[],
             {
@@ -647,6 +696,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
+            actions.loadUsers()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()

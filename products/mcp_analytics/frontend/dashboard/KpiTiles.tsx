@@ -60,16 +60,29 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
 
 export function KpiTiles({
     kpis,
+    users,
     intentClusterCount,
     kpisLoading,
+    usersLoading,
     theme,
 }: {
     kpis: KPIData
+    users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
+    usersLoading: boolean
     theme: ChartTheme
 }): JSX.Element {
     const tiles: TileSpec[] = [
+        {
+            label: 'Users',
+            metric: users,
+            // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
+            href: urls.mcpAnalyticsSessions(),
+            format: formatNumber,
+            color: theme.colors[2],
+            loading: usersLoading,
+        },
         {
             label: 'Sessions',
             metric: kpis.sessions,
