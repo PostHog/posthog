@@ -1581,6 +1581,8 @@ class TestRetryActions(_VisionAPITestCase):
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
+        # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
+        self.assertIn("can be scanned again", resp.json()["detail"])
         self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
 
     def test_retry_denied_without_scanner_editor_access(

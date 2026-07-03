@@ -547,9 +547,10 @@ class ReplayObservationViewSet(
                 status=status.HTTP_409_CONFLICT,
             )
         if outcome is WorkflowStartOutcome.FAILED:
+            # `detail` (not `error`) so ApiError carries the message into the frontend toast.
             return Response(
                 {
-                    "error": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
+                    "detail": "Failed to start the retry. The recording now shows as not scanned and can be scanned again."
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
