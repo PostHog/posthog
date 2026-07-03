@@ -205,7 +205,7 @@ export function createExecTool(
 
     return {
         name: 'exec',
-        title: 'Execute PostHog command',
+        title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
