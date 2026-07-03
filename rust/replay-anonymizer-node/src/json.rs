@@ -1,55 +1,59 @@
-//! Small helpers for mutating `simd_json::OwnedValue` in place, mirroring the TS scrubbers which treat
-//! every rrweb node as a generic `Record<string, unknown>`. Working on a generic value (not typed
-//! structs) preserves unknown fields exactly on round-trip, matching the TS in-place mutation.
+//! Small helpers for mutating `simd_json::BorrowedValue` in place, mirroring the TS scrubbers which
+//! treat every rrweb node as a generic `Record<string, unknown>`. Working on a generic value (not
+//! typed structs) preserves unknown fields exactly on round-trip, matching the TS in-place mutation.
+//! The borrowed tree keeps unchanged strings as zero-copy slices of the input bytes; only scrubbed
+//! values allocate (`Cow::Owned`).
 
-use simd_json::value::owned::Object;
-use simd_json::{OwnedValue, StaticNode};
+use std::borrow::Cow;
 
-pub fn as_object_mut(v: &mut OwnedValue) -> Option<&mut Object> {
+use simd_json::borrowed::{Object, Value};
+use simd_json::StaticNode;
+
+pub fn as_object_mut<'a, 'v>(v: &'a mut Value<'v>) -> Option<&'a mut Object<'v>> {
     match v {
-        OwnedValue::Object(o) => Some(o.as_mut()),
+        Value::Object(o) => Some(o.as_mut()),
         _ => None,
     }
 }
 
-pub fn as_array_mut(v: &mut OwnedValue) -> Option<&mut Vec<OwnedValue>> {
+pub fn as_array_mut<'a, 'v>(v: &'a mut Value<'v>) -> Option<&'a mut Vec<Value<'v>>> {
     match v {
-        OwnedValue::Array(a) => Some(a),
+        Value::Array(a) => Some(a),
         _ => None,
     }
 }
 
-pub fn as_object(v: &OwnedValue) -> Option<&Object> {
+pub fn as_object<'a, 'v>(v: &'a Value<'v>) -> Option<&'a Object<'v>> {
     match v {
-        OwnedValue::Object(o) => Some(o.as_ref()),
+        Value::Object(o) => Some(o.as_ref()),
         _ => None,
     }
 }
 
-pub fn as_array(v: &OwnedValue) -> Option<&Vec<OwnedValue>> {
+pub fn as_array<'a, 'v>(v: &'a Value<'v>) -> Option<&'a Vec<Value<'v>>> {
     match v {
-        OwnedValue::Array(a) => Some(a),
+        Value::Array(a) => Some(a),
         _ => None,
     }
 }
 
-pub fn as_str(v: &OwnedValue) -> Option<&str> {
+pub fn as_str<'a>(v: &'a Value<'_>) -> Option<&'a str> {
     match v {
-        OwnedValue::String(s) => Some(s.as_str()),
+        Value::String(s) => Some(s.as_ref()),
         _ => None,
     }
 }
 
-pub fn is_object(v: &OwnedValue) -> bool {
-    matches!(v, OwnedValue::Object(_))
+pub fn is_object(v: &Value<'_>) -> bool {
+    matches!(v, Value::Object(_))
 }
 
 /// A JSON number read as `u32` (accepts an integral float, matching JS `typeof x === 'number'`).
-pub fn as_u32(v: &OwnedValue) -> Option<u32> {
+pub fn as_u32(v: &Value<'_>) -> Option<u32> {
     match v {
-        OwnedValue::Static(StaticNode::I64(n)) => u32::try_from(*n).ok(),
-        OwnedValue::Static(StaticNode::U64(n)) => u32::try_from(*n).ok(),
-        OwnedValue::Static(StaticNode::F64(f))
+        Value::Static(StaticNode::I64(n)) => u32::try_from(*n).ok(),
+        Value::Static(StaticNode::U64(n)) => u32::try_from(*n).ok(),
+        Value::Static(StaticNode::F64(f))
             if f.fract() == 0.0 && *f >= 0.0 && *f <= u32::MAX as f64 =>
         {
             Some(*f as u32)
@@ -59,13 +63,21 @@ pub fn as_u32(v: &OwnedValue) -> Option<u32> {
 }
 
 /// A JSON number read as `usize` (accepts an integral non-negative float).
-pub fn as_usize(v: &OwnedValue) -> Option<usize> {
+pub fn as_usize(v: &Value<'_>) -> Option<usize> {
     match v {
-        OwnedValue::Static(StaticNode::I64(n)) => usize::try_from(*n).ok(),
-        OwnedValue::Static(StaticNode::U64(n)) => usize::try_from(*n).ok(),
-        OwnedValue::Static(StaticNode::F64(f)) if f.fract() == 0.0 && *f >= 0.0 => {
-            Some(*f as usize)
-        }
+        Value::Static(StaticNode::I64(n)) => usize::try_from(*n).ok(),
+        Value::Static(StaticNode::U64(n)) => usize::try_from(*n).ok(),
+        Value::Static(StaticNode::F64(f)) if f.fract() == 0.0 && *f >= 0.0 => Some(*f as usize),
+        _ => None,
+    }
+}
+
+/// A JSON number read as `f64` (any numeric representation), matching JS number semantics.
+pub fn as_f64(v: &Value<'_>) -> Option<f64> {
+    match v {
+        Value::Static(StaticNode::I64(n)) => Some(*n as f64),
+        Value::Static(StaticNode::U64(n)) => Some(*n as f64),
+        Value::Static(StaticNode::F64(f)) => Some(*f),
         _ => None,
     }
 }
@@ -73,25 +85,90 @@ pub fn as_usize(v: &OwnedValue) -> Option<usize> {
 /// Reads a small non-negative integer field (rrweb `type`/`source` enums). Accepts an integral float
 /// too (JS `typeof x === 'number'` matches `2.0`), so a float-encoded discriminant still routes to the
 /// right scrubber rather than silently passing through unscrubbed.
-pub fn as_small_uint(v: &OwnedValue) -> Option<u8> {
+pub fn as_small_uint(v: &Value<'_>) -> Option<u8> {
     match v {
-        OwnedValue::Static(StaticNode::F64(f))
+        Value::Static(StaticNode::F64(f))
             if f.fract() == 0.0 && *f >= 0.0 && *f <= u8::MAX as f64 =>
         {
             Some(*f as u8)
         }
-        OwnedValue::Static(StaticNode::I64(n)) => u8::try_from(*n).ok(),
-        OwnedValue::Static(StaticNode::U64(n)) => u8::try_from(*n).ok(),
+        Value::Static(StaticNode::I64(n)) => u8::try_from(*n).ok(),
+        Value::Static(StaticNode::U64(n)) => u8::try_from(*n).ok(),
         _ => None,
     }
 }
 
-pub fn is_true(v: &OwnedValue) -> bool {
-    matches!(v, OwnedValue::Static(StaticNode::Bool(true)))
+pub fn is_true(v: &Value<'_>) -> bool {
+    matches!(v, Value::Static(StaticNode::Bool(true)))
 }
 
-pub fn string_value(s: String) -> OwnedValue {
-    OwnedValue::String(s)
+pub fn string_value(s: String) -> Value<'static> {
+    Value::String(Cow::Owned(s))
+}
+
+/// A `'static` object key, so inserts don't tie the map's lifetime to a local.
+pub fn key(name: &'static str) -> Cow<'static, str> {
+    Cow::Borrowed(name)
+}
+
+/// Restore `JSON.parse` duplicate-key semantics on a parsed tree: simd-json's object builder keeps
+/// *every* entry for a duplicated key (`get` returns the first, serialization emits all of them),
+/// while `JSON.parse` keeps only the last. Left alone, that both diverges from the TS scrubbers and
+/// leaks: the walk would scrub the first copy and re-serialize the raw second copy verbatim. Objects
+/// with duplicates are rebuilt keeping the last occurrence, recursively.
+///
+/// Errs on objects too large to dedupe deterministically: halfbrown switches to hash storage past its
+/// vec threshold, where the original insertion order (and so "last") is unrecoverable — fail closed.
+pub fn dedupe_in_place(v: &mut Value<'_>) -> anyhow::Result<()> {
+    match v {
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                dedupe_in_place(item)?;
+            }
+        }
+        Value::Object(obj) => {
+            if has_duplicate_keys(obj) {
+                // Past halfbrown's vec-mode limit iteration order is no longer insertion order, so
+                // "last occurrence wins" cannot be reproduced — reject rather than guess.
+                if obj.len() > 32 {
+                    anyhow::bail!("cannot dedupe duplicate keys in a large object");
+                }
+                let entries: Vec<(Cow<'_, str>, Value<'_>)> =
+                    std::mem::take(obj.as_mut()).into_iter().collect();
+                let rebuilt = obj.as_mut();
+                for (k, val) in entries {
+                    rebuilt.insert(k, val);
+                }
+            }
+            for (_, val) in obj.iter_mut() {
+                dedupe_in_place(val)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn has_duplicate_keys(obj: &Object<'_>) -> bool {
+    let n = obj.len();
+    if n < 2 {
+        return false;
+    }
+    if n <= 16 {
+        let keys: Vec<&str> = obj.keys().map(|k| k.as_ref()).collect();
+        (1..keys.len()).any(|i| keys[..i].contains(&keys[i]))
+    } else {
+        let mut seen = std::collections::HashSet::with_capacity(n);
+        obj.keys().any(|k| !seen.insert(k.as_ref()))
+    }
+}
+
+/// Parse untrusted JSON bytes to a borrowed tree with `JSON.parse` semantics (duplicate keys deduped,
+/// last occurrence wins). All event-content parses must go through this, not `to_borrowed_value`.
+pub fn parse_untrusted<'v>(bytes: &'v mut [u8]) -> anyhow::Result<Value<'v>> {
+    let mut value = simd_json::to_borrowed_value(bytes)?;
+    dedupe_in_place(&mut value)?;
+    Ok(value)
 }
 
 // Untrusted rrweb can nest arbitrarily deep. Both the simd-json parse and the recursive scrub walk one

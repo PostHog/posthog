@@ -7,13 +7,15 @@ use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use simd_json::borrowed::{Object, Value};
 use simd_json::prelude::Writable;
-use simd_json::value::owned::Object;
-use simd_json::{OwnedValue, StaticNode};
+use simd_json::StaticNode;
 
 use crate::context::Ctx;
-use crate::dom::{scrub_full_snapshot, scrub_mutation};
-use crate::json::{as_object_mut, reject_if_too_deep};
+use crate::dom::{
+    scrub_full_snapshot, scrub_mutation_adds, scrub_mutation_attributes, scrub_mutation_texts,
+};
+use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string_value};
 
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1).
 fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
@@ -35,7 +37,8 @@ fn bytes_to_latin1(bytes: &[u8]) -> String {
 // Cap decompressed `cv` size so a gzip bomb can't OOM the worker thread.
 const MAX_DECOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 
-fn decompress_string(s: &str) -> Result<OwnedValue> {
+/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, depth-guarded and size-capped.
+fn decompress_string(s: &str) -> Result<Vec<u8>> {
     let raw = latin1_to_bytes(s)?;
     let mut json = Vec::new();
     GzDecoder::new(&raw[..])
@@ -49,118 +52,90 @@ fn decompress_string(s: &str) -> Result<OwnedValue> {
     // decompressed payload — both the parse and the scrub recurse per level, so an over-deep `cv` blob
     // would otherwise overflow the worker-thread stack (an abort catch_unwind cannot contain).
     reject_if_too_deep(&json, "cv payload")?;
-    let value = simd_json::to_owned_value(&mut json).context("parse cv payload")?;
-    Ok(value)
+    Ok(json)
 }
 
-fn compress_to_string(value: &OwnedValue) -> Result<String> {
-    let json = value.encode();
+fn compress_bytes(json: &[u8]) -> Result<String> {
     let mut gz = GzEncoder::new(Vec::new(), Compression::default());
-    gz.write_all(json.as_bytes()).context("gzip cv payload")?;
+    gz.write_all(json).context("gzip cv payload")?;
     let zipped = gz.finish().context("finish gzip")?;
     Ok(bytes_to_latin1(&zipped))
 }
 
-/// Scrub a `cv`-compressed FullSnapshot event in place. Returns whether it changed.
-pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, event: &mut Object) -> Result<bool> {
-    match event.get("data") {
-        Some(OwnedValue::String(s)) => {
-            let s = s.clone();
-            let mut payload = decompress_string(&s)?;
-            if !scrub_full_snapshot(ctx, &mut payload) {
-                return Ok(false);
-            }
-            event.insert(
-                "data".to_string(),
-                OwnedValue::String(compress_to_string(&payload)?),
-            );
-            Ok(true)
-        }
-        Some(_) => {
-            // Not actually whole-blob compressed — scrub as a plain object.
-            let data = event.get_mut("data").unwrap();
-            Ok(scrub_full_snapshot(ctx, data))
-        }
-        None => Ok(false),
+fn compress_value(value: &Value<'_>) -> Result<String> {
+    compress_bytes(value.encode().as_bytes())
+}
+
+/// Scrub a `cv`-compressed FullSnapshot `data` value (a gzipped latin-1 string) in place. Returns
+/// whether it changed. The caller has already checked the value is a string; non-string data routes
+/// through the plain scrub instead.
+pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Result<bool> {
+    let Value::String(s) = &*data else {
+        bail!("compressed full snapshot data is not a string");
+    };
+    // The decompressed payload lives in its own scratch buffer; the parsed tree borrows it and is
+    // dropped (re-serialized) before anything is written back.
+    let mut scratch = decompress_string(s)?;
+    let mut payload = parse_untrusted(&mut scratch).context("parse cv payload")?;
+    if !scrub_full_snapshot(ctx, &mut payload) {
+        return Ok(false);
+    }
+    let recompressed = compress_value(&payload)?;
+    *data = string_value(recompressed);
+    Ok(true)
+}
+
+// Per-sub-field scrub dispatch for the synthetic mutation pieces.
+fn scrub_sub(ctx: &Ctx<'_>, sub_key: &str, arr: &mut Vec<Value<'_>>) -> bool {
+    match sub_key {
+        "texts" => scrub_mutation_texts(ctx, arr),
+        "attributes" => scrub_mutation_attributes(ctx, arr),
+        "adds" => scrub_mutation_adds(ctx, arr),
+        _ => unreachable!("unknown cv mutation sub-field"),
     }
 }
 
-enum Sub {
-    Skip,                // absent -> leave absent
-    Restore(OwnedValue), // null / empty-string -> put back verbatim
-    Array,               // plain array -> scrubbed in place
-    Compressed(String),  // gzipped string -> recompress on change, else keep original
-}
+/// Scrub a `cv`-compressed Mutation `data` object in place. Returns whether it changed.
+///
+/// Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. Plain
+/// arrays are scrubbed in place inside the event tree. Gzipped sub-fields are each decompressed into
+/// their own scratch buffer, scrubbed as an independent borrowed tree, and re-serialized; when *any*
+/// sub-field changed, every gzipped sub-field is re-compressed from its (possibly unchanged) scrubbed
+/// form — matching the TS behavior — otherwise the original strings are kept verbatim.
+pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result<bool> {
+    const KEYS: [&str; 3] = ["texts", "attributes", "adds"];
 
-/// Scrub a `cv`-compressed Mutation event in place. Returns whether it changed.
-pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, event: &mut Object) -> Result<bool> {
-    let Some(data) = event.get_mut("data").and_then(as_object_mut) else {
-        return Ok(false);
-    };
+    let mut changed = false;
+    // For each gzipped sub-field: (key, scrubbed JSON bytes) to re-compress on change.
+    let mut recompress: Vec<(&'static str, Vec<u8>)> = Vec::new();
 
-    // Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. We move
-    // each out of `data`, scrub via a synthetic mutation, then always put a value back (even when
-    // nothing changed) so no sub-field is dropped. The synthetic holds only these three sub-fields:
-    // `scrub_mutation` never reads `data.source`, so omitting it here is safe.
-    let keys = ["texts", "attributes", "adds"];
-    let mut synthetic = Object::default();
-    let mut plan: Vec<Sub> = Vec::with_capacity(keys.len());
-
-    for key in keys {
-        let sub = match data.remove(key) {
-            None => Sub::Skip,
-            Some(v @ OwnedValue::Static(StaticNode::Null)) => Sub::Restore(v),
-            Some(OwnedValue::String(s)) if s.is_empty() => Sub::Restore(OwnedValue::String(s)),
-            Some(OwnedValue::String(s)) => {
-                let decoded = decompress_string(&s)?;
-                if !matches!(decoded, OwnedValue::Array(_)) {
+    for sub_key in KEYS {
+        match data.get_mut(sub_key) {
+            None => {}                                   // absent -> leave absent
+            Some(Value::Static(StaticNode::Null)) => {}  // null -> keep verbatim
+            Some(Value::String(s)) if s.is_empty() => {} // empty string -> keep verbatim
+            Some(Value::String(s)) => {
+                let mut scratch = decompress_string(s)?;
+                let mut decoded =
+                    parse_untrusted(&mut scratch).context("parse cv mutation sub-field")?;
+                let Some(arr) = as_array_mut(&mut decoded) else {
                     // Fail closed: a decodable-but-non-array sub-field is malformed.
                     bail!("cv mutation sub-field did not decode to an array");
-                }
-                synthetic.insert(key.to_string(), decoded);
-                Sub::Compressed(s)
+                };
+                changed |= scrub_sub(ctx, sub_key, arr);
+                recompress.push((sub_key, decoded.encode().into_bytes()));
             }
-            Some(arr @ OwnedValue::Array(_)) => {
-                synthetic.insert(key.to_string(), arr);
-                Sub::Array
+            Some(v @ Value::Array(_)) => {
+                let arr = as_array_mut(v).expect("matched array");
+                changed |= scrub_sub(ctx, sub_key, arr);
             }
             Some(_) => bail!("cv mutation sub-field is neither a gzipped string nor an array"),
-        };
-        plan.push(sub);
+        }
     }
 
-    let mut synthetic_val = OwnedValue::Object(Box::new(synthetic));
-    let changed = scrub_mutation(ctx, &mut synthetic_val);
-    let synthetic = as_object_mut(&mut synthetic_val).expect("synthetic is an object");
-
-    // event.data was invalidated by the reborrow above; re-fetch it.
-    let data = event.get_mut("data").and_then(as_object_mut).unwrap();
-    for (key, sub) in keys.iter().zip(plan) {
-        match sub {
-            Sub::Skip => {}
-            Sub::Restore(v) => {
-                data.insert(key.to_string(), v);
-            }
-            Sub::Array => {
-                let arr = synthetic
-                    .remove(*key)
-                    .unwrap_or(OwnedValue::Array(Box::default()));
-                data.insert(key.to_string(), arr);
-            }
-            Sub::Compressed(orig) => {
-                let arr = synthetic
-                    .remove(*key)
-                    .unwrap_or(OwnedValue::Array(Box::default()));
-                if changed {
-                    data.insert(
-                        key.to_string(),
-                        OwnedValue::String(compress_to_string(&arr)?),
-                    );
-                } else {
-                    // Nothing changed — keep the original bytes rather than re-gzipping.
-                    data.insert(key.to_string(), OwnedValue::String(orig));
-                }
-            }
+    if changed {
+        for (sub_key, json) in recompress {
+            data.insert(key(sub_key), string_value(compress_bytes(&json)?));
         }
     }
 
@@ -173,73 +148,59 @@ mod tests {
     use crate::allow_lists::AllowLists;
     use crate::context::Ctx;
     use crate::json::{as_array, as_object, as_str};
+    use std::borrow::Cow;
+
+    fn parse(json: &'static [u8]) -> Value<'static> {
+        simd_json::to_borrowed_value(Vec::leak(json.to_vec())).unwrap()
+    }
+
+    fn compress_json(json: &[u8]) -> String {
+        compress_bytes(json).unwrap()
+    }
+
+    fn decompress_value(s: &str) -> serde_json::Value {
+        serde_json::from_slice(&decompress_string(s).unwrap()).unwrap()
+    }
 
     #[test]
     fn compressed_mutation_scrubs_then_re_gzips_and_preserves_subfields() {
         let allow = AllowLists::new(["keep"], Vec::<String>::new());
-        let texts: OwnedValue =
-            simd_json::to_owned_value(&mut br#"[{"id":5,"value":"keep secret"}]"#.to_vec())
-                .unwrap();
-        let texts_gz = compress_to_string(&texts).unwrap();
+        let texts_gz = compress_json(br#"[{"id":5,"value":"keep secret"}]"#);
 
         let mut data = Object::default();
-        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
-        data.insert("texts".to_string(), OwnedValue::String(texts_gz));
-        let mut event = Object::default();
-        event.insert("data".to_string(), OwnedValue::Object(Box::new(data)));
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), string_value(texts_gz));
 
         let ctx = Ctx::new(&allow);
-        let changed = scrub_compressed_mutation(&ctx, &mut event).unwrap();
+        let changed = scrub_compressed_mutation(&ctx, &mut data).unwrap();
         assert!(changed);
 
-        let data = as_object(event.get("data").unwrap()).unwrap();
         // Still a gzipped string, and it round-trips to the scrubbed value.
         let out_gz = as_str(data.get("texts").unwrap()).unwrap();
-        let decoded = decompress_string(out_gz).unwrap();
-        let value = as_str(
-            as_object(&as_array(&decoded).unwrap()[0])
-                .unwrap()
-                .get("value")
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(value, "keep ******");
+        let decoded = decompress_value(out_gz);
+        assert_eq!(decoded[0]["value"], "keep ******");
         // Absent sub-fields stay absent (not resurrected as empty).
         assert!(!data.contains_key("attributes"));
         assert!(!data.contains_key("adds"));
-    }
-
-    fn parse(json: &[u8]) -> OwnedValue {
-        simd_json::to_owned_value(&mut json.to_vec()).unwrap()
-    }
-
-    fn event_with_data(data: Object) -> Object {
-        let mut event = Object::default();
-        event.insert("data".to_string(), OwnedValue::Object(Box::new(data)));
-        event
     }
 
     #[test]
     fn compressed_full_snapshot_round_trips_and_scrubs() {
         let allow = AllowLists::new(["keep"], Vec::<String>::new());
         let ctx = Ctx::new(&allow);
-        let payload = parse(
+        let gz = compress_json(
             br#"{"node":{"type":0,"childNodes":[{"type":3,"textContent":"keep secret"}]},"initialOffset":{"top":0,"left":0}}"#,
         );
-        let mut event = Object::default();
-        event.insert(
-            "data".to_string(),
-            OwnedValue::String(compress_to_string(&payload).unwrap()),
+        let mut data = string_value(gz);
+
+        assert!(scrub_compressed_full_snapshot(&ctx, &mut data).unwrap());
+
+        let out_gz = as_str(&data).unwrap();
+        let decoded = decompress_value(out_gz);
+        assert_eq!(
+            decoded["node"]["childNodes"][0]["textContent"],
+            "keep ******"
         );
-
-        assert!(scrub_compressed_full_snapshot(&ctx, &mut event).unwrap());
-
-        let out_gz = as_str(event.get("data").unwrap()).unwrap();
-        let decoded = decompress_string(out_gz).unwrap();
-        let node = as_object(as_object(&decoded).unwrap().get("node").unwrap()).unwrap();
-        let child = &as_array(node.get("childNodes").unwrap()).unwrap()[0];
-        let text = as_str(as_object(child).unwrap().get("textContent").unwrap()).unwrap();
-        assert_eq!(text, "keep ******");
     }
 
     #[test]
@@ -247,19 +208,17 @@ mod tests {
         let allow = AllowLists::new(["keep"], Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut data = Object::default();
-        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
         // Sub-field arrives as a plain array (not gzipped) — scrub in place, keep it an array.
         data.insert(
-            "texts".to_string(),
+            Cow::Borrowed("texts"),
             parse(br#"[{"id":5,"value":"keep secret"}]"#),
         );
-        let mut event = event_with_data(data);
 
-        assert!(scrub_compressed_mutation(&ctx, &mut event).unwrap());
+        assert!(scrub_compressed_mutation(&ctx, &mut data).unwrap());
 
-        let data = as_object(event.get("data").unwrap()).unwrap();
         let texts = data.get("texts").unwrap();
-        assert!(matches!(texts, OwnedValue::Array(_)), "stays a plain array");
+        assert!(matches!(texts, Value::Array(_)), "stays a plain array");
         let value = as_str(
             as_object(&as_array(texts).unwrap()[0])
                 .unwrap()
@@ -275,17 +234,15 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut data = Object::default();
-        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
-        data.insert("texts".to_string(), OwnedValue::Static(StaticNode::Null));
-        data.insert("attributes".to_string(), OwnedValue::String(String::new()));
-        let mut event = event_with_data(data);
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), Value::Static(StaticNode::Null));
+        data.insert(Cow::Borrowed("attributes"), string_value(String::new()));
 
-        scrub_compressed_mutation(&ctx, &mut event).unwrap();
+        scrub_compressed_mutation(&ctx, &mut data).unwrap();
 
-        let data = as_object(event.get("data").unwrap()).unwrap();
         assert!(matches!(
             data.get("texts"),
-            Some(OwnedValue::Static(StaticNode::Null))
+            Some(Value::Static(StaticNode::Null))
         ));
         assert_eq!(as_str(data.get("attributes").unwrap()).unwrap(), "");
     }
@@ -295,13 +252,12 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut data = Object::default();
-        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
         data.insert(
-            "texts".to_string(),
-            OwnedValue::String(compress_to_string(&parse(br#"{"a":1}"#)).unwrap()),
+            Cow::Borrowed("texts"),
+            string_value(compress_json(br#"{"a":1}"#)),
         );
-        let mut event = event_with_data(data);
-        assert!(scrub_compressed_mutation(&ctx, &mut event).is_err());
+        assert!(scrub_compressed_mutation(&ctx, &mut data).is_err());
     }
 
     #[test]
@@ -315,13 +271,8 @@ mod tests {
         // test only passes because the guard rejects it up front.
         let n = crate::json::MAX_JSON_DEPTH + 10;
         let deep = format!("{}{}", "[".repeat(n), "]".repeat(n));
-        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
-        gz.write_all(deep.as_bytes()).unwrap();
-        let data = bytes_to_latin1(&gz.finish().unwrap());
-
-        let mut event = Object::default();
-        event.insert("data".to_string(), OwnedValue::String(data));
-        assert!(scrub_compressed_full_snapshot(&ctx, &mut event).is_err());
+        let mut data = string_value(compress_json(deep.as_bytes()));
+        assert!(scrub_compressed_full_snapshot(&ctx, &mut data).is_err());
     }
 
     #[test]
@@ -329,13 +280,12 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut data = Object::default();
-        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
         // A codepoint > 0xFF can't be a latin-1 gzip byte — must fail closed, not silently pass.
         data.insert(
-            "texts".to_string(),
-            OwnedValue::String("\u{100}bad".to_string()),
+            Cow::Borrowed("texts"),
+            string_value("\u{100}bad".to_string()),
         );
-        let mut event = event_with_data(data);
-        assert!(scrub_compressed_mutation(&ctx, &mut event).is_err());
+        assert!(scrub_compressed_mutation(&ctx, &mut data).is_err());
     }
 }

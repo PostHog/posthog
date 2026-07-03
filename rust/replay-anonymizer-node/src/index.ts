@@ -9,24 +9,68 @@ export interface AllowListsInput {
     url: string[]
 }
 
-export interface AnonymizeResult {
-    /** Scrubbed `eventsByWindowId` JSON, or `null` when nothing changed (keep the original). */
-    data: string | null
-    /** True if an event could not be anonymized — the caller must drop the message (fail-closed). */
-    failed: boolean
-    /** Failure detail when `failed` is true, else `null`. */
-    error: string | null
+// Per-event flag bits in `AnonymizeEventMeta.flags` (see `snapshot.rs`).
+export const EVENT_FLAG_ACTIVE = 1
+export const EVENT_FLAG_CLICK = 2
+export const EVENT_FLAG_KEYPRESS = 4
+export const EVENT_FLAG_MOUSE_ACTIVITY = 8
+
+/** Per emitted JSONL line, in line order. */
+export interface AnonymizeEventMeta {
+    /** The event's `timestamp` (epoch ms; can be fractional). */
+    ts: number
+    /** Bitmask of the EVENT_FLAG_* bits. */
+    flags: number
+    /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
+    href?: string
 }
 
-/** Initialize the process-wide allow lists. Call once at startup before {@link anonymize}. */
+/** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
+export interface AnonymizeMeta {
+    distinctId: string
+    /** Raw `$session_id` — normalization stays in TS. */
+    sessionId: string
+    /** `$window_id ?? ''`. */
+    windowId: string
+    snapshotSource: string | null
+    snapshotLibrary: string | null
+    /** Min/max valid-event timestamps (epoch ms). */
+    startTs: number
+    endTs: number
+    /** rrweb/console@1 plugin events by level. */
+    consoleLogCount: number
+    consoleWarnCount: number
+    consoleErrorCount: number
+    events: AnonymizeEventMeta[]
+}
+
+export interface AnonymizeKafkaPayloadResult {
+    /** True if the message could not be anonymized — the caller must drop or DLQ it (fail-closed). */
+    failed: boolean
+    /**
+     * Failure classification when `failed`, matching the TS parse step's dlq/drop reasons:
+     * `invalid_json` | `invalid_message_payload` | `received_non_snapshot_message` |
+     * `message_contained_no_valid_rrweb_events` | `anonymize_failed`.
+     */
+    reason: string | null
+    /** Failure detail when `failed`, else `null`. */
+    error: string | null
+    /** Scrubbed JSONL block lines (`["<windowId>",<event>]\n` per valid event), ready to write. */
+    lines: Buffer | null
+    /** JSON-serialized {@link AnonymizeMeta}. */
+    meta: string | null
+}
+
+/** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */
 export function initAnonymizer(allow: AllowListsInput): void {
     native.initAnonymizer(JSON.stringify(allow))
 }
 
 /**
- * Anonymize a serialized `eventsByWindowId` map ({@link https://github.com/rrweb-io/rrweb rrweb} events
- * keyed by window id). CPU work runs off the Node event loop.
+ * Anonymize a decompressed replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`).
+ * Rust owns the parse, the scrub, and the serialize; only the raw bytes cross the FFI boundary.
+ * CPU work runs off the Node event loop.
  */
-export function anonymize(eventsJson: string): Promise<AnonymizeResult> {
-    return native.anonymize(eventsJson)
+export function anonymizeKafkaPayload(payload: Buffer): Promise<AnonymizeKafkaPayloadResult> {
+    return native.anonymizeKafkaPayload(payload)
 }

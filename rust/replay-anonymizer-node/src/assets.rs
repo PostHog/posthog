@@ -2,12 +2,13 @@
 //! Blur runs inline (native), so there is no deferred-job/blank-first dance — the attribute lands on
 //! its final blurred (or placeholder) value directly.
 
-use simd_json::value::owned::Object;
-use simd_json::OwnedValue;
+use std::borrow::Cow;
+
+use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{blank_image_data_uri, is_image_data_uri};
 use crate::context::Ctx;
-use crate::json::as_str;
+use crate::json::{as_str, string_value};
 use crate::url::scrub_url_opts;
 
 // rrweb inlines rendered pixels (a `toDataURL()` snapshot) into this attribute.
@@ -29,13 +30,13 @@ pub fn is_media_src_attr(name: &str) -> bool {
 }
 
 /// True if an attribute map contains any media-source attribute.
-pub fn has_media_src_attr(attrs: &Object) -> bool {
+pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
     MEDIA_SRC_ATTRS.iter().any(|name| attrs.contains_key(*name))
 }
 
 /// Blur an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
 /// Returns whether it acted.
-pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object, name: &str) -> bool {
+pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str) -> bool {
     let Some(value) = attrs.get(name).and_then(as_str).map(str::to_string) else {
         return false;
     };
@@ -45,14 +46,14 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object, name: &str) -> 
     let blurred = ctx
         .blur_data_uri(&value)
         .unwrap_or_else(blank_image_data_uri);
-    attrs.insert(name.to_string(), OwnedValue::String(blurred));
+    attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
     true
 }
 
 /// Replace a media element's source attrs with the blurred image (data URIs) or placeholder (remote
 /// URLs, whose scrubbed original is stashed under a namespaced attr). Returns whether it changed any
 /// attribute — a media tag with no source attrs (e.g. a bare `<img>`) is left untouched.
-pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) -> bool {
+pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
     let mut acted = false;
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
@@ -63,18 +64,18 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) -> bool {
             let blurred = ctx
                 .blur_data_uri(&existing)
                 .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
-            attrs.insert(key.to_string(), OwnedValue::String(blurred));
+            attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
             // Host-scrubbed too so a CDN host can't leak; stashed under a namespaced attr that won't
             // collide with an app `data-original-*`.
             let scrubbed = scrub_url_opts(ctx.allow, &existing, true).unwrap_or(existing);
             attrs.insert(
-                key.to_string(),
-                OwnedValue::String(PLACEHOLDER_SRC.to_string()),
+                Cow::Borrowed(*key),
+                Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
             );
             attrs.insert(
-                format!("data-anon-original-{key}"),
-                OwnedValue::String(scrubbed),
+                Cow::Owned(format!("data-anon-original-{key}")),
+                string_value(scrubbed),
             );
         }
     }

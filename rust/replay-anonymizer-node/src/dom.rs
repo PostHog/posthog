@@ -1,9 +1,8 @@
 //! Walks parsed rrweb serialized nodes, scrubbing text content and attributes in place.
-//! Mirrors `anonymize/dom.ts`, operating on `simd_json::OwnedValue` (generic objects) so unknown
+//! Mirrors `anonymize/dom.ts`, operating on `simd_json::BorrowedValue` (generic objects) so unknown
 //! fields survive the round-trip exactly, matching the TS in-place mutation.
 
-use simd_json::value::owned::Object;
-use simd_json::OwnedValue;
+use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
     apply_blur, blur_inline_image_attr, has_media_src_attr, is_media_src_attr, is_media_tag,
@@ -11,7 +10,9 @@ use crate::assets::{
 };
 use crate::context::Ctx;
 use crate::css::scrub_css_images;
-use crate::json::{as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true};
+use crate::json::{
+    as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true, key, string_value,
+};
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
 
@@ -37,7 +38,7 @@ enum TagKind {
     Other,
 }
 
-pub fn scrub_full_snapshot(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
+pub fn scrub_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
@@ -47,57 +48,76 @@ pub fn scrub_full_snapshot(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
     }
 }
 
-pub fn scrub_mutation(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
+pub fn scrub_mutation(ctx: &Ctx<'_>, data: &mut Value<'_>) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
     let mut changed = false;
 
     if let Some(texts) = obj.get_mut("texts").and_then(as_array_mut) {
-        for t in texts.iter_mut() {
-            if let Some(tobj) = as_object_mut(t) {
-                let cur = tobj.get("value").and_then(as_str).map(str::to_string);
-                if let Some(v) = cur {
-                    if let Some(nv) = scrub_text(ctx.allow, &v) {
-                        tobj.insert("value".to_string(), OwnedValue::String(nv));
-                        changed = true;
-                    }
-                }
-            }
-        }
+        changed |= scrub_mutation_texts(ctx, texts);
     }
-
     if let Some(attributes) = obj.get_mut("attributes").and_then(as_array_mut) {
-        for a in attributes.iter_mut() {
-            if let Some(aobj) = as_object_mut(a) {
-                if let Some(attrs) = aobj.get_mut("attributes").and_then(as_object_mut) {
-                    let kind = if has_media_src_attr(attrs) {
-                        TagKind::Media
-                    } else {
-                        TagKind::Other
-                    };
-                    changed |= scrub_attrs(ctx, attrs, kind);
-                }
-            }
-        }
+        changed |= scrub_mutation_attributes(ctx, attributes);
     }
-
     if let Some(adds) = obj.get_mut("adds").and_then(as_array_mut) {
-        for added in adds.iter_mut() {
-            if let Some(aobj) = as_object_mut(added) {
-                if let Some(node) = aobj.get_mut("node") {
-                    if is_object(node) {
-                        changed |= walk_node(ctx, node, ParentKind::Other);
-                    }
-                }
-            }
-        }
+        changed |= scrub_mutation_adds(ctx, adds);
     }
 
     changed
 }
 
-fn walk_node(ctx: &Ctx<'_>, node: &mut OwnedValue, parent: ParentKind) -> bool {
+// The three sub-scrubs are exposed separately so the `cv` path can run each decompressed sub-field as
+// its own borrowed tree (each borrows a different scratch buffer).
+
+pub fn scrub_mutation_texts(ctx: &Ctx<'_>, texts: &mut Vec<Value<'_>>) -> bool {
+    let mut changed = false;
+    for t in texts.iter_mut() {
+        if let Some(tobj) = as_object_mut(t) {
+            let cur = tobj.get("value").and_then(as_str);
+            if let Some(v) = cur {
+                if let Some(nv) = scrub_text(ctx.allow, v) {
+                    tobj.insert(key("value"), string_value(nv));
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+pub fn scrub_mutation_attributes(ctx: &Ctx<'_>, attributes: &mut Vec<Value<'_>>) -> bool {
+    let mut changed = false;
+    for a in attributes.iter_mut() {
+        if let Some(aobj) = as_object_mut(a) {
+            if let Some(attrs) = aobj.get_mut("attributes").and_then(as_object_mut) {
+                let kind = if has_media_src_attr(attrs) {
+                    TagKind::Media
+                } else {
+                    TagKind::Other
+                };
+                changed |= scrub_attrs(ctx, attrs, kind);
+            }
+        }
+    }
+    changed
+}
+
+pub fn scrub_mutation_adds(ctx: &Ctx<'_>, adds: &mut Vec<Value<'_>>) -> bool {
+    let mut changed = false;
+    for added in adds.iter_mut() {
+        if let Some(aobj) = as_object_mut(added) {
+            if let Some(node) = aobj.get_mut("node") {
+                if is_object(node) {
+                    changed |= walk_node(ctx, node, ParentKind::Other);
+                }
+            }
+        }
+    }
+    changed
+}
+
+fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind) -> bool {
     let Some(obj) = as_object_mut(node) else {
         return false;
     };
@@ -105,12 +125,7 @@ fn walk_node(ctx: &Ctx<'_>, node: &mut OwnedValue, parent: ParentKind) -> bool {
 
     match obj.get("type").and_then(as_small_uint) {
         Some(NODE_ELEMENT) => {
-            let tag = obj
-                .get("tagName")
-                .and_then(as_str)
-                .unwrap_or("")
-                .to_string();
-            let kind = classify_tag(&tag);
+            let kind = classify_tag(obj.get("tagName").and_then(as_str).unwrap_or(""));
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
                 changed |= scrub_attrs(ctx, attrs, kind);
             }
@@ -156,13 +171,13 @@ fn walk_node(ctx: &Ctx<'_>, node: &mut OwnedValue, parent: ParentKind) -> bool {
     changed
 }
 
-fn scrub_text_content(ctx: &Ctx<'_>, obj: &mut Object) -> bool {
-    let Some(cur) = obj.get("textContent").and_then(as_str).map(str::to_string) else {
+fn scrub_text_content(ctx: &Ctx<'_>, obj: &mut Object<'_>) -> bool {
+    let Some(cur) = obj.get("textContent").and_then(as_str) else {
         return false;
     };
-    match scrub_text(ctx.allow, &cur) {
+    match scrub_text(ctx.allow, cur) {
         Some(v) => {
-            obj.insert("textContent".to_string(), OwnedValue::String(v));
+            obj.insert(key("textContent"), string_value(v));
             true
         }
         None => false,
@@ -181,9 +196,9 @@ fn classify_tag(tag: &str) -> TagKind {
     }
 }
 
-fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object, kind: TagKind) -> bool {
+fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
     let mut changed = false;
-    let names: Vec<String> = attrs.keys().cloned().collect();
+    let names: Vec<String> = attrs.keys().map(|k| k.to_string()).collect();
 
     for name in names {
         if kind == TagKind::Media && is_media_src_attr(&name) {
@@ -195,31 +210,27 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object, kind: TagKind) -> bool {
             continue;
         }
         // Only string attribute values are scrubbed.
-        let Some(value) = attrs
-            .get(name.as_str())
-            .and_then(as_str)
-            .map(str::to_string)
-        else {
+        let Some(value) = attrs.get(name.as_str()).and_then(as_str) else {
             continue;
         };
         let result = if is_url_attr(&name) {
-            scrub_url(ctx.allow, &value)
+            scrub_url(ctx.allow, value)
         } else if name == "style" {
             changed |= scrub_css_images(ctx, attrs, &name);
             continue;
         } else if is_user_text_attr(&name) {
-            scrub_text(ctx.allow, &value)
+            scrub_text(ctx.allow, value)
         } else if is_data_attr(&name) {
-            if data_attr_looks_sensitive(&value) {
-                scrub_text(ctx.allow, &value)
+            if data_attr_looks_sensitive(value) {
+                scrub_text(ctx.allow, value)
             } else {
-                redact_emails(&value)
+                redact_emails(value)
             }
         } else {
             continue;
         };
         if let Some(v) = result {
-            attrs.insert(name.clone(), OwnedValue::String(v));
+            attrs.insert(name.into(), string_value(v));
             changed = true;
         }
     }
@@ -287,7 +298,7 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut bytes = data_json.as_bytes().to_vec();
-        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
         scrub_full_snapshot(&ctx, &mut data);
         serde_json::from_str(&data.encode()).unwrap()
     }
@@ -331,7 +342,7 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut bytes = br#"{"node":{"type":0,"childNodes":[{"type":2,"tagName":"img","attributes":{"class":"logo"},"childNodes":[]}]},"initialOffset":{"top":0,"left":0}}"#.to_vec();
-        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
         assert!(
             !scrub_full_snapshot(&ctx, &mut data),
             "a media tag with nothing to blur should not count as a change"

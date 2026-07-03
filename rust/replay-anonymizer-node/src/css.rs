@@ -2,21 +2,22 @@
 //! regex `URL_DATA_IMAGE_RE` is replaced with a single linear left-to-right scan (no backtracking).
 //! `None` means "unchanged".
 
-use simd_json::value::owned::Object;
-use simd_json::OwnedValue;
+use std::borrow::Cow;
+
+use simd_json::borrowed::Object;
 
 use crate::blur::{blank_image_data_uri, is_image_data_uri};
 use crate::context::Ctx;
-use crate::json::as_str;
+use crate::json::{as_str, string_value};
 
 /// Scrub `container[key]` if it is a CSS string; returns whether it changed.
-pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object, key: &str) -> bool {
+pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object<'_>, key: &str) -> bool {
     let Some(css) = container.get(key).and_then(as_str).map(str::to_string) else {
         return false;
     };
     match rewrite(ctx, &css) {
         Some(v) => {
-            container.insert(key.to_string(), OwnedValue::String(v));
+            container.insert(Cow::Owned(key.to_string()), string_value(v));
             true
         }
         None => false,

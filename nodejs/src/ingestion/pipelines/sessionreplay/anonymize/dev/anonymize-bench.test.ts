@@ -1,9 +1,11 @@
 /* eslint-disable no-console */
-// Synthetic-recording benchmark: TS scrubbers vs the native Rust addon, on a large rrweb message.
-// Not a correctness test — it lives under dev/ and is excluded from the suite. Run explicitly:
+// Synthetic-recording benchmark: the TS pipeline path vs the native byte-FFI addon, end to end on a
+// large rrweb message. Not a correctness test — it lives under dev/ and is excluded from the suite.
+// Run explicitly:
 //   un-skip the it() below, then: pnpm exec jest anonymize-bench --runInBand --testPathIgnorePatterns=
-// It drives the same functions the pipeline uses (anonymizeEvent loop + runBlurJobs for TS; the
-// stringify -> addon.anonymize -> parse round-trip for Rust) so the numbers include the FFI tax.
+// Both sides do the full per-message work the pipeline pays for events: TS = JSON.parse the payload +
+// anonymizeEvent loop + runBlurJobs + per-line JSON.stringify (what the recorder does); Rust = one
+// addon call over the payload bytes (the addon owns parse, scrub and serialize).
 // It also dumps the fixtures to /tmp/replay-bench-*.json for the Rust dev/anonymize_bench.rs example.
 import { AllowLists } from '../allow-lists'
 import { anonymizeEvent } from '../anonymize-event'
@@ -244,8 +246,33 @@ describe('anonymize benchmark (opt-in, not run in normal suite)', () => {
             const events = (message['window-1'] as unknown[]).length
             const { elements, texts } = countNodes(message)
 
-            const timeTs = async (): Promise<number> => {
-                const clone = structuredClone(message)
+            // Rebuild the Kafka payload shape the pipeline actually receives: the events (timestamps
+            // injected — the generator doesn't set them) inside `$snapshot_items`, wrapped in the
+            // outer `{distinct_id, data}` envelope.
+            const items = Object.values(message).flat()
+            items.forEach((ev, i) => {
+                const obj = ev as Record<string, unknown>
+                obj.timestamp ??= 1_700_000_000_000 + i
+            })
+            const inner = JSON.stringify({
+                event: '$snapshot_items',
+                properties: {
+                    $snapshot_items: items,
+                    $session_id: 'bench-session',
+                    $window_id: 'window-1',
+                    $snapshot_source: 'web',
+                    $lib: 'posthog-js',
+                },
+            })
+            const payload = Buffer.from(JSON.stringify({ distinct_id: 'bench-user', data: inner }))
+
+            // TS pipeline path per message: parse the payload, scrub in place, serialize block lines.
+            const timeTs = async (): Promise<{ total: number; parse: number; scrub: number; serialize: number }> => {
+                const t0 = performance.now()
+                const outer = JSON.parse(payload.toString()) as { data: string }
+                const parsedItems = (JSON.parse(outer.data) as { properties: { $snapshot_items: unknown[] } })
+                    .properties.$snapshot_items
+                const t1 = performance.now()
                 const blurJobs: BlurJob[] = []
                 const ctx: ScrubContext = {
                     allow,
@@ -253,29 +280,25 @@ describe('anonymize benchmark (opt-in, not run in normal suite)', () => {
                     blurCache: new Map(),
                     timing: { decompressMs: 0, recompressMs: 0 },
                 }
-                const t0 = performance.now()
-                for (const evs of Object.values(clone)) {
-                    for (const ev of evs as unknown[]) {
-                        anonymizeEvent(ctx, ev)
-                    }
+                for (const ev of parsedItems) {
+                    anonymizeEvent(ctx, ev)
                 }
                 await runBlurJobs(blurJobs)
-                return performance.now() - t0
-            }
-            const timeRust = async (): Promise<{ total: number; stringify: number; scrub: number; parse: number }> => {
-                const t0 = performance.now()
-                const j = JSON.stringify(message)
-                const t1 = performance.now()
-                const res = await addon.anonymize(j)
                 const t2 = performance.now()
+                for (const ev of parsedItems) {
+                    Buffer.from(JSON.stringify(['window-1', ev]) + '\n')
+                }
+                const t3 = performance.now()
+                return { total: t3 - t0, parse: t1 - t0, scrub: t2 - t1, serialize: t3 - t2 }
+            }
+            // Native byte path: one addon call over the payload bytes.
+            const timeRust = async (): Promise<number> => {
+                const t0 = performance.now()
+                const res = await addon.anonymizeKafkaPayload(payload)
                 if (res.failed) {
                     throw new Error(`addon failed: ${res.error}`)
                 }
-                if (res.data !== null) {
-                    JSON.parse(res.data)
-                }
-                const t3 = performance.now()
-                return { total: t3 - t0, stringify: t1 - t0, scrub: t2 - t1, parse: t3 - t2 }
+                return performance.now() - t0
             }
 
             for (let i = 0; i < 3; i++) {
@@ -283,46 +306,40 @@ describe('anonymize benchmark (opt-in, not run in normal suite)', () => {
                 await timeRust()
             }
             const N = 20
-            const tsTimes: number[] = []
-            const rust = {
+            const tsSamples = {
                 total: [] as number[],
-                stringify: [] as number[],
-                scrub: [] as number[],
                 parse: [] as number[],
+                scrub: [] as number[],
+                serialize: [] as number[],
+            }
+            const rustTimes: number[] = []
+            for (let i = 0; i < N; i++) {
+                const t = await timeTs()
+                tsSamples.total.push(t.total)
+                tsSamples.parse.push(t.parse)
+                tsSamples.scrub.push(t.scrub)
+                tsSamples.serialize.push(t.serialize)
             }
             for (let i = 0; i < N; i++) {
-                tsTimes.push(await timeTs())
-            }
-            for (let i = 0; i < N; i++) {
-                const r = await timeRust()
-                rust.total.push(r.total)
-                rust.stringify.push(r.stringify)
-                rust.scrub.push(r.scrub)
-                rust.parse.push(r.parse)
+                rustTimes.push(await timeRust())
             }
 
-            const ts = summarize(tsTimes)
-            const rt = summarize(rust.total)
-            const rScrub = summarize(rust.scrub)
-            const rStr = summarize(rust.stringify)
-            const rParse = summarize(rust.parse)
+            const ts = summarize(tsSamples.total)
+            const tsParse = summarize(tsSamples.parse)
+            const tsScrub = summarize(tsSamples.scrub)
+            const tsSer = summarize(tsSamples.serialize)
+            const rt = summarize(rustTimes)
 
             console.log(
                 `\n===== ${cfg.label}: ${ms(sizeMb)} MB JSON, ${events} events, ${elements} element nodes, ${texts} text nodes, ${N} iters =====`
             )
             console.log(
-                `TS   total   p50=${ms(ts.p50)}ms  p95=${ms(ts.p95)}ms  mean=${ms(ts.mean)}ms  (scrub+blur; blurJobs=0 here so ~= scrub)`
+                `TS   total   p50=${ms(ts.p50)}ms  p95=${ms(ts.p95)}ms  mean=${ms(ts.mean)}ms  (parse ${ms(tsParse.p50)} + scrub ${ms(tsScrub.p50)} + serialize ${ms(tsSer.p50)})`
             )
             console.log(
-                `Rust total   p50=${ms(rt.p50)}ms  p95=${ms(rt.p95)}ms  mean=${ms(rt.mean)}ms  (stringify+scrub+parse)`
-            )
-            console.log(
-                `Rust phases  stringify p50=${ms(rStr.p50)}ms  scrub p50=${ms(rScrub.p50)}ms  parse p50=${ms(rParse.p50)}ms`
+                `Rust total   p50=${ms(rt.p50)}ms  p95=${ms(rt.p95)}ms  mean=${ms(rt.mean)}ms  (one byte-FFI call, all phases off-loop)`
             )
             console.log(`speedup  end-to-end (TS total / Rust total) = ${(ts.p50 / rt.p50).toFixed(2)}x`)
-            console.log(
-                `speedup  scrub-only  (TS total / Rust scrub) = ${(ts.p50 / rScrub.p50).toFixed(2)}x   <- the off-event-loop win`
-            )
             console.log(
                 `throughput  TS ${(1000 / ts.p50).toFixed(1)} msg/s/core   Rust ${(1000 / rt.p50).toFixed(1)} msg/s/core (1 core)`
             )

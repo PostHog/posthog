@@ -1,11 +1,15 @@
-//! Session-replay anonymizer: PII-scrubs parsed rrweb events for the ml-mirror pipeline, exposed to
-//! Node as a Neon native addon.
+//! Session-replay anonymizer: PII-scrubs rrweb events for the ml-mirror pipeline, exposed to Node as
+//! a Neon native addon.
 //!
-//! This is a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts` (the source of
-//! truth). It walks a parsed message's events in place, redacting text/URLs, blurring images natively,
-//! and de/recompressing `cv` payloads. Parity with the TS is asserted via shared JSON fixtures under
-//! `tests/fixtures/` (the same fixtures the Jest suite runs against). The crate builds both an `rlib`
-//! (for `cargo test`) and a `cdylib` (the `index.node` addon).
+//! The scrubbers are a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts`
+//! (the source of truth): text/URL redaction, native image blur, `cv` de/recompression. Parity with
+//! the TS is asserted via shared JSON fixtures under `tests/fixtures/` (the same fixtures the Jest
+//! suite runs against).
+//!
+//! The production surface is the byte-buffer pipeline in [`snapshot`]: the decompressed Kafka payload
+//! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — Rust owns
+//! the parse, the scrub, and the serialize, so no JSON crosses the FFI boundary as a string. The
+//! crate builds both an `rlib` (for `cargo test`) and a `cdylib` (the `index.node` addon).
 
 pub mod allow_lists;
 pub mod assets;
@@ -17,6 +21,8 @@ pub mod cv;
 pub mod dom;
 pub mod event;
 pub mod json;
+pub mod scan;
+pub mod snapshot;
 pub mod text;
 pub mod url;
 pub mod value;
@@ -24,6 +30,7 @@ pub mod value;
 pub use allow_lists::AllowLists;
 pub use context::Ctx;
 pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
+pub use snapshot::{anonymize_kafka_payload, AnonymizedMessage, FailKind, Failure};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]
@@ -62,6 +69,7 @@ pub(crate) mod testkit {
 use std::sync::RwLock;
 
 use neon::prelude::*;
+use neon::types::buffer::TypedArray;
 use serde::Deserialize;
 
 // The allow lists are immutable per process; set once at startup via `initAnonymizer`.
@@ -84,12 +92,19 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
     Ok(cx.null())
 }
 
-fn anonymize(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let json = cx.argument::<JsString>(0)?.value(&mut cx);
+/// The off-thread outcome: anonymized output, a classified failure (dlq/drop reason + detail), or an
+/// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
+type TaskOutcome = Result<Result<(Vec<u8>, String), (&'static str, String)>, String>;
+
+fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    // One copy on the event loop: the buffer's bytes move into the task (they can't be borrowed
+    // across threads, and simd-json needs a mutable scratch anyway).
+    let buf = cx.argument::<JsBuffer>(0)?;
+    let mut payload = buf.as_slice(&cx).to_vec();
     let promise = cx
-        .task(move || -> Result<Option<String>, String> {
-            // Contain any panic on untrusted input so it fails closed (rejected promise -> the caller
-            // drops the message) rather than risking process abort.
+        .task(move || -> TaskOutcome {
+            // Contain any panic on untrusted input so it fails closed (the caller drops the message)
+            // rather than risking process abort.
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let guard = ALLOW
                     .read()
@@ -97,40 +112,52 @@ fn anonymize(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
-                let mut bytes = json.into_bytes();
-                anonymize_message(allow, &mut bytes).map_err(|e| e.to_string())
+                match snapshot::anonymize_kafka_payload(allow, &mut payload) {
+                    Ok(out) => {
+                        let meta = serde_json::to_string(&out.meta)
+                            .map_err(|e| format!("serialize meta: {e}"))?;
+                        Ok(Ok((out.lines, meta)))
+                    }
+                    Err(f) => Ok(Err((f.kind.reason(), f.detail))),
+                }
             }))
             .unwrap_or_else(|_| Err("panic while anonymizing".to_string()))
         })
-        .promise(|mut cx, result: Result<Option<String>, String>| {
+        .promise(|mut cx, result: TaskOutcome| {
             let obj = cx.empty_object();
+            let set_failure = |cx: &mut TaskContext<'_>,
+                               obj: &Handle<'_, JsObject>,
+                               reason: &str,
+                               detail: String|
+             -> NeonResult<()> {
+                let failed = cx.boolean(true);
+                obj.set(cx, "failed", failed)?;
+                let reason = cx.string(reason);
+                obj.set(cx, "reason", reason)?;
+                let error = cx.string(detail);
+                obj.set(cx, "error", error)?;
+                let null = cx.null();
+                obj.set(cx, "lines", null)?;
+                let null = cx.null();
+                obj.set(cx, "meta", null)?;
+                Ok(())
+            };
             match result {
-                Ok(opt) => {
+                Ok(Ok((lines, meta))) => {
                     let failed = cx.boolean(false);
                     obj.set(&mut cx, "failed", failed)?;
-                    // `data: null` means "nothing changed" — the caller keeps its original parse.
-                    match opt {
-                        Some(s) => {
-                            let data = cx.string(s);
-                            obj.set(&mut cx, "data", data)?;
-                        }
-                        None => {
-                            let data = cx.null();
-                            obj.set(&mut cx, "data", data)?;
-                        }
-                    }
-                    let error = cx.null();
-                    obj.set(&mut cx, "error", error)?;
+                    let null = cx.null();
+                    obj.set(&mut cx, "reason", null)?;
+                    let null = cx.null();
+                    obj.set(&mut cx, "error", null)?;
+                    let lines = JsBuffer::from_slice(&mut cx, &lines)?;
+                    obj.set(&mut cx, "lines", lines)?;
+                    let meta = cx.string(meta);
+                    obj.set(&mut cx, "meta", meta)?;
                 }
-                Err(msg) => {
-                    // Fail closed: report failure so the caller drops the message.
-                    let failed = cx.boolean(true);
-                    obj.set(&mut cx, "failed", failed)?;
-                    let data = cx.null();
-                    obj.set(&mut cx, "data", data)?;
-                    let error = cx.string(msg);
-                    obj.set(&mut cx, "error", error)?;
-                }
+                Ok(Err((reason, detail))) => set_failure(&mut cx, &obj, reason, detail)?,
+                // Fail closed: an unclassified error still drops the message.
+                Err(msg) => set_failure(&mut cx, &obj, FailKind::AnonymizeFailed.reason(), msg)?,
             }
             Ok(obj)
         });
@@ -140,6 +167,6 @@ fn anonymize(mut cx: FunctionContext) -> JsResult<JsPromise> {
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
-    cx.export_function("anonymize", anonymize)?;
+    cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
     Ok(())
 }

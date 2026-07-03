@@ -2,9 +2,9 @@
 //! message (`{ windowId: Event[] }`). Mirrors `anonymize/anonymize-event.ts` (`routeEvent`).
 
 use anyhow::{bail, Context, Result};
+use simd_json::borrowed::{Object, Value};
 use simd_json::prelude::Writable;
-use simd_json::value::owned::Object;
-use simd_json::{OwnedValue, StaticNode};
+use simd_json::StaticNode;
 
 use crate::allow_lists::AllowLists;
 use crate::canvas::scrub_canvas_mutation;
@@ -12,26 +12,27 @@ use crate::context::Ctx;
 use crate::cv::{scrub_compressed_full_snapshot, scrub_compressed_mutation};
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
 use crate::json::{
-    as_array_mut, as_object, as_object_mut, as_small_uint, as_str, reject_if_too_deep,
+    as_array_mut, as_object, as_object_mut, as_small_uint, as_str, key, parse_untrusted,
+    reject_if_too_deep, string_value,
 };
 use crate::text::scrub_text;
 use crate::url::scrub_url_opts;
 use crate::value::{scrub_console_plugin, scrub_generic_field, scrub_network_plugin};
 
 // RRWebEventType
-const TYPE_FULL_SNAPSHOT: u8 = 2;
-const TYPE_INCREMENTAL: u8 = 3;
-const TYPE_META: u8 = 4;
-const TYPE_CUSTOM: u8 = 5;
-const TYPE_PLUGIN: u8 = 6;
+pub const TYPE_FULL_SNAPSHOT: u8 = 2;
+pub const TYPE_INCREMENTAL: u8 = 3;
+pub const TYPE_META: u8 = 4;
+pub const TYPE_CUSTOM: u8 = 5;
+pub const TYPE_PLUGIN: u8 = 6;
 
 // RRWebEventSource (incremental)
-const SOURCE_MUTATION: u8 = 0;
-const SOURCE_INPUT: u8 = 5;
-const SOURCE_CANVAS_MUTATION: u8 = 9;
+pub const SOURCE_MUTATION: u8 = 0;
+pub const SOURCE_INPUT: u8 = 5;
+pub const SOURCE_CANVAS_MUTATION: u8 = 9;
 
-const NETWORK_PLUGIN: &str = "rrweb/network@1";
-const CONSOLE_PLUGIN: &str = "rrweb/console@1";
+pub const NETWORK_PLUGIN: &str = "rrweb/network@1";
+pub const CONSOLE_PLUGIN: &str = "rrweb/console@1";
 
 /// Anonymizes every event in a parsed message (`{ windowId: Event[] }`) in place. `Ok(None)` means
 /// nothing changed (the caller can keep its original). `Err` means an event could not be anonymized —
@@ -39,7 +40,7 @@ const CONSOLE_PLUGIN: &str = "rrweb/console@1";
 /// memo is shared across every event (an image recurring across events is blurred once).
 pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<String>> {
     reject_if_too_deep(json, "eventsByWindowId")?;
-    let mut root = simd_json::to_owned_value(json).context("parse eventsByWindowId json")?;
+    let mut root = parse_untrusted(json).context("parse eventsByWindowId json")?;
     let Some(obj) = as_object_mut(&mut root) else {
         bail!("eventsByWindowId is not an object");
     };
@@ -61,7 +62,7 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
 /// Convenience for tests/callers holding a single event as a JSON string: parse, scrub, re-serialize.
 pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<String> {
     let mut bytes = event_json.as_bytes().to_vec();
-    let mut value = simd_json::to_owned_value(&mut bytes).context("parse event json")?;
+    let mut value = parse_untrusted(&mut bytes).context("parse event json")?;
     anonymize_event(allow, &mut value)?;
     Ok(value.encode())
 }
@@ -69,78 +70,89 @@ pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<Strin
 /// Scrubs a single event in place, returning whether it changed. `Err` = "could not anonymize".
 /// Builds its own `Ctx` (single-event scope); the message path uses [`anonymize_message`] instead so
 /// the blur memo is shared across events.
-pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<bool> {
+pub fn anonymize_event(allow: &AllowLists, event: &mut Value<'_>) -> Result<bool> {
     route_event(&Ctx::new(allow), event)
 }
 
-fn route_event(ctx: &Ctx<'_>, event: &mut OwnedValue) -> Result<bool> {
+/// True when the event's `cv` marker means "compressed" (present and non-null).
+pub fn is_compressed_marker(v: Option<&Value<'_>>) -> bool {
+    matches!(v, Some(v) if !matches!(v, Value::Static(StaticNode::Null)))
+}
+
+pub fn route_event(ctx: &Ctx<'_>, event: &mut Value<'_>) -> Result<bool> {
     let Some(obj) = as_object_mut(event) else {
         return Ok(false);
     };
-    let compressed =
-        matches!(obj.get("cv"), Some(v) if !matches!(v, OwnedValue::Static(StaticNode::Null)));
+    let compressed = is_compressed_marker(obj.get("cv"));
+    let ty = obj.get("type").and_then(as_small_uint);
+    let Some(data) = obj.get_mut("data") else {
+        return Ok(false);
+    };
+    route_data(ctx, ty, compressed, data)
+}
 
-    match obj.get("type").and_then(as_small_uint) {
+/// Scrubs an event's `data` value in place given its routing shape (`type` + `cv` marker). This is the
+/// single routing implementation shared by the tree walk and the streaming span-splice path: everything
+/// the anonymizer changes lives inside `data`, so both paths agree by construction.
+pub fn route_data(
+    ctx: &Ctx<'_>,
+    ty: Option<u8>,
+    compressed: bool,
+    data: &mut Value<'_>,
+) -> Result<bool> {
+    match ty {
         Some(TYPE_FULL_SNAPSHOT) => {
-            if compressed {
-                scrub_compressed_full_snapshot(ctx, obj)
+            if compressed && matches!(data, Value::String(_)) {
+                scrub_compressed_full_snapshot(ctx, data)
             } else {
-                match obj.get_mut("data") {
-                    Some(data) => Ok(scrub_full_snapshot(ctx, data)),
-                    None => Ok(false),
-                }
+                // Not actually whole-blob compressed — scrub as a plain object.
+                Ok(scrub_full_snapshot(ctx, data))
             }
         }
         Some(TYPE_INCREMENTAL) => {
-            let source = obj
-                .get("data")
-                .and_then(as_object)
-                .and_then(|d| d.get("source"))
-                .and_then(as_small_uint);
-            if obj.get("data").and_then(as_object).is_none() {
-                return Ok(false);
-            }
+            let source = match as_object(data) {
+                Some(d) => d.get("source").and_then(as_small_uint),
+                None => return Ok(false),
+            };
             match source {
                 Some(SOURCE_MUTATION) => {
                     if compressed {
-                        scrub_compressed_mutation(ctx, obj)
+                        scrub_compressed_mutation(ctx, as_object_mut(data).unwrap())
                     } else {
-                        Ok(scrub_mutation(ctx, obj.get_mut("data").unwrap()))
+                        Ok(scrub_mutation(ctx, data))
                     }
                 }
                 Some(SOURCE_INPUT) => Ok(scrub_text_field(
                     ctx.allow,
-                    obj.get_mut("data").and_then(as_object_mut).unwrap(),
+                    as_object_mut(data).unwrap(),
                     "text",
                 )),
-                Some(SOURCE_CANVAS_MUTATION) => {
-                    Ok(scrub_canvas_mutation(ctx, obj.get_mut("data").unwrap()))
-                }
+                Some(SOURCE_CANVAS_MUTATION) => Ok(scrub_canvas_mutation(ctx, data)),
                 _ => Ok(false),
             }
         }
         Some(TYPE_META) => {
             // Meta `href` is the page URL — strip the authority and rewrite the host to example.com.
-            let Some(data) = obj.get_mut("data").and_then(as_object_mut) else {
+            let Some(data) = as_object_mut(data) else {
                 return Ok(false);
             };
-            let Some(href) = data.get("href").and_then(as_str).map(str::to_string) else {
+            let Some(href) = data.get("href").and_then(as_str) else {
                 return Ok(false);
             };
-            match scrub_url_opts(ctx.allow, &href, true) {
+            match scrub_url_opts(ctx.allow, href, true) {
                 Some(v) => {
-                    data.insert("href".to_string(), OwnedValue::String(v));
+                    data.insert(key("href"), string_value(v));
                     Ok(true)
                 }
                 None => Ok(false),
             }
         }
-        Some(TYPE_CUSTOM) => match obj.get_mut("data").and_then(as_object_mut) {
+        Some(TYPE_CUSTOM) => match as_object_mut(data) {
             Some(data) => Ok(scrub_generic_field(ctx.allow, data, "payload")),
             None => Ok(false),
         },
         Some(TYPE_PLUGIN) => {
-            let Some(data) = obj.get_mut("data").and_then(as_object_mut) else {
+            let Some(data) = as_object_mut(data) else {
                 return Ok(false);
             };
             let plugin = data.get("plugin").and_then(as_str).map(str::to_string);
@@ -155,13 +167,13 @@ fn route_event(ctx: &Ctx<'_>, event: &mut OwnedValue) -> Result<bool> {
     }
 }
 
-fn scrub_text_field(allow: &AllowLists, obj: &mut Object, key: &str) -> bool {
-    let Some(cur) = obj.get(key).and_then(as_str).map(str::to_string) else {
+fn scrub_text_field(allow: &AllowLists, obj: &mut Object<'_>, field: &'static str) -> bool {
+    let Some(cur) = obj.get(field).and_then(as_str) else {
         return false;
     };
-    match scrub_text(allow, &cur) {
+    match scrub_text(allow, cur) {
         Some(v) => {
-            obj.insert(key.to_string(), OwnedValue::String(v));
+            obj.insert(key(field), string_value(v));
             true
         }
         None => false,

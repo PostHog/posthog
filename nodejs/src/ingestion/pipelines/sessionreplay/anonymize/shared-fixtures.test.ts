@@ -104,23 +104,73 @@ describe('anonymize shared fixtures', () => {
 
     const describeAddon = rustAddon ? describe : describe.skip
     describeAddon('native rust addon matches the shared fixtures', () => {
+        const TS0 = 1_700_000_000_000
+
+        // Wrap fixture events in the Kafka payload shape the addon consumes. The scrub fixtures don't
+        // carry timestamps (they only pin scrub behavior), so inject them — into the input and the
+        // expected side identically — since the fused parse step filters events without one.
+        function payloadOf(windowId: string, events: unknown[]): Buffer {
+            const items = structuredClone(events)
+            items.forEach((ev, i) => {
+                if (isRecord(ev)) {
+                    ev.timestamp ??= TS0 + i
+                }
+            })
+            const inner = JSON.stringify({
+                event: '$snapshot_items',
+                properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId },
+            })
+            return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
+        }
+
+        function isRecord(v: unknown): v is Record<string, unknown> {
+            return typeof v === 'object' && v !== null && !Array.isArray(v)
+        }
+
+        // The expected JSONL lines: the fixture's expected events with the same timestamps injected,
+        // minus non-object events (the parse step filters those out).
+        function expectedLines(windowId: string, expected: unknown[]): unknown[] {
+            const events = structuredClone(expected)
+            events.forEach((ev, i) => {
+                if (isRecord(ev)) {
+                    ev.timestamp ??= TS0 + i
+                }
+            })
+            return events.filter(isRecord).map((ev) => [windowId, ev])
+        }
+
+        function parseLines(lines: Buffer): unknown[] {
+            return lines
+                .toString()
+                .split('\n')
+                .filter((l) => l.length > 0)
+                .map((l) => parseJSON(l))
+        }
+
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
             // The addon holds one process-global allow list (set once in prod, mirroring cyclotron's
             // initManager). Re-initing per case is safe only because Jest runs this file with
             // --runInBand: cases are sequential, so no case observes another's allow list.
             rustAddon!.initAnonymizer(c.allow)
-            const result = await rustAddon!.anonymize(JSON.stringify({ w: [c.event] }))
+            const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [c.event]))
             expect(result.failed).toBe(false)
-            const actual = result.data === null ? c.event : (parseJSON(result.data) as { w: unknown[] }).w[0]
-            expect(actual).toEqual(c.expected)
+            expect(parseLines(result.lines!)).toEqual(expectedLines('w', [c.expected]))
         })
 
         test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', async (_name, c) => {
             rustAddon!.initAnonymizer(c.allow)
-            const result = await rustAddon!.anonymize(JSON.stringify(c.message))
-            expect(result.failed).toBe(false)
-            const actual = result.data === null ? c.message : parseJSON(result.data)
-            expect(actual).toEqual(c.expected)
+            for (const [windowId, events] of Object.entries(c.message)) {
+                const expected = expectedLines(windowId, (c.expected as Record<string, unknown[]>)[windowId])
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf(windowId, events))
+                if (expected.length === 0) {
+                    // A window with only invalid events: the fused step drops the whole message.
+                    expect(result.failed).toBe(true)
+                    expect(result.reason).toBe('message_contained_no_valid_rrweb_events')
+                    continue
+                }
+                expect(result.failed).toBe(false)
+                expect(parseLines(result.lines!)).toEqual(expected)
+            }
         })
     })
 })

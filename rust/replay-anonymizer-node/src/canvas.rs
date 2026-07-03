@@ -3,12 +3,13 @@
 //! native blur (so the object lands on its final blurred/blanked value directly).
 
 use base64::Engine;
-use simd_json::value::owned::Object;
-use simd_json::OwnedValue;
+use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{blank_image_data_uri, is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
 use crate::context::Ctx;
-use crate::json::{as_array, as_array_mut, as_object, as_object_mut, as_str, as_u32, as_usize};
+use crate::json::{
+    as_array, as_array_mut, as_object, as_object_mut, as_str, as_u32, as_usize, key, string_value,
+};
 use crate::url::scrub_url;
 
 fn b64() -> base64::engine::general_purpose::GeneralPurpose {
@@ -16,11 +17,11 @@ fn b64() -> base64::engine::general_purpose::GeneralPurpose {
 }
 
 /// Scrub a CanvasMutation `data` object in place. Returns whether anything changed.
-pub fn scrub_canvas_mutation(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
+pub fn scrub_canvas_mutation(ctx: &Ctx<'_>, data: &mut Value<'_>) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
-    let has_commands = matches!(obj.get("commands"), Some(OwnedValue::Array(_)));
+    let has_commands = matches!(obj.get("commands"), Some(Value::Array(_)));
     if has_commands {
         let mut changed = false;
         let commands = obj.get_mut("commands").and_then(as_array_mut).unwrap();
@@ -43,7 +44,7 @@ fn is_text_command(property: &str) -> bool {
     matches!(property, "fillText" | "strokeText")
 }
 
-fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object) -> bool {
+fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object<'_>) -> bool {
     let is_text = cmd
         .get("property")
         .and_then(as_str)
@@ -57,9 +58,9 @@ fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object) -> bool {
     // Text drawn onto the canvas: fillText/strokeText take the text as leading string args.
     if is_text {
         for a in args.iter_mut() {
-            if let OwnedValue::String(s) = a {
+            if let Value::String(s) = a {
                 if let Some(nv) = crate::text::scrub_text(ctx.allow, s) {
-                    *a = OwnedValue::String(nv);
+                    *a = string_value(nv);
                     changed = true;
                 }
             }
@@ -74,17 +75,17 @@ fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object) -> bool {
 }
 
 /// Recursively neutralize+blur image data inside a canvas arg, mutating in place.
-fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut OwnedValue) -> bool {
+fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut Value<'_>) -> bool {
     match value {
-        OwnedValue::String(s) => {
+        Value::String(s) => {
             if is_image_data_uri(s) {
                 let b = ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri);
-                *value = OwnedValue::String(b);
+                *value = string_value(b);
                 return true;
             }
             return false;
         }
-        OwnedValue::Array(arr) => {
+        Value::Array(arr) => {
             let mut changed = false;
             for item in arr.iter_mut() {
                 changed |= blur_canvas_arg(ctx, item);
@@ -103,12 +104,12 @@ fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut OwnedValue) -> bool {
     if let Some(src) = obj.get("src").and_then(as_str).map(str::to_string) {
         if is_image_data_uri(&src) {
             let b = ctx.blur_data_uri(&src).unwrap_or_else(blank_image_data_uri);
-            obj.insert("src".to_string(), OwnedValue::String(b));
+            obj.insert(key("src"), string_value(b));
             return true;
         }
         return match scrub_url(ctx.allow, &src) {
             Some(v) => {
-                obj.insert("src".to_string(), OwnedValue::String(v));
+                obj.insert(key("src"), string_value(v));
                 true
             }
             None => false,
@@ -147,7 +148,7 @@ fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut OwnedValue) -> bool {
 }
 
 /// Blur the encoded image bytes inside an image Blob, neutralizing them first (fail-safe).
-fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object) -> bool {
+fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
     let mime = blob
         .get("type")
         .and_then(as_str)
@@ -182,13 +183,13 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object) -> bool {
         .and_then(|d| d.get_mut(idx))
         .and_then(as_object_mut)
     {
-        ab.insert("base64".to_string(), OwnedValue::String(new_b64));
+        ab.insert(key("base64"), string_value(new_b64));
     }
-    blob.insert("type".to_string(), OwnedValue::String(new_type));
+    blob.insert(key("type"), string_value(new_type));
     true
 }
 
-fn find_array_buffer_index(blob: &Object) -> Option<usize> {
+fn find_array_buffer_index(blob: &Object<'_>) -> Option<usize> {
     blob.get("data").and_then(as_array).and_then(|data| {
         data.iter().position(|d| {
             as_object(d)
@@ -203,7 +204,7 @@ fn find_array_buffer_index(blob: &Object) -> Option<usize> {
 
 /// Pixelate raw ImageData pixels in place (blanked, with the downsampled-and-restored region merged
 /// back in on success). Falls back to blanking every nested ArrayBuffer for an unexpected shape.
-fn blur_image_data(ctx: &Ctx<'_>, image_data: &mut Object) -> bool {
+fn blur_image_data<'v>(ctx: &Ctx<'_>, image_data: &mut Object<'v>) -> bool {
     let width = image_data
         .get("args")
         .and_then(as_array)
@@ -220,9 +221,9 @@ fn blur_image_data(ctx: &Ctx<'_>, image_data: &mut Object) -> bool {
         }
     }
     // Unexpected shape — guarantee no raw-pixel leak by blanking every nested ArrayBuffer.
-    let mut v = OwnedValue::Object(Box::new(std::mem::take(image_data)));
+    let mut v: Value<'v> = Value::Object(Box::new(std::mem::take(image_data)));
     let changed = blank_array_buffers(&mut v);
-    if let OwnedValue::Object(o) = v {
+    if let Value::Object(o) = v {
         *image_data = *o;
     }
     changed
@@ -230,7 +231,7 @@ fn blur_image_data(ctx: &Ctx<'_>, image_data: &mut Object) -> bool {
 
 /// Locate the RGBA ArrayBuffer behind an ImageData's pixel descriptor (direct or typed-array-wrapped),
 /// blank it and merge the pixelated region back. Returns whether it handled the pixels.
-fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object, w: u32, h: u32) -> bool {
+fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object<'_>, w: u32, h: u32) -> bool {
     let expected = (w as usize) * (h as usize) * 4;
 
     // Shape A: args[0] is the ArrayBuffer directly.
@@ -302,7 +303,7 @@ fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object, w: u32, h: u3
 
 fn process_raw_buffer(
     ctx: &Ctx<'_>,
-    ab: &mut Object,
+    ab: &mut Object<'_>,
     start: usize,
     length_opt: Option<usize>,
     w: u32,
@@ -336,24 +337,21 @@ fn process_raw_buffer(
             }
         }
     }
-    ab.insert(
-        "base64".to_string(),
-        OwnedValue::String(b64().encode(&merged)),
-    );
+    ab.insert(key("base64"), string_value(b64().encode(&merged)));
     true
 }
 
 /// Zero out every nested `{rr_type:'ArrayBuffer', base64}` (same byte length). Last-resort fail-safe.
-fn blank_array_buffers(node: &mut OwnedValue) -> bool {
+fn blank_array_buffers(node: &mut Value<'_>) -> bool {
     match node {
-        OwnedValue::Array(arr) => {
+        Value::Array(arr) => {
             let mut changed = false;
             for item in arr.iter_mut() {
                 changed |= blank_array_buffers(item);
             }
             changed
         }
-        OwnedValue::Object(obj) => {
+        Value::Object(obj) => {
             if obj.get("rr_type").and_then(as_str) == Some("ArrayBuffer") {
                 if let Some(base64) = obj.get("base64").and_then(as_str) {
                     let len = b64()
@@ -361,7 +359,7 @@ fn blank_array_buffers(node: &mut OwnedValue) -> bool {
                         .map(|b| b.len())
                         .unwrap_or(0);
                     let zeros = b64().encode(vec![0u8; len]);
-                    obj.insert("base64".to_string(), OwnedValue::String(zeros));
+                    obj.insert(key("base64"), string_value(zeros));
                     return true;
                 }
             }
@@ -389,7 +387,7 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
         let mut bytes = data_json.as_bytes().to_vec();
-        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
         scrub_canvas_mutation(&ctx, &mut data);
         serde_json::from_str(&data.encode()).unwrap()
     }

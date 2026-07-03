@@ -26,7 +26,11 @@ export interface ScrubContext {
     blurCache?: BlurCache
     /** Optional diagnostic timing accumulator (see {@link ScrubTiming}). */
     timing?: ScrubTiming
-    /** When true, route anonymization through the native Rust addon instead of the TS scrubbers. */
+    /**
+     * When true, the ml-mirror pipeline replaces the parse + anonymize steps with the fused native
+     * step (`parse-and-anonymize-step.ts`, backed by `@posthog/replay-anonymizer`) instead of the TS
+     * scrubbers.
+     */
     useRustAnonymizer?: boolean
 }
 
