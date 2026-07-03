@@ -40,7 +40,6 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
 export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
-    // Multi-day buckets all group annotations at day level
     return ['week', 'month', 'quarter', 'year'].includes(intervalUnit) ? 'day' : intervalUnit
 }
 
