@@ -386,6 +386,7 @@ class TestRelativeDateParse(TestCase):
             ("minus_one", "-1q", "2019-10-31"),
             ("minus_two", "-2q", "2019-07-31"),
             ("current_start", "qStart", "2020-01-01"),
+            ("current_end", "qEnd", "2020-03-31"),
             ("minus_one_start", "-1qStart", "2019-10-01"),
             ("minus_two_start", "-2qStart", "2019-07-01"),
             ("minus_one_end", "-1qEnd", "2019-12-31"),
