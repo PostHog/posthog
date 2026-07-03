@@ -79,7 +79,7 @@ export {
     ThreadItemRepliesMeta,
 } from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'

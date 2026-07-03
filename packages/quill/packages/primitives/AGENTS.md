@@ -221,6 +221,7 @@ Cards can contain Items — use `ItemGroup` inside `CardContent` for a card with
   <CardHeader>
     <CardTitle>Title</CardTitle>
     <CardDescription>Description</CardDescription>
+    <CardAction>{/* top-right header slot — icon button, menu trigger, badge */}</CardAction>
   </CardHeader>
   <CardContent>{/* content */}</CardContent>
   <CardFooter>
