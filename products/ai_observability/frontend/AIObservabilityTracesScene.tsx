@@ -30,7 +30,6 @@ import {
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
-    getTraceStepCount,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
     sanitizeTraceUrlSearchParams,
@@ -175,12 +174,6 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             errorCount: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
-            },
-            stepCount: {
-                renderTitle: () => (
-                    <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">Steps</Tooltip>
-                ),
-                render: StepsColumn,
             },
             totalLatency: {
                 renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
@@ -340,16 +333,6 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
-
-const StepsColumn: QueryContextColumnComponent = ({ record }) => {
-    const row = record as LLMTrace
-    return (
-        <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">
-            <span>{getTraceStepCount(row)}</span>
-        </Tooltip>
-    )
-}
-StepsColumn.displayName = 'StepsColumn'
 
 // `undefined` = cache miss (still loading). Checking the cached record
 // directly avoids a one-frame dash flash before a separate loading reducer
