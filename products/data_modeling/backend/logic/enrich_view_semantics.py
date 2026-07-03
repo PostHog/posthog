@@ -18,6 +18,7 @@ from typing import Any
 from django.conf import settings
 
 import structlog
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -472,12 +473,16 @@ def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
 
 def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
+    # Deferred: the activities module imports the facade, which imports this module — a module-level
+    # import would be circular.
+    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+
     try:
-        temporal = sync_connect()
+        temporal: Client = sync_connect()
         asyncio.run(
             temporal.start_workflow(
                 ENRICH_VIEW_WORKFLOW_NAME,
-                {"team_id": team_id, "saved_query_id": saved_query_id},
+                EnrichViewSemanticsInputs(team_id=team_id, saved_query_id=saved_query_id),
                 id=f"enrich-view-semantics-{saved_query_id}",
                 task_queue=str(settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 
 from temporalio import workflow
@@ -15,10 +14,7 @@ from posthog.temporal.data_modeling.activities.enrich_view_semantics import (
 class EnrichViewSemanticsWorkflow(PostHogWorkflow):
     """Generate semantic descriptions for one data-modeling view. Fire-and-forget, on the metadata queue."""
 
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> EnrichViewSemanticsInputs:
-        loaded = json.loads(inputs[0])
-        return EnrichViewSemanticsInputs(team_id=loaded["team_id"], saved_query_id=loaded["saved_query_id"])
+    inputs_cls = EnrichViewSemanticsInputs
 
     @workflow.run
     async def run(self, inputs: EnrichViewSemanticsInputs) -> None:
