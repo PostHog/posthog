@@ -1,5 +1,8 @@
 from posthog.test.base import BaseTest
 
+from posthog.models import Team
+
+from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.logic import relationships
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
@@ -145,3 +148,69 @@ class TestSyncFromAccountProperties(BaseTest):
         row = rows.first()
         assert row is not None
         assert row.definition.name == "CSM"
+
+
+class TestRelationshipFacade(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.create_account(team=self.team, name="Acme")
+
+    def test_create_and_list_definitions_roundtrip(self):
+        created = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="Onboarding manager", description="Runs onboarding", created_by=self.user
+        )
+        listed = facade.list_account_relationship_definitions(self.team.id)
+        assert [d.id for d in listed] == [created.id]
+        assert listed[0].description == "Runs onboarding"
+        assert listed[0].is_single_holder is True
+
+    def test_create_duplicate_definition_name_raises_conflict(self):
+        facade.create_account_relationship_definition(team_id=self.team.id, name="CSM", created_by=self.user)
+        with self.assertRaises(facade.AccountRelationshipDefinitionConflictError):
+            facade.create_account_relationship_definition(team_id=self.team.id, name="CSM", created_by=self.user)
+
+    def test_delete_definition_cascades_history(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
+        relationships.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=model_definition,
+            user=self.user,
+            created_by=self.user,
+        )
+        assert facade.delete_account_relationship_definition(team_id=self.team.id, definition_id=definition.id)
+        assert AccountRelationship.objects.for_team(self.team.id).count() == 0
+
+    def test_list_relationships_current_vs_history(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
+        rel = relationships.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=model_definition,
+            user=self.user,
+            created_by=self.user,
+        )
+        relationships.end_relationship(team_id=self.team.id, relationship_id=str(rel.id))
+        assert facade.list_account_relationships(team_id=self.team.id, account_id=self.account.id) == []
+        history = facade.list_account_relationships(
+            team_id=self.team.id, account_id=self.account.id, include_history=True
+        )
+        assert len(history) == 1
+        assert history[0].ended_at is not None
+        assert history[0].user is not None
+        assert history[0].user.email == self.user.email
+
+    def test_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="CSM", created_by=self.user
+        )
+        assert facade.list_account_relationship_definitions(other_team.id) == []
+        assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
+        assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
