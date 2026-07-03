@@ -23,6 +23,7 @@ from posthog.storage import object_storage
 from posthog.tasks.usage_report import InstanceMetadata
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
+from posthog.temporal.usage_report.catalog import EVENTS_METRICS
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
@@ -55,6 +56,10 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
     extra_event_rows = [(tid, 13) for tid in extra_team_ids]
     extra_total_rows = [(tid, 20) for tid in extra_team_ids]
 
+    if query_name == "events_family":
+        return {m.name: [] for m in EVENTS_METRICS} | {
+            "event_count_in_period": [(team_a_id, 100), (team_b_id, 50), *extra_total_rows],
+        }
     if query_name == "all_event_metrics":
         return {
             "helicone_events": [],
@@ -112,8 +117,6 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "90d": [],
         }
 
-    if query_name == "teams_with_event_count_in_period":
-        return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
     if query_name == "teams_with_recording_count_in_period":
         return [(team_a_id, 8)]
 
@@ -326,8 +329,10 @@ async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
     # would defeat the filter test.
     query_results: list[RunQueryToS3Result] = []
     for spec in QUERIES:
-        if spec.name == "teams_with_event_count_in_period":
-            payload: Any = [(team_with_usage.id, 100)]
+        if spec.name == "events_family":
+            payload: Any = {m.name: [] for m in EVENTS_METRICS} | {
+                "event_count_in_period": [(team_with_usage.id, 100)],
+            }
         elif spec.name == "all_event_metrics":
             payload = _canned_query_payload(spec.name, team_with_usage.id, team_with_usage.id)
         elif spec.name == "exceptions_captured":

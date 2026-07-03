@@ -11,6 +11,10 @@ those as a single fetch to avoid re-running the same heavy ClickHouse pass
 many times. The aggregation activity fans `multi` results back out into the
 flat `all_data` shape the existing helpers expect.
 
+Metrics ported to the declarative catalog (`catalog.py`) are registered here
+as compiled multi specs — one fused scan per family, built by `compiler.py`.
+New metrics should be declared in the catalog rather than hand-written here.
+
 ⚠️  Snapshot queries — re-run safety disclaimer
 -----------------------------------------------
 Specs marked `kind="snapshot"` ignore the period (`begin`, `end`) and read
@@ -56,13 +60,10 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
-    get_teams_with_billable_enhanced_persons_event_count_in_period,
-    get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
-    get_teams_with_event_count_with_groups_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
@@ -88,6 +89,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_sms_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
+from posthog.temporal.usage_report.catalog import EVENTS_METRICS
+from posthog.temporal.usage_report.compiler import run_events_family
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -216,19 +219,13 @@ class QuerySpec:
 
 QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: events --------------------------------------------------
+    # One fused scan for every metric declared in the catalog's events family.
     QuerySpec(
-        name="teams_with_event_count_in_period",
-        fn=lambda b, e: get_teams_with_billable_event_count_in_period(b, e, count_distinct=True),
+        name="events_family",
+        fn=run_events_family,
+        output="multi",
+        multi_keys_mapping={m.name: m.all_data_key for m in EVENTS_METRICS},
         timeout_minutes=30,
-    ),
-    QuerySpec(
-        name="teams_with_enhanced_persons_event_count_in_period",
-        fn=lambda b, e: get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True),
-        timeout_minutes=30,
-    ),
-    QuerySpec(
-        name="teams_with_event_count_with_groups_in_period",
-        fn=get_teams_with_event_count_with_groups_in_period,
     ),
     QuerySpec(
         name="all_event_metrics",
