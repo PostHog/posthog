@@ -280,8 +280,11 @@ export class SessionBatchRecorder {
         })
 
         // No sessions to write — offsets are still committed by the commit-offsets flush step.
-        // Sessions can have been recorded then dropped (e.g. rate limited), leaving an empty batch.
+        // Sessions can have been recorded then dropped (e.g. rate limited), leaving batch state to reset.
         if (this.sessions.size === 0) {
+            this.partitionSizes.clear()
+            this._size = 0
+            this.rateLimiter.clear()
             logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
             return []
         }
@@ -384,6 +387,13 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
+
+            // Clear sessions, partition sizes, total size, and rate limiter state after the write. The
+            // recorder is normally discarded after a flush, but clearing keeps it safe to reuse.
+            this.sessions = new SessionMap()
+            this.partitionSizes.clear()
+            this._size = 0
+            this.rateLimiter.clear()
 
             logger.info('🔁', 'session_batch_recorder_flushed', {
                 totalEvents,
