@@ -848,12 +848,15 @@ class AccountNotesViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         # The generated client serializes the array as a single comma-joined value; accept that
         # and the repeated-param form alike.
-        created_by_ids = [
-            int(part)
-            for value in request.query_params.getlist("created_by")
-            for part in value.split(",")
-            if part.isdigit()
-        ]
+        created_by_ids = []
+        for value in request.query_params.getlist("created_by"):
+            for part in value.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if not part.isdigit():
+                    raise ValidationError({"created_by": "Must be a comma-separated list of numeric user IDs."})
+                created_by_ids.append(int(part))
         account_id: UUID | None = None
         if raw_account_id := request.query_params.get("account_id"):
             try:
