@@ -48,10 +48,10 @@ class SQSProducer:
         """
         self.queue_url = queue_url
 
-        # Initialize SQS client
+        # boto3 raises NoRegionError on a None/empty region, so fall back to the default
         self.sqs = boto3.client(
             "sqs",
-            region_name=region_name,
+            region_name=region_name or "us-east-1",
         )
 
     def send_message(

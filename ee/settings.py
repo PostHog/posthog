@@ -115,17 +115,17 @@ LLMA_EVAL_GEMINI_API_KEY = get_from_env("LLMA_EVAL_GEMINI_API_KEY", "")
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
-        "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
+        "region": get_from_env("SQS_REGION", "us-east-1"),
         "type": "usage_reports",
     },
     "usage_reports_v2": {
         "url": get_from_env("SQS_USAGE_REPORT_V2_QUEUE_URL", optional=True),
-        "region": get_from_env("SQS_USAGE_REPORT_V2_REGION", "us-east-1", optional=True),
+        "region": get_from_env("SQS_USAGE_REPORT_V2_REGION", "us-east-1"),
         "type": "usage_reports_v2",
     },
     "billing": {
         "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
-        "region": get_from_env("SQS_BILLING_REGION", "us-east-1", optional=True),
+        "region": get_from_env("SQS_BILLING_REGION", "us-east-1"),
         "type": "billing",
     },
 }
