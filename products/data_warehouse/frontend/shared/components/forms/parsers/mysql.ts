@@ -1,3 +1,4 @@
+import { safeDecodeURIComponent } from './decode'
 import type { ParseResult, ParsedField } from './types'
 
 const DEFAULT_PORT = 3306
@@ -40,11 +41,11 @@ export function parseMysqlConnectionString(str: string): ParseResult {
         return { isValid: false, fields: [] }
     }
 
-    const user = decodeURIComponent(result.username || '')
-    const password = decodeURIComponent(result.password || '')
-    const host = decodeURIComponent(result.hostname || '')
+    const user = safeDecodeURIComponent(result.username || '')
+    const password = safeDecodeURIComponent(result.password || '')
+    const host = safeDecodeURIComponent(result.hostname || '')
     const port = result.port || String(DEFAULT_PORT)
-    const database = result.pathname.slice(1) ? decodeURIComponent(result.pathname.slice(1)) : ''
+    const database = result.pathname.slice(1) ? safeDecodeURIComponent(result.pathname.slice(1)) : ''
 
     if (!user || !host || !database) {
         return { isValid: false, fields: [] }

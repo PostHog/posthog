@@ -1,3 +1,4 @@
+import { safeDecodeURIComponent } from './decode'
 import type { ParseResult, ParsedField } from './types'
 
 type SchemeFamily = 'http' | 'native'
@@ -51,10 +52,10 @@ export function parseClickhouseConnectionString(str: string): ParseResult {
         return { isValid: false, fields: [] }
     }
 
-    const user = decodeURIComponent(result.username || '')
-    const password = decodeURIComponent(result.password || '')
-    const host = decodeURIComponent(result.hostname || '')
-    const database = result.pathname.slice(1) ? decodeURIComponent(result.pathname.slice(1)) : ''
+    const user = safeDecodeURIComponent(result.username || '')
+    const password = safeDecodeURIComponent(result.password || '')
+    const host = safeDecodeURIComponent(result.hostname || '')
+    const database = result.pathname.slice(1) ? safeDecodeURIComponent(result.pathname.slice(1)) : ''
 
     if (!user || !host || !database) {
         return { isValid: false, fields: [] }

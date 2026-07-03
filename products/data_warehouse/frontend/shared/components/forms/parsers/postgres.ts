@@ -2,6 +2,7 @@
 // Copyright (c) 2010-2014 Brian Carlson (brian.m.carlson@gmail.com)
 // MIT License
 
+import { safeDecodeURIComponent } from './decode'
 import type { ParseResult, ParsedField } from './types'
 
 interface PostgresParserOptions {
@@ -40,14 +41,14 @@ export function parsePostgresConnectionString(str: string, options: PostgresPars
         params[key] = value
     }
 
-    const user = params.user || decodeURIComponent(result.username || '')
-    const password = params.password || decodeURIComponent(result.password || '')
+    const user = params.user || safeDecodeURIComponent(result.username || '')
+    const password = params.password || safeDecodeURIComponent(result.password || '')
 
     const hostname = dummyHost ? '' : result.hostname
-    const host = params.host || decodeURIComponent(hostname)
+    const host = params.host || safeDecodeURIComponent(hostname)
     const port = params.port || result.port || String(options.defaultPort)
     const pathname = result.pathname.slice(1) || ''
-    const database = pathname ? decodeURIComponent(pathname) : ''
+    const database = pathname ? safeDecodeURIComponent(pathname) : ''
 
     if (!user || !database || !host) {
         return { isValid: false, fields: [] }
