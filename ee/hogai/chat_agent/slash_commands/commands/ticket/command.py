@@ -1,11 +1,9 @@
 from collections.abc import Sequence
-from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
 from django.utils import timezone
 
-import structlog
 from asgiref.sync import sync_to_async
 from langchain_core.messages import (
     AIMessage,
@@ -16,18 +14,12 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from posthog.cloud_utils import get_cached_instance_license
-from posthog.exceptions_capture import capture_exception
-
-from ee.billing.billing_manager import BillingManager
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import SUPPORT_SUMMARIZER_SYSTEM_PROMPT, SUPPORT_SUMMARIZER_USER_PROMPT
-
-logger = structlog.get_logger(__name__)
 
 
 class TicketCommand(SlashCommand):
@@ -60,32 +52,18 @@ class TicketCommand(SlashCommand):
         return await self._has_paid_plan_or_active_trial()
 
     async def _has_paid_plan_or_active_trial(self) -> bool:
-        """Ask the billing service directly — the same source of truth as the in-app support panel."""
+        """
+        Check the plan tier derived from the organization's synced billing entitlements.
 
-        def check() -> bool:
-            license = get_cached_instance_license()
-            if not license or not license.is_v2_license:
-                return False
-            # `_get_billing` is the raw read-only fetch. The public `get_billing` also syncs
-            # license/org rows to the DB, and a transient failure in those writes must not
-            # flip an eligible customer to "denied".
-            billing_status = BillingManager(license, self._user)._get_billing(self._team.organization)
-            # The billing service can omit "customer" even though the TypedDict declares it required,
-            # so drop to a plain dict before the lookup (same as BillingManager.get_billing does).
-            customer = cast(dict[str, Any], billing_status).get("customer") or {}
-            if customer.get("subscription_level") in ("paid", "custom"):
-                return True
-            trial = customer.get("trial")
-            return bool(trial and trial.get("status") == "active")
-
-        try:
-            # `check` does blocking I/O (billing service HTTP call, FK access), so it must run in a thread.
-            return await sync_to_async(check)()
-        except Exception as e:
-            # Fail closed: without billing info we can't confirm eligibility.
-            logger.exception("Failed to check billing for /ticket eligibility")
-            capture_exception(e)
-            return False
+        `available_product_features` is kept up to date by every billing load, and active
+        trials grant the trial plan's features, so a non-free tier means a paid or custom
+        subscription or an active trial. Reading it locally keeps the slow billing service
+        API out of the conversation turn. Organizations with no synced entitlements are
+        denied, so missing data fails closed.
+        """
+        # `self._team.organization` is a FK access that hits the DB when not prefetched,
+        # so it must be wrapped to be safe inside this async context.
+        return await sync_to_async(lambda: self._team.organization.get_plan_tier() != "free")()
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         if not await self._can_create_ticket():
