@@ -2712,15 +2712,35 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily backfill partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and keep the current month's
+    daily backfill partitions filled.
 
-    This sensor runs periodically to:
-    1. Find all teams with backfills enabled (DuckgresServerTeam)
-    2. Create partitions for yesterday's data (if not already exists)
-    3. Trigger backfill runs for new partitions
-    4. Retry failed partitions that already exist
+    This sensor owns the CURRENT month; the full-backfill sensor owns every complete prior
+    month. The two are disjoint by day, so they never write the same team-day (which is what
+    used to make the current-month monthly partition race the daily runs).
+
+    Each tick it, per enabled team:
+    1. Creates a daily partition for every day from the 1st of the current month through
+       yesterday that doesn't exist yet. In steady state only yesterday is new; for a team
+       enabled partway through the month this catches up the earlier days the full-backfill
+       sensor won't touch, closing the gap between its history and daily coverage.
+    2. Retries yesterday's partition if its last run failed (bounding the per-tick run lookup
+       to one query per team — older caught-up days are left as-is once they've run).
+
+    On the 1st of the month there are no current-month days on or before yesterday, so the
+    sensor is a no-op; yesterday (last month's final day) is covered by last month's now-complete
+    monthly partition from the full-backfill sensor.
     """
-    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today = timezone.now().date()
+    yesterday_date = today - timedelta(days=1)
+    first_of_month = today.replace(day=1)
+
+    # Current-month days up to yesterday (empty on the 1st — see docstring).
+    current_month_dates: list[date] = []
+    day = first_of_month
+    while day <= yesterday_date:
+        current_month_dates.append(day)
+        day += timedelta(days=1)
 
     # Get existing partitions
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -2729,56 +2749,58 @@ def duckling_events_daily_backfill_sensor(
     run_requests: list[RunRequest] = []
 
     for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
-        partition_key = f"{backfill.team_id}_{yesterday}"
+        for partition_date in current_month_dates:
+            date_str = partition_date.strftime("%Y-%m-%d")
+            partition_key = f"{backfill.team_id}_{date_str}"
 
-        if partition_key not in existing:
-            # New partition - create and trigger run
-            new_partitions.append(partition_key)
-            run_requests.append(
-                RunRequest(
-                    partition_key=partition_key,
-                    run_key=f"{partition_key}_new",
+            if partition_key not in existing:
+                # New partition - create and trigger run
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_new",
+                    )
                 )
-            )
-            context.log.info(f"Creating partition for team_id={backfill.team_id}, date={yesterday}")
-        else:
-            # Existing partition - check if the last run failed and needs retry
-            # Query for runs with this partition key (stored in dagster/partition tag)
-            runs = context.instance.get_runs(
-                filters=RunsFilter(
-                    job_name="duckling_events_backfill_job",
-                    tags={"dagster/partition": partition_key},
-                ),
-                limit=1,
-            )
-            if runs:
-                latest_run = runs[0]
-                # Only retry if failed - skip if in progress or succeeded
-                if latest_run.status == DagsterRunStatus.FAILURE:
-                    # Failed run - trigger retry with unique run_key
-                    run_requests.append(
-                        RunRequest(
-                            partition_key=partition_key,
-                            run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                context.log.info(f"Creating partition for team_id={backfill.team_id}, date={date_str}")
+            elif partition_date == yesterday_date:
+                # Existing freshest partition - check if the last run failed and needs retry.
+                # Only yesterday is retried, so the run lookup stays at one query per team.
+                runs = context.instance.get_runs(
+                    filters=RunsFilter(
+                        job_name="duckling_events_backfill_job",
+                        tags={"dagster/partition": partition_key},
+                    ),
+                    limit=1,
+                )
+                if runs:
+                    latest_run = runs[0]
+                    # Only retry if failed - skip if in progress or succeeded
+                    if latest_run.status == DagsterRunStatus.FAILURE:
+                        # Failed run - trigger retry with unique run_key
+                        run_requests.append(
+                            RunRequest(
+                                partition_key=partition_key,
+                                run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                            )
                         )
-                    )
-                    context.log.info(
-                        f"Retrying failed partition team_id={backfill.team_id}, date={yesterday} "
-                        f"(previous run: {latest_run.run_id[:8]})"
-                    )
-                    logger.info(
-                        "duckling_sensor_retry_failed_partition",
-                        team_id=backfill.team_id,
-                        date=yesterday,
-                        previous_run_id=latest_run.run_id,
-                    )
-                elif latest_run.status in (
-                    DagsterRunStatus.STARTED,
-                    DagsterRunStatus.QUEUED,
-                ):
-                    context.log.debug(
-                        f"Skipping partition team_id={backfill.team_id}, date={yesterday} - run in progress"
-                    )
+                        context.log.info(
+                            f"Retrying failed partition team_id={backfill.team_id}, date={date_str} "
+                            f"(previous run: {latest_run.run_id[:8]})"
+                        )
+                        logger.info(
+                            "duckling_sensor_retry_failed_partition",
+                            team_id=backfill.team_id,
+                            date=date_str,
+                            previous_run_id=latest_run.run_id,
+                        )
+                    elif latest_run.status in (
+                        DagsterRunStatus.STARTED,
+                        DagsterRunStatus.QUEUED,
+                    ):
+                        context.log.debug(
+                            f"Skipping partition team_id={backfill.team_id}, date={date_str} - run in progress"
+                        )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new partitions to backfill")

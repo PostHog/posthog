@@ -45,6 +45,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _validate_identifier,
     delete_events_partition_data,
     duckling_events_backfill_job,
+    duckling_events_daily_backfill_sensor,
     duckling_events_full_backfill_sensor,
     duckling_persons_backfill_job,
     export_events_to_duckling_s3,
@@ -874,6 +875,71 @@ class TestFullBackfillSensorEarliestDate:
 
         runs_filter = mock_get_runs.call_args.kwargs["filters"]
         assert runs_filter.tags == {"duckling_backfill_type": "full"}
+
+
+class TestDailyBackfillSensor:
+    @staticmethod
+    def _team(team_id: int):
+        m = MagicMock()
+        m.team_id = team_id
+        return m
+
+    def _run_daily(self, backfills, *, now, existing=None, get_runs=None):
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+        ):
+            mock_tz.now.return_value = now
+            mock_cls.objects.filter.return_value = backfills
+
+            instance = DagsterInstance.ephemeral()
+            if existing:
+                instance.add_dynamic_partitions("duckling_events_backfill", list(existing))
+
+            context = build_sensor_context(instance=instance)
+            if get_runs is not None:
+                with patch.object(instance, "get_runs", return_value=get_runs):
+                    return duckling_events_daily_backfill_sensor(context)
+            return duckling_events_daily_backfill_sensor(context)
+
+    def test_steady_state_creates_only_yesterday(self):
+        # Established team already has every current-month day except yesterday → only
+        # yesterday (2020-03-09) is new, matching the pre-catch-up behavior.
+        existing = [f"1_2020-03-0{d}" for d in range(1, 9)]  # 2020-03-01 .. 2020-03-08
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0), existing=existing)
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-03-09"]
+
+    def test_catches_up_current_month_for_newly_enabled_team(self):
+        # A team with no existing partitions (just enabled) gets every current-month day from
+        # the 1st through yesterday, closing the gap the full-backfill sensor won't cover.
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0))
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == [f"1_2020-03-0{d}" for d in range(1, 10)]  # 2020-03-01 .. 2020-03-09
+
+    def test_first_of_month_is_noop(self):
+        # On the 1st, yesterday is in the previous month (owned by that month's now-complete
+        # full-backfill partition), so the daily sensor creates nothing.
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 1, 12, 0, 0))
+        assert result.run_requests == []
+
+    def test_retries_only_yesterday_not_older_days(self):
+        # All current-month days already exist and their last run failed, but only yesterday
+        # (2020-03-09) is retried — older caught-up days are left alone, keeping the per-tick
+        # run lookup to one query per team.
+        from dagster import DagsterRunStatus
+
+        existing = [f"1_2020-03-0{d}" for d in range(1, 10)]  # 2020-03-01 .. 2020-03-09
+        failed = MagicMock()
+        failed.status = DagsterRunStatus.FAILURE
+        failed.run_id = "deadbeefcafef00d"
+        result = self._run_daily(
+            [self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0), existing=existing, get_runs=[failed]
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-03-09"]
+        assert result.run_requests[0].run_key == "1_2020-03-09_retry_deadbeef"
 
 
 class TestGetClusterRetry:
