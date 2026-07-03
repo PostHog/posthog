@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -30,7 +31,9 @@ function renderPatternTemplate(pattern: string): JSX.Element {
 }
 
 export function LogsPatterns({ id }: { id: string }): JSX.Element {
-    const { patterns, patternsResponse, patternsResponseLoading, patternsError } = useValues(logsPatternsLogic({ id }))
+    const { patterns, patternsResponse, patternsResponseLoading, patternsError, sparklineLabels } = useValues(
+        logsPatternsLogic({ id })
+    )
     const { sampled, scanned_count, total_count, sample_coverage_pct } = patternsResponse
 
     // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
@@ -56,6 +59,23 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             title: 'Pattern',
             dataIndex: 'pattern',
             render: (_, row) => renderPatternTemplate(row.pattern),
+        },
+        {
+            title: 'Trend',
+            key: 'sparkline',
+            render: (_, row) =>
+                row.sparkline.length ? (
+                    <div className="w-24 h-6">
+                        <Sparkline
+                            data={row.sparkline}
+                            labels={sparklineLabels}
+                            className="w-full h-full"
+                            maximumIndicator={false}
+                        />
+                    </div>
+                ) : (
+                    <span className="text-muted">-</span>
+                ),
         },
         {
             title: 'Count',

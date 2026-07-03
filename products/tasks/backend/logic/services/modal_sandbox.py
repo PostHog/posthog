@@ -99,6 +99,7 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -520,6 +521,26 @@ class ModalSandbox(SandboxBase):
                         )
                         capture_exception(e)
 
+            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
+            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+                logger.warning(
+                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    extra={
+                        "sandbox_id": sb.object_id,
+                        "snapshot_external_id": snapshot_external_id,
+                        "snapshot_kind": snapshot_kind,
+                        "snapshot_mount_path": snapshot_mount_path,
+                    },
+                )
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                config.snapshot_restored = False
+
             if config.metadata:
                 sb.set_tags(config.metadata)
 
@@ -536,6 +557,34 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox executes processes after a snapshot restore (image or mount)."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_RESTORE_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-restore health probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            poll_result: int | str | None
+            try:
+                poll_result = sb.poll()
+            except Exception:
+                poll_result = "unavailable"
+            logger.warning(
+                "Post-restore health probe exited non-zero",
+                extra={"sandbox_id": sb.object_id, "returncode": returncode, "sandbox_poll": str(poll_result)},
+            )
+            return False
+        return True
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> ModalSandbox:

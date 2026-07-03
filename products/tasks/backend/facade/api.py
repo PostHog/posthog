@@ -123,6 +123,7 @@ __all__ = [
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
+    "get_resume_snapshot_carry_state",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
@@ -413,6 +414,16 @@ def _sandbox_snapshot_to_dto(snapshot: SandboxSnapshot) -> contracts.SandboxSnap
 
 
 # --- Reads ---
+
+
+def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[str, Any]:
+    """State keys a successor run must merge (whole dict, never ``snapshot_external_id`` alone)
+    to resume from a prior run's sandbox snapshot; empty when there is no usable snapshot."""
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        parse_run_state,
+    )
+
+    return parse_run_state(run_state).resume_snapshot_carry_state()
 
 
 def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
@@ -3331,15 +3342,7 @@ def run_task(
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        # An unusable directory snapshot (see RunState.resume_snapshot_is_usable) must not be
-        # carried into the new run's state — the stripped mount path would get re-defaulted
-        # downstream and mount mismatched content.
-        if prev_state.snapshot_external_id and prev_state.resume_snapshot_is_usable():
-            extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
-            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
-            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
-            if snapshot_mount_path is not None:
-                extra_state["snapshot_mount_path"] = snapshot_mount_path
+        extra_state.update(prev_state.resume_snapshot_carry_state())
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
