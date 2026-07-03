@@ -12,6 +12,7 @@
  * * `failed` - Failed
  * * `paused` - Paused
  * * `running` - Running
+ * * `cancelled` - Cancelled
  */
 export type BatchImportStatusEnumApi = (typeof BatchImportStatusEnumApi)[keyof typeof BatchImportStatusEnumApi]
 
@@ -20,6 +21,7 @@ export const BatchImportStatusEnumApi = {
     Failed: 'failed',
     Paused: 'paused',
     Running: 'running',
+    Cancelled: 'cancelled',
 } as const
 
 /**
@@ -97,6 +99,7 @@ export type ManagedMigrationsListParams = {
      * * `failed` - Failed
      * * `paused` - Paused
      * * `running` - Running
+     * * `cancelled` - Cancelled
      */
     status?: ManagedMigrationsListStatus
 }
@@ -104,6 +107,7 @@ export type ManagedMigrationsListParams = {
 export type ManagedMigrationsListStatus = (typeof ManagedMigrationsListStatus)[keyof typeof ManagedMigrationsListStatus]
 
 export const ManagedMigrationsListStatus = {
+    Cancelled: 'cancelled',
     Completed: 'completed',
     Failed: 'failed',
     Paused: 'paused',

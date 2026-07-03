@@ -11419,6 +11419,7 @@ export namespace Schemas {
      * * `failed` - Failed
      * * `paused` - Paused
      * * `running` - Running
+     * * `cancelled` - Cancelled
      */
     export type BatchImportStatusEnum = typeof BatchImportStatusEnum[keyof typeof BatchImportStatusEnum];
 
@@ -11428,6 +11429,7 @@ export namespace Schemas {
       Failed: 'failed',
       Paused: 'paused',
       Running: 'running',
+      Cancelled: 'cancelled',
     } as const;
 
     /**
@@ -65667,6 +65669,7 @@ export namespace Schemas {
      * * `failed` - Failed
      * * `paused` - Paused
      * * `running` - Running
+     * * `cancelled` - Cancelled
      */
     status?: ManagedMigrationsListStatus;
     };
@@ -65675,6 +65678,7 @@ export namespace Schemas {
 
 
     export const ManagedMigrationsListStatus = {
+      Cancelled: 'cancelled',
       Completed: 'completed',
       Failed: 'failed',
       Paused: 'paused',

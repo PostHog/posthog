@@ -156,6 +156,27 @@ export const managedMigrationsDestroy = async (projectId: string, id: string, op
     })
 }
 
+export const getManagedMigrationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/cancel/`
+}
+
+/**
+ * Cancel a running or paused batch import, moving it to a terminal state.
+ */
+export const managedMigrationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
 export const getManagedMigrationsPauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/pause/`
 }
