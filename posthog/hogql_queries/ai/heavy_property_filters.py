@@ -1,18 +1,9 @@
-"""Route property filters on heavy AI properties to the dedicated ai_events table.
+"""Route filters on heavy AI content properties to the dedicated ai_events table.
 
-Ingestion strips the heavy AI content properties ($ai_input, $ai_output_choices, ...)
-from the events-table copy of AI events and stores them as dedicated columns on
-`posthog.ai_events` (see nodejs/src/ingestion/common/steps/event-processing/
-split-ai-events-step.ts). A property filter like `$ai_output_choices icontains "x"`
-evaluated against `events.properties` can therefore never match.
-
-The helpers here rewrite such filters into an IN subquery against ai_events, anchored
-on `uuid` (per-event lists, e.g. the generations tab) or `trace_id` (trace-level
-lists). All heavy filters land in a single subquery so they must match on the same
-ai_events row, mirroring how ANDed property filters behave against a single events row.
-
-ai_events rows expire after their retention TTL, so content filters only match events
-still inside that window — older events are excluded from filtered results entirely.
+Ingestion strips the heavy AI properties ($ai_input, $ai_output_choices, ...) from the
+events-table copy of AI events into dedicated columns on `posthog.ai_events`, so a filter
+on them against `events.properties` never matches. These helpers rewrite such filters into
+subqueries against ai_events, anchored on `uuid` (per-event) or `trace_id` (per-trace).
 """
 
 from collections.abc import Sequence
@@ -29,6 +20,19 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_TO_PROPERTY
 from posthog.models.team.team import Team
 
 HEAVY_AI_PROPERTY_KEYS: frozenset[str] = frozenset(HEAVY_COLUMN_TO_PROPERTY.values())
+
+# Negated operators resolve as an anti-join against their positive counterpart
+# (`anchor NOT IN <events matching the positive>`) instead of a semi-join on the negated
+# predicate. ai_events has no row-level dedup, so one event can have several rows with the
+# heavy column populated on some and empty on others; a semi-join on e.g. `NOT ILIKE` would
+# match the empty duplicate of every event, whereas the anti-join excludes only events that
+# have a matching row — the correct "does not contain" / "is not set" semantics.
+_POSITIVE_COUNTERPART: dict[PropertyOperator, PropertyOperator] = {
+    PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+}
 
 _PropertyFilterT = TypeVar("_PropertyFilterT")
 
@@ -47,36 +51,24 @@ def split_heavy_ai_property_filters(
     return heavy, regular
 
 
-def _heavy_property_condition(prop: EventPropertyFilter, team: Team) -> ast.Expr:
-    # Heavy columns are Nullable(String); absent content is NULL. property_to_expr compiles
-    # is_set/is_not_set to `!= NULL` / `= NULL`, which never matches once rewritten onto the
-    # column, so map those to notEmpty()/empty() over the NULL-normalized column instead.
-    if prop.operator in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
+def _positive_predicate(prop: EventPropertyFilter, team: Team) -> ast.Expr:
+    # Heavy columns are Nullable; property_to_expr compiles is_set to `!= NULL`, which never
+    # matches a Nullable column, so use notEmpty() over the NULL-normalized column instead.
+    if prop.operator == PropertyOperator.IS_SET:
         normalized = ast.Call(
             name="ifNull",
             args=[ast.Field(chain=[AI_PROPERTY_TO_COLUMN[prop.key]]), ast.Constant(value="")],
         )
-        return ast.Call(name="notEmpty" if prop.operator == PropertyOperator.IS_SET else "empty", args=[normalized])
+        return ast.Call(name="notEmpty", args=[normalized])
     return rewrite_expr_for_ai_events_table(property_to_expr(prop, team))
 
 
-def heavy_ai_properties_in_expr(
-    *,
-    anchor: ast.Expr,
-    select_column: str,
-    heavy_properties: Sequence[EventPropertyFilter],
-    team: Team,
-    event_names: Sequence[str] | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-    distinct: bool = False,
-) -> ast.Expr:
-    """Build `<anchor> IN (SELECT <select_column> FROM posthog.ai_events WHERE ...)`.
-
-    `event_names` and the date bounds should mirror the outer query's filters so the
-    ai_events scan is pruned to the same window.
-    """
-    conditions: list[ast.Expr] = [_heavy_property_condition(prop, team) for prop in heavy_properties]
+def _scope_conditions(
+    event_names: Sequence[str] | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+) -> list[ast.Expr]:
+    conditions: list[ast.Expr] = []
     if event_names:
         if len(event_names) == 1:
             conditions.append(
@@ -110,11 +102,60 @@ def heavy_ai_properties_in_expr(
                 right=ast.Constant(value=date_to),
             )
         )
+    return conditions
 
-    subquery = ast.SelectQuery(
+
+def _ai_events_subquery(select_column: str, conditions: list[ast.Expr], distinct: bool) -> ast.SelectQuery:
+    return ast.SelectQuery(
         distinct=distinct or None,
         select=[ast.Field(chain=[select_column])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"])),
         where=ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0],
     )
-    return ast.CompareOperation(op=ast.CompareOperationOp.In, left=anchor, right=subquery)
+
+
+def heavy_ai_properties_in_expr(
+    *,
+    anchor: ast.Expr,
+    select_column: str,
+    heavy_properties: Sequence[EventPropertyFilter],
+    team: Team,
+    event_names: Sequence[str] | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    distinct: bool = False,
+) -> ast.Expr:
+    """Resolve heavy AI content filters against ai_events, returning a single expr.
+
+    Positive filters become one semi-join `<anchor> IN (SELECT <select_column> ... WHERE ...)`
+    (all positives must match the same ai_events row). Each negated filter becomes its own
+    anti-join `<anchor> NOT IN (SELECT ... WHERE <positive counterpart>)`. `event_names` and
+    the date bounds mirror the outer query's filters so each ai_events scan is pruned.
+    """
+    scope = _scope_conditions(event_names, date_from, date_to)
+
+    positive = [prop for prop in heavy_properties if prop.operator not in _POSITIVE_COUNTERPART]
+    negative = [prop for prop in heavy_properties if prop.operator in _POSITIVE_COUNTERPART]
+
+    exprs: list[ast.Expr] = []
+    if positive:
+        conditions = [_positive_predicate(prop, team) for prop in positive] + scope
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=anchor,
+                right=_ai_events_subquery(select_column, conditions, distinct),
+            )
+        )
+    for prop in negative:
+        counterpart = prop.model_copy(update={"operator": _POSITIVE_COUNTERPART[prop.operator]})
+        conditions = [_positive_predicate(counterpart, team), *scope]
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotIn,
+                left=anchor,
+                right=_ai_events_subquery(select_column, conditions, distinct),
+            )
+        )
+
+    return ast.And(exprs=exprs) if len(exprs) > 1 else exprs[0]

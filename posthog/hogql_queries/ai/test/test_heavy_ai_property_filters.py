@@ -84,7 +84,7 @@ class TestHeavyAiPropertyFilters(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("icontains", PropertyOperator.ICONTAINS, "needle", {"gen1"}),
-            ("not_icontains", PropertyOperator.NOT_ICONTAINS, "needle", {"gen2"}),
+            ("not_icontains", PropertyOperator.NOT_ICONTAINS, "needle", {"gen2", "gen3"}),
             ("is_set", PropertyOperator.IS_SET, None, {"gen1", "gen2"}),
             ("is_not_set", PropertyOperator.IS_NOT_SET, None, {"gen3"}),
         ]
