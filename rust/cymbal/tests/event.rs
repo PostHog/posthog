@@ -640,14 +640,7 @@ async fn remote_resolution_http_process_streams_same_team_events_as_items(db: Pg
         .any(|payload| payload.contains("\"chunk_id\":\"124\"")));
 }
 
-// ---- Versioned fingerprinting: used-fingerprint semantics + event property ----
-
-fn versioned_fingerprints(event: &AnyEvent) -> Vec<serde_json::Value> {
-    event.properties["$exception_fingerprints"]
-        .as_array()
-        .expect("event should carry $exception_fingerprints")
-        .clone()
-}
+// ---- Versioned fingerprinting: used-fingerprint semantics ----
 
 fn resolved_stack_event(source: &str) -> AnyEvent {
     make_event(vec![make_exception_with_stack(
@@ -666,27 +659,16 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
     assert!(status.is_success());
 
     let event = body.first_event().as_ref().unwrap();
-    let versions = versioned_fingerprints(event);
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0]["version"], "v1");
-
-    // No issue existed, so the newest registered version created it and the event carries
-    // its fingerprint and record.
-    let newest = versions.last().unwrap();
-    assert_eq!(event.properties["$exception_fingerprint"], newest["value"]);
+    assert!(event.properties.get("$exception_fingerprints").is_none());
+    // The proposed fingerprint keeps the newest automatic value.
     assert_eq!(
-        event.properties["$exception_fingerprint_record"],
-        newest["record"]
-    );
-    // The proposed fingerprint keeps the oldest version's automatic value.
-    assert_eq!(
-        event.properties["$exception_proposed_fingerprint"],
-        versions[0]["value"]
+        event.properties["$exception_fingerprint"],
+        event.properties["$exception_proposed_fingerprint"]
     );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn manual_fingerprint_gets_no_versions(db: PgPool) {
+async fn manual_fingerprint_keeps_custom_value(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event_with_options(
         vec![make_exception("TypeError", "cannot read property")],
@@ -701,8 +683,14 @@ async fn manual_fingerprint_gets_no_versions(db: PgPool) {
         event.properties["$exception_fingerprint"],
         "custom-fingerprint"
     );
-    assert!(
-        event.properties.get("$exception_fingerprints").is_none(),
-        "manual fingerprints express explicit intent and get no auto-versions"
+    assert_eq!(
+        event.properties["$exception_fingerprint_record"],
+        serde_json::json!([{ "type": "manual" }])
+    );
+
+    assert!(event.properties.get("$exception_fingerprints").is_none());
+    assert_ne!(
+        event.properties["$exception_proposed_fingerprint"],
+        "custom-fingerprint"
     );
 }

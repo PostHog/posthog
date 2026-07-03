@@ -287,6 +287,31 @@ pub async fn send_fingerprint_issue_state(
 }
 
 impl IssueFingerprintOverride {
+    pub async fn exists<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprint: &str,
+    ) -> Result<bool, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let exists = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM posthog_errortrackingissuefingerprintv2
+                WHERE team_id = $1 AND fingerprint = $2
+            )
+            "#,
+        )
+        .bind(team_id)
+        .bind(fingerprint)
+        .fetch_one(executor)
+        .await?;
+
+        Ok(exists)
+    }
+
     pub async fn load<'c, E>(
         executor: E,
         team_id: i32,

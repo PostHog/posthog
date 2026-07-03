@@ -6,9 +6,7 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
-use crate::fingerprinting::{
-    FingerprintBuilder, FingerprintComponent, FingerprintRecordPart, VersionedFingerprint,
-};
+use crate::fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
@@ -157,14 +155,6 @@ pub struct OutputErrProps {
     pub proposed_fingerprint: String,
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Vec<FingerprintRecordPart>,
-    // Every registered algorithm version's fingerprint with its record of hashed components.
-    // `$exception_fingerprint` above is the one that actually resolved the issue.
-    #[serde(
-        rename = "$exception_fingerprints",
-        skip_serializing_if = "Vec::is_empty",
-        default
-    )]
-    pub fingerprints: Vec<VersionedFingerprint>,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]

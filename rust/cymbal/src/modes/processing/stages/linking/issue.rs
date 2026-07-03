@@ -13,7 +13,7 @@ use crate::{
         send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
-    metric_consts::{FINGERPRINT_VERSION_USED, ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
+    metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     stages::{linking::LinkingStage, pipeline::HandledError},
     teams::TeamManager,
@@ -27,39 +27,11 @@ use crate::{
 #[derive(Clone)]
 pub struct IssueLinker;
 
-// The issue an event resolved to, together with the fingerprint that actually matched or
-// created it — the event's `$exception_fingerprint` is rewritten to this value.
-#[derive(Debug, Clone)]
-pub struct ResolvedIssue {
-    pub issue: Issue,
-    pub fingerprint: String,
-}
-
-// The fingerprints to resolve against, in lookup order, labeled for metrics. Events with a
-// manual fingerprint or a matched grouping rule have no versioned fingerprints and resolve
-// against their single explicit fingerprint, exactly as before versioning existed.
-fn candidate_fingerprints(input: &ExceptionProperties) -> Vec<(&'static str, String)> {
-    if input.versioned_fingerprints.is_empty() {
-        return vec![(
-            "custom",
-            input
-                .fingerprint
-                .clone()
-                .expect("fingerprint is set by the grouping stage"),
-        )];
-    }
-    input
-        .versioned_fingerprints
-        .iter()
-        .map(|v| (v.version.as_str(), v.fingerprint.value.clone()))
-        .collect()
-}
-
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
         input: &ExceptionProperties,
         ctx: Arc<AppContext>,
-    ) -> Result<ResolvedIssue, UnhandledError> {
+    ) -> Result<Issue, UnhandledError> {
         // Extract name and description for the issue
         let name = input
             .proposed_issue_name
@@ -80,9 +52,8 @@ impl IssueLinker {
         });
 
         // Resolve issue (create new or find existing)
-        let resolved =
-            resolve_issue(ctx.as_ref(), name, description, event_timestamp, input).await?;
-        Ok(resolved)
+        let issue = resolve_issue(ctx.as_ref(), name, description, event_timestamp, input).await?;
+        Ok(issue)
     }
 }
 
@@ -97,10 +68,11 @@ impl ValueOperator for IssueLinker {
     }
 
     async fn execute_value(&self, input: Self::Item, ctx: LinkingStage) -> OperatorResult<Self> {
-        // Cache keys are the composite of all candidate fingerprints: the full input to the
-        // resolution decision, so two events resolve identically iff their keys are equal.
-        let candidates = candidate_fingerprints(&input);
-        let key = (input.team_id, composite_key(&candidates));
+        let fingerprint = input
+            .fingerprint
+            .clone()
+            .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
+        let key = (input.team_id, fingerprint);
 
         // Wrap the (large) event in an `Arc` so the cache-loader closures capture a cheap
         // refcount bump instead of a full deep clone. The loaders only ever borrow the
@@ -109,17 +81,17 @@ impl ValueOperator for IssueLinker {
         let input = Arc::new(input);
 
         // Two-layer cache: per-batch dedup wraps the cross-request `issue_id` cache.
-        // - Per-batch cache (this `try_get_with`): events with the same fingerprints in
+        // - Per-batch cache (this `try_get_with`): events with the same fingerprint in
         //   the same batch resolve the Issue exactly once. moka serializes concurrent
         //   misses for the same key inside the batch.
         // - Cross-batch `issue_id` cache (inside `resolve_via_id_cache`): keeps the
-        //   `(team_id, fingerprints) -> issue_id` mapping warm across batches and
+        //   `(team_id, fingerprint) -> issue_id` mapping warm across batches and
         //   skips the expensive fingerprint JOIN on warm fingerprints.
         // Status is always read fresh from PG inside the loader, so `IssueSuppression`
         // and `maybe_reopen` never see stale state.
         let input_for_load = input.clone();
         let ctx_for_load = ctx.clone();
-        let resolved: ResolvedIssue = ctx
+        let issue: Issue = ctx
             .batch_issue_cache
             .try_get_with(key, async move {
                 resolve_via_id_cache(input_for_load, &ctx_for_load).await
@@ -132,88 +104,50 @@ impl ValueOperator for IssueLinker {
         // event again and can reclaim it to write back the resolved issue.
         let mut input =
             Arc::into_inner(input).expect("input Arc uniquely held after cache resolution");
-
-        // The event carries the fingerprint that actually resolved the issue: on versioned
-        // events that may be a newer algorithm version than the primary set at grouping.
-        if let Some(used) = input
-            .versioned_fingerprints
-            .iter()
-            .find(|v| v.fingerprint.value == resolved.fingerprint)
-        {
-            input.fingerprint = Some(used.fingerprint.value.clone());
-            input.fingerprint_record = Some(used.fingerprint.record.clone());
-        }
-        input.issue_id = Some(resolved.issue.id);
-        input.issue = Some(resolved.issue);
+        input.issue_id = Some(issue.id);
+        input.issue = Some(issue);
 
         Ok(Ok(input))
     }
 }
 
-fn composite_key(candidates: &[(&'static str, String)]) -> String {
-    candidates
-        .iter()
-        .map(|(_, value)| value.as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 // Resolves an issue by going through the cross-batch `issue_id` cache:
 // - On cache miss we run `fetch_or_create_issue` (the only place that fires
-//   `created` / `reopened` alerts) and return the freshly-loaded Issue directly,
-//   avoiding a redundant PK lookup.
-// - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
+//   `created` / `reopened` alerts) and cache the stable mapping.
+// - We then re-read by id (cheap PK lookup) and call `maybe_reopen` so
 //   suppression and reopen always see current PG state.
 async fn resolve_via_id_cache(
     input: Arc<ExceptionProperties>,
     ctx: &LinkingStage,
-) -> Result<ResolvedIssue, UnhandledError> {
-    let candidates = candidate_fingerprints(&input);
-    let key = (input.team_id, composite_key(&candidates));
-
-    // `try_get_with` only returns the cached value, so we stash the freshly resolved
-    // `ResolvedIssue` in a slot when we run the loader ourselves. That lets us reuse it
-    // below and skip a redundant `Issue::load` on the cache-miss path.
-    let just_resolved: Arc<std::sync::Mutex<Option<ResolvedIssue>>> = Default::default();
-    let slot = just_resolved.clone();
+) -> Result<Issue, UnhandledError> {
+    let fingerprint = input
+        .fingerprint
+        .clone()
+        .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
+    let key = (input.team_id, fingerprint.clone());
     let app_ctx = ctx.app_context.clone();
     let cloned_input = input.clone();
 
-    let (issue_id, used_fingerprint): (Uuid, String) = ctx
+    let issue_id: Uuid = ctx
         .issue_cache
         .try_get_with(key.clone(), async move {
-            let resolved =
-                IssueLinker::fetch_or_create_issue(cloned_input.as_ref(), app_ctx).await?;
-            let cached = (resolved.issue.id, resolved.fingerprint.clone());
-            *slot.lock().expect("just_resolved mutex poisoned") = Some(resolved);
-            Ok::<(Uuid, String), UnhandledError>(cached)
+            let issue = IssueLinker::fetch_or_create_issue(cloned_input.as_ref(), app_ctx).await?;
+            Ok::<Uuid, UnhandledError>(issue.id)
         })
         .await
         .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
-
-    // If we ran the loader, the just-resolved Issue is current — return it directly.
-    if let Some(resolved) = just_resolved
-        .lock()
-        .expect("just_resolved mutex poisoned")
-        .take()
-    {
-        return Ok(resolved);
-    }
 
     // Cache hit (or we were deduped against a concurrent caller). Refresh by id.
     match load_and_maybe_reopen(
         ctx.app_context.as_ref(),
         input.team_id,
         issue_id,
-        &used_fingerprint,
+        &fingerprint,
         &input,
     )
     .await?
     {
-        Some(issue) => Ok(ResolvedIssue {
-            issue,
-            fingerprint: used_fingerprint,
-        }),
+        Some(issue) => Ok(issue),
         None => {
             // Cached id no longer exists in PG. Invalidate and run the slow path.
             ctx.issue_cache.invalidate(&key).await;
@@ -242,7 +176,6 @@ async fn load_and_maybe_reopen(
         return Ok(Some(issue));
     }
 
-    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(&event_properties.timestamp).unwrap_or_else(|e| {
             warn!(
@@ -278,21 +211,22 @@ async fn resolve_issue(
     description: String,
     event_timestamp: DateTime<Utc>,
     event_properties: &ExceptionProperties,
-) -> Result<ResolvedIssue, UnhandledError> {
+) -> Result<Issue, UnhandledError> {
     let team_id = event_properties.team_id;
-    if event_properties.fingerprint.is_none() {
-        return Err(UnhandledError::Other("Missing fingerprint".into()));
-    }
-    let candidates = candidate_fingerprints(event_properties);
+    let fingerprint = event_properties
+        .fingerprint
+        .clone()
+        .ok_or(UnhandledError::Other("Missing fingerprint".into()))?;
 
     let mut conn = context.posthog_pool.acquire().await?;
-    // Fast path - the first candidate fingerprint (oldest algorithm version first) that
-    // already maps to an issue wins; reopen it if needed.
-    for (version, candidate) in &candidates {
-        let Some(result) = Issue::load_by_fingerprint(&mut *conn, team_id, candidate).await? else {
-            continue;
-        };
+    // Fast path - just fetch the issue directly, and then reopen it if needed
+    let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
+    if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
+        context
+            .fingerprint_cache
+            .insert((team_id, fingerprint.clone()), true)
+            .await;
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
             let assignment =
@@ -301,7 +235,7 @@ async fn resolve_issue(
             send_fingerprint_issue_state(
                 context,
                 &issue,
-                candidate,
+                &fingerprint,
                 assignment.as_ref(),
                 first_seen_for_state,
             )
@@ -317,21 +251,8 @@ async fn resolve_issue(
             )
             .await?;
         }
-        metrics::counter!(FINGERPRINT_VERSION_USED, "version" => *version, "outcome" => "linked")
-            .increment(1);
-        return Ok(ResolvedIssue {
-            issue,
-            fingerprint: candidate.clone(),
-        });
+        return Ok(issue);
     }
-
-    // No candidate matched: create the issue under the newest algorithm version's
-    // fingerprint. Older versions stay unassociated — future events whose older fingerprint
-    // matches an existing issue keep linking there (existing issues never re-fingerprint).
-    let (version, fingerprint) = candidates
-        .last()
-        .expect("candidate_fingerprints is never empty")
-        .clone();
 
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling
     // back the transaction if the override insert fails (since that indicates someone else
@@ -374,6 +295,11 @@ async fn resolve_issue(
             fingerprint_first_seen = first_seen;
         }
 
+        context
+            .fingerprint_cache
+            .insert((team_id, fingerprint.clone()), true)
+            .await;
+
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
             let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
@@ -403,8 +329,6 @@ async fn resolve_issue(
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        metrics::counter!(FINGERPRINT_VERSION_USED, "version" => version, "outcome" => "created")
-            .increment(1);
         let assignment =
             process_assignment(&mut txn, &context.team_manager, &issue, event_properties).await?;
 
@@ -419,6 +343,10 @@ async fn resolve_issue(
         .await?;
 
         txn.commit().await?;
+        context
+            .fingerprint_cache
+            .insert((team_id, fingerprint.clone()), true)
+            .await;
         drop(conn);
 
         send_issue_created_notification(
@@ -432,7 +360,7 @@ async fn resolve_issue(
         .await?;
     };
 
-    Ok(ResolvedIssue { issue, fingerprint })
+    Ok(issue)
 }
 
 pub async fn process_assignment(

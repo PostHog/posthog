@@ -79,11 +79,10 @@ impl Fingerprint {
     }
 }
 
-// Versions of the automatic fingerprint algorithm. The pipeline computes every registered
-// version for each event; the linking stage resolves the issue against the list in order
-// (oldest first) and the event carries whichever version actually matched or created the
-// issue. All versions are emitted on the event under `$exception_fingerprints`. Adding a
-// version = one variant + one arm in `compute()` + appending to `all()`.
+// Versions of the automatic fingerprint algorithm. The grouping stage computes every
+// registered version for each event, keeps the first version already used by an existing issue,
+// and falls back to the newest version for new issues. Adding a version = one variant + one arm
+// in `compute()` + appending to `all()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FingerprintVersion {
@@ -91,16 +90,10 @@ pub enum FingerprintVersion {
 }
 
 impl FingerprintVersion {
-    // All registered versions, ascending. Order is meaningful: the issue-linking lookup order
-    // follows the list, and new issues are created under the last (newest) entry.
+    // All registered versions, ascending. Order is meaningful: selection keeps the first
+    // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
         &[FingerprintVersion::V1]
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            FingerprintVersion::V1 => "v1",
-        }
     }
 
     pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
@@ -108,16 +101,6 @@ impl FingerprintVersion {
             FingerprintVersion::V1 => Fingerprint::from_exception_list(exception_list),
         }
     }
-}
-
-// One automatic fingerprint per registered algorithm version, with its full record of hashed
-// components. Serialized onto the event as `$exception_fingerprints` entries:
-// {"version": "v1", "value": "…", "record": […]}.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VersionedFingerprint {
-    pub version: FingerprintVersion,
-    #[serde(flatten)]
-    pub fingerprint: Fingerprint,
 }
 
 impl FingerprintComponent for crate::frames::Frame {

@@ -2,11 +2,10 @@ use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::{
-        Fingerprint, FingerprintRecordPart, FingerprintVersion, VersionedFingerprint,
-    },
+    fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
+    issue_resolution::IssueFingerprintOverride,
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
-    modes::processing::rules::grouping::evaluate_grouping_rules,
+    modes::processing::rules::grouping::{evaluate_grouping_rules, GroupingRule},
     stages::{grouping::GroupingStage, pipeline::HandledError},
     types::{
         exception_properties::ExceptionProperties,
@@ -16,6 +15,11 @@ use crate::{
 
 #[derive(Clone, Default)]
 pub struct FingerprintGenerator;
+
+struct AutomaticFingerprintSelection {
+    selected: Fingerprint,
+    newest: Fingerprint,
+}
 
 impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
@@ -32,7 +36,6 @@ impl ValueOperator for FingerprintGenerator {
         mut input: ExceptionProperties,
         ctx: GroupingStage,
     ) -> OperatorResult<Self> {
-        // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules).
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
         let matched_rule =
@@ -40,42 +43,104 @@ impl ValueOperator for FingerprintGenerator {
                 Ok(serde_json::to_value(&input)?)
             })
             .await?;
-        let is_custom_grouped = matched_rule.is_some();
-        let fingerprint: Fingerprint = match matched_rule {
-            Some(rule) => Fingerprint::from_rule(rule),
-            None => Fingerprint::from_exception_list(&input.exception_list),
-        };
 
-        // Always set proposed_fingerprint to the computed value
-        input.proposed_fingerprint = Some(fingerprint.value.clone());
+        if input.fingerprint.is_some() {
+            apply_manual_fingerprint(&mut input, matched_rule)?;
+            return Ok(Ok(input));
+        }
 
-        // User sent us a custom fingerprint, let's use it.
-        if let Some(fp) = &input.fingerprint {
-            input.fingerprint_record = Some(vec![FingerprintRecordPart::Manual]);
-            if fp.len() > 64 {
-                let mut hasher = Sha512::default();
-                hasher.update(fp);
-                input.fingerprint = Some(format!("{:x}", hasher.finalize()));
-            }
-        } else {
+        if let Some(rule) = matched_rule {
+            let fingerprint = Fingerprint::from_rule(rule);
+            input.proposed_fingerprint = Some(fingerprint.value.clone());
             input.fingerprint = Some(fingerprint.value);
             input.fingerprint_record = Some(fingerprint.record);
-
-            // Compute every registered algorithm version. The linking stage resolves the issue
-            // against this list in order and rewrites the event fingerprint to whichever
-            // version actually matched or created the issue. Manual fingerprints and custom
-            // grouping rules express explicit user intent, so they get no versions.
-            if !is_custom_grouped {
-                input.versioned_fingerprints = FingerprintVersion::all()
-                    .iter()
-                    .map(|version| VersionedFingerprint {
-                        version: *version,
-                        fingerprint: version.compute(&input.exception_list),
-                    })
-                    .collect();
-            }
+            return Ok(Ok(input));
         }
+
+        let selection = select_automatic_fingerprint(&input, &ctx).await?;
+        input.proposed_fingerprint = Some(selection.newest.value);
+        input.fingerprint = Some(selection.selected.value);
+        input.fingerprint_record = Some(selection.selected.record);
 
         Ok(Ok(input))
     }
+}
+
+fn apply_manual_fingerprint(
+    input: &mut ExceptionProperties,
+    matched_rule: Option<GroupingRule>,
+) -> Result<(), UnhandledError> {
+    input.proposed_fingerprint = Some(match matched_rule {
+        Some(rule) => Fingerprint::from_rule(rule).value,
+        None => newest_automatic_fingerprint(input)?.value,
+    });
+
+    let Some(fp) = &input.fingerprint else {
+        return Err(UnhandledError::Other("Missing manual fingerprint".into()));
+    };
+    input.fingerprint_record = Some(vec![FingerprintRecordPart::Manual]);
+    if fp.len() > 64 {
+        let mut hasher = Sha512::default();
+        hasher.update(fp);
+        input.fingerprint = Some(format!("{:x}", hasher.finalize()));
+    }
+    Ok(())
+}
+
+async fn select_automatic_fingerprint(
+    input: &ExceptionProperties,
+    ctx: &GroupingStage,
+) -> Result<AutomaticFingerprintSelection, UnhandledError> {
+    let fingerprints = automatic_fingerprints(input);
+    let newest = fingerprints
+        .last()
+        .cloned()
+        .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))?;
+
+    for fingerprint in &fingerprints {
+        if fingerprint_exists(ctx, input.team_id, &fingerprint.value).await? {
+            return Ok(AutomaticFingerprintSelection {
+                selected: fingerprint.clone(),
+                newest,
+            });
+        }
+    }
+
+    Ok(AutomaticFingerprintSelection {
+        selected: newest.clone(),
+        newest,
+    })
+}
+
+fn newest_automatic_fingerprint(
+    input: &ExceptionProperties,
+) -> Result<Fingerprint, UnhandledError> {
+    automatic_fingerprints(input)
+        .last()
+        .cloned()
+        .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))
+}
+
+fn automatic_fingerprints(input: &ExceptionProperties) -> Vec<Fingerprint> {
+    FingerprintVersion::all()
+        .iter()
+        .map(|version| version.compute(&input.exception_list))
+        .collect()
+}
+
+async fn fingerprint_exists(
+    ctx: &GroupingStage,
+    team_id: i32,
+    fingerprint: &str,
+) -> Result<bool, UnhandledError> {
+    let cache_key = (team_id, fingerprint.to_string());
+    if ctx.fingerprint_cache.get(&cache_key).await.is_some() {
+        return Ok(true);
+    }
+
+    let exists = IssueFingerprintOverride::exists(&ctx.connection, team_id, fingerprint).await?;
+    if exists {
+        ctx.fingerprint_cache.insert(cache_key, true).await;
+    }
+    Ok(exists)
 }
