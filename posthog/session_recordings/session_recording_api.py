@@ -539,6 +539,32 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         return data
 
 
+class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
+    session_recording_ids = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=MAX_RECORDINGS_PER_BULK_ACTION,
+        help_text=f"Session IDs of the recordings to delete (max {MAX_RECORDINGS_PER_BULK_ACTION} per call).",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. "
+        "Providing this narrows the lookup and speeds up the request; defaults to the project's "
+        "recording retention period.",
+    )
+
+
+class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="True when every requested recording was deleted or not found.")
+    deleted_count = serializers.IntegerField(help_text="Number of recordings that were deleted.")
+    total_requested = serializers.IntegerField(help_text="Number of session recording IDs in the request.")
+    failed_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs that were found but could not be deleted. These can be retried.",
+    )
+
+
 def list_recordings_response(
     listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
 ) -> Response:
@@ -1092,7 +1118,13 @@ class SessionRecordingViewSet(
 
         return Response(status=204)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. "
+        "IDs that don't match an existing recording are skipped and counted in `total_requested` but not "
+        "`deleted_count`.",
+        request=SessionRecordingBulkDeleteRequestSerializer,
+        responses={200: SessionRecordingBulkDeleteResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
     def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Bulk delete recordings via recording-api (crypto-shredding).

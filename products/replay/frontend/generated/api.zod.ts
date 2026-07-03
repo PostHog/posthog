@@ -178,6 +178,25 @@ export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
+ */
+export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 20
+
+export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    session_recording_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
+        .describe('Session IDs of the recordings to delete (max 20 per call).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
+        ),
+})
+
+/**
  * Generate AI individual summary for each session, without grouping.
  */
 export const createSessionSummariesIndividuallyBodySessionIdsMax = 300

@@ -311,6 +311,31 @@ export interface PatchedSessionRecordingApi {
     readonly matches_filters?: boolean
 }
 
+export interface SessionRecordingBulkDeleteRequestApi {
+    /**
+     * Session IDs of the recordings to delete (max 20 per call).
+     * @minItems 1
+     * @maxItems 20
+     */
+    session_recording_ids: string[]
+    /**
+     * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period.
+     * @nullable
+     */
+    date_from?: string | null
+}
+
+export interface SessionRecordingBulkDeleteResponseApi {
+    /** True when every requested recording was deleted or not found. */
+    success: boolean
+    /** Number of recordings that were deleted. */
+    deleted_count: number
+    /** Number of session recording IDs in the request. */
+    total_requested: number
+    /** Session IDs that were found but could not be deleted. These can be retried. */
+    failed_ids: string[]
+}
+
 export interface SessionSummariesApi {
     /**
      * List of session IDs to summarize (max 300)
