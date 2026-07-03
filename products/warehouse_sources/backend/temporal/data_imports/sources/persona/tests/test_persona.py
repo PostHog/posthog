@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock
 
 import requests
@@ -105,11 +106,8 @@ class TestFetchPageRetryClassification:
         session = MagicMock()
         session.get.return_value = response
 
-        try:
+        with pytest.raises(PersonaRetryableError):
             persona._fetch_page(session, "https://api.withpersona.com/api/v1/inquiries", {}, MagicMock())
-            raise AssertionError("expected a retryable error")
-        except PersonaRetryableError:
-            pass
         # tenacity retries 5 times before giving up.
         assert session.get.call_count == 5
 
@@ -122,11 +120,8 @@ class TestFetchPageRetryClassification:
         session = MagicMock()
         session.get.return_value = response
 
-        try:
+        with pytest.raises(requests.HTTPError):
             persona._fetch_page(session, "https://api.withpersona.com/api/v1/inquiries", {}, MagicMock())
-            raise AssertionError("expected an HTTPError")
-        except requests.HTTPError:
-            pass
         assert session.get.call_count == 1
 
 
@@ -205,7 +200,6 @@ class TestIncrementalWatermarkGuard:
             pages,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
-            incremental_field="created_at",
         )
 
         assert [r["id"] for r in rows] == ["inq_new"]
@@ -219,7 +213,6 @@ class TestIncrementalWatermarkGuard:
             [{"data": [], "links": {"next": None}}],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
-            incremental_field="created_at",
         )
         assert "filter[created-at-start]=2026-01-10T00:00:00.000Z" in manager.fetched_urls[0]  # type: ignore[attr-defined]
 

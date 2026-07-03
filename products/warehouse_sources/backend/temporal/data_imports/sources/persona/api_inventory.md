@@ -14,14 +14,14 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
 
 ## Endpoints synced
 
-| Endpoint            | Path                | Sync mode      | Primary key | Partition key |
-| ------------------- | ------------------- | -------------- | ----------- | ------------- |
-| `inquiries`         | `/inquiries`        | Incremental    | `id`        | `created_at`  |
-| `accounts`          | `/accounts`         | Incremental    | `id`        | `created_at`  |
-| `cases`             | `/cases`            | Incremental    | `id`        | `created_at`  |
-| `transactions`      | `/transactions`     | Incremental    | `id`        | `created_at`  |
-| `events`            | `/events`           | Append only    | `id`        | `created_at`  |
-| `inquiry_templates` | `/inquiry-templates`| Full refresh   | `id`        | —             |
+| Endpoint            | Path                 | Sync mode    | Primary key | Partition key |
+| ------------------- | -------------------- | ------------ | ----------- | ------------- |
+| `inquiries`         | `/inquiries`         | Incremental  | `id`        | `created_at`  |
+| `accounts`          | `/accounts`          | Incremental  | `id`        | `created_at`  |
+| `cases`             | `/cases`             | Incremental  | `id`        | `created_at`  |
+| `transactions`      | `/transactions`      | Incremental  | `id`        | `created_at`  |
+| `events`            | `/events`            | Append only  | `id`        | `created_at`  |
+| `inquiry_templates` | `/inquiry-templates` | Full refresh | `id`        | —             |
 
 Object ids are globally unique and type-prefixed (`inq_`, `acc_`, `case_`, `txn_`, `evt_`, `itmpl_`), so
 `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`) normalize to the

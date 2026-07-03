@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonaSourceConfig
@@ -23,7 +23,7 @@ class TestPersonaSourceConfig:
     def test_api_key_field_is_a_secret_password(self) -> None:
         fields = PersonaSource().get_source_config.fields
         assert fields is not None
-        api_key = next(f for f in fields if getattr(f, "name", None) == "api_key")
+        api_key = next(f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True

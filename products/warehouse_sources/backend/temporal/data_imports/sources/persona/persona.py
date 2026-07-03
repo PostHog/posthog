@@ -161,7 +161,6 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = PERSONA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -226,7 +225,6 @@ def persona_source(
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = PERSONA_ENDPOINTS[endpoint]
 
@@ -239,7 +237,6 @@ def persona_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         # Persona returns records newest-first; the pipeline defers the watermark advance to end-of-sync
