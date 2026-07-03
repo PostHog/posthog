@@ -413,7 +413,7 @@ pub fn unescape<'b>(bytes: &'b [u8], span: Span) -> Result<std::borrow::Cow<'b, 
 
 /// Decode the `XXXX` (possibly a surrogate pair `XXXX\uYYYY`) after a `\u`, `at` pointing at the
 /// first hex digit. Returns the char and how many bytes were consumed.
-fn decode_unicode(bytes: &[u8], at: usize) -> Result<(char, usize)> {
+pub(crate) fn decode_unicode(bytes: &[u8], at: usize) -> Result<(char, usize)> {
     let cp = hex4(bytes, at)?;
     if (0xD800..0xDC00).contains(&cp) {
         // High surrogate: pair it with the following \uXXXX low surrogate.

@@ -544,3 +544,100 @@ fn differential_stream_vs_tree() {
         "the differential corpus should stay meaningful, got {checked}"
     );
 }
+
+#[test]
+fn differential_cv_stream_vs_tree() {
+    // Compressed with flate2 (an independent codec from the libdeflate legs under test); latin-1
+    // encoding matches the SDK (each gzip byte as its U+00XX codepoint). serde's serialization of
+    // these strings exercises every wire arm of the walker's latin-1 decoder: \u00XX and shorthand
+    // escapes for control bytes, raw two-byte UTF-8 for 0x80..=0xFF.
+    fn gz_latin1(json: &[u8]) -> String {
+        use std::io::Write;
+        let mut enc =
+            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(json).unwrap();
+        enc.finish().unwrap().iter().map(|&b| b as char).collect()
+    }
+
+    let allow = AllowLists::new(["keep"], Vec::<String>::new());
+
+    let scrubbed_snapshot = gz_latin1(
+        br#"{"node":{"childNodes":[{"attributes":{"src":"https://cdn.corp.com/a.png","title":"keep secret"},"childNodes":[],"id":4,"tagName":"img","type":2},{"id":5,"textContent":"keep secret words","type":3}],"id":1,"type":0},"initialOffset":{"left":0,"top":0}}"#,
+    );
+    let unchanged_snapshot =
+        gz_latin1(br#"{"node":{"childNodes":[{"id":5,"textContent":"keep keep","type":3}],"id":1,"type":0}}"#);
+    // Escaped key: the walker declines both the wire walk and the decompressed walk; the parse
+    // fallback (which sees the key as `textContent`) must still scrub it.
+    let escaped_key_snapshot =
+        gz_latin1(br#"{"node":{"id":5,"\u0074extContent":"keep secret","type":3}}"#);
+    let texts_gz = gz_latin1(br#"[{"id":5,"value":"keep secret"}]"#);
+    let adds_unchanged_gz = gz_latin1(
+        br#"[{"nextId":null,"node":{"childNodes":[],"id":9,"tagName":"div","type":2},"parentId":1}]"#,
+    );
+    let attrs_gz = gz_latin1(br#"[{"attributes":{"src":"https://cdn.corp.com/img.png"},"id":3}]"#);
+    let non_array_gz = gz_latin1(br#"{"a":1}"#);
+
+    let ok_cases: Vec<(Value, &str)> = vec![
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": "2024-10", "data": scrubbed_snapshot }),
+            "cv snapshot scrubbed",
+        ),
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": "2024-10", "data": unchanged_snapshot }),
+            "cv snapshot unchanged",
+        ),
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": "2024-10", "data": escaped_key_snapshot }),
+            "cv snapshot with escaped key (parse fallback)",
+        ),
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": "2024-10", "data": { "node": { "id": 5, "textContent": "keep secret", "type": 3 } } }),
+            "cv marker with object data scrubs plain",
+        ),
+        (
+            json!({ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": { "source": 0, "adds": adds_unchanged_gz, "attributes": null, "texts": texts_gz } }),
+            "cv mutation: texts change, adds don't, attributes null",
+        ),
+        (
+            json!({ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": { "source": 0, "attributes": attrs_gz, "texts": "" } }),
+            "cv mutation: attributes change, texts empty string",
+        ),
+        (
+            json!({ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": { "source": 0, "texts": [{ "id": 5, "value": "keep secret" }] } }),
+            "cv mutation: plain-array sub-field",
+        ),
+        (
+            json!({ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": { "id": 1, "source": 5, "text": "keep secret" } }),
+            "cv marker on input scrubs plain",
+        ),
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": null, "data": { "node": { "id": 5, "textContent": "keep secret", "type": 3 } } }),
+            "null cv marker is not compressed",
+        ),
+    ];
+
+    for (event, label) in &ok_cases {
+        let inner = serde_json::to_string(&snapshot_message(json!([event]))).unwrap();
+        assert_stream_matches_tree(&allow, &inner, label);
+    }
+
+    // All succeeding shapes in one message: exercises sink sequencing around re-emitted cv spans.
+    let all: Vec<Value> = ok_cases.iter().map(|(e, _)| e.clone()).collect();
+    let inner = serde_json::to_string(&snapshot_message(json!(all))).unwrap();
+    assert_stream_matches_tree(&allow, &inner, "all cv shapes in one message");
+
+    // Failing shapes must fail identically through both paths.
+    for (event, label) in [
+        (
+            json!({ "type": 3, "timestamp": TS0, "cv": "2024-10", "data": { "source": 0, "texts": non_array_gz } }),
+            "cv mutation: non-array payload",
+        ),
+        (
+            json!({ "type": 2, "timestamp": TS0, "cv": "2024-10", "data": "not gzip" }),
+            "cv snapshot: non-gzip string",
+        ),
+    ] {
+        let inner = serde_json::to_string(&snapshot_message(json!([event]))).unwrap();
+        assert_stream_matches_tree(&allow, &inner, label);
+    }
+}

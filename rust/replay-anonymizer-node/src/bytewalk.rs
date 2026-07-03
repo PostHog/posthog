@@ -79,7 +79,7 @@ struct Walker<'c, 'a> {
 
 type FieldFn<'w, 'c, 'a> = dyn FnMut(&mut Walker<'c, 'a>, Span, usize, &mut Vec<u8>) -> Option<usize> + 'w;
 
-/// Scrub the `data` object span of one event into `out`. `Some(changed)` on success; `None` means
+/// Scrub the `data` span of one event into `out`. `Some(changed)` on success; `None` means
 /// "fall back to the parse" — the caller must discard whatever was written.
 pub fn scrub_data_bytes(
     ctx: &Ctx<'_>,
@@ -90,7 +90,24 @@ pub fn scrub_data_bytes(
     data: Span,
     out: &mut Vec<u8>,
 ) -> Option<bool> {
-    if compressed || bytes.get(data.0) != Some(&b'{') {
+    if compressed {
+        // Mirrors `route_data`'s cv dispatch. Only two shapes are actually blob-compressed: a
+        // FullSnapshot whose data is the gzip string, and a Mutation whose sub-fields are gzip
+        // strings. For everything else the marker changes nothing — a compressed-marked snapshot
+        // with object data scrubs plain (fall through), input text is never inside the gzip (fall
+        // through) — except the routes the walk doesn't carry at all (canvas etc.), which decline.
+        match (ty, source) {
+            (Some(TYPE_FULL_SNAPSHOT), _) if bytes.get(data.0) == Some(&b'"') => {
+                return scrub_cv_snapshot_value(ctx, bytes, data, out);
+            }
+            (Some(TYPE_INCREMENTAL), Some(SOURCE_MUTATION)) => {
+                return scrub_cv_mutation_data(ctx, bytes, data, out);
+            }
+            (Some(TYPE_FULL_SNAPSHOT), _) | (Some(TYPE_INCREMENTAL), Some(SOURCE_INPUT)) => {}
+            _ => return None,
+        }
+    }
+    if bytes.get(data.0) != Some(&b'{') {
         return None;
     }
     let mut w = Walker {
@@ -189,6 +206,164 @@ pub fn scrub_cv_mutation_field(
         CvMutationField::Adds => w.walk_adds(start, out),
     }?;
     (scan::skip_ws(bytes, end) == bytes.len()).then_some(w.changed)
+}
+
+/// Scrub a cv-compressed FullSnapshot `data` value straight from its wire span (the still-escaped
+/// gzip-as-latin-1 JSON string, quotes included): decode the gzip bytes off the escaped span,
+/// gunzip, walk the decompressed payload, and re-emit — changed payloads as a freshly gzipped
+/// latin-1 string, unchanged ones as the original span verbatim. The tree path does the same work
+/// through simd-json's tape and an intermediate UTF-8 `String`; this skips both. Declines (`None`)
+/// on anything unexpected — the parse fallback owns failing malformed streams closed.
+fn scrub_cv_snapshot_value(
+    ctx: &Ctx<'_>,
+    bytes: &[u8],
+    data: Span,
+    out: &mut Vec<u8>,
+) -> Option<bool> {
+    if data.1 - data.0 < 2 || bytes.get(data.1 - 1) != Some(&b'"') {
+        return None;
+    }
+    let raw = latin1_from_wire(&bytes[data.0 + 1..data.1 - 1])?;
+    let decompressed = crate::gzip::gunzip(&raw).ok()?;
+    let mut walked = Vec::with_capacity(decompressed.len() + 64);
+    if !scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
+        out.extend_from_slice(&bytes[data.0..data.1]);
+        return Some(false);
+    }
+    let gz = crate::gzip::gzip(&walked).ok()?;
+    write_latin1_json_string(&gz, out);
+    Some(true)
+}
+
+/// Scrub a cv-compressed Mutation `data` object from the wire: the envelope keys walk as usual,
+/// and each gzipped sub-field goes through the same decode/gunzip/walk/re-emit as
+/// [`scrub_cv_snapshot_value`], re-compressing only sub-fields the scrub changed.
+fn scrub_cv_mutation_data(
+    ctx: &Ctx<'_>,
+    bytes: &[u8],
+    data: Span,
+    out: &mut Vec<u8>,
+) -> Option<bool> {
+    let mut w = Walker {
+        ctx,
+        bytes,
+        changed: false,
+        depth: 0,
+        seen: Vec::with_capacity(64),
+    };
+    let end = w.walk_object(data.0, out, &mut |w, key, vstart, out| {
+        match &w.bytes[key.0..key.1] {
+            b"texts" => w.walk_cv_sub(CvMutationField::Texts, vstart, out),
+            b"attributes" => w.walk_cv_sub(CvMutationField::Attributes, vstart, out),
+            b"adds" => w.walk_cv_sub(CvMutationField::Adds, vstart, out),
+            _ => w.copy_value(vstart, out),
+        }
+    })?;
+    debug_assert_eq!(end, data.1);
+    Some(w.changed)
+}
+
+/// Decode the raw (still-escaped) JSON string bytes of a cv value straight into gzip bytes — the
+/// wire-side counterpart of `cv::latin1_to_bytes`, skipping the intermediate UTF-8 `String`.
+/// Latin-1-in-JSON is exactly: ASCII (with the usual escapes), `\u00XX`, and two-byte UTF-8
+/// sequences with lead 0xC2/0xC3. `None` for anything else (codepoints > 0xFF, bad escapes, raw
+/// control bytes): the caller declines to the tree path, which owns failing malformed streams
+/// closed — and rejecting raw control bytes there keeps invalid JSON invalid.
+fn latin1_from_wire(wire: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(wire.len());
+    let mut i = 0;
+    while i < wire.len() {
+        match wire[i] {
+            b'\\' => {
+                i += 1;
+                match *wire.get(i)? {
+                    b'u' => {
+                        let (c, used) = scan::decode_unicode(wire, i + 1).ok()?;
+                        let cp = c as u32;
+                        if cp > 0xFF {
+                            return None;
+                        }
+                        out.push(cp as u8);
+                        i += 1 + used;
+                    }
+                    b'"' => {
+                        out.push(b'"');
+                        i += 1;
+                    }
+                    b'\\' => {
+                        out.push(b'\\');
+                        i += 1;
+                    }
+                    b'/' => {
+                        out.push(b'/');
+                        i += 1;
+                    }
+                    b'b' => {
+                        out.push(0x08);
+                        i += 1;
+                    }
+                    b'f' => {
+                        out.push(0x0C);
+                        i += 1;
+                    }
+                    b'n' => {
+                        out.push(b'\n');
+                        i += 1;
+                    }
+                    b'r' => {
+                        out.push(b'\r');
+                        i += 1;
+                    }
+                    b't' => {
+                        out.push(b'\t');
+                        i += 1;
+                    }
+                    _ => return None,
+                }
+            }
+            0x00..=0x1F => return None,
+            c @ 0x20..=0x7F => {
+                out.push(c);
+                i += 1;
+            }
+            lead @ (0xC2 | 0xC3) => {
+                let cont = *wire.get(i + 1)?;
+                if !(0x80..=0xBF).contains(&cont) {
+                    return None;
+                }
+                out.push(((lead & 0x03) << 6) | (cont & 0x3F));
+                i += 2;
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// Emit gzip bytes as a JSON latin-1 string (quotes included): the write-side inverse of
+/// [`latin1_from_wire`]. Control bytes escape as `\u00XX`; 0x80..=0xFF emit as their two-byte
+/// UTF-8 sequence — the same codepoints the tree path's serializer produces, differently escaped
+/// at most (the output contract is semantic JSON).
+fn write_latin1_json_string(bytes: &[u8], out: &mut Vec<u8>) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    out.push(b'"');
+    for &b in bytes {
+        match b {
+            b'"' => out.extend_from_slice(b"\\\""),
+            b'\\' => out.extend_from_slice(b"\\\\"),
+            0x00..=0x1F => {
+                out.extend_from_slice(b"\\u00");
+                out.push(HEX[(b >> 4) as usize]);
+                out.push(HEX[(b & 0xF) as usize]);
+            }
+            0x20..=0x7F => out.push(b),
+            _ => {
+                out.push(0xC0 | (b >> 6));
+                out.push(0x80 | (b & 0x3F));
+            }
+        }
+    }
+    out.push(b'"');
 }
 
 impl<'c, 'a> Walker<'c, 'a> {
@@ -785,6 +960,46 @@ impl<'c, 'a> Walker<'c, 'a> {
         })
     }
 
+    /// One cv-marked mutation sub-field, straight from the wire: a gzipped latin-1 string goes
+    /// through decode/gunzip/walk and re-gzips only if the scrub changed it; a plain array walks
+    /// uncompressed; `null` and the empty string keep verbatim (mirroring the tree path); any
+    /// other shape declines so the parse fallback can fail it closed.
+    fn walk_cv_sub(
+        &mut self,
+        field: CvMutationField,
+        vstart: usize,
+        out: &mut Vec<u8>,
+    ) -> Option<usize> {
+        match self.bytes.get(vstart)? {
+            b'[' => match field {
+                CvMutationField::Texts => self.walk_texts(vstart, out),
+                CvMutationField::Attributes => self.walk_mutation_attributes(vstart, out),
+                CvMutationField::Adds => self.walk_adds(vstart, out),
+            },
+            b'n' => self.copy_value(vstart, out),
+            b'"' => {
+                let send = scan::skip_string(self.bytes, vstart).ok()?;
+                let wire = &self.bytes[vstart + 1..send - 1];
+                if wire.is_empty() {
+                    out.extend_from_slice(&self.bytes[vstart..send]);
+                    return Some(send);
+                }
+                let raw = latin1_from_wire(wire)?;
+                let decompressed = crate::gzip::gunzip(&raw).ok()?;
+                let mut walked = Vec::with_capacity(decompressed.len() + 64);
+                if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
+                    let gz = crate::gzip::gzip(&walked).ok()?;
+                    write_latin1_json_string(&gz, out);
+                    self.changed = true;
+                } else {
+                    out.extend_from_slice(&self.bytes[vstart..send]);
+                }
+                Some(send)
+            }
+            _ => None,
+        }
+    }
+
     /// Mutation `adds`: `[{ parentId, nextId, node }]` (mirrors `scrub_mutation_adds`).
     fn walk_adds(&mut self, start: usize, out: &mut Vec<u8>) -> Option<usize> {
         self.walk_array(start, out, &mut |w, pos, out| {
@@ -798,5 +1013,32 @@ impl<'c, 'a> Walker<'c, 'a> {
                 }
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{latin1_from_wire, write_latin1_json_string};
+
+    #[test]
+    fn latin1_wire_codec_round_trips_every_byte() {
+        let all: Vec<u8> = (0..=255).collect();
+        let mut wire = Vec::new();
+        write_latin1_json_string(&all, &mut wire);
+        // Strip the quotes the writer adds; the decoder takes the inner span.
+        let decoded = latin1_from_wire(&wire[1..wire.len() - 1]).expect("own output decodes");
+        assert_eq!(decoded, all);
+    }
+
+    #[test]
+    fn latin1_wire_decoder_declines_non_latin1() {
+        // Codepoint > 0xFF, escaped and raw.
+        assert!(latin1_from_wire(br"\u0100").is_none());
+        assert!(latin1_from_wire("π".as_bytes()).is_none());
+        // Raw control byte: invalid JSON, the parse path must be the one to reject it.
+        assert!(latin1_from_wire(b"\x1f").is_none());
+        // Truncated escape and truncated two-byte sequence.
+        assert!(latin1_from_wire(br"\u00").is_none());
+        assert!(latin1_from_wire(b"\xc2").is_none());
     }
 }
