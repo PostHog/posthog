@@ -1626,8 +1626,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         db = Database.create_for(team=self.team, modifiers=modifiers)
 
         field = db.get_table("native_identity_table").fields[virtual_field]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
         assert isinstance(field, StringDatabaseField)
-        assert not isinstance(field, ExpressionField)
 
     def test_data_warehouse_events_modifier_keeps_existing_person_id_column(self):
         # Unlike id/distinct_id/timestamp, person_id has no configured field on the modifier to remap
@@ -1663,8 +1663,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         db = Database.create_for(team=self.team, modifiers=modifiers)
 
         person_id_field = db.get_table("native_person_id_table").fields["person_id"]
+        # StringDatabaseField implies the column was not wrapped in a remapping ExpressionField
         assert isinstance(person_id_field, StringDatabaseField)
-        assert not isinstance(person_id_field, ExpressionField)
 
     def test_data_warehouse_events_modifiers_with_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(
