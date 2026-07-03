@@ -1,11 +1,13 @@
 import {
+    AccumulatedFlushInput,
     AccumulatingPipeline,
     AccumulatingResult,
-    AccumulationContext,
     BeforeAccumulationInput,
     BeforeAccumulationOutput,
+    RecordPipeline,
 } from './accumulating-pipeline'
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { BatchResult, FeedResult } from './batching-pipeline'
 import { createOkContext } from './helpers'
 import { Pipeline } from './pipeline.interface'
 import { isOkResult, ok } from './results'
@@ -14,13 +16,28 @@ type RecordIn = { id: number }
 // The batch context carries its own accumulator array, like SessionBatchRecorder.
 type Batch = { records: number[] }
 
-// Flush pipeline: receives the whole batch context (one element) and emits its accumulated records.
+// Flush pipeline: receives the accumulated flush input (one element) and emits the batch context's
+// accumulated records.
 class RecordsFlushPipeline
-    implements BatchPipeline<Batch & AccumulationContext, number[], Record<string, never>, Record<string, never>>
+    implements
+        BatchPipeline<
+            AccumulatedFlushInput<RecordIn, Record<string, never>, Batch>,
+            number[],
+            Record<string, never>,
+            Record<string, never>
+        >
 {
-    private buffer: OkResultWithContext<Batch & AccumulationContext, Record<string, never>>[] = []
+    private buffer: OkResultWithContext<
+        AccumulatedFlushInput<RecordIn, Record<string, never>, Batch>,
+        Record<string, never>
+    >[] = []
 
-    feed(elements: OkResultWithContext<Batch & AccumulationContext, Record<string, never>>[]): void {
+    feed(
+        elements: OkResultWithContext<
+            AccumulatedFlushInput<RecordIn, Record<string, never>, Batch>,
+            Record<string, never>
+        >[]
+    ): void {
         this.buffer.push(...elements)
     }
 
@@ -31,7 +48,10 @@ class RecordsFlushPipeline
         const out = this.buffer
         this.buffer = []
         return Promise.resolve(
-            out.map((element) => ({ result: ok(element.result.value.records), context: element.context }))
+            out.map((element) => ({
+                result: ok(element.result.value.batchContext.records),
+                context: element.context,
+            }))
         )
     }
 }
@@ -51,17 +71,22 @@ function feedBatch(ids: number[]): OkResultWithContext<RecordIn, Record<string, 
 }
 
 // Folds each fed element's id into the accumulator carried on its (tagged) value, then re-emits
-// the element as a record-phase ack. Mirrors the session-replay record step folding into the manager.
+// the element as a record-phase ack in a BatchResult. Mirrors the session-replay record pipeline
+// (a BatchingPipeline) folding into the manager. `sideEffectPerBatch`, when set, is attached to every
+// non-empty BatchResult so tests can assert the accumulating pipeline surfaces batch side effects.
 class FoldingRecordPipeline
-    implements BatchPipeline<RecordIn & Batch, RecordIn, Record<string, never>, Record<string, never>>
+    implements RecordPipeline<RecordIn & Batch, Record<string, never>, RecordIn, Record<string, never>>
 {
     private buffer: OkResultWithContext<RecordIn & Batch, Record<string, never>>[] = []
 
-    feed(elements: OkResultWithContext<RecordIn & Batch, Record<string, never>>[]): void {
+    constructor(private sideEffectPerBatch?: () => Promise<unknown>) {}
+
+    feed(elements: OkResultWithContext<RecordIn & Batch, Record<string, never>>[]): Promise<FeedResult> {
         this.buffer.push(...elements)
+        return Promise.resolve({ ok: true })
     }
 
-    next(): Promise<BatchPipelineResultWithContext<RecordIn, Record<string, never>> | null> {
+    next(): Promise<BatchResult<BatchPipelineResultWithContext<RecordIn, Record<string, never>>> | null> {
         if (this.buffer.length === 0) {
             return Promise.resolve(null)
         }
@@ -72,16 +97,21 @@ class FoldingRecordPipeline
                 element.result.value.records.push(element.result.value.id)
             }
         }
-        return Promise.resolve(
-            out.map((element) => ({ result: ok({ id: element.result.value.id }), context: element.context }))
-        )
+        return Promise.resolve({
+            elements: out.map((element) => ({ result: ok({ id: element.result.value.id }), context: element.context })),
+            sideEffects: this.sideEffectPerBatch ? [this.sideEffectPerBatch()] : [],
+        })
     }
 }
 
 describe('AccumulatingPipeline', () => {
     let beforeBatch: jest.Mock
 
-    function createPipeline(options: { flushAt: number; maxBatchAgeMs?: number }) {
+    function createPipeline(options: {
+        flushAt: number
+        maxBatchAgeMs?: number
+        recordSideEffect?: () => Promise<unknown>
+    }) {
         beforeBatch = jest.fn(
             (
                 input: OkResultWithContext<BeforeAccumulationInput, Record<string, never>>
@@ -109,7 +139,7 @@ describe('AccumulatingPipeline', () => {
             Record<string, never>
         >({
             beforeBatch: beforePipeline,
-            pipeline: new FoldingRecordPipeline(),
+            pipeline: new FoldingRecordPipeline(options.recordSideEffect),
             shouldFlush: (batchContext) => batchContext.records.length >= options.flushAt,
             maxBatchAgeMs: options.maxBatchAgeMs ?? 60_000,
             flushPipeline: new RecordsFlushPipeline(),
@@ -128,7 +158,7 @@ describe('AccumulatingPipeline', () => {
         await pipeline.feed(feedBatch([3]))
         await drainNext(pipeline)
 
-        expect(recorded).toEqual({ flushed: false, elements: expect.any(Array) })
+        expect(recorded).toEqual({ flushed: false, elements: expect.any(Array), sideEffects: [] })
         // record drained, accumulator under threshold → next() finds nothing to flush
         expect(await drainNext(pipeline)).toBeNull()
         // beforeBatch ran exactly once (no flush → no re-mint)
@@ -167,6 +197,17 @@ describe('AccumulatingPipeline', () => {
         const pipeline = createPipeline({ flushAt: 5 })
         expect(await drainNext(pipeline)).toBeNull()
         expect(beforeBatch).not.toHaveBeenCalled()
+    })
+
+    it('surfaces the record pipeline batch side effects on a record turn', async () => {
+        const recordSideEffect = jest.fn().mockResolvedValue(undefined)
+        const pipeline = createPipeline({ flushAt: 100, recordSideEffect })
+
+        await pipeline.feed(feedBatch([1, 2]))
+        const recorded = await drainNext(pipeline)
+
+        expect(recorded).toMatchObject({ flushed: false })
+        expect(recorded?.sideEffects).toHaveLength(1)
     })
 
     it('flush() drains buffered records and flushes immediately, below the size threshold', async () => {

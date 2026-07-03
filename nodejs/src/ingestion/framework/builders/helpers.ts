@@ -4,8 +4,8 @@ import {
     AccumulationContext,
     BeforeAccumulationInput,
     BeforeAccumulationOutput,
+    RecordPipeline,
 } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -103,8 +103,8 @@ export function newAccumulatingPipeline<
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeAccumulationInput, Record<string, never>>
     ) => PipelineBuilder<BeforeAccumulationInput, BeforeAccumulationOutput<CBatch>, Record<string, never>>
-    /** Pre-built record pipeline that folds each message into the current batch context */
-    pipeline: BatchPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
+    /** Pre-built record pipeline (typically a BatchingPipeline) that folds each message into the current batch context */
+    pipeline: RecordPipeline<TRecordIn & CBatch & AccumulationContext, CRecordIn, TRecordOut, CRecordOut, R>
     /**
      * Builds the flush pipeline run on the size or age trigger. It receives one
      * {@link AccumulatedFlushInput}: the batch context plus every accumulated record result in feed
