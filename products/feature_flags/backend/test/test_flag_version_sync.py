@@ -84,15 +84,17 @@ class TestFlagVersionSync(BaseTest):
         assert _updated_entries(flag_unrelated) == []
         for flag, before, after in ((flag_direct, 1, 2), (flag_nested, None, 1)):
             (entry,) = _updated_entries(flag)
-            assert entry.detail["changes"] == [
+            detail = entry.detail
+            assert detail is not None
+            assert detail["changes"] == [
                 {"type": "FeatureFlag", "action": "changed", "field": "version", "before": before, "after": after}
             ]
-            assert entry.detail["trigger"] == {
+            assert detail["trigger"] == {
                 "job_type": "cohort_conditions_updated",
                 "job_id": str(edited.pk),
                 "payload": {"cohort_id": edited.pk, "cohort_name": "edited"},
             }
-            assert entry.detail["name"] == flag.key
+            assert detail["name"] == flag.key
             # No request context in this test, so the entry is a system action.
             assert entry.user is None
             assert entry.is_system is True
@@ -113,9 +115,8 @@ class TestFlagVersionSync(BaseTest):
         assert entry.is_system is False
 
     def test_version_history_reconstructable_across_cohort_driven_bumps(self):
-        original_filters = {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": None}]}]}
         cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
-        original_filters["groups"][0]["properties"][0]["value"] = cohort.pk
+        original_filters = {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]}
         flag = self._create_flag("flag", cohort.pk)
 
         cohort.filters = _person_filters("z@z.com")
