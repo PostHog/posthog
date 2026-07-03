@@ -2265,7 +2265,7 @@ class OpenExchangeRatesSourceConfig(config.Config):
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
