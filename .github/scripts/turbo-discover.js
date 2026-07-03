@@ -30,6 +30,13 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// Per-product per-shard wall-clock target override. A product that runs a large temporal suite in
+// its own job (warehouse_sources) is split more aggressively so the long integration tests fan out
+// across more shards. Kept modest — every extra shard pays the full docker-stack + temporal-server
+// startup, so over-splitting trades runner cost for little wall-clock once startup dominates.
+const PRODUCT_TARGET_WALL_OVERRIDE = {
+    'warehouse-sources': 6 * 60,
+}
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -359,8 +366,9 @@ function buildMatrix(products, durations) {
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
         const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
+        const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
+        if (raw > targetWall) {
+            const shards = Math.ceil(raw / targetWall)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {
