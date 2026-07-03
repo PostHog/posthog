@@ -25,7 +25,11 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(resp.json(), {"workflow_id": "wf-1", "status": "started"})
         mock_start.assert_called_once_with(
-            pr_url="https://github.com/PostHog/posthog/pull/123", team_id=99, user_id=42, publish=True
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=99,
+            user_id=42,
+            publish=True,
+            trigger_source="label",
         )
 
     @patch(_START, return_value="wf-1")

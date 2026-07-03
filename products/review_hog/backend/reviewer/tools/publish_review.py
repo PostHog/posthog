@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 from github import Github, GithubException
 from github.PullRequest import PullRequest, ReviewComment
@@ -18,6 +19,19 @@ from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, l
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class PublishOutcome:
+    """Whether a review was actually posted, and where (the GitHub review permalink, when known).
+
+    `review_url` is None on a no-op (nothing publishable / already published) and on the
+    marker-found idempotency skip (the review exists on GitHub from a prior crashed attempt, but
+    this call didn't create it, so it has no handle to it).
+    """
+
+    posted: bool
+    review_url: str | None = None
+
+
 def publish_persisted_review(
     *,
     team_id: int,
@@ -29,8 +43,8 @@ def publish_persisted_review(
     pr_number: int,
     token: str,
     published_priorities: set[IssuePriority],
-) -> bool:
-    """Publish an already-computed review for `report_id` at `head_sha`, idempotently. Returns whether it posted.
+) -> PublishOutcome:
+    """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
     The DB-driven publish path shared by the workflow's publish activity and the standalone
     `publish_review` management command — no recompute, no sandbox. Skips if this exact head was
@@ -42,10 +56,10 @@ def publish_persisted_review(
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
         logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
-        return False
+        return PublishOutcome(posted=False)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
-    posted = publish_review(
+    outcome = publish_review(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
@@ -59,10 +73,10 @@ def publish_persisted_review(
         post_promo=report.published_head_sha is None,
         published_priorities=published_priorities,
     )
-    if posted:
+    if outcome.posted:
         report.published_head_sha = head_sha
         report.save(update_fields=["published_head_sha", "updated_at"])
-    return posted
+    return outcome
 
 
 def _review_marker(report_id: str, head_sha: str) -> str:
@@ -87,7 +101,7 @@ def publish_review(
     head_sha: str,
     post_promo: bool,
     published_priorities: set[IssuePriority],
-) -> bool:
+) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
     The body is `ReviewReport.report_markdown` (rendered this turn); the inline comments are rebuilt
@@ -98,9 +112,9 @@ def publish_review(
     comment (the caller passes it only on the first publish for the report, so it isn't re-posted
     every turn). Reads the DB, so callers run it off the event loop.
 
-    Returns True if a review was actually posted, False if there was nothing publishable — the caller
-    records the published-head watermark only on a real post, so a no-op turn doesn't block a later
-    turn (with a valid finding) from publishing at the same head.
+    `posted` is False when there was nothing publishable — the caller records the published-head
+    watermark only on a real post, so a no-op turn doesn't block a later turn (with a valid finding)
+    from publishing at the same head.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
@@ -123,13 +137,13 @@ def publish_review(
     ]
     if not publishable:
         logger.info("No publishable issues found, skipping review")
-        return False
+        return PublishOutcome(posted=False)
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
-    _post_github_review(
+    review_url = _post_github_review(
         owner, repo, pr_number, body, comments, token=token, head_sha=head_sha, post_promo=post_promo, marker=marker
     )
-    return True
+    return PublishOutcome(posted=True, review_url=review_url)
 
 
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
@@ -269,8 +283,11 @@ def _post_github_review(
     head_sha: str,
     post_promo: bool,
     marker: str,
-) -> None:
-    """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`."""
+) -> str | None:
+    """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
+
+    Returns the posted review's permalink, or None on the marker-found idempotency skip.
+    """
     g = Github(token)
     repo_obj = g.get_repo(f"{owner}/{repo}")
     pr = repo_obj.get_pull(pr_number)
@@ -279,7 +296,7 @@ def _post_github_review(
     # crashed before saving the watermark — don't double-post (the body carries the same marker).
     if _review_already_posted(pr, marker):
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
-        return
+        return None
 
     if post_promo:
         pr.create_issue_comment(
@@ -301,11 +318,12 @@ def _post_github_review(
 
     if comments:
         try:
-            pr.create_review(comments=comments, **review_kwargs)
+            review = pr.create_review(comments=comments, **review_kwargs)
             logger.info(f"Review posted with {len(comments)} inline comments")
-            return
+            return review.html_url
         except GithubException as e:
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
 
-    pr.create_review(**review_kwargs)
+    review = pr.create_review(**review_kwargs)
     logger.info("Review posted (body only)")
+    return review.html_url

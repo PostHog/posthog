@@ -30,6 +30,7 @@ from products.review_hog.backend.reviewer.constants import (
     MAX_CONCURRENT_SANDBOXES,
 )
 from products.review_hog.backend.temporal.activities import (
+    AppendCodeReviewArtefactInput,
     BuildBodyInput,
     CombineCleanInput,
     DedupInput,
@@ -43,6 +44,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadPerspectivesInput,
     LoadValidationInput,
     PublishInput,
+    PublishResult,
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
@@ -51,6 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    append_code_review_artefact_activity,
     build_body_activity,
     combine_and_clean_activity,
     dedup_activity,
@@ -67,7 +70,7 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
-from products.review_hog.backend.temporal.types import ReviewPRWorkflowInputs
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, ReviewPRWorkflowInputs
 
 # Timeouts: a sandbox turn can over-investigate (measured up to ~6m), so 30m start-to-close with a
 # 5m heartbeat; local (non-sandbox) activities are quick.
@@ -284,7 +287,8 @@ class ReviewPRWorkflow:
     @temporalio.workflow.run
     async def run(self, inputs: ReviewPRWorkflowInputs) -> str:
         repository = inputs.repository
-        workflow.logger.info(f"ReviewHog · reviewing PR #{inputs.pr_number} · {repository}")
+        target = f"PR #{inputs.pr_number}" if inputs.pr_number is not None else f"branch '{inputs.head_branch}'"
+        workflow.logger.info(f"ReviewHog · reviewing {target} · {repository}")
 
         await workflow.execute_activity(
             validate_github_integration_activity,
@@ -304,6 +308,9 @@ class ReviewPRWorkflow:
                 repo=inputs.repo,
                 pr_number=inputs.pr_number,
                 pr_url=inputs.pr_url,
+                head_branch=inputs.head_branch,
+                signal_report_id=inputs.signal_report_id,
+                trigger_source=inputs.trigger_source,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -313,21 +320,29 @@ class ReviewPRWorkflow:
             "Captured point-in-time diff snapshot" if meta.snapshotted else "No new diff snapshot this turn"
         )
 
-        # Early-exit: nothing to do this turn. `already_published` means this exact head was already
-        # reviewed AND posted, so re-running the pipeline would recompute the same review and publish
-        # would self-skip — burning sandbox cost for no output. New inline comments do NOT force a turn
-        # yet (logged in fetch); reacting to comments lands with the "fix the issues" capability — see
-        # ARCHITECTURE.md (Stage 5b / Action plane). A no-publish eval run is never gated here (it has
-        # no published head), so the frozen-PR eval loop still recomputes to measure reviewer changes.
+        # Early-exits: nothing to do this turn — no receipt is appended for these (nothing was done).
+        # `already_published` means this exact head was already reviewed AND posted, so re-running the
+        # pipeline would recompute the same review and publish would self-skip — burning sandbox cost
+        # for no output. New inline comments do NOT force a turn yet (logged in fetch); reacting to
+        # comments lands with the "fix the issues" capability — see ARCHITECTURE.md (Stage 5b / Action
+        # plane). A no-publish eval run is never gated here (it has no published head), so the
+        # frozen-PR eval loop still recomputes to measure reviewer changes. `empty_diff` is the
+        # "pushed nothing → do nothing" rule for branch targets.
         if meta.already_published:
             workflow.logger.info(
-                f"Review already published for {repository}#{inputs.pr_number} at {head_sha[:12]}; "
+                f"Review already published for {repository} {target} at {head_sha[:12]}; "
                 f"nothing changed this turn ({meta.new_comment_count} new comment(s), not yet acted on) — skipping"
             )
             return report_id
+        if meta.empty_diff:
+            workflow.logger.info(
+                f"Branch '{branch}' has no reviewable diff against its base (pushed nothing); skipping"
+            )
+            return report_id
 
-        # Resolve the acting user whose enabled perspectives apply (PR author, or CLI override). Gate
-        # here, before any sandbox spend: a non-PostHog author has no perspectives, so skip the review.
+        # Resolve the acting user whose enabled perspectives apply (PR author, or the explicit
+        # override the CLI and inbox triggers set). Gate here, before any sandbox spend: a non-PostHog
+        # author has no perspectives, so skip the review.
         acting = await workflow.execute_activity(
             resolve_acting_user_activity,
             ResolveActingUserInput(
@@ -345,148 +360,210 @@ class ReviewPRWorkflow:
                 "skipping review (no perspectives to apply)"
             )
             return report_id
-        # The label trigger's per-author opt-out. Only the cloud path (no explicit acting-user
-        # override) is gated — an explicit CLI/eval invocation always runs. A second cloud trigger
-        # (e.g. Inbox PRs) needs its own trigger-source input, not this gate.
-        if inputs.acting_user_id is None and not acting.review_labeled_prs:
+        # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
+        # flip gates). Label gates only the cloud path (no explicit acting-user override) — an
+        # explicit CLI/eval invocation always runs. Inbox re-checks the receiver-side gate here for
+        # snapshot-at-resolve consistency. Manual stays ungated.
+        if inputs.trigger_source == TRIGGER_LABEL and inputs.acting_user_id is None and not acting.review_labeled_prs:
             workflow.logger.info(
                 f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
                 "turned off; skipping review"
             )
             return report_id
+        if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
+            workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
+            return report_id
         acting_user_id = acting.acting_user_id
 
-        await workflow.execute_activity(
-            sync_review_skills_activity,
-            SyncReviewSkillsInput(team_id=inputs.team_id),
-            start_to_close_timeout=_FETCH_TIMEOUT,
-            retry_policy=_RETRY,
-        )
-        await workflow.execute_activity(
-            generate_schemas_activity,
-            GenerateSchemasInput(),
-            start_to_close_timeout=_QUICK_TIMEOUT,
-            retry_policy=_RETRY,
-        )
+        publish_result: PublishResult | None = None
+        try:
+            await workflow.execute_activity(
+                sync_review_skills_activity,
+                SyncReviewSkillsInput(team_id=inputs.team_id),
+                start_to_close_timeout=_FETCH_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+            await workflow.execute_activity(
+                generate_schemas_activity,
+                GenerateSchemasInput(),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
 
-        stage = SandboxStageInput(
-            team_id=inputs.team_id,
-            user_id=inputs.user_id,
-            report_id=report_id,
-            head_sha=head_sha,
-            repository=repository,
-            branch=branch,
-            run_index=meta.run_index,
-        )
-
-        workflow.logger.info("STAGE 2/8 · Split into chunks")
-        chunk_ids: list[int] = await workflow.execute_activity(
-            split_chunks_activity,
-            stage,
-            start_to_close_timeout=_SANDBOX_TIMEOUT,
-            heartbeat_timeout=_SANDBOX_HEARTBEAT,
-            retry_policy=_RETRY,
-        )
-
-        parent_id = workflow.info().workflow_id
-
-        workflow.logger.info("STAGE 3/8 · Review chunks (perspective wave + blind-spot check)")
-        await workflow.execute_child_workflow(
-            ReviewPerspectivesWorkflow.run,
-            ReviewPerspectivesInputs(
-                team_id=stage.team_id,
-                user_id=stage.user_id,
-                report_id=stage.report_id,
-                head_sha=stage.head_sha,
-                repository=stage.repository,
-                branch=stage.branch,
-                run_index=stage.run_index,
-                chunk_ids=chunk_ids,
-                acting_user_id=acting_user_id,
-            ),
-            id=f"{parent_id}/review",
-            retry_policy=_RETRY,
-        )
-
-        workflow.logger.info("STAGE 4/8 · Combine & scope-clean issues")
-        issues_json: list[str] = await workflow.execute_activity(
-            combine_and_clean_activity,
-            CombineCleanInput(team_id=inputs.team_id, report_id=report_id, head_sha=head_sha),
-            start_to_close_timeout=_QUICK_TIMEOUT,
-            retry_policy=_RETRY,
-        )
-
-        workflow.logger.info("STAGE 5/8 · Deduplicate issues")
-        dedup: DedupResult = await workflow.execute_activity(
-            dedup_activity,
-            DedupInput(
-                team_id=stage.team_id,
-                user_id=stage.user_id,
-                report_id=stage.report_id,
-                head_sha=stage.head_sha,
-                repository=stage.repository,
-                branch=stage.branch,
-                run_index=stage.run_index,
-                issues_json=issues_json,
-            ),
-            start_to_close_timeout=_SANDBOX_TIMEOUT,
-            heartbeat_timeout=_SANDBOX_HEARTBEAT,
-            retry_policy=_RETRY,
-        )
-        workflow.logger.info(f"Persisted {dedup.findings_count} finding(s) to the review report")
-
-        workflow.logger.info("STAGE 6/8 · Validate issues")
-        await workflow.execute_child_workflow(
-            ValidateIssuesWorkflow.run,
-            ValidateIssuesInputs(
-                team_id=stage.team_id,
-                user_id=stage.user_id,
-                report_id=stage.report_id,
-                head_sha=stage.head_sha,
-                repository=stage.repository,
-                branch=stage.branch,
-                run_index=stage.run_index,
-                issues_json=dedup.issues_json,
-                acting_user_id=acting_user_id,
-            ),
-            id=f"{parent_id}/validate",
-            retry_policy=_RETRY,
-        )
-
-        workflow.logger.info("STAGE 7/8 · Build report")
-        await workflow.execute_activity(
-            build_body_activity,
-            BuildBodyInput(
+            stage = SandboxStageInput(
                 team_id=inputs.team_id,
+                user_id=inputs.user_id,
                 report_id=report_id,
                 head_sha=head_sha,
-                run_index=stage.run_index,
-                issues_json=dedup.issues_json,
-                urgency_threshold=acting.urgency_threshold,
-            ),
-            start_to_close_timeout=_QUICK_TIMEOUT,
-            retry_policy=_RETRY,
-        )
+                repository=repository,
+                branch=branch,
+                run_index=meta.run_index,
+            )
 
-        workflow.logger.info("STAGE 8/8 · Publish review")
-        if inputs.publish:
+            workflow.logger.info("STAGE 2/8 · Split into chunks")
+            chunk_ids: list[int] = await workflow.execute_activity(
+                split_chunks_activity,
+                stage,
+                start_to_close_timeout=_SANDBOX_TIMEOUT,
+                heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                retry_policy=_RETRY,
+            )
+
+            parent_id = workflow.info().workflow_id
+
+            workflow.logger.info("STAGE 3/8 · Review chunks (perspective wave + blind-spot check)")
+            await workflow.execute_child_workflow(
+                ReviewPerspectivesWorkflow.run,
+                ReviewPerspectivesInputs(
+                    team_id=stage.team_id,
+                    user_id=stage.user_id,
+                    report_id=stage.report_id,
+                    head_sha=stage.head_sha,
+                    repository=stage.repository,
+                    branch=stage.branch,
+                    run_index=stage.run_index,
+                    chunk_ids=chunk_ids,
+                    acting_user_id=acting_user_id,
+                ),
+                id=f"{parent_id}/review",
+                retry_policy=_RETRY,
+            )
+
+            workflow.logger.info("STAGE 4/8 · Combine & scope-clean issues")
+            issues_json: list[str] = await workflow.execute_activity(
+                combine_and_clean_activity,
+                CombineCleanInput(team_id=inputs.team_id, report_id=report_id, head_sha=head_sha),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+
+            workflow.logger.info("STAGE 5/8 · Deduplicate issues")
+            dedup: DedupResult = await workflow.execute_activity(
+                dedup_activity,
+                DedupInput(
+                    team_id=stage.team_id,
+                    user_id=stage.user_id,
+                    report_id=stage.report_id,
+                    head_sha=stage.head_sha,
+                    repository=stage.repository,
+                    branch=stage.branch,
+                    run_index=stage.run_index,
+                    issues_json=issues_json,
+                ),
+                start_to_close_timeout=_SANDBOX_TIMEOUT,
+                heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                retry_policy=_RETRY,
+            )
+            workflow.logger.info(f"Persisted {dedup.findings_count} finding(s) to the review report")
+
+            workflow.logger.info("STAGE 6/8 · Validate issues")
+            await workflow.execute_child_workflow(
+                ValidateIssuesWorkflow.run,
+                ValidateIssuesInputs(
+                    team_id=stage.team_id,
+                    user_id=stage.user_id,
+                    report_id=stage.report_id,
+                    head_sha=stage.head_sha,
+                    repository=stage.repository,
+                    branch=stage.branch,
+                    run_index=stage.run_index,
+                    issues_json=dedup.issues_json,
+                    acting_user_id=acting_user_id,
+                ),
+                id=f"{parent_id}/validate",
+                retry_policy=_RETRY,
+            )
+
+            workflow.logger.info("STAGE 7/8 · Build report")
             await workflow.execute_activity(
-                publish_review_activity,
-                PublishInput(
+                build_body_activity,
+                BuildBodyInput(
                     team_id=inputs.team_id,
                     report_id=report_id,
                     head_sha=head_sha,
                     run_index=stage.run_index,
-                    owner=inputs.owner,
-                    repo=inputs.repo,
-                    pr_number=inputs.pr_number,
+                    issues_json=dedup.issues_json,
                     urgency_threshold=acting.urgency_threshold,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
-        else:
-            workflow.logger.info("Publishing disabled for this run (publish=False)")
+
+            workflow.logger.info("STAGE 8/8 · Publish review")
+            if inputs.publish and meta.pr_number is not None:
+                publish_result = await workflow.execute_activity(
+                    publish_review_activity,
+                    PublishInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        head_sha=head_sha,
+                        run_index=stage.run_index,
+                        owner=inputs.owner,
+                        repo=inputs.repo,
+                        # The resolved destination: the input PR, or the open PR fetch discovered
+                        # for a branch target.
+                        pr_number=meta.pr_number,
+                        urgency_threshold=acting.urgency_threshold,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            elif inputs.publish:
+                workflow.logger.info("No PR to publish to (branch target); the review is stored only")
+            else:
+                workflow.logger.info("Publishing disabled for this run (publish=False)")
+        except Exception:
+            # The signal report's log records a failed turn too (a receipt per executed turn,
+            # completion or failure); best-effort so it can never mask the original error.
+            await self._append_code_review_receipt(
+                inputs, report_id=report_id, run_index=meta.run_index, outcome="failed", best_effort=True
+            )
+            raise
+
+        posted = publish_result is not None and publish_result.posted
+        # Best-effort like the failed path: the receipt is bookkeeping, and failing (+ retrying) an
+        # already-published review over it buys nothing — the retry's already-published early-exit
+        # returns before this append anyway, so the receipt would stay lost either way.
+        await self._append_code_review_receipt(
+            inputs,
+            report_id=report_id,
+            run_index=meta.run_index,
+            outcome="published" if posted else "stored",
+            review_url=publish_result.review_url if publish_result is not None else None,
+            best_effort=True,
+        )
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id
+
+    @staticmethod
+    async def _append_code_review_receipt(
+        inputs: ReviewPRWorkflowInputs,
+        *,
+        report_id: str,
+        run_index: int,
+        outcome: str,
+        review_url: str | None = None,
+        best_effort: bool = False,
+    ) -> None:
+        """Append the turn's `code_review` receipt to the signal report's artefact log, when linked."""
+        if inputs.signal_report_id is None:
+            return
+        try:
+            await workflow.execute_activity(
+                append_code_review_artefact_activity,
+                AppendCodeReviewArtefactInput(
+                    team_id=inputs.team_id,
+                    signal_report_id=inputs.signal_report_id,
+                    review_report_id=report_id,
+                    run_index=run_index,
+                    outcome=outcome,
+                    review_url=review_url,
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except Exception:
+            if not best_effort:
+                raise
+            workflow.logger.warning("Could not append the code_review receipt; continuing without it")

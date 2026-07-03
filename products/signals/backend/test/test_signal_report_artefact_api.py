@@ -780,6 +780,31 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
+    def test_post_rejects_system_generated_code_review_type(self):
+        # code_review receipts are written only by the ReviewHog workflow; accepting them through the
+        # API would let a caller fabricate review receipts for reviews that never ran. The payload is
+        # schema-valid on purpose — the rejection must be type-based, not a validation accident.
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "code_review",
+                    "content": {
+                        "review_report_id": "11111111-1111-1111-1111-111111111111",
+                        "repository": "posthog/posthog",
+                        "head_sha": "abc123",
+                        "head_branch": "feat",
+                        "base_branch": "master",
+                        "outcome": "published",
+                    },
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
     def test_post_rejects_scalar_content(self):
         report = self._create_report()
         response = self.client.post(

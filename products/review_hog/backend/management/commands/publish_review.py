@@ -76,7 +76,7 @@ class Command(BaseCommand):
         # A local-only ops command: always the default threshold (should_fix), not a per-user one —
         # keeps the frozen body and the freshly built inline comments consistent without needing to
         # track which threshold the run itself used.
-        posted = publish_persisted_review(
+        outcome = publish_persisted_review(
             team_id=team_id,
             report_id=str(report.id),
             head_sha=head_sha,
@@ -87,7 +87,7 @@ class Command(BaseCommand):
             token=token,
             published_priorities=published_priorities_for(DEFAULT_URGENCY_THRESHOLD),
         )
-        if posted:
+        if outcome.posted:
             self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ published {repository}#{pr_number}"))
         else:
             self.stdout.write(

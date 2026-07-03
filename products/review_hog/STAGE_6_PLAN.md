@@ -49,6 +49,19 @@ posthog_mcp_scopes="full", interaction_origin="signal_report", ai_stage="impleme
 
 ### 1.2 How a run completes (the trigger moment)
 
+> **⚠️ AMENDED AT BUILD TIME (2026-07-03, live-e2e discovery): this section's premise is wrong —
+> successful runs NEVER complete, so the trigger moment is the `output`-recording save instead.**
+> `mark_completed()` exists but has zero production callers (tests only);
+> `execute_sandbox/workflow.py::_maybe_record_terminal_status` deliberately keeps a successful run
+> `in_progress` ("the run is always followable"), the task-management orchestrator only ever writes
+> `cancelled`/`failed`, and signals-origin tasks unconditionally opt into the PR follow-up loop
+> (`get_task_processing_context.py`) which babysits the PR indefinitely. The `track_task_run_completion`
+> precedent below predates that architecture. As built, the receiver fires on saves that (may) touch
+> `output`: target = `output.pr_url` (PR leg) else `output.head_branch` (branch leg — synced by the
+> agent server at end of any turn whose git branch changed, PR or no PR); creation saves,
+> declared-fields saves without `output`, and failed/cancelled runs are skipped. See
+> ARCHITECTURE.md → Stage 6 → "🔁 TRIGGER REDESIGNED 2026-07-03".
+
 - `TaskRun.mark_completed()` (`products/tasks/backend/models.py:1141`):
   `self.status = COMPLETED; self.completed_at = now(); self.save(update_fields=["status", "completed_at"])`
   → **`post_save` fires**. Other completion writers (`temporal/process_task/activities/relay_sandbox_events.py:~180`,
@@ -188,6 +201,21 @@ Existing edges: `review_hog → tasks` (facade `products.tasks.backend.facade.ag
 6. **Acting user = `task.created_by`** — the GitHub PR author is a bot, so author-login mapping
    can't apply. Their perspectives / blind-spots / validator / urgency threshold drive the run.
    The **single existing urgency threshold** applies; no separate inbox knob.
+   > **AMENDED at build time (maintainer, 2026-07-02): acting user = the report's assigned
+   > reviewer, NOT `task.created_by`.** Signals tasks are created in the background (research /
+   > repo-selection / custom-agent tasks literally as the GitHub-integration creator via
+   > `resolve_user_id_for_team`), so `created_by` carries no assignment meaning. Assignment = the
+   > Inbox "For you" semantics: the report's **latest `suggested_reviewers` artefact**, logins
+   > resolved to org members exactly like `_apply_signal_report_suggested_reviewer_filter`
+   > (signals `views.py`) and the Slack inbox notifications. The acting reviewer is the task's own
+   > user (`created_by` — whoever clicked "Create PR", or the auto-start assignee) **when they are
+   > among the resolved reviewers** (someone who asked for the implementation gets their own rules
+   > applied to its review — maintainer, 2026-07-03); otherwise the **first login that resolves to
+   > an org member is canonical**. The acting reviewer's `review_inbox_prs` gates the review and
+   > their ReviewHog options drive it — a non-acting reviewer's opt-in never hijacks whose options
+   > apply. Acting reviewer missing or opted out → skip. The receiver also skips `task.internal`
+   > tasks — research/repo-selection/custom-agent tasks carry `signal_report_id` too, and only
+   > implementation tasks (auto-start or "Create PR") are non-internal.
 7. **Gate = `review_inbox_prs`** (default off — the budget gate for 100%-coverage cost). Checked
    cheaply at the trigger **and** snapshotted at resolve time. Gates become trigger-aware:
    `label → review_labeled_prs`, `inbox → review_inbox_prs`, `manual` (CLI/eval) → ungated.
@@ -374,6 +402,12 @@ workflow-id collapse (mock returns same id).
   Workflow id for branch targets: `review-branch:{team_id}:{owner}/{repo}:{head_branch}`.
 - Receiver: prefer `output.pr_url` when present; else fall back to
   `(task.repository, instance.branch)` as the branch target (drop the Step-3 "no pr_url → skip").
+  > **AMENDED at build time (adversarial review, 2026-07-03): the receiver fallback is DISABLED —
+  > the Step-3 "no pr_url → skip" behavior stands.** `TaskRun.branch` holds the _base_ branch the
+  > agent started from (auto_start passes the autostart base; the agent-server receives it as
+  > `--baseBranch`), never the pushed head — so this fallback can only compare the wrong ref.
+  > Branch targets stay fully supported at the client/workflow layer for callers that know a real
+  > head branch; the receiver rejoins once tasks records the pushed head branch on the run.
 - Fetch activity, branch-target path:
   1. resolve an open PR for the head branch first — one API call,
      `repo.get_pulls(state="open", head=f"{owner}:{branch}")` (precedent:
@@ -395,6 +429,20 @@ fetch (mocked PyGithub) incl. empty-diff self-skip; branch→PR upgrade turn pub
 `pr_number`; receiver fallback.
 
 ### Step 5 — dogfood e2e (manual, before non-staff rollout)
+
+> **✅ RUN 2026-07-03 (local, synthetic report + real click-through + real PR).** Full chain
+> verified live: seeded report (For-you assignee = the clicking user) → "Create PR" in the Inbox →
+> implementation agent → PR #68141 → the `output.pr_url` save fired the redesigned receiver
+> (see the §1.2 amendment — the run itself never completes) → inbox workflow
+> (`trigger_source="inbox"`, `signal_report_id` stamped at row creation) → single-chunk pipeline
+> (size gate; 3 perspectives + blind-spots) → **zero findings on the clean 4-word typo PR** →
+> publish self-skipped (no noise comment posted) → `code_review` receipt on the report with
+> `outcome="stored"`, counts 0/0/0. The e2e also caught the trigger-premise bug itself (first
+> click-through stalled forever on the completion gate) and exercised the same-head
+> already-published early-exit + provenance backfill on a prior run against PR #68108. Still
+> unobserved live: a receipt with `outcome="published"` (needs a findings-bearing PR; the publish
+> machinery itself is proven by the Stage-5/manual leg on #68108) and the repeat-turn re-review
+> (item 3 below).
 
 1. On a dev/staging team with a GitHub integration: flip `review_inbox_prs` on for a user, run a
    self-driving implementation end-to-end (or `Task.create_and_run` with

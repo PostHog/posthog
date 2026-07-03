@@ -24,8 +24,8 @@ data they need (per-call task ids, comment-driven notes) isn't surfaced by the c
 
 import logging
 
-from django.db import transaction
-from django.db.models import F
+from django.db import IntegrityError, transaction
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -51,33 +51,91 @@ from products.signals.backend.artefact_schemas import Commit
 logger = logging.getLogger(__name__)
 
 
-def upsert_review_report(*, team_id: int, repository: str, pr_url: str, pr_metadata: PRMetadata) -> str:
-    """Create or fetch the living report for `(team, repository, pr_number)` and return its id.
+def upsert_review_report(
+    *,
+    team_id: int,
+    repository: str,
+    pr_url: str,
+    pr_metadata: PRMetadata,
+    signal_report_id: str | None = None,
+    trigger_source: str | None = None,
+) -> str:
+    """Create or fetch the living report for this review target and return its id.
 
-    `(team, repository, pr_number)` is the idempotency key, so a re-run reuses the existing report
-    (appending a new turn) rather than creating a second one. Goes through `for_team` because the
-    orchestrator runs outside request context and `ReviewReport` is fail-closed.
+    The idempotency key is `(team, repository, pr_number)` for PR targets and
+    `(team, repository, head_branch)` for PR-less branch targets (`pr_metadata.number == 0`), so a
+    re-run reuses the existing report (appending a new turn) rather than creating a second one. A
+    branch-keyed row upgrades in place the first time its branch is fetched with a PR — the number
+    and URL are backfilled, so the stored review and its watermarks carry over to the publishable
+    turn. Provenance (`signal_report_id`, `trigger_source`) is stamped on create; on update
+    `signal_report_id` is only filled when missing and `trigger_source` is never overwritten — a
+    label re-trigger of an inbox PR must not erase where the report came from, nor vice versa.
+    Goes through `for_team` because the orchestrator runs outside request context and `ReviewReport`
+    is fail-closed.
     """
+    pr_number = pr_metadata.number or None
     with transaction.atomic():
-        report, _created = ReviewReport.objects.for_team(team_id).get_or_create(
-            team_id=team_id,
-            repository=repository,
-            pr_number=pr_metadata.number,
-            defaults={
+        qs = ReviewReport.objects.for_team(team_id)
+        report = _locate_review_report(
+            qs, repository=repository, pr_number=pr_number, head_branch=pr_metadata.head_branch
+        )
+        if report is None:
+            create_kwargs: dict[str, object] = {
+                "team_id": team_id,
+                "repository": repository,
+                "pr_number": pr_number,
                 "pr_url": pr_url,
                 "head_branch": pr_metadata.head_branch,
                 "base_branch": pr_metadata.base_branch,
                 "status": ReviewReport.Status.ACTIVE,
-            },
-        )
+                "signal_report_id": signal_report_id,
+            }
+            if trigger_source is not None:
+                create_kwargs["trigger_source"] = trigger_source
+            try:
+                # Savepoint so a lost unique-constraint race doesn't poison the outer transaction:
+                # two concurrent first fetches of the same target can both miss the lookup; the
+                # loser re-selects the winner's committed row and takes the update path below.
+                with transaction.atomic():
+                    report = qs.create(**create_kwargs)
+                    return str(report.id)
+            except IntegrityError:
+                report = _locate_review_report(
+                    qs, repository=repository, pr_number=pr_number, head_branch=pr_metadata.head_branch
+                )
+                if report is None:
+                    raise
         # Refresh mutable PR facts (a force-push can move the branch) and mark this turn active.
-        ReviewReport.objects.for_team(team_id).filter(pk=report.pk).update(
-            pr_url=pr_url,
-            head_branch=pr_metadata.head_branch,
-            base_branch=pr_metadata.base_branch,
-            status=ReviewReport.Status.ACTIVE,
-        )
+        updates: dict[str, object] = {
+            "head_branch": pr_metadata.head_branch,
+            "base_branch": pr_metadata.base_branch,
+            "status": ReviewReport.Status.ACTIVE,
+        }
+        if pr_number is not None:
+            updates["pr_number"] = pr_number  # branch-keyed row upgrades once its PR exists
+        if pr_url:
+            updates["pr_url"] = pr_url  # a branch turn's empty URL must not erase a known PR URL
+        if report.signal_report_id is None and signal_report_id is not None:
+            updates["signal_report_id"] = signal_report_id
+        qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
+
+
+def _locate_review_report(
+    qs: "QuerySet[ReviewReport]", *, repository: str, pr_number: int | None, head_branch: str
+) -> ReviewReport | None:
+    """The existing report row for this target, or None.
+
+    PR targets match by number first, then fall back to a stored branch-keyed row for the same head
+    branch (only ever `pr_number` NULL — a row already carrying another PR's number is a different
+    target and must not be clobbered); branch targets match branch-keyed rows only.
+    """
+    report = None
+    if pr_number is not None:
+        report = qs.filter(repository=repository, pr_number=pr_number).first()
+    if report is None:
+        report = qs.filter(repository=repository, pr_number__isnull=True, head_branch=head_branch).first()
+    return report
 
 
 def persist_commit_snapshot(

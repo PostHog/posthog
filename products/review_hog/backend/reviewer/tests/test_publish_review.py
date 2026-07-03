@@ -138,7 +138,7 @@ class TestPublishReviewGate:
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(), _verdict())]
 
-        posted = publish_review(
+        outcome = publish_review(
             owner="o",
             repo="r",
             pr_number=1,
@@ -152,7 +152,7 @@ class TestPublishReviewGate:
             published_priorities=_DEFAULT_PUBLISHED,
         )
 
-        assert posted is True
+        assert outcome.posted is True
         mock_post.assert_called_once()
         assert mock_post.call_args.args[4] == []  # body-only post: no inline comments resolved
 
@@ -167,7 +167,7 @@ class TestPublishReviewGate:
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
-        posted = publish_review(
+        outcome = publish_review(
             owner="o",
             repo="r",
             pr_number=1,
@@ -181,7 +181,7 @@ class TestPublishReviewGate:
             published_priorities=_DEFAULT_PUBLISHED,
         )
 
-        assert posted is False
+        assert outcome.posted is False
         mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -208,7 +208,7 @@ class TestPublishReviewGate:
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=base), _verdict(adjusted_priority=adjusted))]
 
-        posted = publish_review(
+        outcome = publish_review(
             owner="o",
             repo="r",
             pr_number=1,
@@ -222,7 +222,7 @@ class TestPublishReviewGate:
             published_priorities=_DEFAULT_PUBLISHED,
         )
 
-        assert posted is expected_posted
+        assert outcome.posted is expected_posted
         assert mock_post.called is expected_posted
 
     @parameterized.expand(

@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from posthog.models.integration import Integration
 
 from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.types import TRIGGER_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,9 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         # Forks are rejected server-side in the workflow's fetch activity (and by the Action gate); the
         # endpoint stays free of GitHub I/O and returns immediately.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
-        workflow_id = start_review_pr_workflow(pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish)
+        workflow_id = start_review_pr_workflow(
+            pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, trigger_source=TRIGGER_LABEL
+        )
         logger.info(f"ReviewHog trigger started workflow {workflow_id} for {repo}#{pr_number} (publish={publish})")
         return Response(
             ReviewHogTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,

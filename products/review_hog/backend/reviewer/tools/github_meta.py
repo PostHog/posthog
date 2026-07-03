@@ -215,6 +215,76 @@ class PRParser:
         return changes
 
 
+def find_open_pr_for_branch(*, token: str, repository: str, owner: str, head_branch: str) -> tuple[int, str] | None:
+    """The first open PR whose head is `head_branch` on the base repo, as (number, html_url), or None.
+
+    One API call. Branch targets are origin branches by construction (the tasks agent pushes to the
+    base repo, never a fork), so the head qualifier is always `{base owner}:{branch}`.
+    """
+    repo_obj = Github(token).get_repo(repository)
+    pull = next(iter(repo_obj.get_pulls(state="open", head=f"{owner}:{head_branch}")), None)
+    if pull is None:
+        return None
+    return pull.number, pull.html_url
+
+
+def fetch_branch_compare(
+    *, token: str, repository: str, head_branch: str
+) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
+    """Fetch a PR-less branch target as a compare diff against the repo's default branch.
+
+    Returns the same ``(pr_metadata, pr_comments, pr_files, diff)`` shape as `PRFetcher.fetch_pr_data`
+    — the pipeline middle (chunk → review → dedup → validate) consumes files + diff and doesn't care
+    where they came from. The metadata is synthesized with ``number=0`` ("no PR"); comments are empty
+    (there is no PR to carry them). Files are filtered exactly like the PR path.
+    """
+    repo_obj = Github(token).get_repo(repository)
+    base_branch = repo_obj.default_branch
+    head_sha = repo_obj.get_branch(head_branch).commit.sha
+    comparison = repo_obj.compare(base_branch, head_branch)
+
+    pr_filter = PRFilter()
+    pr_parser = PRParser()
+    pr_files: list[PRFile] = []
+    diff_sections: list[str] = []
+    additions = deletions = 0
+    for file in comparison.files:
+        additions += file.additions
+        deletions += file.deletions
+        if pr_filter.is_filtered_file(file.filename) or pr_filter.is_test_file(file.filename):
+            continue
+        pr_files.append(
+            PRFile(
+                filename=file.filename,
+                status=file.status,
+                additions=file.additions,
+                deletions=file.deletions,
+                changes=pr_parser.parse_patch(file.patch) if file.patch else [],
+            )
+        )
+        diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
+
+    metadata = PRMetadata(
+        number=0,
+        title=f"{repository}:{head_branch}",
+        body="",
+        state="open",
+        draft=False,
+        created_at="",
+        updated_at="",
+        author="",
+        base_branch=base_branch,
+        head_branch=head_branch,
+        is_fork=False,
+        head_sha=head_sha,
+        commits=comparison.total_commits,
+        additions=additions,
+        deletions=deletions,
+        changed_files=len(comparison.files),
+    )
+    return metadata, [], pr_files, "\n\n".join(diff_sections)
+
+
 class PRFetcher:
     def __init__(self, owner: str, repo: str, pr_number: int, token: str) -> None:
         self.owner = owner

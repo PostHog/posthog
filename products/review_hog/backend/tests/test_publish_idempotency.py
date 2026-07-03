@@ -9,7 +9,11 @@ from github.PullRequest import PullRequest
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
-from products.review_hog.backend.reviewer.tools.publish_review import _review_already_posted, _review_marker
+from products.review_hog.backend.reviewer.tools.publish_review import (
+    PublishOutcome,
+    _review_already_posted,
+    _review_marker,
+)
 from products.review_hog.backend.temporal.activities import _publish
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
@@ -91,7 +95,7 @@ class TestPublishIdempotency(BaseTest):
     @patch(_SNAPSHOT, return_value=None)
     @patch(_TOKEN, return_value="tok")
     def test_first_publish_posts_promo_and_records_watermark(self, _token, _snapshot, mock_publish) -> None:
-        mock_publish.return_value = True
+        mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
@@ -110,7 +114,7 @@ class TestPublishIdempotency(BaseTest):
     @patch(_SNAPSHOT, return_value=None)
     @patch(_TOKEN, return_value="tok")
     def test_new_head_publishes_without_promo(self, _token, _snapshot, mock_publish) -> None:
-        mock_publish.return_value = True
+        mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report(published_head_sha="oldsha")
         _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
@@ -123,7 +127,7 @@ class TestPublishIdempotency(BaseTest):
     def test_noop_publish_does_not_record_watermark(self, _token, _snapshot, mock_publish) -> None:
         # Nothing publishable (validator dropped everything): the head must NOT be watermarked, so a
         # later turn with a valid finding can still publish at the same head.
-        mock_publish.return_value = False
+        mock_publish.return_value = PublishOutcome(posted=False)
         report_id = self._report()
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1

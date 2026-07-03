@@ -17,11 +17,13 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 
 class ReviewReport(UUIDModel, TeamScopedRootMixin):
-    """The living per-PR review document.
+    """The living per-target review document.
 
-    One row per `(team, repository, pr_number)`. ReviewHog is loop-y — after the first pass it
-    re-checks the PR for new commits/comments and takes another turn — so the report is updated
-    in place across turns and the watermark records what the latest turn already reviewed.
+    One row per `(team, repository, pr_number)` — or per `(team, repository, head_branch)` for a
+    PR-less branch target (`pr_number` NULL), which upgrades in place once its PR exists. ReviewHog
+    is loop-y — after the first pass it re-checks the target for new commits/comments and takes
+    another turn — so the report is updated in place across turns and the watermark records what the
+    latest turn already reviewed.
     """
 
     class Status(models.TextChoices):
@@ -31,8 +33,9 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     repository = models.CharField(max_length=255)  # owner/repo
-    pr_number = models.IntegerField()
-    pr_url = models.TextField()
+    # NULL = a branch target with no PR yet; backfilled by the fetch stage once a PR opens.
+    pr_number = models.IntegerField(null=True, blank=True)
+    pr_url = models.TextField(blank=True)
     head_branch = models.CharField(max_length=255)
     base_branch = models.CharField(max_length=255)
     # Whose configuration drives this report's reviews (the PR author on the label path) — stamped at
@@ -52,15 +55,32 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
     report_markdown = models.TextField(default="", blank=True)
+    # Provenance for inbox-triggered reviews: the signals report whose implementation this review
+    # targets. A plain UUID, not an FK — the link must survive report deletion/reingestion on the
+    # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
+    # link). Filled once, never overwritten by later turns from another trigger.
+    signal_report_id = models.UUIDField(null=True, blank=True)
+    # Which trigger created this report ("label" / "inbox" / "manual"); stamped on create only.
+    trigger_source = models.CharField(max_length=20, default="manual")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "repository", "pr_number"], name="unique_review_report_per_pr"),
+            models.UniqueConstraint(
+                fields=["team", "repository", "pr_number"],
+                name="unique_review_report_per_pr",
+                condition=models.Q(pr_number__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["team", "repository", "head_branch"],
+                name="unique_review_report_per_branch",
+                condition=models.Q(pr_number__isnull=True),
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "status"], name="reviewhog_rpt_team_status_idx"),
+            models.Index(fields=["signal_report_id"], name="reviewhog_rpt_signal_rpt_idx"),
         ]
 
 
@@ -228,7 +248,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     label trigger's opt-out — the workflow gates on the PR author's row (no row = the defaults).
     `urgency_threshold` is the minimum priority a validated finding needs to be published; it snaps
     to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
-    `review_inbox_prs` is stored but not consumed yet (the Inbox auto-review trigger doesn't exist).
+    `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
+    cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
     """
 
     class UrgencyThreshold(models.TextChoices):

@@ -31,23 +31,29 @@ class TestResolveActingUser(BaseTest):
         assert result.acting_user_id == (self.user.id if expected == _SELF else expected)
 
     def test_settings_default_when_user_has_no_row(self) -> None:
-        # No settings row → the resolve result carries the defaults (labeled reviews on, should_fix),
-        # so the gate and publish behave as before this feature for users who never opened the UI.
+        # No settings row → the resolve result carries the defaults (labeled reviews on, inbox
+        # reviews off, should_fix), so the gates and publish behave as before this feature for
+        # users who never opened the UI.
         result = _resolve_acting_user(self.team.id, "octocat", None)
         assert result.review_labeled_prs is True
+        assert result.review_inbox_prs is False
         assert result.urgency_threshold == "should_fix"
 
     def test_settings_row_flows_into_the_result(self) -> None:
-        # The author's saved opt-out + threshold must reach the workflow — if resolve stops loading
-        # them, the label gate and publish silently revert to defaults.
+        # The user's saved settings must reach the workflow — if resolve stops loading any of them,
+        # the gates and publish silently revert to defaults. review_inbox_prs is set to the OPPOSITE
+        # of its dataclass default: dropping its one passthrough line would silently disable the
+        # entire inbox trigger for every opted-in user with the whole suite still green.
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
             review_labeled_prs=False,
+            review_inbox_prs=True,
             urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
         )
         result = _resolve_acting_user(self.team.id, "octocat", None)
         assert result.review_labeled_prs is False
+        assert result.review_inbox_prs is True
         assert result.urgency_threshold == "must_fix"
 
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:

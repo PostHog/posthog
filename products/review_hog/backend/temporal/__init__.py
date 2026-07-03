@@ -1,4 +1,5 @@
 from products.review_hog.backend.temporal.activities import (
+    append_code_review_artefact_activity,
     build_body_activity,
     combine_and_clean_activity,
     dedup_activity,
@@ -43,4 +44,5 @@ ACTIVITIES = [
     validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
+    append_code_review_artefact_activity,
 ]

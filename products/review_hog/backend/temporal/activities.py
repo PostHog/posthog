@@ -33,6 +33,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
+    effective_priority,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
@@ -53,6 +54,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_pr_snapshot,
     load_prior_findings,
     load_run_validations,
+    load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
@@ -73,7 +75,11 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher
+from products.review_hog.backend.reviewer.tools.github_meta import (
+    PRFetcher,
+    fetch_branch_compare,
+    find_open_pr_for_branch,
+)
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
@@ -90,6 +96,10 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
     plan_deterministic_chunks,
 )
+from products.review_hog.backend.temporal.types import TRIGGER_MANUAL
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = logging.getLogger(__name__)
@@ -110,8 +120,13 @@ class FetchPRDataInput:
     repository: str
     owner: str
     repo: str
-    pr_number: int
-    pr_url: str
+    # PR target when set; branch target (`head_branch`) when None. Defaults keep old payloads deserializing.
+    pr_number: int | None = None
+    pr_url: str | None = None
+    head_branch: str | None = None
+    # Provenance stamped onto the ReviewReport at upsert (see `upsert_review_report`).
+    signal_report_id: str | None = None
+    trigger_source: str = TRIGGER_MANUAL
 
 
 @dataclass
@@ -135,6 +150,13 @@ class ReviewMeta:
     # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
     # whose enabled perspectives this review applies.
     author_login: str
+    # The resolved publish destination: the input PR, or the open PR the fetch discovered for a
+    # branch target. None = branch target with no PR yet → the turn stores instead of publishing.
+    pr_number: int | None = None
+    pr_url: str | None = None
+    # A branch target whose compare diff has no reviewable files ("pushed nothing"): the parent
+    # self-skips the turn before any sandbox spend.
+    empty_diff: bool = False
 
 
 @dataclass
@@ -158,6 +180,7 @@ class ResolveActingUserResult:
     # between stages. Defaults match the model's (and cover payloads serialized before these existed).
     review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.SHOULD_FIX.value
+    review_inbox_prs: bool = False
 
 
 @dataclass
@@ -294,6 +317,26 @@ class PublishInput:
     urgency_threshold: str = IssuePriority.SHOULD_FIX.value
 
 
+@dataclass
+class PublishResult:
+    # Whether a review was actually posted this turn (False on the already-published / nothing-
+    # publishable no-ops), and its GitHub permalink when known — feeds the code_review artefact.
+    posted: bool = False
+    review_url: str | None = None
+
+
+@dataclass
+class AppendCodeReviewArtefactInput:
+    """One `code_review` receipt on the signals report's artefact log, per executed turn."""
+
+    team_id: int
+    signal_report_id: str
+    review_report_id: str
+    run_index: int
+    outcome: str  # "published" / "stored" / "failed"
+    review_url: str | None = None
+
+
 # --- Setup activities ------------------------------------------------------------------------------
 
 
@@ -337,20 +380,45 @@ async def validate_github_integration_activity(input: ValidateIntegrationInput) 
 
 
 def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
-    """Fetch the PR from GitHub, open/refresh the report, and snapshot this turn's inputs + diff."""
+    """Fetch the review target from GitHub, open/refresh the report, and snapshot this turn's inputs + diff.
+
+    A branch target first resolves an open PR for its head branch (one API call): found → the turn
+    continues exactly as the PR path (comments feed dedup, publish becomes possible, the report row
+    upgrades from branch-keyed to PR-keyed); not found → the compare diff against the default branch
+    is reviewed store-only, and an empty compare marks the turn as a self-skip ("pushed nothing → do
+    nothing", enforced here like fork rejection).
+    """
     token = _installation_token(input.team_id, input.repository)
-    pr_metadata, pr_comments, pr_files, diff = PRFetcher(
-        owner=input.owner, repo=input.repo, pr_number=input.pr_number, token=token
-    ).fetch_pr_data()
-    if pr_metadata.is_fork:
-        raise ApplicationError(
-            f"Refusing to review fork PR #{input.pr_number} in {input.repository}: a fork's head ref is "
-            "attacker-influenced and its branch isn't on the base origin (the sandbox checkout would fail).",
-            non_retryable=True,
+    pr_number, pr_url = input.pr_number, input.pr_url
+    if pr_number is None and input.head_branch:
+        discovered = find_open_pr_for_branch(
+            token=token, repository=input.repository, owner=input.owner, head_branch=input.head_branch
+        )
+        if discovered is not None:
+            pr_number, pr_url = discovered
+            logger.info("Branch %s has open PR #%s; reviewing via the PR path", input.head_branch, pr_number)
+    if pr_number is not None:
+        pr_metadata, pr_comments, pr_files, diff = PRFetcher(
+            owner=input.owner, repo=input.repo, pr_number=pr_number, token=token
+        ).fetch_pr_data()
+        if pr_metadata.is_fork:
+            raise ApplicationError(
+                f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
+                "attacker-influenced and its branch isn't on the base origin (the sandbox checkout would fail).",
+                non_retryable=True,
+            )
+    else:
+        pr_metadata, pr_comments, pr_files, diff = fetch_branch_compare(
+            token=token, repository=input.repository, head_branch=input.head_branch or ""
         )
     head_sha = pr_metadata.head_sha or ""
     report_id = upsert_review_report(
-        team_id=input.team_id, repository=input.repository, pr_url=input.pr_url, pr_metadata=pr_metadata
+        team_id=input.team_id,
+        repository=input.repository,
+        pr_url=pr_url or "",
+        pr_metadata=pr_metadata,
+        signal_report_id=input.signal_report_id,
+        trigger_source=input.trigger_source,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
@@ -400,6 +468,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         already_published=already_published,
         new_comment_count=new_comment_count,
         author_login=pr_metadata.author,
+        pr_number=pr_number,
+        pr_url=pr_url,
+        empty_diff=pr_number is None and not pr_files,
     )
 
 
@@ -435,6 +506,7 @@ def _resolve_acting_user(
         # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
         # must hold the plain value.
         urgency_threshold=str(settings.urgency_threshold),
+        review_inbox_prs=settings.review_inbox_prs,
     )
 
 
@@ -882,9 +954,9 @@ def _publish(
     repo: str,
     pr_number: int,
     urgency_threshold: str,
-) -> None:
+) -> PublishResult:
     token = _installation_token(team_id, f"{owner}/{repo}")
-    publish_persisted_review(
+    outcome = publish_persisted_review(
         team_id=team_id,
         report_id=report_id,
         head_sha=head_sha,
@@ -895,18 +967,19 @@ def _publish(
         token=token,
         published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
     )
+    return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def publish_review_activity(input: PublishInput) -> None:
+async def publish_review_activity(input: PublishInput) -> PublishResult:
     """Publish the review to GitHub (DB-driven).
 
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
-    only when publishing is enabled, so reaching here means publish.
+    only when publishing is enabled and the turn has a PR to post to.
     """
-    await database_sync_to_async(_publish, thread_sensitive=False)(
+    return await database_sync_to_async(_publish, thread_sensitive=False)(
         input.team_id,
         input.report_id,
         input.head_sha,
@@ -916,3 +989,69 @@ async def publish_review_activity(input: PublishInput) -> None:
         input.pr_number,
         input.urgency_threshold,
     )
+
+
+# --- The signals report's code_review receipt --------------------------------------------------------
+
+# `IssuePriority` values map 1:1 onto the CodeReviewCounts fields (the enum mirrors the threshold choices).
+_COUNT_FIELD_BY_PRIORITY = {
+    IssuePriority.MUST_FIX: "must_fix",
+    IssuePriority.SHOULD_FIX: "should_fix",
+    IssuePriority.CONSIDER: "consider",
+}
+
+
+def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).filter(id=input.review_report_id).first()
+    if report is None:
+        logger.warning("ReviewReport %s missing; skipping the code_review artefact", input.review_report_id)
+        return
+    # The signals report may be gone by now (deleted/reingested) — the review must not fail over its
+    # own receipt, and the plain-UUID provenance on the ReviewReport row keeps the durable link.
+    if not SignalReport.objects.filter(team_id=input.team_id, id=input.signal_report_id).exists():
+        logger.warning("Signal report %s missing; skipping the code_review artefact", input.signal_report_id)
+        return
+    counts = CodeReviewCounts()
+    for finding, verdict in load_valid_findings(
+        team_id=input.team_id, report_id=input.review_report_id, run_index=input.run_index
+    ):
+        field_name = _COUNT_FIELD_BY_PRIORITY.get(effective_priority(finding.priority, verdict.adjusted_priority))
+        if field_name is not None:
+            setattr(counts, field_name, getattr(counts, field_name) + 1)
+    content = CodeReview(
+        review_report_id=str(report.id),
+        repository=report.repository,
+        head_sha=report.head_sha or "",
+        head_branch=report.head_branch,
+        base_branch=report.base_branch,
+        pr_number=report.pr_number,
+        pr_url=report.pr_url or None,
+        review_url=input.review_url,
+        outcome=input.outcome,  # type: ignore[arg-type]
+        counts=counts,
+    )
+    SignalReportArtefact.add_log(
+        team_id=input.team_id,
+        report_id=input.signal_report_id,
+        content=content,
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def append_code_review_artefact_activity(input: AppendCodeReviewArtefactInput) -> None:
+    """Append this turn's `code_review` receipt to the signals report's artefact log.
+
+    Pointer-first (counts + links + `review_report_id`); the full body stays on
+    `ReviewReport.report_markdown`. Best-effort: the signals report may have been deleted/reingested
+    since the run started, and a review must never fail over its own receipt — so any failure is
+    logged, not raised.
+    """
+    try:
+        await database_sync_to_async(_append_code_review_artefact, thread_sensitive=False)(input)
+    except Exception:
+        logger.exception(
+            "Failed to append the code_review artefact to signal report %s; continuing", input.signal_report_id
+        )

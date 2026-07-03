@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import BaseTest
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -84,6 +86,75 @@ class TestUpsertReviewReport(BaseTest):
         assert report.run_count == 2
         assert report.report_markdown == "# report"
         assert report.status == ReviewReport.Status.IDLE
+
+    def test_branch_target_upserts_by_head_branch_and_upgrades_to_pr(self) -> None:
+        # A PR-less branch target keys by head_branch (pr_number NULL); the first fetch that finds a
+        # PR for the branch must upgrade the SAME row (backfilling number + url) so the stored review
+        # and its watermarks carry into the publishable turn instead of splitting across two reports.
+        branch_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="", pr_metadata=_pr_metadata(pr_number=0)
+        )
+        assert (
+            upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="", pr_metadata=_pr_metadata(pr_number=0)
+            )
+            == branch_id
+        )
+        row = ReviewReport.objects.for_team(self.team.id).get(id=branch_id)
+        assert row.pr_number is None
+        assert row.head_branch == "feat"
+
+        upgraded = upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="https://github.com/o/r/pull/123",
+            pr_metadata=_pr_metadata(),
+        )
+        assert upgraded == branch_id
+        row.refresh_from_db()
+        assert row.pr_number == 123
+        assert row.pr_url == "https://github.com/o/r/pull/123"
+        assert ReviewReport.objects.for_team(self.team.id).filter(repository="o/r").count() == 1
+
+    def test_provenance_is_stamped_on_create_and_never_overwritten(self) -> None:
+        # The signals link is the durable provenance (the artefact on the signals side is deletable):
+        # an inbox create stamps it, and a later label re-trigger of the same PR must not erase it.
+        signal_report_id = str(uuid.uuid4())
+        report_id = upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source="inbox",
+        )
+        upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+        )
+
+        row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert str(row.signal_report_id) == signal_report_id
+        assert row.trigger_source == "inbox"
+
+    def test_provenance_backfills_only_when_missing(self) -> None:
+        # The reverse overlap: a label-created report later re-triggered by the inbox flow gains the
+        # missing signal link but keeps its creating trigger.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+        )
+        signal_report_id = str(uuid.uuid4())
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            signal_report_id=signal_report_id,
+            trigger_source="inbox",
+        )
+
+        row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert str(row.signal_report_id) == signal_report_id
+        assert row.trigger_source == "label"
 
 
 class TestPersistResults(BaseTest):

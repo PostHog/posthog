@@ -10,13 +10,16 @@ import uuid
 import pytest
 
 import temporalio.worker
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
 from products.review_hog.backend.temporal.activities import (
+    AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
     LoadBlindSpotsInput,
@@ -26,6 +29,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadPerspectivesInput,
     LoadValidationInput,
     PublishInput,
+    PublishResult,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -39,6 +43,8 @@ from products.review_hog.backend.temporal.workflow import (
     ValidateIssuesInputs,
     ValidateIssuesWorkflow,
 )
+
+_REVIEW_URL = "https://github.com/o/r/pull/7#pullrequestreview-1"
 
 
 def _stage_kwargs() -> dict:
@@ -59,18 +65,31 @@ async def _run_full_review_pr_workflow(
     already_published: bool = False,
     acting_user_id: int | None = 3,
     review_labeled_prs: bool = True,
+    review_inbox_prs: bool = False,
     input_acting_user_id: int | None = None,
+    trigger_source: str = "manual",
+    signal_report_id: str | None = None,
+    input_pr_number: int | None = 7,
+    input_head_branch: str | None = None,
+    meta_pr_number: int | None = 7,
+    empty_diff: bool = False,
+    fail_dedup: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
-    # already_published drives the early-exit gate; acting_user_id None means the author isn't a
-    # PostHog user, so the workflow skips the review. review_labeled_prs is the author's label
-    # opt-out; input_acting_user_id is the CLI override on the workflow input (the ungated path).
+    # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
+    # isn't a PostHog user, so the workflow skips the review. review_labeled_prs / review_inbox_prs
+    # are the trigger-aware opt-outs read per trigger_source; input_acting_user_id is the explicit
+    # override on the workflow input (CLI / inbox). meta_pr_number is the publish destination fetch
+    # resolved (None = branch target with no PR → store-only); fail_dedup forces a mid-run failure so
+    # the failed-turn receipt path can be observed.
     split_calls: list[int] = []
     # Each review unit as (pass_number, chunk_id, blind_spot_check, skill_name, wave lens names) — the
     # blind-spot fields let the fan-out test pin the second round's routing contract.
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    # Each code_review receipt appended to the signals report, as (outcome, review_url).
+    receipt_calls: list[tuple[str, str | None]] = []
     # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
     threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
@@ -93,13 +112,19 @@ async def _run_full_review_pr_workflow(
             already_published=already_published,
             new_comment_count=0,
             author_login="octocat",
+            pr_number=meta_pr_number,
+            pr_url="u" if meta_pr_number is not None else None,
+            empty_diff=empty_diff,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
     async def resolve_acting_user(input) -> ResolveActingUserResult:
         # A non-default threshold, so the threading asserts can't pass on the dataclass defaults.
         return ResolveActingUserResult(
-            acting_user_id=acting_user_id, review_labeled_prs=review_labeled_prs, urgency_threshold="must_fix"
+            acting_user_id=acting_user_id,
+            review_labeled_prs=review_labeled_prs,
+            urgency_threshold="must_fix",
+            review_inbox_prs=review_inbox_prs,
         )
 
     @activity.defn(name="sync_review_skills_activity")
@@ -148,6 +173,8 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="dedup_activity")
     async def dedup(input) -> DedupResult:
+        if fail_dedup:
+            raise ApplicationError("sandbox layer down", non_retryable=True)
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
         return DedupResult(issues_json=[json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})], findings_count=2)
 
@@ -167,11 +194,18 @@ async def _run_full_review_pr_workflow(
         return None
 
     @activity.defn(name="publish_review_activity")
-    async def publish_act(input: PublishInput) -> None:
+    async def publish_act(input: PublishInput) -> PublishResult:
         publish_calls.append(input.pr_number)
         threshold_calls.append(("publish", input.urgency_threshold))
+        return PublishResult(posted=True, review_url=_REVIEW_URL)
+
+    @activity.defn(name="append_code_review_artefact_activity")
+    async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
+        receipt_calls.append((input.outcome, input.review_url))
         return None
 
+    result: str | None = None
+    failed = False
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -198,31 +232,40 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
+                append_receipt,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                ReviewPRWorkflow.run,
-                ReviewPRWorkflowInputs(
-                    team_id=1,
-                    user_id=2,
-                    pr_url="u",
-                    owner="o",
-                    repo="r",
-                    pr_number=7,
-                    publish=publish,
-                    acting_user_id=input_acting_user_id,
-                ),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
+            try:
+                result = await env.client.execute_workflow(
+                    ReviewPRWorkflow.run,
+                    ReviewPRWorkflowInputs(
+                        team_id=1,
+                        user_id=2,
+                        pr_url="u" if input_pr_number is not None else None,
+                        owner="o",
+                        repo="r",
+                        pr_number=input_pr_number,
+                        publish=publish,
+                        acting_user_id=input_acting_user_id,
+                        trigger_source=trigger_source,
+                        signal_report_id=signal_report_id,
+                        head_branch=input_head_branch,
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+            except WorkflowFailureError:
+                failed = True
 
     return {
         "result": result,
+        "failed": failed,
         "split": split_calls,
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
     }
@@ -284,24 +327,132 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     assert recorded["publish"] == []
 
 
+@parameterized.expand(
+    [
+        # (name, trigger_source, review_labeled_prs, review_inbox_prs, input_acting_user_id, expect_ran)
+        # The label trigger's per-author opt-out gates only the cloud path (no explicit override)...
+        ("label_opt_out_skips", "label", False, True, None, False),
+        # ...an explicit override (CLI re-run of a labeled PR) always runs...
+        ("label_override_ignores_opt_out", "label", False, True, 3, True),
+        # ...and the inbox toggle has no say over the label path.
+        ("label_ignores_inbox_toggle", "label", True, False, None, True),
+        # The inbox trigger honors only review_inbox_prs (default off = the budget gate); the
+        # receiver always sets the acting override, so the override must NOT bypass this gate.
+        ("inbox_default_off_skips", "inbox", True, False, 3, False),
+        ("inbox_opt_in_runs_despite_label_opt_out", "inbox", False, True, 3, True),
+        # Manual (CLI/eval) stays ungated regardless of either toggle.
+        ("manual_ungated", "manual", False, False, 3, True),
+    ]
+)
 @pytest.mark.asyncio
-async def test_review_pr_workflow_skips_when_author_opted_out_of_label_reviews():
-    # The label trigger's per-author opt-out: an author who turned labeled-PR reviews off gets no
-    # review and no publish — before any sandbox spend, like the unmapped-author gate.
-    recorded = await _run_full_review_pr_workflow(publish=True, review_labeled_prs=False)
+async def test_review_pr_workflow_trigger_aware_gates(
+    _name, trigger_source, review_labeled_prs, review_inbox_prs, input_acting_user_id, expect_ran
+):
+    # The trigger-source gate matrix: a miswired gate either reviews PRs for opted-out users (burning
+    # sandbox cost) or silently disables a production trigger. Skipped turns must also append no
+    # code_review receipt (nothing was done); executed no-publish turns append a "stored" one.
+    recorded = await _run_full_review_pr_workflow(
+        publish=False,
+        trigger_source=trigger_source,
+        review_labeled_prs=review_labeled_prs,
+        review_inbox_prs=review_inbox_prs,
+        input_acting_user_id=input_acting_user_id,
+        signal_report_id="sr-1",
+    )
+    assert recorded["result"] == "rep-1"
+    if expect_ran:
+        assert recorded["split"] == [1]
+        assert recorded["receipts"] == [("stored", None)]
+    else:
+        assert recorded["split"] == []
+        assert recorded["review"] == []
+        assert recorded["publish"] == []
+        assert recorded["receipts"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_appends_published_receipt_with_review_url():
+    # The inbox flow's happy path: a published turn's receipt carries outcome="published" and the
+    # GitHub review permalink, so the signals report links straight to the posted review.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, trigger_source="inbox", review_inbox_prs=True, input_acting_user_id=3, signal_report_id="sr-1"
+    )
+    assert recorded["publish"] == [7]
+    assert recorded["receipts"] == [("published", _REVIEW_URL)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
+    # A mid-run failure must both surface (the workflow fails, so Temporal retries) AND leave a
+    # failed-turn receipt on the signals report — otherwise the report reads as "never reviewed".
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="inbox",
+        review_inbox_prs=True,
+        input_acting_user_id=3,
+        signal_report_id="sr-1",
+        fail_dedup=True,
+    )
+    assert recorded["failed"] is True
+    assert recorded["receipts"] == [("failed", None)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_appends_no_receipt_without_signal_report():
+    # Label/manual runs have no signals provenance — the receipt activity must not fire at all.
+    recorded = await _run_full_review_pr_workflow(publish=True)
+    assert recorded["publish"] == [7]
+    assert recorded["receipts"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_branch_target_stores_without_publishing():
+    # A branch target with no resolvable PR: the full pipeline runs, publish is skipped (there is
+    # nowhere to post), and the receipt records "stored" — the target's shape decides, not a flag.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="inbox",
+        review_inbox_prs=True,
+        input_acting_user_id=3,
+        signal_report_id="sr-1",
+        input_pr_number=None,
+        input_head_branch="feat",
+        meta_pr_number=None,
+    )
+    assert recorded["split"] == [1]
+    assert recorded["publish"] == []
+    assert recorded["receipts"] == [("stored", None)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_early_exits_on_empty_branch_diff():
+    # "Pushed nothing → do nothing": an empty compare diff skips before any sandbox spend and
+    # appends no receipt.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="inbox",
+        review_inbox_prs=True,
+        input_acting_user_id=3,
+        signal_report_id="sr-1",
+        input_pr_number=None,
+        input_head_branch="feat",
+        meta_pr_number=None,
+        empty_diff=True,
+    )
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []
     assert recorded["review"] == []
-    assert recorded["publish"] == []
+    assert recorded["receipts"] == []
 
 
-@pytest.mark.asyncio
-async def test_review_pr_workflow_cli_override_ignores_label_opt_out():
-    # An explicit CLI/eval invocation (acting-user override on the input) must run even when that
-    # user opted out of the label trigger — the opt-out gates only the cloud path.
-    recorded = await _run_full_review_pr_workflow(publish=False, review_labeled_prs=False, input_acting_user_id=3)
-    assert recorded["split"] == [1]
-    assert len(recorded["review"]) > 0
+def test_review_pr_workflow_inputs_deserialize_old_payloads():
+    # In-flight Temporal payloads serialized before the trigger-source/branch-target fields existed
+    # must still deserialize on deploy — a new non-defaulted field here breaks every running review.
+    old_shape = {"team_id": 1, "user_id": 2, "pr_url": "u", "owner": "o", "repo": "r", "pr_number": 7}
+    inputs = ReviewPRWorkflow.parse_inputs([json.dumps(old_shape)])
+    assert inputs.trigger_source == "manual"
+    assert inputs.signal_report_id is None
+    assert inputs.head_branch is None
 
 
 async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> tuple[int, list]:

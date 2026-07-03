@@ -214,8 +214,8 @@ function TriggersSection(): JSX.Element {
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold">Review all your Inbox PRs</div>
                         <div className="text-xs text-secondary">
-                            Coming soon — this switch doesn't trigger reviews yet. Once live, any pull request opened by
-                            PostHog agents from your Inbox will be reviewed automatically.
+                            When a self-driving implementation from your Inbox opens a pull request, ReviewHog reviews
+                            it and posts the review to the pull request automatically.
                         </div>
                     </div>
                     <LemonSwitch

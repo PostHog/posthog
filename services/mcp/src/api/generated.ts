@@ -33059,6 +33059,7 @@ export namespace Schemas {
      * * `note` - Note
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
+     * * `code_review` - Code Review
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -33078,6 +33079,7 @@ export namespace Schemas {
       Note: 'note',
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
+      CodeReview: 'code_review',
     } as const;
 
     export interface _User {

@@ -695,6 +695,7 @@ class SignalReportArtefact(UUIDModel):
         NOTE = "note"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
+        CODE_REVIEW = "code_review"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -724,6 +725,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.NOTE,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
+            ArtefactType.CODE_REVIEW,
         }
     )
 

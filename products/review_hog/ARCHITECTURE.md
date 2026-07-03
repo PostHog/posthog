@@ -197,7 +197,7 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   `pnpm install` hard-failed on `ERR_PNPM_TRUST_DOWNGRADE` for kea's `reselect@5.1.1` (a supply-chain
   guard — not bypassed).
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
-  `review_inbox_prs` (default off, **stored but inert** — the Inbox auto-review trigger doesn't exist; its design is Stage 6),
+  `review_inbox_prs` (default off; consumed by the Stage-6 inbox trigger since 2026-07-02),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
   `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
   action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
@@ -228,9 +228,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
-- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); the
-  "Review all your Inbox PRs" behavior (toggle stores, nothing consumes — **now designed, see Stage 6**);
-  non-staff rollout.
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
+  rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
 
 #### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
 
@@ -2039,15 +2038,114 @@ first so the latest fixes are loaded.
 
 ---
 
-### 🔭 Stage 6 — Inbox trigger: auto-review self-driving implementations (DESIGNED 2026-07-02 — not built)
+### ✅ Stage 6 — Inbox trigger: auto-review self-driving implementations (BUILT 2026-07-02, trigger redesigned + dogfood e2e ✅ 2026-07-03)
 
-> **Status: DESIGNED, no code.** Investigation + design converged with the maintainer 2026-07-02 (chat).
-> This stage consumes the stored-but-inert `ReviewUserSettings.review_inbox_prs` (the "Review all your
-> Inbox PRs" switch on the Code-review tab) and adds the second production entry point beside the Stage-5
-> label trigger. Build order at the end; nothing here has landed.
-> **The self-contained implementation spec is [`STAGE_6_PLAN.md`](STAGE_6_PLAN.md)** — verified file/line
-> anchors, exact signatures, gate matrix, migrations, tests, and the multi-team/multi-repo audit; hand
-> that file to the implementing agent so it doesn't re-research this surface.
+> **Status: BUILT (steps 1–4 of [`STAGE_6_PLAN.md`](STAGE_6_PLAN.md)), uncommitted.** The
+> `review_inbox_prs` switch is live: a signals-origin implementation run that records a PR (or a
+> pushed branch) now triggers a publishing review. Verified: review_hog tests (both dirs) + full
+> signals suite (1304) + ruff + tach + startup-import-budget green; `hogli build:openapi` drift =
+> the new `code_review` enum member only.
+>
+> **🔁 TRIGGER REDESIGNED 2026-07-03 (live-e2e discovery): the receiver fires on the save that
+> records `output.pr_url` / `output.head_branch` — NOT on run completion.** The plan's premise
+> ("when the implementation run completes") is a lifecycle event that never happens on the current
+> tasks architecture: a successful run deliberately stays `in_progress` forever —
+> `execute_sandbox/workflow.py::_maybe_record_terminal_status` ("TaskRun stays in*progress on
+> successful completion \_and* on inactivity timeout — the run is always followable"), the
+> task-management orchestrator "runs for the lifetime of the task run" and only records
+> cancelled/failed, signals-origin tasks opt into the PR follow-up loop **unconditionally**
+> (`get_task_processing_context.py` — babysits CI + review threads), and `TaskRun.mark_completed()`
+> has **zero production callers** (tests only — which is why the unit suite couldn't catch this;
+> the live click-through e2e did). New receiver contract: ignore creation saves and declared-fields
+> saves not touching `output`; skip failed/cancelled runs; target = `output.pr_url` (PR leg,
+> publishes) else `output.head_branch` (branch leg, stores + receipt `outcome="stored"`, upgraded
+> to the PR by the later `pr_url` save — resume at the same head skips recompute and publishes).
+> `output.head_branch` is trustworthy: the agent server syncs it at the end of every agent turn
+> whose current git branch changed (`agent-server.ts::syncCloudBranchMetadata`, which also
+> overwrites the `TaskRun.branch` FIELD — so that field is base-or-head depending on path and
+> stays banned as a target). A turn ending on the base branch can transiently sync
+> `head_branch=base`; the empty-diff self-skip absorbs it (base == default → empty compare).
+> Trigger timing now matches the Inbox UI: the same `output.pr_url` that moves a report into the
+> "Pull requests" tab starts its review.
+>
+> **✅ Dogfood e2e (plan step 5) RAN 2026-07-03** — full live chain on a synthetic report + real
+> Inbox click + real PR (#68141): receiver fired on the `pr_url` save, inbox workflow with
+> creation-time provenance, single-chunk pipeline (size gate), zero findings on the clean typo PR →
+> publish self-skipped (no noise comment) → receipt `outcome="stored"` counts 0/0/0 on the report.
+> The manual CLI leg (same day, PR #68108: 6 inline comments published, watermark advanced) plus a
+> same-head re-trigger (early-exit, provenance backfill, no receipt) cover the rest of the matrix.
+> Still unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR) and the
+> repeat-turn re-review. Details in STAGE_6_PLAN.md step 5.
+>
+> **⚠️ Receiver branch fallback DISABLED (adversarial review, 2026-07-03).** The plan's "no pr_url →
+> review `(task.repository, run.branch)`" fallback shipped, then was removed: **`TaskRun.branch`
+> holds the BASE branch the agent started from** (auto_start passes the autostart base; the
+> agent-server receives it as `--baseBranch`, the branch it must NOT commit onto) — never the pushed
+> head. A compare against it either no-ops (base == default → empty diff self-skip) or reviews a
+> base branch's entire divergence (base ≠ default via `autostart_base_branches`) — always the wrong
+> target. No pr_url → skip; the webhook pr_url backfill re-fires the receiver. Branch targets remain
+> fully supported at the client/workflow layer (`head_branch` input, `review-branch:` id, compare
+> fetch, empty-diff skip, branch-keyed rows + PR upgrade) for callers that know a real head branch;
+> the receiver rejoins once tasks records the pushed head branch. **→ It rejoined 2026-07-03:
+> `output.head_branch` (agent-server-synced pushed head) is that trustworthy carrier — see the
+> 🔁 trigger-redesign note above. The `TaskRun.branch` FIELD stays banned.**
+>
+> **2026-07-03 adversarial review (7 finder dimensions × 3-skeptic refutation panels, findings in
+> `/tmp/reviewhog-signals-combination-adversarial-review.md`) — 4 fixes applied:** (1) the confirmed
+> test gap — `test_acting_user.py` now sets `review_inbox_prs=True` on the row and asserts the
+> resolve passthrough (a surgical drop of that one line would have silently disabled the whole inbox
+> trigger with the suite green); (2) the branch-fallback removal above; (3) the success-path receipt
+> append is now `best_effort=True` like the failed path (a published review must not be marked
+> failed over bookkeeping — the retry's already-published early-exit would skip the receipt anyway);
+> (4) `upsert_review_report` regained the lost-`get_or_create` race self-heal: the create runs in a
+> savepoint and an `IntegrityError` re-selects the winner's row instead of relying on the activity
+> retry. Dismissed-with-reasons (§3 of the findings file): branch↔PR two-workflow-id divergence
+> (bounded, publish double-guarded, resume shared) and the base-=-default compare choice (spec'd).
+>
+> **As-built notes on top of the plan (differences/gotchas an agent needs):**
+>
+> - Gate map in `workflow.py` is exactly the plan's; old in-flight payloads deserialize as
+>   `trigger_source="manual"` (dataclass default) — a one-deploy window where a pre-deploy label
+>   payload resolving its gate post-deploy is ungated (accepted, transient).
+> - `publish_persisted_review` / `publish_review` now return a `PublishOutcome(posted, review_url)`
+>   (was bool) — `review_url` feeds the receipt; `_post_github_review` returns the posted review's
+>   `html_url` (None on the marker-found idempotency skip). The `publish_review` command reads
+>   `.posted`.
+> - The publish stage posts to `meta.pr_number` (the fetch-resolved destination — input PR or the
+>   open PR discovered for a branch target), not `inputs.pr_number`; skipped when None.
+> - Branch identity: `upsert_review_report` keys branch targets (`pr_metadata.number == 0`) on
+>   `(team, repository, head_branch) WHERE pr_number IS NULL`; the PR path also checks for such a
+>   row and upgrades it in place (backfills `pr_number`/`pr_url`; empty branch-turn `pr_url` never
+>   erases a stored one). Provenance: `signal_report_id` fill-only-when-NULL, `trigger_source`
+>   create-only.
+> - The `code_review` receipt is appended by `append_code_review_artefact_activity`
+>   (best-effort: swallows its own failures; checks the `SignalReport` still exists — plain-UUID
+>   provenance on `ReviewReport` is the durable link). Failed turns append `outcome="failed"` from
+>   the workflow's except path (guarded so it can't mask the original error); a workflow-retry
+>   success after a failed attempt yields failed + published receipts (a truthful log, accepted).
+>   Counts = validator-passed findings at `effective_priority` (validator-wins).
+> - **Receiver import discipline (startup budget):** `receivers.py` may import Django + review_hog
+>   `models` ONLY at module level. Even `temporal/types.py` is off-limits — reaching it executes the
+>   temporal package `__init__`, which registers all activities (temporalio + PyGithub + modal +
+>   posthog.schema onto every `django.setup()`). Both the client AND `TRIGGER_INBOX` are imported
+>   call-time inside `_start_review`. The receiver is recorded in
+>   `posthog/test/setup_receivers_baseline.txt` (regenerate with
+>   `UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match`).
+> - **Test gotcha:** a test that `patch()`es the temporal client without importing it at module scope
+>   makes mock.patch import it mid-test — the tasks sandbox-class resolution then runs under test
+>   settings and a local `SANDBOX_PROVIDER=modal_docker` env raises (DEBUG=False). Import the client
+>   at collection time (see `test_inbox_trigger.py`).
+> - The receiver gates on `instance.team_id` (TaskRun's own team), skips `task.internal` tasks
+>   (research/repo-selection/custom-agent plumbing also carries `signal_report_id` but runs as the
+>   GitHub-integration creator and pushes nothing — only the auto-start implementation task is
+>   non-internal), and resolves the acting user from the report's latest `suggested_reviewers`
+>   artefact (the Inbox "For you" semantics: `task.created_by` when they're among the resolved
+>   reviewers — the "I asked for this PR" case — else the first org-member-resolving reviewer;
+>   the acting reviewer's toggle gates). Targets come from `output` only — `pr_url` wins, else
+>   `head_branch` (needs `task.repository`, forwarded as stored: lowercased) — see the 🔁
+>   trigger-redesign note above. `Task.signal_report` carries a stale "DEPRECATED" comment — it is
+>   actively written by signals auto-start and indexed; the plan's wiring is correct.
+> - Toggle copy in `CodeReviewTab.tsx` updated from "Coming soon" to live behavior copy.
 
 **Goal.** Every self-driving (Signals) implementation gets reviewed automatically: when a signals-origin
 implementation task run finishes having pushed code, ReviewHog reviews what it produced. If the run opened
@@ -2073,9 +2171,20 @@ research → implementation `task_run` → `commit`s → `code_review` → merge
 - **Repeat turns are allowed from day one.** Re-review relies on previous findings (maintainer: assume
   the loop works) — the `head_sha` watermark early-exit, working-state resume, and covered-set
   (Stage 5b) are the mechanism; the first dogfood turns are its first real exercise.
-- **Acting user = `task.created_by`** — the GitHub PR author is a bot, so the label flow's author-login
-  mapping can't apply. Their perspectives / blind-spots / validator / urgency threshold drive the run;
-  the **single existing threshold knob** applies (no separate inbox threshold).
+- **Acting user = the report's assigned reviewer (AMENDED at build time, maintainer 2026-07-02 —
+  was `task.created_by`).** Signals tasks are created in the background (the pipeline's
+  research/repo-selection/custom-agent tasks literally as the GitHub-integration creator via
+  `resolve_user_id_for_team`), so `created_by` carries no assignment meaning. Assignment = the Inbox
+  **"For you"** semantics: the report's latest `suggested_reviewers` artefact, logins resolved to org
+  members exactly like the reports-list `suggested_reviewers` filter and the Slack inbox
+  notifications. The acting reviewer is the task's own user (`created_by` — whoever clicked
+  "Create PR", or the auto-start assignee) **when they are among the resolved reviewers** (someone
+  who asked for the implementation gets their own rules applied to its review — maintainer,
+  2026-07-03); otherwise the **first login resolving to an org member is canonical**. The acting
+  reviewer's `review_inbox_prs` gates the review, and they become both the acting user and the
+  sandbox run user — their perspectives / blind-spots / validator / urgency threshold drive the
+  run; the **single existing threshold knob** applies (no separate inbox threshold). A non-acting
+  reviewer's opt-in never hijacks whose options apply; acting reviewer missing or opted out → skip.
 - **Gate:** `review_inbox_prs` (default **off** — the budget gate for 100%-coverage cost), checked
   cheaply at the trigger **and** snapshotted in `resolve_acting_user` like `review_labeled_prs`. Gates
   become **trigger-aware**: label → `review_labeled_prs`, inbox → `review_inbox_prs`, CLI/eval →
@@ -2146,21 +2255,38 @@ fleet-level control during alpha).
 
 **Build order:**
 
-1. **Inputs + gates + provenance** — `trigger_source`/`signal_report_id` through
+1. ✅ **Inputs + gates + provenance** — `trigger_source`/`signal_report_id` through
    `ReviewPRWorkflowInputs`; the trigger-aware settings gate in `resolve_acting_user` (+
-   `review_inbox_prs` in the snapshot); `ReviewReport.signal_report_id`/`trigger_source` columns.
-2. **The signals `code_review` artefact** — type + schema + the end-of-turn write (completion and
-   failure paths).
-3. **The trigger** — the `TaskRun` receiver behind the settings gate (+ the pushed-commits marker
-   decision).
-4. **Branch targets** — PR-by-branch resolve in fetch, the compare fallback, nullable `pr_number`
-   identity + the branch workflow id.
-5. **Dogfood e2e** — one inbox-triggered turn end-to-end (artefact lands on the report, comments land on
-   the draft PR), then a repeat turn on the same report (the first real exercise of re-review).
+   `review_inbox_prs` in the snapshot); `ReviewReport.signal_report_id`/`trigger_source` columns
+   (migration 0010).
+2. ✅ **The signals `code_review` artefact** — type + schema (signals migration 0054) + the
+   end-of-turn write (completion and failure paths; non-writable through the artefact API).
+3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate ("pushed commits" marker
+   resolved as: pr_url present, else skip — the run-branch fallback was removed 2026-07-03,
+   `TaskRun.branch` is the base branch, see the ⚠️ note above).
+4. ✅ **Branch targets** — PR-by-branch resolve in fetch, the compare fallback (empty diff →
+   self-skip), nullable `pr_number` identity + the branch workflow id.
+5. ⏳ **Dogfood e2e — PENDING** — one inbox-triggered turn end-to-end (artefact lands on the report,
+   comments land on the draft PR), then a repeat turn on the same report (the first real exercise of
+   re-review). Log the outcome here when run.
 
 ---
 
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
+
+#### Adversarial validation — a 3-skeptic panel instead of a single verify pass (noted 2026-07-03)
+
+Upgrade the validate stage from one verdict per finding to a **panel of 3 independent skeptics,
+each prompted to REFUTE the finding** (distinct lenses — e.g. correctness / reproducibility /
+scope — rather than 3 identical verifiers, so diversity catches failure modes redundancy can't).
+**Only findings surviving majority verification (≥2 of 3 not refuted) get reported.** Rationale:
+a single validator both misses (the topology experiment showed validator strictness killing real
+findings, e.g. #6 in 7/8 runs) and lets plausible-but-wrong findings through; refute-framed
+skeptics are a stronger filter than confirm-framed validation. Cost-wise this triples the validate
+fan-out, so it likely pairs with the per-chunk warm-session mechanics (one panel session per
+chunk, or 3 parallel per-chunk sessions) and should be measured against the eval fixtures before
+becoming the default. The per-user single-active validator skill can stay: it becomes the panel's
+shared criteria, with the three lenses layered in the prompt.
 
 #### ⭐ Customizable perspectives — DECIDED 2026-06-29: team-level skills + PER-USER enablement; unified chunking
 

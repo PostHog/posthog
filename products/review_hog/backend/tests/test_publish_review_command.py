@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
 
 _PUBLISH = "products.review_hog.backend.management.commands.publish_review.publish_persisted_review"
 _INTEGRATION = (
@@ -57,7 +58,7 @@ class TestPublishReviewCommand(BaseTest):
             call_command("publish_review", pr_url=_URL, team_id=self.team.id)
 
     @patch(_STALE, return_value=None)
-    @patch(_PUBLISH, return_value=True)
+    @patch(_PUBLISH, return_value=PublishOutcome(posted=True))
     def test_publishes_latest_completed_run_with_no_recompute(self, mock_publish: MagicMock, _stale: MagicMock) -> None:
         # The standalone publish targets the last completed turn — run_index == run_count, at the
         # report's reviewed head_sha — and reuses the shared DB-driven publish path (no workflow).
