@@ -1,5 +1,7 @@
 """Tests for the deterministic manifest scripts-key scan."""
 
+import subprocess
+
 import pytest
 
 from manifest_risk import manifest_change_is_risky
@@ -147,3 +149,33 @@ def test_tsconfig_jsonc_falls_back_to_line_scan() -> None:
     risky_diff = '--- a/tsconfig.json\n+++ b/tsconfig.json\n@@\n+  "extends": "evil",\n'
     assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", clean_diff) is False
     assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", risky_diff) is True
+
+
+def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path) -> None:
+    # Regression from review: comparing against the base branch *tip* counts
+    # base-side drift (someone else's scripts change landing on the base) as
+    # this PR's doing and falsely denies a clean manifest edit.
+    from manifest_risk import manifest_script_changes
+
+    def run(*args: str) -> str:
+        result = subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True)
+        return result.stdout.strip()
+
+    run("init", "-q", "-b", "main")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (tmp_path / "package.json").write_text('{"name": "x", "version": "1.0.0"}')
+    run("add", ".")
+    run("commit", "-qm", "root")
+
+    run("checkout", "-qb", "feature")
+    (tmp_path / "package.json").write_text('{"name": "x", "version": "1.0.1"}')
+    run("commit", "-qam", "version bump only")
+    head = run("rev-parse", "HEAD")
+
+    run("checkout", "-q", "main")
+    (tmp_path / "package.json").write_text('{"name": "x", "version": "1.0.0", "scripts": {"evil": "x"}}')
+    run("commit", "-qam", "base-side scripts change")
+    base_tip = run("rev-parse", "HEAD")
+
+    assert manifest_script_changes(["package.json"], base_tip, head, tmp_path) == []
