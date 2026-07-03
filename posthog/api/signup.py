@@ -584,8 +584,15 @@ class InviteSignupSerializer(serializers.Serializer):
                         **extra_fields,
                     )
                 except IntegrityError:
+                    # An account with this email already exists (e.g. the invitee already has
+                    # their own PostHog org). Prevalidation normally catches this and redirects
+                    # to login, but it can slip through (inactive account, normalization edge,
+                    # or a stale prevalidate). Emit the same `account_exists` signal the GET path
+                    # does so the frontend redirects to login and returns here to finish the
+                    # invite once authenticated — instead of dead-ending on the signup form.
                     raise serializers.ValidationError(
-                        f"There already exists an account with email address {invite.target_email}. Please log in instead."
+                        f"/login?next=/signup/{invite_id}",
+                        code="account_exists",
                     )
 
             # Capture the delegation flag BEFORE invite.use(): use() deletes the invite row,

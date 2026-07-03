@@ -146,7 +146,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <p className="mt-5 mb-0 text-sm text-secondary text-center">
                 Already have an account?{' '}
                 <Link
-                    to={urls.login()}
+                    to={`${urls.login()}?next=/signup/${invite.id}`}
                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                 >
                     Log in →

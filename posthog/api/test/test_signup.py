@@ -2811,6 +2811,35 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
 
+    def test_invite_signup_post_for_existing_account_redirects_to_login(self):
+        # A logged-out user whose email already has a PostHog account submits the invite
+        # signup form. Prevalidation normally redirects them to login, but if it slips through
+        # the POST must not dead-end on a plain error — it should emit account_exists with the
+        # login redirect so the frontend sends them to log in and return to accept the invite.
+        existing_user = self._create_user("test+existing-invite@posthog.com", VALID_TEST_PASSWORD)
+        new_org = Organization.objects.create(name="Plansom")
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+existing-invite@posthog.com", organization=new_org
+        )
+
+        user_count = User.objects.count()
+        membership_count = OrganizationMembership.objects.count()
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Existing", "password": VALID_TEST_PASSWORD},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "account_exists")
+        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+
+        # No duplicate account or membership was created, and the invite is still usable.
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertEqual(OrganizationMembership.objects.count(), membership_count)
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(OrganizationMembership.objects.filter(organization=new_org, user=existing_user).exists())
+
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
     @patch("posthog.workos_radar._log_radar_event")

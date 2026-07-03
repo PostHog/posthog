@@ -121,7 +121,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
                             } else if (e.code === 'account_exists') {
-                                location.href = e.detail
+                                location.href = e.detail || `/login?next=/signup/${id}`
                             } else {
                                 actions.setError({ code: ErrorCodes.InvalidInvite, detail: e.detail })
                             }
@@ -186,6 +186,14 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
                         actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
                         actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    // The email already has a PostHog account (the invitee already has their own
+                    // org). Redirect to login with the invite as `next` so they re-authenticate and
+                    // return here to accept — rather than dead-ending on an error banner.
+                    if (error.code === 'account_exists') {
+                        location.href = error.detail || `/login?next=/signup/${values.invite?.id}`
                         return
                     }
 

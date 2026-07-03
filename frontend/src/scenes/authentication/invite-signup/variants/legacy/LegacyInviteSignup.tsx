@@ -391,7 +391,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 )}
             </Form>
             <div className="mt-4 text-center text-secondary">
-                Already have an account? <Link to="/login">Log in</Link>
+                Already have an account? <Link to={`/login?next=/signup/${invite.id}`}>Log in</Link>
             </div>
             <div className="mt-4 text-center text-secondary">
                 By clicking continue you agree to our{' '}
