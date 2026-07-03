@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -242,7 +242,7 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** Full-width section rendered below the two-column overview (the Graphite-style diff). */
+    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
     diffSection?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
@@ -265,6 +265,9 @@ export function InboxDetailFrame({
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
+    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
+    const hasDiff = !!diffSection
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -354,7 +357,8 @@ export function InboxDetailFrame({
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
+            {/* With a diff present the tab bar owns the full-width divider, so the heading drops its own. */}
+            <div className={`flex flex-col gap-3.5 ${hasDiff ? 'mb-4' : 'mb-6 pb-5 border-b border-primary'}`}>
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -424,11 +428,18 @@ export function InboxDetailFrame({
                 </div>
             </div>
 
-            <div className="flex flex-col gap-8">
-                {overviewBody}
-                {/* Full-width diff below the overview, Graphite-style — always visible, not tabbed away. */}
-                {diffSection}
-            </div>
+            {hasDiff ? (
+                <LemonTabs
+                    activeKey={activeDetailTab}
+                    onChange={setActiveDetailTab}
+                    tabs={[
+                        { key: 'overview', label: 'Overview', content: overviewBody },
+                        { key: 'files', label: 'Files changed', content: <>{diffSection}</> },
+                    ]}
+                />
+            ) : (
+                overviewBody
+            )}
         </div>
     )
 }
@@ -441,8 +452,8 @@ function prFilesUrl(prUrl: string): string {
 /**
  * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
- * report. When the report has a "Commit pushed" artefact, a full-width "Files changed" section at the
- * bottom renders the branch's diff against the default branch. Runs keep their own `AgentRunDetail`.
+ * report. When the report has a "Commit pushed" artefact, a GitHub-style "Files changed" tab renders
+ * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
