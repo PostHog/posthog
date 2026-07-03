@@ -1,10 +1,18 @@
+import datetime
+
+import pytest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import InsightsThresholdBounds, InsightThreshold, InsightThresholdType, IntervalType
 
-from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.evaluation.contract import (
+    AlertExtractionError,
+    ComparableSeries,
+    ExtractionResult,
+    SeriesPoint,
+)
 from products.alerts.backend.evaluation.forecast import evaluate_with_forecast
 from products.alerts.backend.forecasting.engine import ForecastResult
 
@@ -20,8 +28,6 @@ class StubEngine:
 
 
 def _series(n: int = 30, value: float = 100.0) -> ExtractionResult:
-    import datetime
-
     start = datetime.date(2026, 1, 1)
     points = [SeriesPoint(date=(start + datetime.timedelta(days=i)).isoformat(), value=value) for i in range(n)]
     return ExtractionResult(
@@ -83,14 +89,23 @@ class TestEvaluateWithForecast:
         # band_deviation fits on history excluding the evaluated point
         assert len(stub.calls[0]["values"]) == 29
 
-    def test_insufficient_history_raises(self):
-        import pytest
-
-        from products.alerts.backend.evaluation.contract import AlertExtractionError
-
-        config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"}
+    @parameterized.expand(
+        [
+            ("future_breach_below_minimum", "future_breach", 5),
+            # band_deviation holds out the latest point as the actual, fitting on one fewer point —
+            # so it needs min_points + 1 (15), not min_points (14), to have a full fitting window.
+            ("band_deviation_at_min_points_boundary", "band_deviation", 14),
+        ]
+    )
+    def test_insufficient_history_raises(self, _name, condition, n_points):
+        config = {"type": "ForecastConfig", "engine": "prophet", "condition": condition}
         with pytest.raises(AlertExtractionError, match="history"):
-            evaluate_with_forecast(_series(5), config, _threshold(upper=1.0))
+            evaluate_with_forecast(_series(n_points), config, _threshold(upper=1.0))
+
+    def test_unknown_condition_raises(self):
+        config = {"type": "ForecastConfig", "engine": "prophet", "condition": "bogus_condition"}
+        with pytest.raises(AlertExtractionError, match="Unknown forecast condition"):
+            evaluate_with_forecast(_series(), config, _threshold(upper=1.0))
 
     def test_empty_query_result_is_zero_value_no_breach(self):
         config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"}

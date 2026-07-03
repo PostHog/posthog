@@ -237,7 +237,7 @@ class TrendsDetectorExtractor:
             insight,
             ctx.team,
             trends_query,
-            ctx.detector_config,
+            ctx.extractor_config,
             execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
@@ -286,7 +286,7 @@ def simulate_detector_on_insight(
 
     ctx = SimulationContext(
         team=team,
-        detector_config=detector_config,
+        extractor_config=detector_config,
         user=user,
         series_index=series_index,
         date_from=date_from,

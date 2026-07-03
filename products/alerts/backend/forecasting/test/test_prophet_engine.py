@@ -1,3 +1,7 @@
+import datetime
+
+import pytest
+
 import numpy as np
 from parameterized import parameterized
 
@@ -7,8 +11,6 @@ from products.alerts.backend.forecasting.engine import ForecastResult, get_forec
 
 
 def _daily_dates(n: int) -> list[str]:
-    import datetime
-
     start = datetime.date(2026, 1, 1)
     return [(start + datetime.timedelta(days=i)).isoformat() for i in range(n)]
 
@@ -19,8 +21,6 @@ class TestProphetEngine:
         assert engine is not None
 
     def test_registry_rejects_unknown_engine(self):
-        import pytest
-
         with pytest.raises(ValueError):
             get_forecast_engine({"type": "ForecastConfig", "engine": "nonsense"})
 

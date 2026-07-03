@@ -107,57 +107,89 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
         ).json()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            data={
-                "name": "forecast alert",
-                "insight": time_series_insight["id"],
-                "subscribed_users": [self.user.id],
-                "calculation_interval": "daily",
-                "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
-                "forecast_config": {
-                    "type": "ForecastConfig",
-                    "engine": "prophet",
-                    "condition": "future_breach",
-                    "horizon": 7,
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "forecast alert",
+                    "insight": time_series_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
                 },
-            },
-        )
+            )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["forecast_config"]["condition"] == "future_breach"
 
+    def test_create_forecast_alert_flag_disabled_returns_400(self) -> None:
+        # forecast_config is accepted purely on presence with no server-side flag check unless this
+        # gate is wired up — an alert could otherwise be created with the frontend hidden but the API open.
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "forecast alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Forecast alerts are not enabled" in str(response.content)
+
     def test_create_forecast_alert_rejects_invalid_config(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            data={
-                "name": "bad forecast alert",
-                "insight": self.insight["id"],
-                "subscribed_users": [self.user.id],
-                "calculation_interval": "daily",
-                "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
-                "forecast_config": {"type": "ForecastConfig", "engine": "not_prophet", "condition": "future_breach"},
-            },
-        )
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "bad forecast alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "not_prophet",
+                        "condition": "future_breach",
+                    },
+                },
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_alert_with_both_detector_and_forecast_rejected(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            data={
-                "name": "conflicted alert",
-                "insight": self.insight["id"],
-                "subscribed_users": [self.user.id],
-                "calculation_interval": "daily",
-                "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "condition": {"type": "absolute_value"},
-                "detector_config": {"type": "zscore"},
-                "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
-            },
-        )
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "conflicted alert",
+                    "insight": self.insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "detector_config": {"type": "zscore"},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+                },
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_alert_rejects_insight_without_viewer_access(self) -> None:
@@ -1508,18 +1540,19 @@ class TestAlertSimulateForecast(APIBaseTest):
             "fit_quality": {"mape": 0.05, "coverage": 0.94, "verdict": "good"},
         }
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
-            {
-                "insight": self.insight["id"],
-                "forecast_config": {
-                    "type": "ForecastConfig",
-                    "engine": "prophet",
-                    "condition": "future_breach",
-                    "horizon": 7,
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
                 },
-            },
-        )
+            )
         assert response.status_code == status.HTTP_200_OK, response.content
         data = response.json()
         assert data["fit_quality"] == {"mape": 0.05, "coverage": 0.94, "verdict": "good"}
@@ -1535,49 +1568,122 @@ class TestAlertSimulateForecast(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_simulate_forecast_horizon_out_of_range_returns_400(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
-            {
-                "insight": self.insight["id"],
-                "forecast_config": {
-                    "type": "ForecastConfig",
-                    "engine": "prophet",
-                    "condition": "future_breach",
-                    "horizon": 1000000,
+    def test_simulate_forecast_flag_disabled_returns_400(self) -> None:
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
                 },
-            },
-        )
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Forecast alerts are not enabled" in str(response.content)
+
+    def test_simulate_forecast_horizon_out_of_range_returns_400(self) -> None:
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 1000000,
+                    },
+                },
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
     @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_wraps_value_error_as_400(self, mock_simulate) -> None:
         mock_simulate.side_effect = ValueError("Not enough history to forecast.")
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
-            {
-                "insight": self.insight["id"],
-                "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
-            },
-        )
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Not enough history to forecast." in str(response.json())
 
     @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_runtime_error_returns_400(self, mock_simulate_forecast) -> None:
         mock_simulate_forecast.side_effect = RuntimeError("boom")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
-            {
-                "insight": self.insight["id"],
-                "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
-                "series_index": 0,
-            },
-        )
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         data = response.json()
         assert data["detail"] == "Simulation failed: unable to compute results for this insight."
+
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_forecast_series_index_out_of_range_returns_400(self, mock_calculate) -> None:
+        # series_index is user-controlled and unbounded; TrendsForecastExtractor.simulate indexes
+        # straight into the query's result list, so an out-of-range index used to raise an uncaught
+        # IndexError (500) instead of the 400 every other bad-input path returns.
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0] * 10,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 30,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                },
+                {
+                    "data": [5.0, 6.0, 7.0] * 10,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 31)],
+                    "label": "autocapture",
+                    "action": {"name": "autocapture"},
+                    "actions": [],
+                    "count": 30,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                },
+            ]
+        )
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                    "series_index": 5,
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
 class TestAlertEventProperties(APIBaseTest):

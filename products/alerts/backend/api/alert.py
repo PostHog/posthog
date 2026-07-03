@@ -74,6 +74,24 @@ def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) ->
         raise ValidationError("Viewer access to this insight is required.")
 
 
+def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
+    # Scope the flag to the alert's organization (via team scope), not the user's current
+    # organization — otherwise a user in multiple orgs could flip their current org to a
+    # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+    # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+    # invariant can't silently degrade to an unscoped check. Shared across serializers (AlertSerializer
+    # and ForecastSimulateRequestSerializer) so the resolution can't drift between the save and preview paths.
+    user = context["request"].user
+    org = context["get_organization"]()
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(user.distinct_id),
+            groups={"organization": str(org.id)},
+        )
+    )
+
+
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
 class ThresholdConfigurationField(serializers.JSONField):
     pass
@@ -583,20 +601,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return self._insight_alert_flag_enabled("funnel-insight-alerts")
 
     def _insight_alert_flag_enabled(self, flag: str) -> bool:
-        # Scope the flag to the alert's organization (via team scope), not the user's current
-        # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
-        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
-        # invariant can't silently degrade to an unscoped check.
-        user = self.context["request"].user
-        org = self.context["get_organization"]()
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                str(user.distinct_id),
-                groups={"organization": str(org.id)},
-            )
-        )
+        return _insight_alert_flag_enabled(self.context, flag)
 
     def validate_subscribed_users(self, value):
         for user in value:
@@ -649,6 +654,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             forecast_config = self.instance.forecast_config
         else:
             forecast_config = None
+
+        if forecast_config and not self._insight_alert_flag_enabled("forecast-alerts"):
+            raise ValidationError("Forecast alerts are not enabled for your account.")
 
         require_threshold_bounds = (
             detector_config is None
@@ -866,6 +874,8 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
         return value
 
     def validate_forecast_config(self, value):
+        if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
         # Shape is already validated by ForecastConfigField.to_internal_value; only bounds remain.
         try:
             validate_forecast_horizon_and_width(ForecastConfig.model_validate(value))
@@ -1174,7 +1184,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_from=date_from,
                 user=cast(User, request.user),
             )
-        except ValueError as e:
+        except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")

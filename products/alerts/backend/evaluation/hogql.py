@@ -292,7 +292,7 @@ class HogQLDetectorExtractor:
             insight,
             ctx.team,
             hogql_config_or_default(ctx.config),
-            ctx.detector_config,
+            ctx.extractor_config,
             execution_mode=execution_mode_for_alert(None, high_frequency=False),
             user=ctx.user,
         )
