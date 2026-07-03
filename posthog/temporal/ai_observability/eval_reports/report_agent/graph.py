@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -234,12 +235,10 @@ def run_eval_report_agent(
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
 
-    # Tag every LLM call made by this agent run so they show up under `ai_product =
-    # llma_eval_reports` in AI observability, matching the convention used by other
-    # PostHog internal AI features. Trace id is unique per run so each invocation
-    # is its own trace; distinct id is the team so traces group by project.
+    # Skip in gateway mode: the Go gateway captures $ai_generation itself, so the
+    # SDK callback would double-count. Same gate the model routing above reads.
     callbacks: list[BaseCallbackHandler] = []
-    if posthoganalytics.default_client:
+    if posthoganalytics.default_client and resolve_ai_gateway_config() is None:
         callbacks.append(
             CallbackHandler(
                 posthoganalytics.default_client,

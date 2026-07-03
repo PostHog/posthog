@@ -55,7 +55,8 @@ class TestBuildOpenAIChatClient:
         with (
             override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
-            patch("posthog.temporal.ai_observability.llm_endpoint.logger") as mock_logger,
+            # the shared resolver in gateway_client owns the misconfig warning
+            patch("posthog.llm.gateway_client.logger") as mock_logger,
         ):
             client = build_langchain_chat_client("gpt-5.4", 600.0)
 
