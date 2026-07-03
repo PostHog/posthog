@@ -5,6 +5,10 @@ use tracing::{info, warn};
 
 use crate::error::UserError;
 
+pub mod backend;
+
+pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+
 /// Default amount of freshly-written data between staging-size checks. Stat-ing
 /// the whole staging tree is O(files), so we only re-measure after this much has
 /// been written, bounding overshoot to roughly this value plus one download chunk.
@@ -79,10 +83,6 @@ impl StagingGuard {
         Ok(())
     }
 }
-
-pub mod backend;
-
-pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
 
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {

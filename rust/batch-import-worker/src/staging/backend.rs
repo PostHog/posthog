@@ -126,8 +126,14 @@ async fn stage_to_file(
 }
 
 /// Stages part plaintext as a `.data` file under a per-job directory, reading it back with
-/// seek + `read_exact`. Behaviorally identical to the current on-disk staging path; it is
-/// the byte-identity reference the temp-bucket backend is validated against.
+/// seek + `read_exact`.
+///
+/// This is the byte-identity reference/oracle the temp-bucket backend is validated against
+/// — it is NOT the production `local_disk` path. With `STAGING_BACKEND=local_disk`
+/// (default) sources use the streaming `.raw` machinery (disk bounded by compressed size);
+/// routing through this materializing backend would regress disk usage to decompressed
+/// size. Kept as a full implementation so tests can compare backends and as a rollback
+/// option of last resort.
 pub struct LocalDiskBackend {
     job_dir: PathBuf,
     // Sizes recorded at stage time, mirroring the sources' in-memory prepared-key map.
