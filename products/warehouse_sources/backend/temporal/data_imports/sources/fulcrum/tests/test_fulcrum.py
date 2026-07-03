@@ -24,7 +24,7 @@ class TestToEpochSeconds:
     @parameterized.expand(
         [
             ("datetime", datetime(2021, 1, 1, tzinfo=UTC), 1609459200),
-            ("date", date(2021, 1, 1), int(datetime(2021, 1, 1).timestamp())),
+            ("date", date(2021, 1, 1), 1609459200),
             ("int_passthrough", 1609459200, 1609459200),
             ("iso_string", "2021-01-01T00:00:00+00:00", 1609459200),
             ("iso_string_z", "2021-01-01T00:00:00Z", 1609459200),
@@ -200,9 +200,9 @@ class TestValidateCredentials:
 
 
 class TestFetchPage:
-    # tenacity exposes the undecorated body as __wrapped__; access it via getattr so a single
-    # attempt's classification can be asserted without the retry loop actually sleeping.
-    _fetch_page_body = staticmethod(getattr(fulcrum._fetch_page, "__wrapped__"))
+    # tenacity exposes the undecorated body as __wrapped__; use it so a single attempt's
+    # classification can be asserted without the retry loop actually sleeping.
+    _fetch_page_body = staticmethod(fulcrum._fetch_page.__wrapped__)  # type: ignore[attr-defined]
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:

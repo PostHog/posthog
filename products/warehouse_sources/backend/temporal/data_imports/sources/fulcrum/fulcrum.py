@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -44,7 +44,7 @@ def _to_epoch_seconds(value: Any) -> Optional[int]:
     if isinstance(value, datetime):
         return int(value.timestamp())
     if isinstance(value, date):
-        return int(datetime(value.year, value.month, value.day).timestamp())
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     if isinstance(value, (int, float)):
         return int(value)
     try:
@@ -80,7 +80,9 @@ def validate_credentials(api_token: str) -> bool:
     # A cheap, always-available probe: list a single form. 200 means the token is genuine.
     url = _build_url(FULCRUM_ENDPOINTS["forms"], {"page": 1, "per_page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -109,7 +111,13 @@ def _fetch_page(
         raise FulcrumRetryableError(f"Fulcrum API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Fulcrum API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log the raw body on auth failures — keep it out of job logs in case the API echoes
+        # anything sensitive. The url holds only the path and pagination params (the token lives in
+        # the X-ApiToken header, never the URL).
+        if response.status_code in (401, 403):
+            logger.error(f"Fulcrum auth error: status={response.status_code}, url={url}")
+        else:
+            logger.error(f"Fulcrum API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -136,7 +144,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = FULCRUM_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_token,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.page if resume is not None else 1
