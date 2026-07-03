@@ -31,9 +31,12 @@ from gates import (
     MAX_FILES,
     MAX_LINES,
     assign_tier,
+    category_fully_exempt,
     classify_files,
+    dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_ownership,
+    detect_title_scrutiny_flags,
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
@@ -45,6 +48,7 @@ from gates import (
     test_only,
 )
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
+from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
 
@@ -345,8 +349,28 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(file_paths, pr.title, ignored_files=safe_migrations)
-        allow_only = is_allow_listed_only(file_paths)
+        deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        dep_manifests = dependency_manifests_without_lockfile(file_paths)
+        # Deterministic first line for the manifest scripts risk: an edit to
+        # scripts/lifecycle/build keys hard-denies rather than resting solely
+        # on the reviewer prompt's REFUSE instruction.
+        risky_manifests = (
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
+        )
+        if risky_manifests and "deps_toolchain" not in deny:
+            deny = sorted([*deny, "deps_toolchain"])
+        title_flags = [
+            c
+            for c in detect_title_scrutiny_flags(pr.title)
+            if c not in deny and not category_fully_exempt(c, file_paths)
+        ]
+        # Dependency manifests are .json/.toml/.cfg so they'd otherwise ride
+        # the allow-list into the T0 fast path — but manifest scripts execute
+        # in CI, so they get full T1 scrutiny even though they no longer deny.
+        # Both checks matter: has_dependency_changes catches lockfile-paired
+        # manifests, dependency_manifests_without_lockfile catches the rest
+        # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
+        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
         ownership = detect_ownership(file_paths, ownership_rules)
@@ -377,10 +401,13 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "title_scrutiny_flags": title_flags,
             "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
+            "dep_manifests_without_lockfile": dep_manifests,
+            "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
         }
@@ -429,6 +456,9 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        risky = self.classification.get("manifest_script_changes", [])
+        if risky:
+            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {', '.join(risky)})"
         if deny:
             return False, f"matches: {', '.join(deny)}"
         return True, "no deny categories matched"
@@ -613,6 +643,7 @@ class Pipeline:
                 "stamphog_files_changed": len(pr.files),
                 "stamphog_lines_total": pr.lines_total,
                 "stamphog_pr_reactions_count": len(pr.pr_reactions),
+                "stamphog_title_scrutiny_flags": cl.get("title_scrutiny_flags", []),
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,
@@ -642,6 +673,7 @@ class Pipeline:
                 "breadth": self.classification.get("breadth", ""),
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
+                "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
             },

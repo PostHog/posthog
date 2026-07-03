@@ -147,6 +147,24 @@ REVIEWER_SYSTEM = textwrap.dedent(
     pass/fail status are provided in the prompt — rely on those, not
     assumptions. You typically see T1 PRs that passed all gates.
 
+    Title scrutiny flags (in the prompt when set): the PR title mentions a
+    sensitive domain (auth, billing, infra_cicd, crypto_secrets, public_api) but no deny-listed file
+    was touched. Verify against the diff: if the change behaviorally touches
+    that domain (authentication/authorization flows, payment or plan logic,
+    CI/deploy behavior), REFUSE and route to a human. If the keyword is
+    incidental — an error string, a warehouse connector fix, a docs mention —
+    judge the PR normally. A flag is a magnifying glass, not a verdict.
+
+    Dependency manifests (in the prompt when set): the diff changes a
+    manifest (package.json, pyproject.toml, tsconfig, Cargo.toml, go.mod)
+    with no lockfile change, so it cannot add third-party code. A
+    deterministic scan already hard-denies edits to known scripts/lifecycle/
+    build keys — you are the second line for what the scan can't name. Read
+    the manifest hunks in the diff: version bumps, metadata, and internal
+    workspace references are fine. REFUSE if "scripts" entries, lifecycle
+    hooks (postinstall, prepare, husky), or tool configuration that executes
+    commands were added or changed — those run in CI and on dev machines.
+
     T1 sub-tiers (provided in the prompt):
     - T1a-trivial: ≤20 lines, ≤3 files, single area
     - T1b-small: ≤100 lines, ≤5 files, focused
@@ -436,6 +454,22 @@ class Reviewer:
             constraint = "\nGates DENIED this PR. Your verdict MUST be REFUSE or ESCALATE."
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
+
+        title_flags = cl.get("title_scrutiny_flags", [])
+        if title_flags:
+            constraint += (
+                f"\nTitle scrutiny flags: {', '.join(title_flags)} — the title mentions "
+                "these sensitive domains but no file matching these categories was touched. Verify the "
+                "diff does not behaviorally touch them; REFUSE if it does."
+            )
+
+        dep_manifests = cl.get("dep_manifests_without_lockfile", [])
+        if dep_manifests:
+            constraint += (
+                f"\nDependency manifests changed without a lockfile: {', '.join(dep_manifests)} — "
+                "no third-party code can be added, but check the manifest hunks and REFUSE if "
+                "scripts or lifecycle hooks changed."
+            )
 
         file_list = "\n".join(
             f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" + (" [NEW]" if f.get("status") == "A" else "")

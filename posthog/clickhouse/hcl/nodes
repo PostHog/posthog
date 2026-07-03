@@ -70,5 +70,11 @@ prod-eu  sessions   roles/shared roles/sessions/shared roles/sessions/prod-eu
 # raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
 prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
 
+# BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
+# store the export workers read; data/ops reach it via Distributed proxies) plus the
+# query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
+# column. Dump-baselined (no local batch-exports node).
+prod-us  batch_exports roles/shared roles/batch_exports/prod-us
+prod-eu  batch_exports roles/shared roles/batch_exports/prod-eu
+
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
-# prod-us  endpoints  roles/shared
