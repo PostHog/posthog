@@ -2194,6 +2194,8 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
     } as const;
 
     export interface PropertyGroupFilter {
