@@ -178,7 +178,6 @@ import {
     ObjectMediaPreview,
     OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlags,
-    OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
     OrganizationType,
@@ -482,13 +481,6 @@ export class ApiRequest {
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
             .addEncodedPathComponent(featureFlagKey) // Never trust user input.
-    }
-
-    public copyOrganizationFeatureFlags(orgId: OrganizationType['id']): ApiRequest {
-        return this.organizations()
-            .addPathComponent(orgId)
-            .addPathComponent('feature_flags')
-            .addPathComponent('copy_flags')
     }
 
     public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
@@ -2615,15 +2607,6 @@ const api = {
             featureFlagKey: FeatureFlagType['key']
         ): Promise<OrganizationFeatureFlags> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
-        },
-        async copy(
-            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
-            data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{
-            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
-            failed: any
-        }> {
-            return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
