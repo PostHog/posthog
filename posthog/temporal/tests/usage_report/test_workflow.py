@@ -13,7 +13,9 @@ import pytest
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -50,6 +52,40 @@ def test_build_context_reports_full_day_at_offset(
     assert ctx.report_completeness == expected_completeness
     assert ctx.period_start.isoformat() == f"{expected_date}T00:00:00+00:00"
     assert ctx.period_end.isoformat() == f"{expected_date}T23:59:59.999999+00:00"
+
+
+@pytest.mark.asyncio
+async def test_workflow_rejects_negative_day_offset() -> None:
+    # Without the guard, a manual-trigger typo like day_offset=-1 reports a
+    # future empty day and marks it "complete" for billing.
+    ran_queries: list[str] = []
+
+    @activity.defn(name="run-usage-report-query")
+    async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
+        ran_queries.append(inputs.query_name)
+        return RunQueryToS3Result(query_name=inputs.query_name, s3_key="unused", duration_ms=1)
+
+    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
+        async with Worker(
+            env.client,
+            task_queue=str(uuid.uuid4()),
+            workflows=[RunUsageReportsWorkflow],
+            activities=[query_mock],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ) as worker:
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await env.client.execute_workflow(
+                    RunUsageReportsWorkflow.run,
+                    RunUsageReportsInputs(day_offset=-1),
+                    id=str(uuid.uuid4()),
+                    task_queue=worker.task_queue,
+                )
+
+    cause = exc_info.value.cause
+    assert isinstance(cause, ApplicationError)
+    assert cause.non_retryable
+    assert "day_offset" in str(cause)
+    assert ran_queries == []
 
 
 @pytest.mark.asyncio

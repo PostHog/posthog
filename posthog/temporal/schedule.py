@@ -620,17 +620,19 @@ async def create_run_usage_reports_schedule(client: Client):
 
 
 async def create_finalize_usage_reports_schedule(client: Client):
-    """Daily finalizer for the usage reports v2 flow, 03:00 UTC.
+    """Daily finalizer for the usage reports v2 flow, 02:45 UTC.
 
     Reports *yesterday* (`day_offset=1`) once the day is complete — its
     pointer carries `report_completeness="complete"`, billing's signal that
     the numbers are final for that date.
-    03:00 leaves 3 hours for ingestion lag after midnight while staying clear
-    of the legacy Celery run at 03:45 UTC. Unlike the intraday schedule this
-    run has no later slot to supersede it, so the retry policy keeps
-    re-running it across the day (5m, 10m, ... capped at 2h) until it
-    succeeds. Anything longer than that is a manual backfill: trigger the
-    workflow with `day_offset=N` for the missed day.
+    02:45 leaves ~2.75 hours for ingestion lag after midnight, gives the
+    01:45 intraday slot a full hour to finish (the two schedules' SKIP
+    policies don't see each other, so spacing is the only concurrency
+    control), and stays ahead of the legacy Celery run at 03:45 UTC. Unlike
+    the intraday schedule this run has no later slot to supersede it, so the
+    retry policy keeps re-running it across the day (5m, 10m, ... capped at
+    2h) until it succeeds. Anything longer than that is a manual backfill:
+    trigger the workflow with `day_offset=N` for the missed day.
     """
     finalize_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -647,9 +649,9 @@ async def create_finalize_usage_reports_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at 03:00 UTC",
-                    hour=[ScheduleRange(start=3, end=3)],
-                    minute=[ScheduleRange(start=0, end=0)],
+                    comment="Daily at 02:45 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=45, end=45)],
                 )
             ]
         ),

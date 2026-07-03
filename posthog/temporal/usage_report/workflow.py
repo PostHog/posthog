@@ -19,6 +19,7 @@ import asyncio
 from datetime import UTC, datetime, time, timedelta
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -75,6 +76,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RunUsageReportsInputs) -> dict:
+        if inputs.day_offset < 0:
+            # A negative offset (manual-trigger typo) would report a future,
+            # empty day and mark it "complete" for billing. Fail fast;
+            # non_retryable so the schedule's retry policy doesn't re-run a
+            # validation error.
+            raise ApplicationError(f"day_offset must be >= 0, got {inputs.day_offset}", non_retryable=True)
         started_at = workflow.now()
         status = "FAILED"
         try:
