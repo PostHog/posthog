@@ -79,7 +79,7 @@ describe('WhenStep', () => {
         useMocks(surveyMocks(createEventTriggeredSurvey(true)))
         renderWhenStep()
 
-        expect(await screen.findByText(/these settings are not applicable/)).toBeInTheDocument()
+        expect(await screen.findByText(/the schedule options don't apply/)).toBeInTheDocument()
         expect(screen.queryByText('Once ever')).not.toBeInTheDocument()
         // The wait period and response limit still apply at runtime, so they stay configurable
         expect(
@@ -94,6 +94,6 @@ describe('WhenStep', () => {
 
         expect(await screen.findByText('payment_completed')).toBeInTheDocument()
         expect(screen.getByText('Once ever')).toBeInTheDocument()
-        expect(screen.queryByText(/these settings are not applicable/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/the schedule options don't apply/)).not.toBeInTheDocument()
     })
 })

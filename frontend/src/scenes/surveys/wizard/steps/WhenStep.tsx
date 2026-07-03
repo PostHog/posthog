@@ -7,6 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
+import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
 
 import {
     AnyPropertyFilter,
@@ -50,9 +51,11 @@ export function WhenStep(): JSX.Element {
     const triggerMode = conditions.events !== null && conditions.events !== undefined ? 'event' : 'pageview'
     const repeatedActivation = conditions.events?.repeatedActivation ?? false
     // Repeated event activation makes the SDK re-show the survey on every trigger-event capture,
-    // bypassing the schedule — so don't render the schedule as configurable (same treatment as
-    // SurveyRepeatSchedule in the full editor).
-    const canSurveyBeRepeated = repeatedActivation && triggerEvents.length > 0
+    // bypassing the schedule — so render the schedule as not applicable, the same treatment as
+    // SurveyRepeatSchedule in the full editor (the explanation is deliberately not shared with it:
+    // the contexts differ too much). The stored schedule/iteration fields are left untouched so
+    // unchecking the box restores the previous cadence.
+    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
     const delaySeconds = appearance.surveyPopupDelaySeconds ?? 0
     const excludedObjectProperties = useExcludedObjectProperties()
     // Derive frequency strictly from the iteration model — the universal wait-period is a separate
@@ -281,13 +284,13 @@ export function WhenStep(): JSX.Element {
                 description="How many times the same user can see this survey, and how often."
                 descriptionClassName="text-sm"
             >
-                {canSurveyBeRepeated ? (
-                    <div className="text-sm">
+                {repeatsOnEveryEvent ? (
+                    <div className="text-sm" data-attr="survey-schedule-repeats-on-event-note">
                         <IconInfo className="mr-0.5" />
                         This survey is displayed whenever the{' '}
                         <LemonSnack>{triggerEvents.map((event) => event.name).join(', ')}</LemonSnack>{' '}
-                        {triggerEvents.length === 1 ? 'event is' : 'events are'} captured, so these settings are not
-                        applicable. To set a schedule instead, uncheck 'Show every time the event is captured' above.
+                        {triggerEvents.length === 1 ? 'event is' : 'events are'} captured, so the schedule options don't
+                        apply. To set a schedule instead, uncheck 'Show every time the event is captured' above.
                     </div>
                 ) : (
                     <>
