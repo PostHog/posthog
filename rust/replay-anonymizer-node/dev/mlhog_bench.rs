@@ -11,8 +11,8 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use replay_anonymizer_node::mlhog::V2Worker;
-use replay_anonymizer_node::{AllowLists, Ctx};
+use replay_anonymizer_node::mlhog::{engine, V2Worker};
+use replay_anonymizer_node::{anonymize_kafka_payload, AllowLists, Ctx};
 
 fn p50<F: FnMut()>(warmup: usize, n: usize, mut f: F) -> f64 {
     for _ in 0..warmup {
@@ -87,13 +87,55 @@ fn main() {
         // `preserve_order` keeps the fixture's real (JSON.stringify insertion) key order.
         let message: serde_json::Value = serde_json::from_slice(&bytes).expect("parse dump");
         let mut lines: Vec<Vec<u8>> = Vec::new();
+        let mut items: Vec<serde_json::Value> = Vec::new();
         for events in message.as_object().expect("dump is an object").values() {
-            for ev in events.as_array().cloned().unwrap_or_default() {
+            for (i, mut ev) in events.as_array().cloned().unwrap_or_default().into_iter().enumerate() {
+                if let Some(obj) = ev.as_object_mut() {
+                    obj.entry("timestamp")
+                        .or_insert(serde_json::json!(1_700_000_000_000i64 + i as i64));
+                }
                 lines.push(serde_json::to_vec(&ev).unwrap());
+                items.push(ev);
             }
         }
         bench_lines(label, &ctx, &lines);
+        bench_full_contract(label, &allow, &items);
     }
+}
+
+/// The caveat-free comparison: both sides take the raw Kafka payload and produce JSONL lines +
+/// SnapshotMeta (framing, meta extraction and envelope work included on both sides).
+fn bench_full_contract(label: &str, allow: &AllowLists, items: &[serde_json::Value]) {
+    let inner = serde_json::to_string(&serde_json::json!({
+        "event": "$snapshot_items",
+        "properties": {
+            "$snapshot_items": items,
+            "$session_id": "bench-session",
+            "$window_id": "bench-window",
+            "$snapshot_source": "web",
+            "$lib": "posthog-js",
+        }
+    }))
+    .unwrap();
+    let payload = serde_json::to_string(&serde_json::json!({
+        "distinct_id": "bench-user",
+        "data": inner,
+    }))
+    .unwrap()
+    .into_bytes();
+    let mb = payload.len() as f64 / (1024.0 * 1024.0);
+
+    let mlhog_ms = p50(3, 40, || {
+        let mut b = payload.clone();
+        black_box(engine::anonymize_kafka_payload(allow, &mut b).unwrap());
+    });
+    let crate_ms = p50(3, 40, || {
+        let mut b = payload.clone();
+        black_box(anonymize_kafka_payload(allow, &mut b).unwrap());
+    });
+    println!(
+        "FULL CONTRACT {label:>11}: {mb:.1} MB  mlhog engine = {mlhog_ms:.1} ms   crate = {crate_ms:.1} ms"
+    );
 }
 
 fn bench_lines(label: &str, ctx: &Ctx<'_>, lines: &[Vec<u8>]) {

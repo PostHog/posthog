@@ -218,3 +218,59 @@ fn null_cv_marker_routes_as_uncompressed() {
         "null cv marker",
     );
 }
+
+/// The full-contract engine must produce the same lines and meta as the production entry — this is
+/// what makes the caveat-free benchmark comparison meaningful (both sides doing identical jobs).
+#[test]
+fn full_contract_engine_matches_the_production_entry() {
+    use replay_anonymizer_node::mlhog::engine;
+    for case in fixtures("messages.json") {
+        let allow = allow_of(&case);
+        let label = case["name"].as_str().unwrap_or("unnamed");
+        // Build the Kafka payload shape from the fixture message, injecting timestamps.
+        let mut items: Vec<Value> = case["input"]
+            .as_object()
+            .map(|m| m.values().flat_map(|evs| evs.as_array().cloned().unwrap_or_default()).collect())
+            .unwrap_or_default();
+        for (i, ev) in items.iter_mut().enumerate() {
+            if let Some(obj) = ev.as_object_mut() {
+                obj.entry("timestamp")
+                    .or_insert(serde_json::json!(1_700_000_000_000i64 + i as i64));
+            }
+        }
+        let inner = serde_json::to_string(&serde_json::json!({
+            "event": "$snapshot_items",
+            "properties": {
+                "$snapshot_items": items,
+                "$session_id": "s-parity",
+                "$window_id": "w-parity",
+                "$snapshot_source": "web",
+                "$lib": "posthog-js",
+            }
+        }))
+        .unwrap();
+        let payload =
+            serde_json::to_string(&serde_json::json!({"distinct_id": "d-parity", "data": inner}))
+                .unwrap();
+
+        let mut b1 = payload.clone().into_bytes();
+        let engine_out = engine::anonymize_kafka_payload(&allow, &mut b1);
+        let mut b2 = payload.into_bytes();
+        let crate_out = replay_anonymizer_node::anonymize_kafka_payload(&allow, &mut b2);
+        match (engine_out, crate_out) {
+            (Ok(e), Ok(c)) => {
+                let parse = |lines: &[u8]| -> Vec<Value> {
+                    lines
+                        .split(|b| *b == b'\n')
+                        .filter(|l| !l.is_empty())
+                        .map(|l| serde_json::from_slice(l).expect("valid output line"))
+                        .collect()
+                };
+                assert_eq!(parse(&e.lines), parse(&c.lines), "lines diverged: {label}");
+                assert_eq!(e.meta, c.meta, "meta diverged: {label}");
+            }
+            (Err(e), Err(c)) => assert_eq!(e.kind, c.kind, "failure diverged: {label}"),
+            (e, c) => panic!("outcome diverged for {label}: engine={e:?} crate={c:?}"),
+        }
+    }
+}

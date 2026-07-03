@@ -4,6 +4,7 @@
 // compares architectures (byte-splice walk vs tree walk), not scrub implementations. Compiled only
 // under the `mlhog-bench` feature.
 
+pub mod engine;
 pub mod leaf;
 pub mod schema;
 pub mod v2;
