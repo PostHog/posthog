@@ -62,9 +62,9 @@ export function createTrackAndGateStep<
             const isNewSession = !seen.get(teamId, sessionId)
 
             if (blocked.get(teamId, sessionId)) {
-                return ok({ ...value, isNewSession, blocked: true })
+                return ok({ ...value, isNewSession, status: 'blocked' as const })
             }
-            return ok({ ...value, isNewSession, blocked: false })
+            return ok({ ...value, isNewSession, status: 'allowed' as const })
         })
     }
 }

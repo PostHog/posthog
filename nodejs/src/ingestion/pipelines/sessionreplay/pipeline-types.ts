@@ -28,12 +28,22 @@ export interface NewSessionFlag {
 }
 
 /**
- * The gate's verdict for a session, carried through key resolution to the mark-seen step. A blocked
- * (rate-limited) session rides through key resolution untouched and is dropped only after being marked
- * seen — so it isn't re-counted against its team's new-session budget on the next batch, while it never
- * reaches recording (block and seen share a TTL, so it stays blocked for as long as it's seen).
+ * The gate's verdict for a session. `allowed` proceeds to key resolution; `blocked` (rate-limited) is
+ * carried through key resolution untouched. Both are marked seen at the mark-seen step, and blocked ones
+ * are dropped only after — so a rate-limited session isn't re-counted against its team's new-session
+ * budget on the next batch, while it never reaches recording (block and seen share a TTL, so it stays
+ * blocked for as long as it's seen).
  */
-export type Gated<T> = (T & { blocked: false }) | (T & { blocked: true })
+export type Gated<T> = (T & { status: 'allowed' }) | (T & { status: 'blocked' })
 
-/** A {@link Gated} element after key resolution: allowed sessions now carry their key, blocked ones don't. */
-export type Resolved<T> = (T & { blocked: false; sessionKey: SessionKey }) | (T & { blocked: true })
+/**
+ * A {@link Gated} element after key resolution. `allowed` now carries its key; `blocked` and `deleted`
+ * (key crypto-shredded) carry no key. Blocked and deleted are dropped after the mark-seen step — marking
+ * them seen keeps them from being re-counted against the budget on later batches, and neither reaches
+ * recording (a deleted session's tombstone outlives its seen flag, so while it's seen it always resolves
+ * as deleted).
+ */
+export type Resolved<T> =
+    | (T & { status: 'allowed'; sessionKey: SessionKey })
+    | (T & { status: 'blocked' })
+    | (T & { status: 'deleted' })

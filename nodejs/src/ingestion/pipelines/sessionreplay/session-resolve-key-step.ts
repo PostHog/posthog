@@ -1,5 +1,4 @@
-import { logger } from '~/common/utils/logger'
-import { drop, ok } from '~/ingestion/framework/results'
+import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -13,12 +12,13 @@ import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipelin
  * out to the session's other messages, and under a per-session retry so a transient keystore blip
  * re-runs just that session rather than its batch-siblings.
  *
- * A blocked session rides through untouched (no key resolved) — the mark-seen step marks it seen and
- * then drops it. An allowed new session generates a key (using the retention resolved upstream to set
- * the key's expiry); an allowed existing one fetches it. A session whose key has been deleted is
- * dropped. A transient keystore failure (KMS/DynamoDB) throws so the retry wrapper can re-run it; the
- * session is never marked seen before its key exists (see {@link createMarkSeenStep}), so a retry
- * regenerates rather than fetching a key that was never generated — which would record cleartext.
+ * A blocked session rides through untouched (no key resolved). An allowed new session generates a key
+ * (using the retention resolved upstream to set the key's expiry); an allowed existing one fetches it.
+ * A session whose key has been deleted is re-tagged `deleted` and carried through too — like blocked, the
+ * mark-seen step marks it seen and then drops it, so a deleted session isn't re-counted against the
+ * rate limit every batch. A transient keystore failure (KMS/DynamoDB) throws so the retry wrapper can
+ * re-run it; the session is never marked seen before its key exists (see {@link createMarkSeenStep}), so
+ * a retry regenerates rather than fetching a key that was never generated — which would record cleartext.
  */
 export function createResolveKeyStep<
     T extends {
@@ -28,7 +28,7 @@ export function createResolveKeyStep<
     } & NewSessionFlag,
 >(keyStore: KeyStore): ProcessingStep<Gated<T>, Resolved<T>> {
     return async function resolveKeyStep(value) {
-        if (value.blocked) {
+        if (value.status === 'blocked') {
             return ok(value)
         }
 
@@ -40,12 +40,7 @@ export function createResolveKeyStep<
             : await keyStore.getKey(sessionId, teamId)
 
         if (sessionKey.sessionState === 'deleted') {
-            logger.debug('🔁', 'session_replay_session_dropped_before_record', {
-                sessionId,
-                teamId,
-                reason: 'session_deleted',
-            })
-            return drop('session_deleted')
+            return ok({ ...value, status: 'deleted' as const })
         }
 
         return ok({ ...value, sessionKey })

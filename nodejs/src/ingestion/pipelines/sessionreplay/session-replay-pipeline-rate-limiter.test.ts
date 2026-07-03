@@ -282,13 +282,13 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         mockCreateApplyEventRestrictionsStep.mockReturnValue((input: unknown) => Promise.resolve(ok(input)))
     })
 
-    // Establishes the baseline (no Redis failures): how many times each session type is counted as new
-    // across two batches.
+    // Establishes the baseline (no Redis failures): every session type is counted as new exactly once,
+    // because allowed, blocked and deleted sessions are all marked seen at the mark-seen step.
     describe('baseline (no failures)', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
             ['blocked', 1],
-            ['deleted', 2],
+            ['deleted', 1],
         ])('%s session is counted as new %i time(s) over two batches', async (type, expected) => {
             setUpSessionType(type, type)
 
@@ -317,12 +317,13 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     })
 
     // markSeen fails open: the mark isn't persisted to Redis, but the local cache still records it, so
-    // the SAME consumer doesn't re-count the session next batch (the failure is masked locally).
+    // the SAME consumer doesn't re-count the session next batch (the failure is masked locally). Applies
+    // to every type, since allowed, blocked and deleted are all marked here.
     describe('when the markSeen write (tracker pipeline) fails on the first batch', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
             ['blocked', 1],
-            ['deleted', 2],
+            ['deleted', 1],
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
 
@@ -339,7 +340,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         it.each<[SessionType, number]>([
             ['allowed', 1],
             ['blocked', 1],
-            ['deleted', 2],
+            ['deleted', 1],
         ])('%s session is counted as new %i time(s)', async (type, expected) => {
             setUpSessionType(type, type)
 

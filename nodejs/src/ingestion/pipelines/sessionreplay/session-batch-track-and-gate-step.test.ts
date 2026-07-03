@@ -19,11 +19,11 @@ const mapAll =
         return Promise.resolve(map)
     }
 
-// Reads (isNewSession, blocked) off an ok result, or null if it isn't ok.
+// Reads (isNewSession, status) off an ok result, or null if it isn't ok.
 const flags = (
-    result: PipelineResult<{ isNewSession: boolean; blocked: boolean }>
-): { isNewSession: boolean; blocked: boolean } | null =>
-    isOkResult(result) ? { isNewSession: result.value.isNewSession, blocked: result.value.blocked } : null
+    result: PipelineResult<{ isNewSession: boolean; status: 'allowed' | 'blocked' }>
+): { isNewSession: boolean; status: 'allowed' | 'blocked' } | null =>
+    isOkResult(result) ? { isNewSession: result.value.isNewSession, status: result.value.status } : null
 
 describe('createTrackAndGateStep', () => {
     let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'hasSeen'>>
@@ -72,7 +72,7 @@ describe('createTrackAndGateStep', () => {
         const results = await createStep()([element(1, 'a')])
 
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
-        expect(flags(results[0])).toEqual({ isNewSession: true, blocked: false })
+        expect(flags(results[0])).toEqual({ isNewSession: true, status: 'allowed' })
     })
 
     it('tags a seen session as existing and does not rate-limit it', async () => {
@@ -80,7 +80,7 @@ describe('createTrackAndGateStep', () => {
         const results = await createStep()([element(1, 'a')])
 
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet())
-        expect(flags(results[0])).toEqual({ isNewSession: false, blocked: false })
+        expect(flags(results[0])).toEqual({ isNewSession: false, status: 'allowed' })
     })
 
     it('tags a blocked session blocked without dropping it (the mark-seen step drops it later)', async () => {
@@ -91,7 +91,7 @@ describe('createTrackAndGateStep', () => {
 
         // Carried through, not dropped — so the mark-seen step can mark it seen before dropping it.
         expect(isOkResult(results[0])).toBe(true)
-        expect(flags(results[0])).toEqual({ isNewSession: true, blocked: true })
+        expect(flags(results[0])).toEqual({ isNewSession: true, status: 'blocked' })
     })
 
     it('runs each Redis bootstrap once per batch and fans the flags to every message of a session', async () => {
@@ -104,9 +104,9 @@ describe('createTrackAndGateStep', () => {
         expect(mockSessionFilter.isBlocked).toHaveBeenCalledTimes(1)
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
         expect(results.map(flags)).toEqual([
-            { isNewSession: true, blocked: false },
-            { isNewSession: true, blocked: false },
-            { isNewSession: true, blocked: false },
+            { isNewSession: true, status: 'allowed' },
+            { isNewSession: true, status: 'allowed' },
+            { isNewSession: true, status: 'allowed' },
         ])
     })
 
