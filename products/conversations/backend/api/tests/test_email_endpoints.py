@@ -2,7 +2,7 @@ from datetime import timedelta
 from io import BytesIO
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
@@ -517,6 +517,52 @@ class TestEmailMultiConfig(BaseTest):
         assert "Maximum" in r.json()["error"]
         # The rejected connect releases its Mailgun registration instead of stranding the domain
         mock_delete.assert_called_once_with("overflow.com")
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_config_limit_releases_reclaimed_domain(
+        self,
+        _mock_setting: MagicMock,
+        mock_add: MagicMock,
+        mock_get_domain: MagicMock,
+        mock_delete: MagicMock,
+    ):
+        from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
+
+        fresh_records = {"sending_dns_records": []}
+        # First MAX connects register cleanly; the overflow connect hits a Mailgun
+        # conflict, reclaims a stranded unverified domain, then fails on the limit.
+        mock_add.side_effect = [{}] * MAX_EMAIL_CONFIGS_PER_TEAM + [
+            MailgunDomainConflict("Domain overflow.com already exists"),
+            fresh_records,
+        ]
+        mock_get_domain.return_value = {"name": "overflow.com", "state": "unverified"}
+
+        for i in range(MAX_EMAIL_CONFIGS_PER_TEAM):
+            r = self.client.post(
+                "/api/conversations/v1/email/connect",
+                {"from_email": f"addr{i}@example{i}.com", "from_name": f"Name {i}"},
+                content_type="application/json",
+            )
+            assert r.status_code == 200, f"Failed to connect config {i}: {r.json()}"
+
+        r = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "overflow@overflow.com", "from_name": "Overflow"},
+            content_type="application/json",
+        )
+
+        assert r.status_code == 400
+        assert "Maximum" in r.json()["error"]
+        assert not EmailChannel.objects.filter(domain="overflow.com").exists()
+        # overflow.com is deleted twice: once churning the stranded registration during
+        # reclaim, once releasing the fresh registration after the limit rejection.
+        assert mock_delete.call_args_list == [call("overflow.com"), call("overflow.com")]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
