@@ -31,7 +31,7 @@ from django.dispatch import receiver
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, Trigger, bulk_log_activity
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -113,19 +113,23 @@ def bump_flag_versions_on_cohort_definition_change(
         FeatureFlag.objects.filter(pk__in=old_versions.keys(), team__project_id=instance.team.project_id).update(
             version=Coalesce("version", Value(0)) + 1
         )
-        for flag in flags:
-            if flag.pk in old_versions:
-                _log_flag_version_bump(flag, old_version=old_versions[flag.pk], cohort=instance)
+        bulk_log_activity(
+            [
+                _flag_version_bump_entry(flag, old_version=old_versions[flag.pk], cohort=instance)
+                for flag in flags
+                if flag.pk in old_versions
+            ]
+        )
 
 
-def _log_flag_version_bump(flag: FeatureFlag, old_version: int | None, cohort: Cohort) -> None:
-    """Write the flag-history entry for a cohort-driven version bump.
+def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, cohort: Cohort) -> LogActivityEntry:
+    """Build the flag-history entry for a cohort-driven version bump.
 
     The acting user comes from activity_storage (populated by middleware for API
     requests, i.e. whoever edited the cohort); outside a request the entry is logged
     as a system action.
     """
-    log_activity(
+    return LogActivityEntry(
         organization_id=flag.team.organization_id,
         team_id=flag.team_id,
         user=activity_storage.get_user(),
@@ -165,7 +169,7 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
     """
     candidate_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
-        FeatureFlag.objects.filter(team__project_id=cohort.team.project_id)
+        FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
         .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
         .select_related("team")
     )

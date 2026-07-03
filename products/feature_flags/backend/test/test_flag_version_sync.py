@@ -54,11 +54,16 @@ class TestFlagVersionSync(BaseTest):
     def test_cohort_condition_change_bumps_versions_of_flags_reaching_it(self):
         edited = self._create_cohort("edited", _person_filters("a@a.com"))
         parent = self._create_cohort("parent", _cohort_filters(edited.pk))
+        # Not referenced directly by any flag, so `_flags_referencing_cohort` can't
+        # pre-warm it via `direct_ids` — it's only resolved by the point-query fallback
+        # inside `get_cohort_ids`'s nested-cohort expansion.
+        grandparent = self._create_cohort("grandparent", _cohort_filters(parent.pk))
         static_parent = self._create_cohort("static-parent", _cohort_filters(edited.pk), is_static=True)
         unrelated = self._create_cohort("unrelated", _person_filters("b@b.com"))
 
         flag_direct = self._create_flag("direct", edited.pk)
         flag_nested = self._create_flag("nested", parent.pk)
+        flag_deeply_nested = self._create_flag("deeply-nested", grandparent.pk)
         # Static cohorts have materialized membership, so an upstream condition change
         # doesn't alter how flags referencing them evaluate.
         flag_behind_static = self._create_flag("behind-static", static_parent.pk)
@@ -71,10 +76,12 @@ class TestFlagVersionSync(BaseTest):
 
         flag_direct.refresh_from_db()
         flag_nested.refresh_from_db()
+        flag_deeply_nested.refresh_from_db()
         flag_behind_static.refresh_from_db()
         flag_unrelated.refresh_from_db()
         assert flag_direct.version == 2
         assert flag_nested.version == 1
+        assert flag_deeply_nested.version == 2
         assert flag_behind_static.version == 1
         assert flag_unrelated.version == 1
 
