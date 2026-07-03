@@ -44,8 +44,10 @@ _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
 
 def test_get_source_config_oauth_field_declares_required_scope():
     oauth_field = next(
-        field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
     )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
     assert isinstance(oauth_field, SourceFieldOauthConfig)
     assert oauth_field.kind == "google-ads"
     assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
