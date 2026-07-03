@@ -1,4 +1,5 @@
 import traceback
+from typing import Any
 
 from temporalio.exceptions import ApplicationError, FailureError
 
@@ -6,6 +7,26 @@ from temporalio.exceptions import ApplicationError, FailureError
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
 MAX_ERROR_TRACE_CHARS = 32_000
+
+# Marker attribute flagging an ApplicationError as an expected, self-healing condition — one that
+# Temporal's retry/backoff absorbs and that must NOT surface as an error-tracking issue. The shared
+# PostHog activity interceptor honors it (the same way it already skips cancellations), so a benign
+# retryable denial (e.g. shared egress backpressure) drives a retry without minting noisy occurrences.
+_BENIGN_RETRY_ATTR = "_posthog_benign_retry"
+
+
+def benign_retry_error(message: str, *, type: str, **kwargs: Any) -> ApplicationError:
+    """An ``ApplicationError`` that still triggers Temporal's retry but is flagged so the PostHog
+    interceptor skips error-tracking capture. Use for expected, retryable backpressure that
+    self-heals — not for real faults, which must still surface."""
+    error = ApplicationError(message, type=type, **kwargs)
+    setattr(error, _BENIGN_RETRY_ATTR, True)
+    return error
+
+
+def is_benign_retry_error(exc: BaseException) -> bool:
+    """Whether ``exc`` was flagged benign by :func:`benign_retry_error`."""
+    return getattr(exc, _BENIGN_RETRY_ATTR, False) is True
 
 
 def truncate_for_temporal_payload(value: str, limit: int) -> str:

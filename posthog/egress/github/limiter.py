@@ -18,11 +18,11 @@ GITHUB_DOMAIN = "github"
 
 # No reserves are active yet — a deliberate default, not a limitation. Every GitHub call now gates
 # through the limiter: user-facing traffic at CRITICAL (integration, visual review, conversations,
-# error tracking), warehouse at BATCH, the job-logs worker at NORMAL. So a BATCH reserve would now
-# have a real beneficiary — it would shed deferrable warehouse polling before critical traffic as the
-# budget fills. It stays empty until the grant/deny metrics show the shared budget (13.5k under
-# GitHub's 15k) actually getting tight; turning it on is a one-line change here — e.g.
-# {Priority.BATCH: 0.30} to shed warehouse polling first.
+# error tracking), warehouse polling and the job-logs worker at BATCH. So a BATCH reserve would now
+# have a real beneficiary — it would shed deferrable warehouse/job-logs traffic before critical
+# traffic as the budget fills. It stays empty until the grant/deny metrics show the shared budget
+# (13.5k under GitHub's 15k) actually getting tight; turning it on is a one-line change here — e.g.
+# {Priority.BATCH: 0.30} to shed deferrable polling first.
 _RESERVE: dict[Priority, float] = {}
 
 # Default under GitHub's real 15k/hr ceiling so the reactive backoff (GitHubRateLimitError in

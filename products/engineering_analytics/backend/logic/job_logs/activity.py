@@ -18,9 +18,11 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.egress.github.limiter import acquire_github_installation
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import benign_retry_error
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
@@ -67,9 +69,13 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
-    if not await acquire_github_installation(installation_id, source="job_logs"):
-        # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
-        raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
+    # BATCH is the most sheddable lane: job-logs is deferrable backpressure-tolerant traffic, so it
+    # should yield the shared installation budget to critical/interactive GitHub callers under load.
+    if not await acquire_github_installation(installation_id, priority=Priority.BATCH, source="job_logs"):
+        # Over budget — retry with backoff instead of blocking a worker. Flagged benign so this
+        # expected, self-healing denial doesn't create error-tracking noise: a burst of failed CI
+        # jobs routinely drains the limiter's per-minute cap, and Temporal's retry absorbs it.
+        raise benign_retry_error("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
         log.info("github_job_log_unavailable")

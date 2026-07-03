@@ -2,6 +2,9 @@ import pytest
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.egress.limiter.policies import Priority
+from posthog.temporal.common.errors import is_benign_retry_error
+
 import products.engineering_analytics.backend.logic.job_logs.activity as activity_module
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchJobLogInputs,
@@ -68,20 +71,30 @@ async def test_emits_and_returns_line_count(monkeypatch):
     assert attrs["head_sha"] == "abc1234"
 
 
-async def test_raises_and_skips_fetch_when_budget_exhausted(monkeypatch):
-    # The gate must stop us before the GitHub call when over the shared budget, and raise (retryable)
-    # so Temporal backs off — never silently proceed.
+async def test_budget_exhausted_raises_benign_batch_denial_and_skips_fetch(monkeypatch):
+    # Over the shared budget, the gate must stop us before the GitHub call and raise a retryable
+    # denial so Temporal backs off — never silently proceed. The denial must be flagged benign (so a
+    # routine burst doesn't flood error tracking) and acquired on the BATCH lane (job-logs yields the
+    # shared budget to critical GitHub callers). Reverting either lever regresses the noise/contention.
     fetched = {"called": False}
+    acquire_kwargs: dict = {}
+
+    async def _acquire(_installation_id, **kwargs):
+        acquire_kwargs.update(kwargs)
+        return False
 
     def _fetch(*_args, **_kwargs):
         fetched["called"] = True
         return "x"
 
     _patch(monkeypatch, acquired=False)
+    monkeypatch.setattr(activity_module, "acquire_github_installation", _acquire)
     monkeypatch.setattr(activity_module, "fetch_job_log", _fetch)
-    with pytest.raises(ApplicationError):
+    with pytest.raises(ApplicationError) as exc_info:
         await fetch_and_emit_job_log_activity(_INPUTS)
     assert fetched["called"] is False
+    assert is_benign_retry_error(exc_info.value) is True
+    assert acquire_kwargs["priority"] == Priority.BATCH
 
 
 async def test_log_unavailable_is_benign(monkeypatch):

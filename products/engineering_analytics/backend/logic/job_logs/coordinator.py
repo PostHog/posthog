@@ -12,6 +12,7 @@ once the Logs endpoint is deployed, regardless of deploy order.
 import re
 import json
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -50,6 +51,22 @@ _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards th
 # Cap total jobs returned per tick — the activity hands them back as one Temporal payload (~2 MiB
 # limit), so an incident across many sources mustn't return an unbounded list.
 MAX_DISCOVERED_JOBS = 2000
+
+# Pace the child fan-out. Each child consumes ~1 request against the shared per-installation GitHub
+# egress budget the moment it runs, so dispatching a whole discovered batch at once drains the
+# limiter's 450/minute smoothing cap (posthog/egress/github/limiter.py) in seconds — turning an
+# expected burst of failed CI jobs into a wall of retryable budget denials. Dispatching in bounded
+# batches with a pause between them holds job-logs traffic well under the cap (BATCH_SIZE per
+# INTERVAL ≈ 150/min), leaving headroom for co-tenant GitHub callers. A normal tick (a handful of
+# jobs) fits one batch and never sleeps; only a real backlog gets spread out, and the per-job
+# workflow-id dedup means later ticks only re-dispatch what's still outstanding.
+DISPATCH_BATCH_SIZE = 50
+DISPATCH_BATCH_INTERVAL = timedelta(seconds=20)
+
+
+def _dispatch_batches(jobs: list[dict[str, Any]], batch_size: int) -> Iterator[list[dict[str, Any]]]:
+    for start in range(0, len(jobs), batch_size):
+        yield jobs[start : start + batch_size]
 
 
 def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[str, Any]]:
@@ -207,19 +224,25 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         started = 0
-        for job in jobs:
-            inputs = FetchJobLogInputs(**job)
-            try:
-                await workflow.start_child_workflow(
-                    FetchGithubJobLogWorkflow.run,
-                    inputs,
-                    id=f"gh-logs-{inputs.team_id}-{inputs.job_id}",
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    execution_timeout=timedelta(minutes=15),
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                )
-                started += 1
-            except WorkflowAlreadyStartedError:
-                # Already started by a prior tick — reuse policy coalesces it.
-                continue
+        for batch_index, batch in enumerate(_dispatch_batches(jobs, DISPATCH_BATCH_SIZE)):
+            # Pause between batches (never before the first), pacing the fan-out under the shared
+            # GitHub egress per-minute cap. workflow.sleep is deterministic and lets the schedule's
+            # SKIP overlap policy shelve the next tick while a backlog drains.
+            if batch_index:
+                await workflow.sleep(DISPATCH_BATCH_INTERVAL)
+            for job in batch:
+                inputs = FetchJobLogInputs(**job)
+                try:
+                    await workflow.start_child_workflow(
+                        FetchGithubJobLogWorkflow.run,
+                        inputs,
+                        id=f"gh-logs-{inputs.team_id}-{inputs.job_id}",
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        execution_timeout=timedelta(minutes=15),
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                    started += 1
+                except WorkflowAlreadyStartedError:
+                    # Already started by a prior tick — reuse policy coalesces it.
+                    continue
         return {"jobs_discovered": len(jobs), "workflows_started": started}

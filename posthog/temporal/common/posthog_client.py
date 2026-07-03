@@ -14,6 +14,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.errors import is_benign_retry_error
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -68,6 +69,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # Cancellations (worker drain, activity timeout, workflow cancellation) are expected
             # control flow, not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e):
+                raise
+            # Expected, self-healing conditions (e.g. egress backpressure) flag themselves benign:
+            # Temporal still retries them, but reporting each denial would be pure error-tracking noise.
+            if is_benign_retry_error(e):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
