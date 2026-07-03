@@ -411,13 +411,22 @@ async fn maybe_alias_legacy_fingerprint(
         return Ok(None);
     };
     let (mut issue, legacy_first_seen) = result.into_issue();
+    let first_seen = legacy_first_seen.unwrap_or(issue.created_at);
+
+    // Insert the canonical override and send its fingerprint state atomically:
+    // hold the override insert in a transaction that only commits after the
+    // Kafka state message is produced. Otherwise a produce failure would leave
+    // the override in PG while ClickHouse never learns the canonical
+    // fingerprint -> issue mapping, and retries would take the fast
+    // `load_by_fingerprint` path and never re-emit it. Mirrors the new-issue
+    // slow path.
+    let mut txn = conn.begin().await?;
 
     // Point the canonical fingerprint at the legacy issue. `create_or_load` is
     // idempotent under the (team_id, fingerprint) unique constraint, so a race
     // that inserted the canonical override first just returns that row.
-    let first_seen = legacy_first_seen.unwrap_or(issue.created_at);
     let alias = IssueFingerprintOverride::create_or_load(
-        &mut *conn,
+        &mut *txn,
         team_id,
         canonical_fingerprint,
         &issue,
@@ -428,22 +437,22 @@ async fn maybe_alias_legacy_fingerprint(
     // A concurrent writer already linked the canonical fingerprint to a
     // different issue — respect that mapping and hand back its issue instead.
     if alias.issue_id != issue.id {
-        let Some(existing) = Issue::load(&mut *conn, team_id, alias.issue_id).await? else {
+        let Some(existing) = Issue::load(&mut *txn, team_id, alias.issue_id).await? else {
             return Ok(None);
         };
         issue = existing;
     }
 
-    let reopened = issue.maybe_reopen(&mut *conn).await?;
+    let reopened = issue.maybe_reopen(&mut *txn).await?;
     // Match the existing-issue convention: only evaluate assignment rules when
     // the issue was reopened. Aliasing onto an already-active issue must not
     // trigger auto-assignment the legacy-fingerprint path wouldn't have. In the
     // steady state we just carry the issue's current assignment into the state
     // message.
     let assignment = if reopened {
-        process_assignment(conn, &context.team_manager, &issue, event_properties).await?
+        process_assignment(&mut txn, &context.team_manager, &issue, event_properties).await?
     } else {
-        issue.get_assignments(&mut *conn).await?.first().cloned()
+        issue.get_assignments(&mut *txn).await?.first().cloned()
     };
     send_fingerprint_issue_state(
         context,
@@ -453,6 +462,7 @@ async fn maybe_alias_legacy_fingerprint(
         first_seen,
     )
     .await?;
+    txn.commit().await?;
 
     if reopened {
         let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
