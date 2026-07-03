@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
-import { ObservationLabelControl } from '../../observations/ObservationLabelControl'
+import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays } from '../../utils/labelStats'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
 
@@ -102,10 +102,22 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
         {
             title: 'Scanner got it right?',
             key: 'rating',
-            width: 340,
+            width: 160,
             render: (_, obs) => (
                 <ObservationLabelControl
                     compact
+                    observationId={obs.id}
+                    initialLabel={obs.label}
+                    onChange={(label) => labelChanged(obs.id, label)}
+                />
+            ),
+        },
+        {
+            title: 'Feedback',
+            key: 'feedback',
+            width: 320,
+            render: (_, obs) => (
+                <ObservationLabelFeedback
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
@@ -139,7 +151,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
     return (
         <div className="flex flex-col gap-4">
             <p className="text-muted m-0 max-w-2xl">
-                Rate scanner results with a thumbs up or down, and add feedback on the ones it got wrong. "Improve
+                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. "Improve
                 scanner prompt" then hands your team's ratings to PostHog AI to rewrite the scanner's prompt.
             </p>
 

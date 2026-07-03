@@ -101,7 +101,10 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         max_length=5000,
-        help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
+        help_text=(
+            "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
+            "right or wrong, or what it should have concluded."
+        ),
     )
 
 

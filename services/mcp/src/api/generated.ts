@@ -32945,7 +32945,7 @@ export namespace Schemas {
       /** True if the scanner scored this session correctly, false if not. */
       is_correct: boolean;
       /**
-         * Why the scanner got it wrong / what it should have concluded. Empty for correct labels.
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
          * @maxLength 5000
          */
       feedback?: string;
