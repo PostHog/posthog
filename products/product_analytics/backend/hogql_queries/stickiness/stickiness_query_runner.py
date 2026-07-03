@@ -123,15 +123,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         return ast.Field(chain=["e", "person_id"])
 
-    def _timestamp_field(self, series: EventsNode | ActionsNode | DataWarehouseNode) -> ast.Expr:
-        # For data-warehouse series the timestamp column is user-configured and must be used directly:
-        # the DataWarehouseEventsModifier only injects a virtual `timestamp` field when the table has no
-        # DateTime column already named `timestamp`, so relying on `e.timestamp` silently reads the wrong
-        # column when the source table happens to have one (e.g. an ingestion timestamp).
-        if isinstance(series, DataWarehouseNode):
-            return parse_expr(series.timestamp_field)
-        return ast.Field(chain=["e", "timestamp"])
-
     def _having_clause(self) -> ast.Expr:
         if not (self.query.stickinessFilter and self.query.stickinessFilter.stickinessCriteria):
             return parse_expr("count() > 0")
@@ -141,7 +132,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Expr:
         if self.query.intervalCount is None:
-            return self.query_date_range.date_to_start_of_interval_hogql(date)
+            return self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"]))
 
         # find the number of intervals back from the end date
         age = parse_expr(
@@ -182,9 +173,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             """,
             {
                 "aggregation": self._aggregation_expressions(series_with_extra.series),
-                "start_of_interval": self.date_to_start_of_interval_hogql(
-                    self._timestamp_field(series_with_extra.series)
-                ),
+                "start_of_interval": self.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"])),
                 "from_table": from_table,
                 "where_clause": self.where_clause(series_with_extra),
                 "having_clause": self._having_clause(),
@@ -412,16 +401,15 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         filters: list[ast.Expr] = []
 
         # Dates
-        timestamp_field = self._timestamp_field(series)
         filters.extend(
             [
                 parse_expr(
-                    "{timestamp_field} >= {date_from_with_adjusted_start_of_interval}",
-                    placeholders={**date_range.to_placeholders(), "timestamp_field": timestamp_field},
+                    "timestamp >= {date_from_with_adjusted_start_of_interval}",
+                    placeholders=date_range.to_placeholders(),
                 ),
                 parse_expr(
-                    "{timestamp_field} <= {date_to}",
-                    placeholders={**date_range.to_placeholders(), "timestamp_field": timestamp_field},
+                    "timestamp <= {date_to}",
+                    placeholders=date_range.to_placeholders(),
                 ),
             ]
         )
