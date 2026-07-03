@@ -167,7 +167,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             r"cargo\.lock",
             r"go\.sum",
             r"poetry\.lock",
-            r"requirements\.txt",
+            r"requirements[-\w]*\.(txt|in)",
             "Makefile",
             "Dockerfile",
             r"\.tool-versions",
@@ -488,20 +488,34 @@ def has_dependency_changes(files: list[str]) -> bool:
 
 _LOCKFILE_NAMES = DISMISS_TIME_LOCKFILES | frozenset({"go.sum"})
 
-_DEP_MANIFEST_NAMES = frozenset({"package.json", "pyproject.toml", "cargo.toml", "go.mod"})
+# setup.py/setup.cfg/Pipfile/Gemfile execute code at install/build time even
+# though no lockfile pairs with them in this repo — they need the same
+# reviewer scrutiny as the lockfile-paired manifests.
+_DEP_MANIFEST_NAMES = frozenset(
+    {"package.json", "pyproject.toml", "cargo.toml", "go.mod", "setup.py", "setup.cfg", "pipfile", "gemfile"}
+)
+
+
+def is_dependency_manifest(path: str) -> bool:
+    name = Path(path).name.lower()
+    if name in _DEP_MANIFEST_NAMES:
+        return True
+    return name.startswith("tsconfig") and name.endswith(".json")
 
 
 def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     """Manifest files changed with no lockfile in the change set.
 
-    Such a change cannot install new third-party code, so it passes the
-    deny-list — but manifest scripts/hooks execute in CI, so the reviewer
-    prompt gets these paths and must REFUSE if scripts changed.
+    Such a change cannot install new third-party code (CI installs are
+    frozen-lockfile), so it passes the deny-list — but manifest scripts/hooks
+    execute in CI, so the reviewer prompt gets these paths and must REFUSE if
+    scripts changed. Any lockfile in the change set suppresses the flag: the
+    lockfile itself hard-denies, which forces the stronger human-review path.
     """
     names = {Path(f).name.lower() for f in files}
     if names & _LOCKFILE_NAMES:
         return []
-    return sorted(f for f in files if Path(f).name.lower() in _DEP_MANIFEST_NAMES or "tsconfig" in Path(f).name.lower())
+    return sorted(f for f in files if is_dependency_manifest(f))
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:

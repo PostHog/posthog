@@ -316,10 +316,17 @@ class Pipeline:
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
         title_flags = [c for c in detect_title_scrutiny_flags(pr.title) if c not in deny]
-        # Dependency manifests are .json/.toml so they'd otherwise ride the
-        # allow-list into the T0 fast path — but manifest scripts execute in
-        # CI, so they get full T1 scrutiny even though they no longer deny.
-        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths)
+        # Dependency manifests are .json/.toml/.cfg so they'd otherwise ride
+        # the allow-list into the T0 fast path — but manifest scripts execute
+        # in CI, so they get full T1 scrutiny even though they no longer deny.
+        # Both checks matter: has_dependency_changes catches lockfile-paired
+        # manifests, dependency_manifests_without_lockfile catches the rest
+        # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
+        allow_only = (
+            is_allow_listed_only(file_paths)
+            and not has_dependency_changes(file_paths)
+            and not dependency_manifests_without_lockfile(file_paths)
+        )
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
         ownership = detect_ownership(file_paths, ownership_rules)

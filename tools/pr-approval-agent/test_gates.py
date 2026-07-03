@@ -213,6 +213,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="requirements-pins-directly",
         ),
         pytest.param(
+            ["common/ingestion/requirements-dev.txt"],
+            "deps_toolchain",
+            id="requirements-variant-pins-too",
+        ),
+        pytest.param(
             ["frontend/package.json", "pnpm-lock.yaml"],
             "deps_toolchain",
             id="manifest-with-lockfile",
@@ -391,6 +396,16 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
             ["posthog/api/insight.py"],
             [],
             id="no-manifests",
+        ),
+        pytest.param(
+            ["frontend/package.json", "rust/Cargo.lock"],
+            [],
+            id="unrelated-lockfile-suppresses-flag-but-lockfile-denies",
+        ),
+        pytest.param(
+            ["docs/some_tsconfig_notes.md"],
+            [],
+            id="tsconfig-substring-not-manifest",
         ),
     ],
 )
