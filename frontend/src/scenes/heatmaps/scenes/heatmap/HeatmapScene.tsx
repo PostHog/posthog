@@ -193,6 +193,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             }}
                                             onLoad={() => {
                                                 setScreenshotLoaded(true)
+                                                setScreenshotError(null)
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
