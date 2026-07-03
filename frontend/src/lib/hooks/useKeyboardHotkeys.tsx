@@ -33,6 +33,8 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
 
 const exceptions = ['.hotkey-block', '.hotkey-block *']
 
+// modifier vocabulary and order must stay in lockstep with shortcutLogic.tsx's pressedKeys,
+// so the same chord reports the same `keybind` string from either mechanism
 function formatTriggeredKeybind(event: KeyboardEvent, key: string): string {
     const parts: string[] = []
     if (event.metaKey) {
@@ -93,7 +95,10 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
                     }
-                    // posthog is uninitialized in the toolbar bundle on customer sites; capturing there only warns in the customer's console
+                    // don't capture: when posthog is uninitialized (the toolbar bundle on customer sites — capturing
+                    // there only warns in the customer's console), on held-key repeats (seeking by holding an arrow
+                    // counts once), or on ctrl/meta chords reaching willHandleEvent actions (they treat those as
+                    // browser shortcuts and no-op)
                     if (
                         posthog.__loaded &&
                         !event.repeat &&
