@@ -319,6 +319,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            actions.stopTrackingLoading()
+
             // it should be impossible to load an iframe without a dataUrl
             // right?!
             const url = values.dataUrl ?? ''
@@ -383,6 +385,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 }, 7500)
                 return () => clearTimeout(timerId)
             }, 'errorTimeout')
+        },
+
+        setIframeBanner: ({ banner }) => {
+            // the load-failure timer also runs on scenes that never mount an iframe
+            // (screenshot detail, the new-heatmap form), so only capture when one exists
+            if (banner && document.getElementById('heatmap-iframe')) {
+                posthog.capture('in-app iFrame banner set', {
+                    level: banner.level,
+                    message: typeof banner.message === 'string' ? banner.message : undefined,
+                })
+            }
         },
 
         stopTrackingLoading: () => {
