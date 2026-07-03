@@ -147,7 +147,10 @@ Some tables (users, projects, variables) require an owner/admin key or an Enterp
         resumable_source_manager: ResumableSourceManager[N8nResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), inputs.team_id)
+        try:
+            host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), inputs.team_id)
+        except ValueError:
+            raise ValueError("Invalid n8n instance URL")
         if not host_valid:
             raise ValueError(host_error or "Invalid n8n host")
 
