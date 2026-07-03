@@ -36,6 +36,10 @@ const SEARCH_DEBOUNCE_MS = 300
 // How many sessions to fetch per request. Each "Load more" appends the next page
 export const SESSIONS_PAGE_SIZE = 50
 
+// How many of a session's tool calls to fetch per request. Each "Load more" appends the
+// next page; the button appears whenever a session has more calls than one page.
+export const TOOL_CALLS_PAGE_SIZE = 100
+
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
     | 'session_id'
@@ -70,10 +74,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // every call site to pass a placeholder argument.
         loadSessions: true,
         loadMoreSessions: true,
+        loadMoreToolCalls: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
+        setToolCallsHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
     loaders(({ values, actions }) => ({
@@ -138,6 +144,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         toolCalls: [
             [] as MCPToolCallApi[],
             {
+                // First page for a session. Replaces the list.
                 loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
                         return []
@@ -150,10 +157,37 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const response = await mcpAnalyticsSessionsToolCalls(
                         String(values.currentProjectId),
                         encodeURIComponent(sessionId),
-                        { date_from: session?.session_start || undefined }
+                        { date_from: session?.session_start || undefined, limit: TOOL_CALLS_PAGE_SIZE, offset: 0 }
                     )
                     breakpoint()
+                    actions.setToolCallsHasNext(response.has_next ?? false)
                     return [...(response.results ?? [])]
+                },
+                // Load more: append the next page at offset = current length.
+                loadMoreToolCalls: async () => {
+                    const sessionId = values.selectedSessionId
+                    if (!values.currentProjectId || !sessionId) {
+                        return values.toolCalls
+                    }
+                    // Snapshot the list before the await. If the user selects another session while
+                    // this page is in flight, merging against the new session's calls would corrupt
+                    // the list — so offset from the snapshot and drop the page if the selection changed.
+                    const baseCalls = values.toolCalls
+                    const session = values.sessions.find((s) => s.session_id === sessionId)
+                    const response = await mcpAnalyticsSessionsToolCalls(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId),
+                        {
+                            date_from: session?.session_start || undefined,
+                            limit: TOOL_CALLS_PAGE_SIZE,
+                            offset: baseCalls.length,
+                        }
+                    )
+                    if (sessionId !== values.selectedSessionId) {
+                        return values.toolCalls
+                    }
+                    actions.setToolCallsHasNext(response.has_next ?? false)
+                    return [...baseCalls, ...(response.results ?? [])]
                 },
             },
         ],
@@ -209,6 +243,26 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 // Hide "Load more" the moment a reset starts so it isn't shown (disabled,
                 // spinning) during the reset; setHasNext restores it when the page resolves.
                 loadSessions: () => false,
+            },
+        ],
+        toolCallsHasNext: [
+            false,
+            {
+                setToolCallsHasNext: (_, { hasNext }) => hasNext,
+                // Reset when a new session's first page starts loading; setToolCallsHasNext
+                // restores it once that page resolves.
+                loadToolCalls: () => false,
+            },
+        ],
+        // Distinguishes a "Load more" append from the initial per-session load, so the panel
+        // keeps its existing calls (and only the button spins) while the next page fetches.
+        toolCallsLoadingMore: [
+            false,
+            {
+                loadMoreToolCalls: () => true,
+                loadMoreToolCallsSuccess: () => false,
+                loadMoreToolCallsFailure: () => false,
+                loadToolCalls: () => false,
             },
         ],
         intentOverrides: [
