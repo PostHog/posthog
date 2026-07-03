@@ -2040,7 +2040,8 @@ first so the latest fixes are loaded.
 
 ### ✅ Stage 6 — Inbox trigger: auto-review self-driving implementations (BUILT 2026-07-02, trigger redesigned + dogfood e2e ✅ 2026-07-03)
 
-> **Status: BUILT (steps 1–4 of [`STAGE_6_PLAN.md`](STAGE_6_PLAN.md)), uncommitted.** The
+> **Status: BUILT + e2e'd, uncommitted.** (The implementation spec, `STAGE_6_PLAN.md`, was deleted
+> after the build — this section is the surviving as-built record.) The
 > `review_inbox_prs` switch is live: a signals-origin implementation run that records a PR (or a
 > pushed branch) now triggers a publishing review. Verified: review_hog tests (both dirs) + full
 > signals suite (1304) + ruff + tach + startup-import-budget green; `hogli build:openapi` drift =
@@ -2074,8 +2075,10 @@ first so the latest fixes are loaded.
 > publish self-skipped (no noise comment) → receipt `outcome="stored"` counts 0/0/0 on the report.
 > The manual CLI leg (same day, PR #68108: 6 inline comments published, watermark advanced) plus a
 > same-head re-trigger (early-exit, provenance backfill, no receipt) cover the rest of the matrix.
+> The e2e also caught the trigger-premise bug itself: the FIRST click-through (PR #68132, since
+> closed) stalled forever on the old completion gate — that live failure is what exposed it.
 > Still unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR) and the
-> repeat-turn re-review. Details in STAGE_6_PLAN.md step 5.
+> repeat-turn re-review.
 >
 > **⚠️ Receiver branch fallback DISABLED (adversarial review, 2026-07-03).** The plan's "no pr_url →
 > review `(task.repository, run.branch)`" fallback shipped, then was removed: **`TaskRun.branch`
@@ -2148,7 +2151,7 @@ first so the latest fixes are loaded.
 > - Toggle copy in `CodeReviewTab.tsx` updated from "Coming soon" to live behavior copy.
 
 **Goal.** Every self-driving (Signals) implementation gets reviewed automatically: when a signals-origin
-implementation task run finishes having pushed code, ReviewHog reviews what it produced. If the run opened
+implementation task run records what it produced (its PR, or a pushed branch), ReviewHog reviews it. If the run opened
 a PR, the review publishes back as PR comments (Stage-5 behavior); if there is no PR (future branch-only
 implementations), the same review runs and its findings/verdicts/body are **stored only** — usable for
 shadow-fixing before anything is published, and publishable on a later turn once a PR exists. The signal
@@ -2158,10 +2161,12 @@ research → implementation `task_run` → `commit`s → `code_review` → merge
 **Decisions locked (maintainer, 2026-07-02):**
 
 - **Two triggers only:** the Stage-5 `reviewhog` label (unchanged) and **"self-driving implementation
-  task finished"** (new, internal). **No GitHub webhook for the inbox path** — the implementation runs in
-  our own Temporal worker; its completion is a DB state change we observe first-hand. (A
-  `pull_request opened` webhook trigger was considered and rejected: PR-centric, and it dies the day
-  implementations stop opening PRs.)
+  recorded its output"** (new, internal; AMENDED 2026-07-03 — originally "task finished", but successful
+  runs never complete; see the 🔁 trigger-redesign note above). **No GitHub webhook for the inbox
+  path** — the implementation runs in our own Temporal worker; its `output.pr_url`/`output.head_branch`
+  save is a DB state change we observe first-hand. (A `pull_request opened` webhook trigger was
+  considered and rejected: PR-centric, and it dies the day implementations stop opening PRs. The
+  decision's spirit survives the amendment: internal DB observation, no webhook dependency.)
 - **Scope:** tasks with `Task.signal_report_id` set, nothing else (Slack / MaxAI / user-created task
   origins excluded for now).
 - **The review target is the implementation output** (branch/diff) — the PR is a publish destination,
@@ -2261,14 +2266,20 @@ fleet-level control during alpha).
    (migration 0010).
 2. ✅ **The signals `code_review` artefact** — type + schema (signals migration 0054) + the
    end-of-turn write (completion and failure paths; non-writable through the artefact API).
-3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate ("pushed commits" marker
-   resolved as: pr_url present, else skip — the run-branch fallback was removed 2026-07-03,
-   `TaskRun.branch` is the base branch, see the ⚠️ note above).
+3. ✅ **The trigger** — the `TaskRun` receiver behind the settings gate. REDESIGNED 2026-07-03
+   (see the 🔁 note above): fires on the `output`-recording save — `output.pr_url` (PR leg) else
+   `output.head_branch` (branch leg) — never on completion (successful runs stay `in_progress`
+   forever) and never on the `TaskRun.branch` field.
 4. ✅ **Branch targets** — PR-by-branch resolve in fetch, the compare fallback (empty diff →
-   self-skip), nullable `pr_number` identity + the branch workflow id.
-5. ⏳ **Dogfood e2e — PENDING** — one inbox-triggered turn end-to-end (artefact lands on the report,
-   comments land on the draft PR), then a repeat turn on the same report (the first real exercise of
-   re-review). Log the outcome here when run.
+   self-skip), nullable `pr_number` identity + the branch workflow id. Receiver-reachable again
+   via `output.head_branch` since the 2026-07-03 trigger redesign.
+5. ✅ **Dogfood e2e — RAN 2026-07-03** — synthetic report + real Inbox "Create PR" click + real
+   PR #68141: receiver fired on the `pr_url` save, inbox workflow with creation-time provenance,
+   single-chunk pipeline, zero findings on the clean typo PR → publish self-skipped → receipt
+   `outcome="stored"` counts 0/0/0 on the report. Still
+   unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR; publish
+   machinery proven by the manual leg on #68108) and the **repeat turn on the same report — the
+   first real exercise of re-review**. Log those here when they happen.
 
 ---
 
