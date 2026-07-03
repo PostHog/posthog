@@ -23,17 +23,29 @@ class TestPromptSuggestions(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.scanner = self._create_scanner()
+        self.canned = _LlmPromptSuggestion(
+            suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
+            rationale="Tightened the yes condition using the rated sessions.",
+        )
+        # The agentic loop is exercised by its own tests; API tests mock it out (and its single-shot fallback).
+        self.agentic_patcher = patch(
+            "products.replay_vision.backend.prompt_suggestions._generate_agentic", side_effect=self._agentic
+        )
+        self.mock_agentic = self.agentic_patcher.start()
         self.generate_patcher = patch(
-            "products.replay_vision.backend.prompt_suggestions._generate",
-            return_value=_LlmPromptSuggestion(
-                suggested_prompt="Did the user place an order? Only answer yes on an order confirmation.",
-                rationale="Tightened the yes condition using the rated sessions.",
-            ),
+            "products.replay_vision.backend.prompt_suggestions._generate", side_effect=self._single_shot
         )
         self.mock_generate = self.generate_patcher.start()
 
+    def _agentic(self, **_kwargs) -> _LlmPromptSuggestion:
+        return self.canned
+
+    def _single_shot(self, **_kwargs) -> _LlmPromptSuggestion:
+        return self.canned
+
     def tearDown(self) -> None:
         self.generate_patcher.stop()
+        self.agentic_patcher.stop()
         super().tearDown()
 
     def _suggestions_url(self, suffix: str = "") -> str:
@@ -140,7 +152,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         self._create_rated_observation("sess-1", True)
-        self.mock_generate.return_value = _LlmPromptSuggestion(
+        self.canned = _LlmPromptSuggestion(
             suggested_prompt="did the user check out?",
             rationale="The prompt already handles the rated sessions well.",
         )
@@ -156,7 +168,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
         self.client.post(self._suggestions_url("generate/"))
 
-        user_content = self.mock_generate.call_args.kwargs["user_content"]
+        user_content = self.mock_agentic.call_args.kwargs["user_content"]
         self.assertIn("Previously rejected rewrites", user_content)
         self.assertIn("Did the user place an order? Only answer yes on an order confirmation.", user_content)
 
@@ -179,6 +191,16 @@ class TestPromptSuggestions(_VisionAPITestCase):
         ReplayScannerPromptSuggestion.objects.update(created_at=timezone.now() - timedelta(hours=25))
         self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
         self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 2)
+
+    def test_falls_back_to_single_shot_when_the_agent_fails(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.mock_agentic.side_effect = RuntimeError("provider hiccup")
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "pending")
+        self.mock_generate.assert_called_once()
 
     def test_mutations_require_editor_access(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
