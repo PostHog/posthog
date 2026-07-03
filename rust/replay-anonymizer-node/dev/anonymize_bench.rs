@@ -61,6 +61,52 @@ fn main() {
         .collect();
     let allow = AllowLists::new(text, url);
 
+    // Pass-through-heavy regime: mousemove/scroll events dominate real sessions by count; the
+    // streaming path memcpys them without ever parsing. Synthesized here (the Node generator is
+    // DOM-only).
+    {
+        let mousemove = r#"{"type":3,"timestamp":1700000000000,"data":{"source":1,"positions":[{"x":100.5,"y":200.25,"id":42,"timeOffset":-20},{"x":101.5,"y":201.25,"id":42,"timeOffset":-10}]}}"#;
+        let scroll =
+            r#"{"type":3,"timestamp":1700000000001,"data":{"source":3,"id":7,"x":0,"y":1423}}"#;
+        let input = r#"{"type":3,"timestamp":1700000000002,"data":{"source":5,"id":9,"text":"some secret words typed here","isChecked":false}}"#;
+        let mut items = Vec::new();
+        for i in 0..12_000 {
+            items.push(match i % 10 {
+                9 => input,
+                n if n % 2 == 0 => mousemove,
+                _ => scroll,
+            });
+        }
+        let inner = format!(
+            r#"{{"event":"$snapshot_items","properties":{{"$snapshot_items":[{}],"$session_id":"bench","$window_id":"w1"}}}}"#,
+            items.join(",")
+        );
+        let payload =
+            serde_json::to_string(&serde_json::json!({"distinct_id": "bench-user", "data": inner}))
+                .unwrap()
+                .into_bytes();
+        let mb = payload.len() as f64 / (1024.0 * 1024.0);
+        let n = 40;
+        let stream = p50(3, n, || {
+            let mut b = payload.clone();
+            black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
+        });
+        let ctx = Ctx::new(&allow);
+        let tree = p50(3, n, || {
+            black_box(
+                replay_anonymizer_node::snapshot::anonymize_via_tree(
+                    &ctx,
+                    "bench-user",
+                    inner.as_bytes(),
+                )
+                .unwrap(),
+            );
+        });
+        println!("\n===== mousemove-heavy: {mb:.1} MB, 12k events =====");
+        println!("STREAM anonymize_kafka_payload       = {stream:.1} ms");
+        println!("TREE   anonymize_via_tree            = {tree:.1} ms   (no outer parse)");
+    }
+
     for label in ["medium", "large"] {
         let path = format!("/tmp/replay-bench-{label}.json");
         let Ok(bytes) = std::fs::read(&path) else {
@@ -107,6 +153,17 @@ fn main() {
             let mut b = payload.clone();
             black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
         });
+        // Streaming minus the outer-envelope parse: what the scan+splice itself costs.
+        let stream_inner = p50(3, n, || {
+            black_box(
+                replay_anonymizer_node::snapshot::anonymize_snapshot_data(
+                    &allow,
+                    "bench-user",
+                    inner.as_bytes(),
+                )
+                .unwrap(),
+            );
+        });
         // Tree fallback/reference path over the same payload's inner event json.
         let ctx = Ctx::new(&allow);
         let tree = p50(3, n, || {
@@ -146,6 +203,10 @@ fn main() {
 
         println!("\n===== {label}: {mb:.1} MB =====");
         println!("STREAM anonymize_kafka_payload       = {stream:.1} ms   (production byte path)");
+        println!(
+            "       inner only (no outer parse)   = {stream_inner:.1} ms   -> outer envelope parse ~= {:.1} ms",
+            stream - stream_inner
+        );
         println!("TREE   anonymize_via_tree            = {tree:.1} ms   (reference/fallback)");
         println!(
             "full  borrowed parse + scrub + encode = {full:.1} ms   (whole-message tree walk)"

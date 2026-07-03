@@ -32,7 +32,10 @@ use crate::event::{
     route_data, route_event, SOURCE_CANVAS_MUTATION, SOURCE_INPUT, SOURCE_MUTATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
-use crate::json::{as_f64, as_object, as_small_uint, as_str, parse_untrusted, reject_if_too_deep};
+use crate::json::{
+    as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
+    reject_if_too_deep,
+};
 use crate::scan::{self, Span};
 
 /// Why a payload could not be anonymized; maps onto the TS pipeline's dlq/drop reasons so the fused
@@ -305,6 +308,8 @@ struct Sink {
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
     scratch: Vec<u8>,
+    /// simd-json scratch reused across the per-event parses.
+    buffers: simd_json::Buffers,
 }
 
 impl Sink {
@@ -319,6 +324,7 @@ impl Sink {
             events: Vec::new(),
             console: [0; 3],
             scratch: Vec::new(),
+            buffers: simd_json::Buffers::default(),
         }
     }
 
@@ -430,10 +436,7 @@ fn process_event(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SR
 
     // Raw newlines between an event's tokens (pretty-printed input) would break the one-record-per-
     // line block framing if memcpy'd; re-serializing through a parse collapses them.
-    if inner[span.0..span.1]
-        .iter()
-        .any(|b| matches!(b, b'\n' | b'\r'))
-    {
+    if memchr::memchr2(b'\n', b'\r', &inner[span.0..span.1]).is_some() {
         return process_event_via_tree(ctx, inner, span, sink);
     }
 
@@ -529,9 +532,10 @@ fn process_event(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SR
     sink.scratch.clear();
     sink.scratch.extend_from_slice(&inner[data.0..data.1]);
     let mut scratch = std::mem::take(&mut sink.scratch);
+    let mut buffers = std::mem::take(&mut sink.buffers);
     let result = (|| -> SResult<()> {
-        let mut value =
-            parse_untrusted(&mut scratch).map_err(|e| non_snapshot(format!("event data: {e}")))?;
+        let mut value = parse_untrusted_with_buffers(&mut scratch, &mut buffers)
+            .map_err(|e| non_snapshot(format!("event data: {e}")))?;
         route_data(ctx, ty, compressed, &mut value)
             .map_err(|e| Failure::new(FailKind::AnonymizeFailed, e.to_string()))?;
         sink.open_line();
@@ -546,6 +550,7 @@ fn process_event(ctx: &Ctx<'_>, inner: &[u8], span: Span, sink: &mut Sink) -> SR
     })();
     sink.scratch = scratch;
     sink.scratch.clear();
+    sink.buffers = buffers;
     result
 }
 

@@ -155,8 +155,14 @@ fn has_duplicate_keys(obj: &Object<'_>) -> bool {
         return false;
     }
     if n <= 16 {
-        let keys: Vec<&str> = obj.keys().map(|k| k.as_ref()).collect();
-        (1..keys.len()).any(|i| keys[..i].contains(&keys[i]))
+        // Allocation-free quadratic check: this runs for every object in every parsed span, so a
+        // scratch Vec here would dominate the dedupe cost on DOM-sized trees.
+        for (i, key) in obj.keys().enumerate().skip(1) {
+            if obj.keys().take(i).any(|prior| prior == key) {
+                return true;
+            }
+        }
+        false
     } else {
         let mut seen = std::collections::HashSet::with_capacity(n);
         obj.keys().any(|k| !seen.insert(k.as_ref()))
@@ -171,37 +177,57 @@ pub fn parse_untrusted<'v>(bytes: &'v mut [u8]) -> anyhow::Result<Value<'v>> {
     Ok(value)
 }
 
+/// [`parse_untrusted`] with caller-owned simd-json scratch buffers, so a loop parsing many small
+/// spans (the streaming per-event path) doesn't re-allocate the parser's internal buffers per call.
+pub fn parse_untrusted_with_buffers<'v>(
+    bytes: &'v mut [u8],
+    buffers: &mut simd_json::Buffers,
+) -> anyhow::Result<Value<'v>> {
+    let mut value = simd_json::value::borrowed::to_value_with_buffers(bytes, buffers)?;
+    dedupe_in_place(&mut value)?;
+    Ok(value)
+}
+
 // Untrusted rrweb can nest arbitrarily deep. Both the simd-json parse and the recursive scrub walk one
 // stack frame per level, so a crafted payload could overflow the worker-thread stack — an abort, which
 // `catch_unwind` cannot contain. Reject over-deep input up front (before parsing). Legitimate DOM/canvas
 // nesting is well under this. Applies to the outer message *and* to every gunzipped `cv` payload.
 pub const MAX_JSON_DEPTH: usize = 1024;
 
-/// Max `{`/`[` nesting depth in raw JSON, ignoring bracket bytes inside strings. Linear, no recursion.
+/// Max `{`/`[` nesting depth in raw JSON, ignoring bracket bytes inside strings. Linear, no
+/// recursion; string content (the bulk of replay bytes) is skipped with memchr jumps.
 pub fn max_bracket_depth(json: &[u8]) -> usize {
     let mut depth = 0usize;
     let mut max = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for &b in json {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if b == b'\\' {
-                escaped = true;
-            } else if b == b'"' {
-                in_string = false;
+    let mut pos = 0usize;
+    while pos < json.len() {
+        match json[pos] {
+            b'"' => {
+                pos += 1;
+                while pos < json.len() {
+                    let Some(i) = memchr::memchr2(b'\\', b'"', &json[pos..]) else {
+                        pos = json.len();
+                        break;
+                    };
+                    let at = pos + i;
+                    if json[at] == b'"' {
+                        pos = at;
+                        break;
+                    }
+                    pos = at + 2; // skip the escape and its payload byte
+                }
+                pos += 1;
             }
-            continue;
-        }
-        match b {
-            b'"' => in_string = true,
             b'{' | b'[' => {
                 depth += 1;
                 max = max.max(depth);
+                pos += 1;
             }
-            b'}' | b']' => depth = depth.saturating_sub(1),
-            _ => {}
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                pos += 1;
+            }
+            _ => pos += 1,
         }
     }
     max

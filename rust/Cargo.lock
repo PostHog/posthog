@@ -8906,6 +8906,7 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "image",
+ "memchr",
  "neon",
  "serde",
  "serde_json",

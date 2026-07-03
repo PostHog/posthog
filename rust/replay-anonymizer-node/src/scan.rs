@@ -28,15 +28,20 @@ pub fn skip_ws(bytes: &[u8], mut pos: usize) -> usize {
 }
 
 /// `start` must be at an opening quote; returns the position just past the closing quote.
+/// String content dominates replay payload bytes, so the scan jumps between the only two bytes that
+/// matter (`\\` and `"`) with memchr rather than walking byte-at-a-time.
 pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&b'"'));
     let mut pos = start + 1;
     while pos < bytes.len() {
-        match bytes[pos] {
-            b'\\' => pos += 2,
-            b'"' => return Ok(pos + 1),
-            _ => pos += 1,
+        let Some(i) = memchr::memchr2(b'\\', b'"', &bytes[pos..]) else {
+            break;
+        };
+        let at = pos + i;
+        if bytes[at] == b'"' {
+            return Ok(at + 1);
         }
+        pos = at + 2; // skip the escape and its payload byte
     }
     Err(ScanError("unterminated string"))
 }
