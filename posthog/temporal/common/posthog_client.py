@@ -1,6 +1,8 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+import django.db
+
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -40,6 +42,37 @@ def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowIn
         pass
 
 
+# Connection-level database failures (server closed the connection, connection reset,
+# statement-timeout kill, deadlock) are transient infra blips, not defects. Temporal's activity
+# retry policy recovers from them, so reporting each retried attempt to error tracking just spawns
+# noise that resolves itself. django.db.Error wraps the underlying driver exceptions, so this
+# catches both psycopg-raised and Django-raised variants.
+_TRANSIENT_DB_EXCEPTIONS = (django.db.OperationalError, django.db.InterfaceError)
+
+
+def _is_retriable_infra_exception(e: BaseException) -> bool:
+    """Whether ``e`` (or anything in its cause chain) is a transient DB connection failure."""
+    seen: set[int] = set()
+    current: BaseException | None = e
+    while current is not None and id(current) not in seen:
+        if isinstance(current, _TRANSIENT_DB_EXCEPTIONS):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _activity_has_retries_remaining(activity_info: "activity.Info") -> bool:
+    """Whether Temporal will schedule another attempt of this activity after the current one fails.
+
+    ``maximum_attempts`` of 0 (or an unset policy) means unlimited retries, so there is always
+    another attempt coming."""
+    retry_policy = activity_info.retry_policy
+    if retry_policy is None or not retry_policy.maximum_attempts:
+        return True
+    return activity_info.attempt < retry_policy.maximum_attempts
+
+
 async def _add_inputs_to_capture_kwargs(
     capture_kwargs: dict[str, Any],
     input: ExecuteActivityInput | ExecuteWorkflowInput,
@@ -70,6 +103,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
             activity_info = activity.info()
+            # Transient DB connection blips are recovered by Temporal's retry policy. Don't report
+            # them while retries remain — only surface one if it exhausts every attempt (a real,
+            # persistent problem), so a self-healing retry doesn't spawn an error-tracking issue.
+            if _is_retriable_infra_exception(e) and _activity_has_retries_remaining(activity_info):
+                raise
             capture_kwargs = {
                 "properties": {
                     "temporal.execution_type": "activity",
