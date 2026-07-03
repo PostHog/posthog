@@ -60,6 +60,17 @@ class GithubEmptyRepositoryError(Exception):
     pass
 
 
+class GithubPaginationLimitError(Exception):
+    """GitHub caps how deep offset pagination can go on big list endpoints
+    (e.g. stargazers on a large repo). Past the cap it answers 403 with a
+    "pagination is limited for this resource" body and no rate-limit markers.
+    `_fetch_page` raises this so the caller stops paginating and keeps the rows
+    gathered so far, rather than letting a benign end-of-traversable-data
+    response hit `raise_for_status` and fail the whole sync."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -201,6 +212,23 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     except (ValueError, TypeError):
         message = response.text or ""
     return isinstance(message, str) and "repository is empty" in message.lower()
+
+
+def _is_pagination_limit_response(response: requests.Response) -> bool:
+    """GitHub caps offset pagination depth on large list endpoints. Past the cap
+    it returns 403 with a stable "pagination is limited for this resource"
+    message and no rate-limit markers (so it isn't caught by
+    `raise_if_github_rate_limited`). This is the benign end of what GitHub will
+    let us traverse — callers stop paginating and keep the rows gathered so far
+    rather than raising (which would fail the whole sync)."""
+    if response.status_code != 403:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "pagination is limited" in message.lower()
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -425,6 +453,12 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    # Deep offset pagination past GitHub's cap returns a benign 403 (no rate-limit
+    # markers). Signal it so the loop stops and syncs the rows gathered so far,
+    # instead of failing the activity on raise_for_status below.
+    if _is_pagination_limit_response(response):
+        raise GithubPaginationLimitError()
+
     if not response.ok:
         logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
@@ -447,7 +481,11 @@ def _iter_pages(
     envelope body simply ends iteration — there is nothing to truncate."""
     page_count = 0
     while True:
-        response = _fetch_page(url, headers, logger, egress_identity)
+        try:
+            response = _fetch_page(url, headers, logger, egress_identity)
+        except GithubPaginationLimitError:
+            logger.info(f"Github: reached pagination cap, stopping at rows gathered so far: url={url}")
+            return
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
@@ -628,6 +666,9 @@ def get_rows(
             response = _fetch_page(url, headers, logger, egress_identity)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            break
+        except GithubPaginationLimitError:
+            logger.info(f"Github: reached pagination cap, syncing rows gathered so far: url={url}")
             break
 
         data = response.json()

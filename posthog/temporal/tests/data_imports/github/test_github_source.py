@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
+    _is_pagination_limit_response,
     _iter_jobs_for_run,
     _iter_pages,
     _parse_next_url,
@@ -402,6 +403,31 @@ class TestIsEmptyRepositoryResponse:
     )
     def test_detects_empty_repository(self, _name: str, status: int, body: Any, expected: bool) -> None:
         assert _is_empty_repository_response(_make_response(status=status, body=body)) is expected
+
+
+_PAGINATION_LIMIT_MESSAGE = (
+    "In order to keep the API fast for everyone, pagination is limited for this resource. "
+    "Check the rel=last link relation in the Link response header to see how far back you can traverse."
+)
+
+
+class TestIsPaginationLimitResponse:
+    @parameterized.expand(
+        [
+            ("pagination_cap", 403, {"message": _PAGINATION_LIMIT_MESSAGE}, True),
+            ("pagination_cap_uppercase", 403, {"message": "Pagination Is Limited for this resource"}, True),
+            # A genuine permission 403 must stay fatal, not be swallowed as a pagination boundary.
+            ("permission_403", 403, {"message": "Resource not accessible by integration"}, False),
+            # A rate-limit 403 is handled by raise_if_github_rate_limited, not here.
+            ("rate_limit_403", 403, {"message": "API rate limit exceeded"}, False),
+            ("no_body", 403, [], False),
+            # The pagination cap is only ever a 403; the same wording on another status isn't it.
+            ("not_403_status", 404, {"message": _PAGINATION_LIMIT_MESSAGE}, False),
+            ("ok_status", 200, [{"id": 1}], False),
+        ]
+    )
+    def test_detects_pagination_limit(self, _name: str, status: int, body: Any, expected: bool) -> None:
+        assert _is_pagination_limit_response(_make_response(status=status, body=body)) is expected
 
 
 class TestValidateCredentials:
@@ -779,6 +805,42 @@ class TestGetRowsResume:
                         should_use_incremental_field=False,
                     )
                 )
+
+    def test_pagination_limit_403_syncs_rows_gathered_so_far(self) -> None:
+        """Stargazers paginate oldest-first; past GitHub's deep-pagination cap a
+        403 "pagination is limited" (no rate-limit markers) ends the page loop.
+        get_rows must yield the rows gathered so far and NOT raise (the reported
+        bug turned this benign boundary into a fatal NonRetryableException)."""
+        manager = _make_manager(can_resume=False)
+        page1 = [{"id": 1, "login": "octocat"}]
+        link_page1 = '<https://api.github.com/repos/owner/repo/stargazers?page=2>; rel="next"'
+        pagination_403 = _make_response(status=403, body={"message": _PAGINATION_LIMIT_MESSAGE})
+        pagination_403.text = f'{{"message": "{_PAGINATION_LIMIT_MESSAGE}"}}'
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.request.side_effect = [
+                _make_response(body=page1, link=link_page1),
+                pagination_403,
+            ]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="stargazers",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        # Page 1's row is kept; the cap on page 2 stops the loop without raising.
+        assert [row["id"] for row in rows] == [1]
+        assert mock_get.return_value.request.call_count == 2
 
     def test_workflow_runs_envelope_is_unwrapped(self) -> None:
         manager = _make_manager(can_resume=False)
@@ -1365,6 +1427,24 @@ class TestIterPages:
         logger.warning.assert_called_once()
         assert logger.warning.call_args.kwargs["max_pages"] == 2
         assert logger.warning.call_args.kwargs["run_id"] == 1001
+
+    def test_pagination_limit_403_ends_iteration_without_raising(self) -> None:
+        # The fan-out shares this paginator, so a deep-pagination 403 must end
+        # iteration gracefully here too, keeping the pages gathered so far.
+        pagination_403 = _make_response(status=403, body={"message": _PAGINATION_LIMIT_MESSAGE})
+        pagination_403.text = f'{{"message": "{_PAGINATION_LIMIT_MESSAGE}"}}'
+        responses = [
+            _make_response(body={"jobs": [{"id": 1}]}, link='<https://api.github.com/x?page=2>; rel="next"'),
+            pagination_403,
+        ]
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.request.side_effect = responses
+            pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
+
+        assert [items for items, _url in pages] == [[{"id": 1}]]
+        assert mock_get.return_value.request.call_count == 2
 
     def test_iter_jobs_for_run_builds_path_and_passes_cap(self) -> None:
         config = dataclasses.replace(GITHUB_ENDPOINTS["workflow_jobs"], max_pages_per_parent=1)
