@@ -13,6 +13,7 @@ intraday schedule reports today, the finalizer reports yesterday.
 """
 
 import json
+from datetime import timedelta
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -108,7 +109,8 @@ async def test_usage_reports_schedule_input_is_json_serializable(
 async def test_finalizer_schedule_retries_until_the_day_is_captured() -> None:
     """The finalizer has no later slot to supersede a failed run — a single
     attempt would silently leave yesterday incomplete (the bug the finalizer
-    exists to prevent). Its schedule action must allow multiple attempts.
+    exists to prevent). Its schedule action must keep retrying across a good
+    part of the day, not give up minutes after 03:00.
     """
     captured: dict = {}
 
@@ -123,4 +125,9 @@ async def test_finalizer_schedule_retries_until_the_day_is_captured() -> None:
 
     retry_policy = captured["schedule"].action.retry_policy
     assert retry_policy is not None
-    assert retry_policy.maximum_attempts > 1
+    # Lower bounds, not exact values, so tuning the policy doesn't break the
+    # test — but a token retry (2 quick attempts) or an uncapped-backoff
+    # misconfig can't sneak through either.
+    assert retry_policy.maximum_attempts >= 5
+    assert retry_policy.maximum_interval is not None
+    assert retry_policy.maximum_interval >= timedelta(hours=1)
