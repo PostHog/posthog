@@ -887,7 +887,9 @@ jobs:
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ github.ref == 'refs/heads/master' }}
+              # Only the legacy-schema variant uploads durations — both schema variants run the
+              # same test IDs, and two artifacts for the same tests would race in the merge.
+              if: ${{ github.ref == 'refs/heads/master' && !matrix.new-events-schema }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations

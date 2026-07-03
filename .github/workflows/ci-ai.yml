@@ -15,7 +15,6 @@ jobs:
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: 'true'
         # Skipping on forks as Braintrust credentials are not available there
         if: |
             github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
