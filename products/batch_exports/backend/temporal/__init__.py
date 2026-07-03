@@ -9,6 +9,7 @@ destination. Only the Temporal worker needs the full set, and it still gets it t
 ``from products.batch_exports.backend.temporal import WORKFLOWS, ACTIVITIES``.
 """
 
+import time
 import importlib
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,17 @@ if TYPE_CHECKING:
 
 __all__ = ["ACTIVITIES", "WORKFLOWS"]
 
+_WORKFLOWS_MODULE = "products.batch_exports.backend.temporal.workflows"
+
+# ``ACTIVITIES``/``WORKFLOWS`` are bound at the very *end* of ``workflows.py``, after a long
+# chain of destination-submodule imports. If that module is still executing further up the
+# stack when we resolve here (a concurrent import from another thread/greenlet finishing the
+# module), ``import_module`` hands back the half-initialized module and ``getattr`` misses —
+# surfacing as a confusing ``ImportError: cannot import name 'ACTIVITIES'``. Bound retries let
+# the in-flight import finish before we give up with a clear, actionable message.
+_PARTIAL_MODULE_RETRIES = 50
+_PARTIAL_MODULE_RETRY_SLEEP = 0.05
+
 
 def __getattr__(name: str) -> Any:
     # Only the worker-facing aggregator names resolve through here; everything else raises
@@ -24,10 +36,27 @@ def __getattr__(name: str) -> Any:
     # submodule import. A catch-all would eagerly load the aggregator on that probe — and
     # deadlock on a circular import, since aggregated modules import siblings through the
     # package root (e.g. record_batch_model imports ``sql``).
-    if name in __all__:
-        workflows = importlib.import_module("products.batch_exports.backend.temporal.workflows")
-        return getattr(workflows, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    for _ in range(_PARTIAL_MODULE_RETRIES):
+        workflows = importlib.import_module(_WORKFLOWS_MODULE)
+        try:
+            return getattr(workflows, name)
+        except AttributeError:
+            # ``workflows`` is in sys.modules but the aggregator names are not bound yet — the
+            # module is mid-initialization elsewhere. Yield so that import can complete, then
+            # re-resolve against the now-cached module.
+            time.sleep(_PARTIAL_MODULE_RETRY_SLEEP)
+
+    raise ImportError(
+        f"cannot resolve {name!r} from {_WORKFLOWS_MODULE!r}: the module is still initializing "
+        f"(its aggregator names are bound only after every destination submodule imports). This "
+        f"indicates a re-entrant import of the batch-exports Temporal package during worker "
+        f"startup; retry the import or restart the worker.",
+        name=name,
+        path=_WORKFLOWS_MODULE,
+    )
 
 
 def __dir__() -> list[str]:
