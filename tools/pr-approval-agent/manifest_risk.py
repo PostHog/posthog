@@ -19,6 +19,7 @@ import tomllib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 # Any change at all to these is execution-bearing — setup.py and Gemfile are
 # code, and setup.cfg's declarative surface (entry_points, cmdclass) doesn't
@@ -94,12 +95,17 @@ def _tsconfig_risky_subtree(text: str) -> object:
 # that, rather than by diff-line matching (see module docstring). Each entry
 # pairs the extractor with the parse-failure exceptions that must fail closed
 # (return True) for that format.
-_STRUCTURAL_RISK_CHECKS: dict[str, tuple[Callable[[str], object], tuple[type[Exception], ...]]] = {
-    "package.json": (_package_json_risky_subtree, (ValueError,)),
-    "pyproject.toml": (_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
-    "pipfile": (_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
-    "cargo.toml": (_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
-    "composer.json": (_composer_json_risky_subtree, (ValueError,)),
+class StructuralCheck(NamedTuple):
+    extract: Callable[[str], object]
+    fails_closed_on: tuple[type[Exception], ...]
+
+
+_STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
+    "package.json": StructuralCheck(_package_json_risky_subtree, (ValueError,)),
+    "pyproject.toml": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "pipfile": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "cargo.toml": StructuralCheck(_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
+    "composer.json": StructuralCheck(_composer_json_risky_subtree, (ValueError,)),
 }
 
 
@@ -109,10 +115,10 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_tex
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
     if name in _STRUCTURAL_RISK_CHECKS:
-        extractor, fails_closed_on = _STRUCTURAL_RISK_CHECKS[name]
+        check = _STRUCTURAL_RISK_CHECKS[name]
         try:
-            return extractor(base_text) != extractor(head_text)
-        except fails_closed_on:
+            return check.extract(base_text) != check.extract(head_text)
+        except check.fails_closed_on:
             return True
     if name.startswith("tsconfig") and name.endswith(".json"):
         # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
