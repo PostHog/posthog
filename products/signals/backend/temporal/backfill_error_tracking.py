@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+import structlog
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -12,6 +13,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+logger = structlog.get_logger(__name__)
 
 # Experiment gating which order the backfill fetches issues in.
 SIGNALS_ET_BACKFILL_SORT_FLAG = "signals-et-backfill-sort"
@@ -55,11 +58,17 @@ def _backfill_order_by(team: "Team") -> str:
     """
     from posthog.event_usage import groups
 
-    variant = posthoganalytics.get_feature_flag(
-        SIGNALS_ET_BACKFILL_SORT_FLAG,
-        str(team.uuid),
-        groups=groups(team=team),
-    )
+    try:
+        variant = posthoganalytics.get_feature_flag(
+            SIGNALS_ET_BACKFILL_SORT_FLAG,
+            str(team.uuid),
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        # A flag-service failure must never fail the backfill — fall back to control.
+        logger.warning("signals_backfill_flag_eval_failed", team_id=team.id, error=str(e))
+        variant = None
+
     return ORDER_BY_USERS_IMPACTED if variant == "test" else ORDER_BY_RECENCY
 
 
