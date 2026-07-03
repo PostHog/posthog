@@ -334,9 +334,10 @@ export const CustomPropertyDisplayTypeEnumApi = {
  * * `preset-9` - preset-9
  * * `preset-10` - preset-10
  */
-export type ColorEnumApi = (typeof ColorEnumApi)[keyof typeof ColorEnumApi]
+export type CustomPropertyOptionColorEnumApi =
+    (typeof CustomPropertyOptionColorEnumApi)[keyof typeof CustomPropertyOptionColorEnumApi]
 
-export const ColorEnumApi = {
+export const CustomPropertyOptionColorEnumApi = {
     Preset1: 'preset-1',
     Preset2: 'preset-2',
     Preset3: 'preset-3',
@@ -375,7 +376,7 @@ export interface CustomPropertyOptionApi {
      * * `preset-8` - preset-8
      * * `preset-9` - preset-9
      * * `preset-10` - preset-10 */
-    color: ColorEnumApi
+    color: CustomPropertyOptionColorEnumApi
 }
 
 /**

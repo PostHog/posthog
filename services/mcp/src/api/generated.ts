@@ -13259,34 +13259,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `preset-1` - preset-1
-     * * `preset-2` - preset-2
-     * * `preset-3` - preset-3
-     * * `preset-4` - preset-4
-     * * `preset-5` - preset-5
-     * * `preset-6` - preset-6
-     * * `preset-7` - preset-7
-     * * `preset-8` - preset-8
-     * * `preset-9` - preset-9
-     * * `preset-10` - preset-10
-     */
-    export type ColorEnum = typeof ColorEnum[keyof typeof ColorEnum];
-
-
-    export const ColorEnum = {
-      Preset1: 'preset-1',
-      Preset2: 'preset-2',
-      Preset3: 'preset-3',
-      Preset4: 'preset-4',
-      Preset5: 'preset-5',
-      Preset6: 'preset-6',
-      Preset7: 'preset-7',
-      Preset8: 'preset-8',
-      Preset9: 'preset-9',
-      Preset10: 'preset-10',
-    } as const;
-
-    /**
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
@@ -14233,6 +14205,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10
+     */
+    export type CustomPropertyOptionColorEnum = typeof CustomPropertyOptionColorEnum[keyof typeof CustomPropertyOptionColorEnum];
+
+
+    export const CustomPropertyOptionColorEnum = {
+      Preset1: 'preset-1',
+      Preset2: 'preset-2',
+      Preset3: 'preset-3',
+      Preset4: 'preset-4',
+      Preset5: 'preset-5',
+      Preset6: 'preset-6',
+      Preset7: 'preset-7',
+      Preset8: 'preset-8',
+      Preset9: 'preset-9',
+      Preset10: 'preset-10',
+    } as const;
+
+    /**
      * An allowed value of a select custom property.
      */
     export interface CustomPropertyOption {
@@ -14258,7 +14258,7 @@ export namespace Schemas {
        * * `preset-8` - preset-8
        * * `preset-9` - preset-9
        * * `preset-10` - preset-10 */
-      color: ColorEnum;
+      color: CustomPropertyOptionColorEnum;
     }
 
     /**

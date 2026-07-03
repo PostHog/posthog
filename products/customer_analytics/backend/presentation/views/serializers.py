@@ -371,7 +371,7 @@ class CustomPropertyOptionSerializer(DataclassSerializer):
             "when editing so renames and removals can be told apart."
         ),
     )
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]
         max_length=400,
         help_text="Display label of the option. Stored as the account's value when picked.",
     )
@@ -416,7 +416,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         default=False,
         help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
     )
-    options = CustomPropertyOptionSerializer(  # type: ignore[assignment]
+    options = CustomPropertyOptionSerializer(
         many=True,
         required=False,
         allow_null=True,
