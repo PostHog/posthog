@@ -100,9 +100,11 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id=earlier.id).update(created_at=now - timedelta(days=3))
         ReplayObservation.objects.filter(id=outside_window.id).update(created_at=now - timedelta(days=40))
         # Prompt-version snapshots: v1 on the older observation, v2 on today's, so markers show the change.
-        ReplayObservation.objects.filter(id=earlier.id).update(scanner_snapshot={"scanner_version": 1})
+        ReplayObservation.objects.filter(id=earlier.id).update(
+            scanner_snapshot={"scanner_version": 1, "scanner_config": {"prompt": "v1 prompt"}}
+        )
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(
-            scanner_snapshot={"scanner_version": 2}
+            scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}}
         )
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window):
@@ -128,8 +130,20 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(
             labels["version_markers"],
             [
-                {"date": (now - timedelta(days=3)).date().isoformat(), "version": 1},
-                {"date": now.date().isoformat(), "version": 2},
+                {
+                    "date": (now - timedelta(days=3)).date().isoformat(),
+                    "version": 1,
+                    "prompt": "v1 prompt",
+                    "up": 0,
+                    "down": 1,
+                },
+                {
+                    "date": now.date().isoformat(),
+                    "version": 2,
+                    "prompt": "v2 prompt",
+                    "up": 1,
+                    "down": 1,
+                },
             ],
         )
 

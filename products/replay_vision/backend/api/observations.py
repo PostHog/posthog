@@ -312,8 +312,14 @@ class ObservationLabelDayCountSerializer(serializers.Serializer):
 
 
 class ObservationVersionMarkerSerializer(serializers.Serializer):
-    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations in the window.")
+    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations.")
     version = serializers.IntegerField(help_text="The scanner (prompt) version number.")
+    prompt = serializers.CharField(
+        allow_blank=True,
+        help_text="The prompt text this version ran with, taken from the observation run snapshots.",
+    )
+    up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
+    down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
 
 
 class ObservationLabelStatsSerializer(serializers.Serializer):
@@ -336,8 +342,8 @@ class ObservationLabelStatsSerializer(serializers.Serializer):
     version_markers = ObservationVersionMarkerSerializer(
         many=True,
         help_text=(
-            "First day each scanner (prompt) version produced observations within the window, for marking "
-            "version changes on charts."
+            "Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, "
+            "and rating counts, for chart markers and the prompt version history."
         ),
     )
 

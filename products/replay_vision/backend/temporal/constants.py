@@ -20,6 +20,9 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Children are ABANDONed and don't count against this budget.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 
+# One LLM call; generous but bounded so a slow provider can't eat the sweep budget.
+REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(seconds=90)
+
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
 SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"
