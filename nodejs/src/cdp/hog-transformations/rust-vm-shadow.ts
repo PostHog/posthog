@@ -48,12 +48,15 @@ export type ShadowOutcome = 'match' | 'result_mismatch' | 'status_mismatch' | 'r
 export interface ShadowNodeResult {
     finished: boolean
     error?: string
-    execResult?: unknown
+    /** JSON snapshot of execResult taken at capture time — the transformer mutates the live
+     * object right after execution (bookkeeping properties, chained transformations). */
+    execResultJson: string | null
     durationMs: number
 }
 
 export interface ShadowCapturedInvocation {
     functionId: string
+    teamId: number
     bytecode: HogBytecode
     /** state.globals snapshot taken before the Node VM ran (later transformations mutate them). */
     globalsJson: string
@@ -90,7 +93,8 @@ export function classifyShadowOutcome(node: ShadowNodeResult, rust: RustExecResu
     if (!node.finished || node.error) {
         return 'status_mismatch'
     }
-    return deepEqual(node.execResult ?? null, rust.result ?? null) ? 'match' : 'result_mismatch'
+    const nodeResult = node.execResultJson != null ? parseJSON(node.execResultJson) : null
+    return deepEqual(nodeResult, rust.result ?? null) ? 'match' : 'result_mismatch'
 }
 
 export class RustVmShadow {
@@ -161,13 +165,27 @@ export class RustVmShadow {
                 stopTimer()
             }
 
+            let mismatchLogged = false
             group.forEach((item, index) => {
                 const rust: RustExecResult | undefined = rustResults[index]
                 shadowExecutionDuration.observe({ vm: 'node' }, item.node.durationMs)
                 if (rust) {
                     shadowExecutionDuration.observe({ vm: 'rust' }, rust.durationUs / 1000)
                 }
-                shadowComparison.inc({ outcome: classifyShadowOutcome(item.node, rust) })
+                const outcome = classifyShadowOutcome(item.node, rust)
+                shadowComparison.inc({ outcome })
+                // One example per function per flush is enough to identify a diverging function
+                // without flooding the logs; replay its bytecode offline for the actual diff.
+                if ((outcome === 'result_mismatch' || outcome === 'status_mismatch') && !mismatchLogged) {
+                    mismatchLogged = true
+                    logger.warn('🦀', 'Rust HogVM shadow divergence', {
+                        outcome,
+                        functionId: item.functionId,
+                        teamId: item.teamId,
+                        nodeError: item.node.error,
+                        rustError: rust?.error,
+                    })
+                }
             })
         }
     }

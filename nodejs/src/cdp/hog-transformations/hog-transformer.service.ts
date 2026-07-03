@@ -425,12 +425,14 @@ export class HogTransformerService implements HogTransformer {
         if (shadowGlobalsJson) {
             this.rustVmShadow.capture({
                 functionId: hogFunction.id,
+                teamId: hogFunction.team_id,
                 bytecode: hogFunction.bytecode,
                 globalsJson: shadowGlobalsJson,
                 node: {
                     finished: result.finished,
                     error: result.error != null ? String(result.error) : undefined,
-                    execResult: result.execResult,
+                    // Snapshot: the transformer mutates execResult right after this returns.
+                    execResultJson: result.execResult !== undefined ? JSON.stringify(result.execResult) : null,
                     durationMs: result.invocation.state.timings
                         .filter((timing) => timing.kind === 'hog')
                         .reduce((sum, timing) => sum + timing.duration_ms, 0),

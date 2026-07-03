@@ -15,10 +15,15 @@ jest.mock('@posthog/hogvm-node', () => ({
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
 
-const finishedNode = (execResult: unknown): ShadowNodeResult => ({ finished: true, execResult, durationMs: 1 })
+const finishedNode = (execResult: unknown): ShadowNodeResult => ({
+    finished: true,
+    execResultJson: execResult !== undefined ? JSON.stringify(execResult) : null,
+    durationMs: 1,
+})
 
 const capture = (functionId: string, globals: Record<string, unknown>, execResult: unknown) => ({
     functionId,
+    teamId: 1,
     bytecode: ['_H', 1, 38],
     globalsJson: JSON.stringify(globals),
     node: finishedNode(execResult),
@@ -60,13 +65,13 @@ describe('RustVmShadow', () => {
             ],
             [
                 'both errored',
-                { finished: false, error: 'boom', durationMs: 1 },
+                { finished: false, error: 'boom', execResultJson: null, durationMs: 1 },
                 { error: 'Division by zero', durationUs: 1 },
                 'match',
             ],
             [
                 'node errored but rust finished',
-                { finished: false, error: 'boom', durationMs: 1 },
+                { finished: false, error: 'boom', execResultJson: null, durationMs: 1 },
                 { result: 1, durationUs: 1 },
                 'status_mismatch',
             ],
@@ -128,6 +133,21 @@ describe('RustVmShadow', () => {
 
             await expect(shadow.flush()).resolves.toBeUndefined()
             expect(await outcomeCounts()).toEqual({ rust_error: 1, match: 1 })
+        })
+
+        it('mutating the node result object after capture does not affect the comparison', async () => {
+            // The transformer appends bookkeeping properties to the live execResult object right
+            // after execution; the capture must compare against a point-in-time snapshot.
+            const execResult: Record<string, unknown> = { properties: { $ip: '1.2.3.0' } }
+            shadow.capture(capture('fn-a', { name: 'a1' }, execResult))
+            ;(execResult.properties as Record<string, unknown>).$transformations_succeeded = ['fn-a']
+
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                { result: { properties: { $ip: '1.2.3.0' } }, durationUs: 5 },
+            ])
+
+            await shadow.flush()
+            expect(await outcomeCounts()).toEqual({ match: 1 })
         })
 
         it('flush drains the buffer, so a second flush does nothing', async () => {
