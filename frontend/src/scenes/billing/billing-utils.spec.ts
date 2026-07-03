@@ -714,10 +714,11 @@ describe('mergeLimitsForProduct', () => {
 
                 // Arrival order: any interleaving that preserves per-product commit order.
                 const queues = PRODUCTS.map((p) => responses.filter((r) => r.product === p))
-                let billing = {
+                let billing: BillingType | null = {
+                    ...billingJson,
                     custom_limits_usd: { surveys: 50 },
                     next_period_custom_limits_usd: {},
-                } as BillingType
+                }
                 for (let i = 0; responses.length > 0 && queues.some((q) => q.length > 0); i++) {
                     const nonEmpty = queues.filter((q) => q.length > 0)
                     const queue = nonEmpty[(choices[i] ?? 0) % nonEmpty.length]
