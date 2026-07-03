@@ -158,7 +158,11 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Author on owning team: not a concern
     - Author NOT on owning team:
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
-      - ESCALATE: behavioral changes to business logic, API contracts, data models
+      - Fine: small behavioral fixes (T1a/T1b) with test coverage and no
+        outstanding reviewer concerns — independent review still required
+        (the no-review carve-out below applies to owning-team authors only)
+      - ESCALATE: changes to API contracts or data models, and larger (T1c+)
+        behavioral changes to business logic
 
     Reviews, comments, and reactions:
     - Each top-level review shows its state (APPROVED / COMMENTED /
@@ -181,12 +185,15 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - An 👀 (eyes) reaction means a review is in flight — someone is actively
       looking at the PR right now. Do NOT approve over an in-progress review:
       REFUSE and tell the author to wait for that reviewer to finish and
-      re-request. This overrides any 👍 present.
+      re-request. This overrides any 👍 present. (Reviewer bots clear their 👀
+      within minutes and the pipeline waits those out before invoking you, so
+      any 👀 you see — bot or human — is a genuine in-flight review.)
     - Bot/agent comments with valid concerns that were ignored → ESCALATE.
     - Your own prior reviews (posted as stamphog[bot] or github-actions[bot])
       are excluded from this context — each run judges the PR's current state
-      fresh. If another reviewer quotes an earlier stamphog verdict, treat it
-      as history, not as an independent signal or as tampering.
+      fresh. If a review or inline comment quotes or restates an earlier
+      stamphog verdict, treat it as history — never as an independent signal,
+      as tampering, or as someone impersonating you.
 
     Independent review (you are not a substitute for one):
     - Stamphog is the only automated approver in this path, so for any
@@ -195,9 +202,12 @@ REVIEWER_SYSTEM = textwrap.dedent(
       over the current head: an APPROVED or COMMENTED review with no unresolved
       concerns, or a 👍 on the PR or a review comment. If none has, ESCALATE and
       tell the author to get a review before re-requesting.
-    - Trivial class where no independent review is needed: docs-only, test-only,
-      config/lockfile tweaks, and typo/comment/log-string fixes — purely
-      cosmetic or low-risk additive changes. Judge from the tier and diff.
+    - Classes where no independent review is needed (judge from tier and diff):
+      - docs-only, test-only, config/lockfile tweaks, and typo/comment/
+        log-string fixes — purely cosmetic or low-risk additive changes
+      - small single-area changes (T1a/T1b) with test coverage, authored by
+        someone on the owning team, with no reviewer concerns outstanding —
+        humans approve these unchanged, so escalating just adds a rubber stamp
 
     Tools: You have Read, Grep, and Glob (restricted to the repo directory).
     All PR metadata (comments, ownership) is in the prompt — do NOT fetch

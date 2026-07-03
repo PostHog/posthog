@@ -7,8 +7,8 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
@@ -19,6 +19,8 @@ export interface TaskRunChatProps {
      * fresh one. Passed to both `RunSurface.Root` and `runInteractionLogic` so they never diverge.
      */
     streamKey?: string
+    /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
+    onRunStarted?: (runId: string) => void
 }
 
 /**
@@ -29,7 +31,7 @@ export interface TaskRunChatProps {
  * re-points scene selection to it. `RunSurface.Root` owns bootstrap: it reads the run status from the tasks
  * API and never opens SSE for an already-terminal run.
  */
-export function TaskRunChat({ taskId, runId, streamKey }: TaskRunChatProps): JSX.Element {
+export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
     const logicProps: RunInteractionLogicProps = {
@@ -41,6 +43,9 @@ export function TaskRunChat({ taskId, runId, streamKey }: TaskRunChatProps): JSX
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
+            // The embedded panel renders from its own creation state, so it must be re-pointed
+            // when a fresh run starts.
+            onRunStarted?.(newRunId)
         },
     }
 

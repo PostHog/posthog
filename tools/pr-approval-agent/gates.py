@@ -546,11 +546,62 @@ def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
     }
 
 
-# ── Tier assignment ──────────────────────────────────────────────
+# ── Size gate ────────────────────────────────────────────────────
 
 
 MAX_LINES = 500
 MAX_FILES = 20
+
+# Files that inflate a diff without adding review surface: prose docs,
+# regenerated artifacts, and test snapshots. The size ceiling counts only the
+# substantive remainder, so a 2000-line docs rewrite or type regen isn't
+# auto-denied. Exempt files still count toward tier/subclass classification
+# (which calibrates LLM scrutiny) and still appear in the diff the LLM reads.
+# Deliberately narrower than ALLOW_ONLY_EXTENSIONS: .json/.yaml/.toml configs
+# change runtime behavior, so they stay in the count.
+SIZE_EXEMPT_EXTENSIONS = {
+    ".md",
+    ".mdx",
+    ".txt",
+    ".rst",
+    ".snap",
+    ".ambr",
+    ".storyshot",
+    ".svg",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".lock",
+}
+
+# __snapshots__/ deliberately has no directory-wide exemption: snapshot
+# artifacts are covered by extension (.snap/.ambr/.storyshot), so an
+# executable file placed under a snapshots dir still counts toward the
+# ceiling — same reasoning as the extension allowlists below.
+_SIZE_EXEMPT_PATH_RE = re.compile(
+    r"(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|\.gen\.(ts|tsx|js|jsx)$"
+    r"|\.generated\.(ts|tsx|js|jsx)$"
+    r"|^frontend/src/queries/schema/",
+    re.IGNORECASE,
+)
+
+
+def is_size_exempt(path: str) -> bool:
+    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+
+
+def substantive_size(files: list[dict]) -> tuple[int, int]:
+    """(changed lines, file count) over the files that count toward the size ceiling."""
+    counted = [f for f in files if not is_size_exempt(f["filename"])]
+    return sum(f["additions"] + f["deletions"] for f in counted), len(counted)
+
+
+# ── Tier assignment ──────────────────────────────────────────────
 
 
 def assign_tier(

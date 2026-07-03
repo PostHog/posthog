@@ -37,6 +37,7 @@ debugging a live eval), defer to `exploring-llm-evaluations`.
 | `posthog:llma-evaluation-run`          | Spot-run a draft eval against one generation                  |
 | `posthog:llma-evaluation-update`       | Iterate config, then flip `enabled: true`                     |
 | `posthog:execute-sql`                  | Verify a condition matches the events and volume you expect   |
+| `posthog:generate-app-url`             | Build a region- and project-qualified deep link to the eval   |
 
 The full create payload (every field, the config schemas, the exact `conditions` shape) is in
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -153,10 +154,15 @@ only `rollout_percentage` (0–100). Property filters use the standard PostHog s
 
 ## Constructing UI links
 
-- **Evaluations list:** `https://app.posthog.com/ai-evals/evaluations`
-- **Single evaluation:** `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
+Build links with `posthog:generate-app-url` — never hand-write the host or the `/project/<id>/` prefix.
+Pass the canonical path templates:
 
-Surface the link after creating so the user can review and toggle it in the UI.
+- **Evaluations list:** `generate-app-url {url: "/ai-evals/evaluations"}`
+- **Single evaluation:** `generate-app-url {url: "/ai-evals/evaluations/<evaluation_id>"}`
+
+These resolve to the correct region host and project prefix (e.g.
+`https://us.posthog.com/project/<id>/ai-evals/evaluations/<evaluation_id>`). Surface the link after
+creating so the user can review and toggle it in the UI.
 
 ## Tips
 
