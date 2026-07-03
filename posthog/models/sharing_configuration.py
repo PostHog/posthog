@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
+    from posthog.models.user import User
 
 from django.conf import settings
 from django.db import models, transaction
@@ -255,6 +256,22 @@ class SharingConfiguration(models.Model):
             expiry_delta=timedelta(hours=24),  # 24-hour session duration
             audience=PosthogJwtAudience.SHARING_PASSWORD_PROTECTED,
         )
+
+    def effective_execution_user(self) -> "User | None":
+        """The principal that queries triggered by this share's public link execute as.
+
+        Anonymous viewers run the underlying queries with the access of the shared artifact's
+        creator (one uniform principal per artifact — a shared dashboard renders every tile as
+        the dashboard's creator). This way, revoking the creator's access to e.g. an
+        access-controlled warehouse table propagates to already-published links on their next
+        refresh. Fail-closed: returns None when the creator was deleted or deactivated, and for
+        recordings, which never execute HogQL through the shared context.
+        """
+        target = self.insight or self.dashboard or self.notebook
+        creator = target.created_by if target is not None else None
+        if creator is None or not creator.is_active:
+            return None
+        return creator
 
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore

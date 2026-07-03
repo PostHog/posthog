@@ -1119,6 +1119,12 @@ class InsightSerializer(InsightBasicSerializer):
                 # runners, so the cache fingerprint resolves access once per request, not per tile.
                 view = self.context.get("view")
                 request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
+                if request_user is None and is_shared:
+                    # Anonymous shared views execute as the shared artifact's creator (resolved by
+                    # the sharing layer), so the creator's access control governs the public link.
+                    # The view's UserAccessControl is deliberately not reused here — it belongs to
+                    # the anonymous requester; downstream builds one for the creator when needed.
+                    request_user = self.context.get("shared_execution_user")
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
@@ -1454,10 +1460,15 @@ class InsightViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
 
+        authenticator = self.request.successful_authenticator
         context["is_shared"] = isinstance(
-            self.request.successful_authenticator,
+            authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
+        if isinstance(authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication):
+            # Sharing-token API refreshes are anonymous; queries execute as the shared
+            # artifact's creator, mirroring the /shared/ page render.
+            context["shared_execution_user"] = authenticator.sharing_configuration.effective_execution_user()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context

@@ -16,6 +16,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.schema import CacheMissResponse
+
 from posthog.api.sharing import (
     SHARING_RESOURCE_EDIT_CHECKS,
     _assert_every_shareable_resource_is_gated,
@@ -24,7 +26,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
+from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -33,7 +35,9 @@ from posthog.models.user import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -1595,6 +1599,154 @@ class TestSharedCohortInlining(APIBaseTest):
         assert widget_data["widget_type"] == "error_tracking_list"
         assert widget_data["config"]["limit"] == 10
         assert "created_by" not in widget_data
+
+
+class TestSharedExecutionPrincipal(APIBaseTest):
+    trends_query = {
+        "kind": "InsightVizNode",
+        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.creator = User.objects.create_and_join(self.organization, "creator@posthog.com", None)
+        self.client.logout()
+
+    def _shared_config(self, case: str) -> tuple[SharingConfiguration, User | None]:
+        if case == "insight runs as the insight creator":
+            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
+            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), self.creator
+        if case == "dashboard runs every tile as the dashboard creator":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.creator)
+            tile_insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=tile_insight)
+            return SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True), self.creator
+        if case == "deleted creator falls back to userless execution":
+            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=None)
+            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
+        # deactivated creator falls back to userless execution
+        self.creator.is_active = False
+        self.creator.save()
+        insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
+        return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
+
+    @parameterized.expand(
+        [
+            ("insight runs as the insight creator",),
+            ("dashboard runs every tile as the dashboard creator",),
+            ("deleted creator falls back to userless execution",),
+            ("deactivated creator falls back to userless execution",),
+        ]
+    )
+    def test_shared_render_executes_queries_as_artifact_creator(self, case: str):
+        config, expected_user = self._shared_config(case)
+
+        with patch(
+            "posthog.caching.calculate_results.process_query_dict",
+            return_value=CacheMissResponse(cache_key="irrelevant"),
+        ) as process_query_mock:
+            response = self.client.get(f"/shared/{config.access_token}.json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert process_query_mock.call_count >= 1
+        assert all(call.kwargs["user"] == expected_user for call in process_query_mock.call_args_list)
+
+    def test_sharing_token_api_refresh_executes_as_creator(self):
+        insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        with patch(
+            "posthog.caching.calculate_results.process_query_dict",
+            return_value=CacheMissResponse(cache_key="irrelevant"),
+        ) as process_query_mock:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={config.access_token}"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert process_query_mock.call_args.kwargs["user"] == self.creator
+
+
+def _warehouse_access_control_flag(key: str, *args, **kwargs) -> bool:
+    return key == "hogql-warehouse-access-control"
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_warehouse_access_control_flag))
+class TestSharedNotebookWarehouseAccessControl(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.notebook = Notebook.objects.create(
+            team=self.team,
+            title="Warehouse notebook",
+            created_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {
+                            "nodeId": "warehouse-node",
+                            "query": {
+                                "kind": "DataTableNode",
+                                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+        self.config = SharingConfiguration.objects.create(team=self.team, notebook=self.notebook, enabled=True)
+        self.client.logout()
+
+    def _shared_inline_results(self) -> dict:
+        response = self.client.get(f"/shared/{self.config.access_token}.json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return response.json().get("inline_query_results", {})
+
+    def test_inline_warehouse_query_executes_with_creator_access(self):
+        results = self._shared_inline_results()
+        assert "warehouse-node" in results
+        assert "results" in results["warehouse-node"]
+        assert not results["warehouse-node"].get("error")
+
+    @parameterized.expand(
+        [
+            ("creator denied by access control",),
+            ("creator deleted",),
+        ]
+    )
+    def test_inline_warehouse_query_fails_closed(self, case: str):
+        if case == "creator denied by access control":
+            from ee.models.rbac.access_control import AccessControl
+
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(self.saved_query.id),
+                access_level="none",
+                organization_member=self.membership,
+            )
+        else:
+            self.notebook.created_by = None
+            self.notebook.save()
+
+        assert "warehouse-node" not in self._shared_inline_results()
 
 
 class TestSharingResourceEditChecks(APIBaseTest):
