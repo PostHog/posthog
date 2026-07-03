@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
+from posthog.models.activity_logging.activity_log import Detail
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
@@ -373,6 +374,21 @@ class TestSavedQuery(APIBaseTest):
 
         response_json = response.json()
         assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
+
+    def test_create_with_malformed_query_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_malformed",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events *",
+                },
+            },
+        )
+        assert response.status_code == 400, response.content
+        response_json = response.json()
+        assert "Invalid query" in response_json["detail"]
 
     def test_delete(self):
         query_name = "test_query"
@@ -1198,6 +1214,48 @@ class TestSavedQuery(APIBaseTest):
 
             self.assertEqual(response.status_code, 400, response.content)
             self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+
+    def test_update_concurrency_ignores_non_query_activity(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "sync_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        query_change_history_id = saved_query["latest_history_id"]
+        self.assertIsNotNone(query_change_history_id)
+
+        # A materialized view's sync/status transitions write newer activity logs that do not change
+        # the query. They must not advance the optimistic-concurrency head.
+        query_activity = ActivityLog.objects.get(id=query_change_history_id)
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.team.organization_id,
+            activity="sync_triggered",
+            scope="DataWarehouseSavedQuery",
+            item_id=str(saved_query["id"]),
+            detail=Detail(changes=[]),
+            created_at=query_activity.created_at + timedelta(minutes=1),
+        )
+
+        # The concurrency head still points at the last query edit, not the newer sync.
+        get_response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/")
+        self.assertEqual(get_response.json()["latest_history_id"], query_change_history_id)
+
+        # Saving again based on that head must succeed despite the newer sync activity.
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            update_response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                    "edited_history_id": query_change_history_id,
+                },
+            )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
 
     def test_create_with_activity_log_existing_view(self):
         response = self.client.post(

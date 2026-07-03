@@ -358,6 +358,33 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_message_assets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_message_assets
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      parent_run_id String,
+      invocation_id String,
+      action_id String,
+      kind LowCardinality(String),
+      distinct_id String,
+      person_id String,
+      recipient String,
+      subject String,
+      status LowCardinality(String),
+      sent_at DateTime64(6, 'UTC'),
+      version UInt64,
+      is_deleted UInt8,
+      html String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_message_assets_test', kafka_group_name = 'clickhouse_message_assets', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
   '''
   
@@ -2218,6 +2245,33 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_message_assets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_message_assets
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      parent_run_id String,
+      invocation_id String,
+      action_id String,
+      kind LowCardinality(String),
+      distinct_id String,
+      person_id String,
+      recipient String,
+      subject String,
+      status LowCardinality(String),
+      sent_at DateTime64(6, 'UTC'),
+      version UInt64,
+      is_deleted UInt8,
+      html String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_message_assets_test', kafka_group_name = 'clickhouse_message_assets', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_performance_events]
   '''
   
@@ -3349,6 +3403,105 @@
   
   '''
 # ---
+# name: test_create_table_query[message_assets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS message_assets
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      parent_run_id String,
+      invocation_id String,
+      action_id String,
+      kind LowCardinality(String),
+      distinct_id String,
+      person_id String,
+      recipient String,
+      subject String,
+      status LowCardinality(String),
+      sent_at DateTime64(6, 'UTC'),
+      version UInt64,
+      is_deleted UInt8,
+      html String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'message_assets_data')
+  
+  '''
+# ---
+# name: test_create_table_query[message_assets_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS message_assets_data
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      parent_run_id String,
+      invocation_id String,
+      action_id String,
+      kind LowCardinality(String),
+      distinct_id String,
+      person_id String,
+      recipient String,
+      subject String,
+      status LowCardinality(String),
+      sent_at DateTime64(6, 'UTC'),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      html String CODEC(ZSTD(3)),
+      INDEX parent_run_idx parent_run_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX distinct_id_idx distinct_id  TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX person_id_idx   person_id    TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX recipient_idx   recipient    TYPE bloom_filter(0.01) GRANULARITY 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.message_assets_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(sent_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id, action_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[message_assets_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS message_assets_mv
+  TO message_assets_data
+  AS SELECT
+      team_id,
+      function_kind,
+      function_id,
+      parent_run_id,
+      invocation_id,
+      action_id,
+      kind,
+      distinct_id,
+      person_id,
+      recipient,
+      subject,
+      status,
+      sent_at,
+      version,
+      is_deleted,
+      html,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_message_assets
+  
+  '''
+# ---
 # name: test_create_table_query[metric_attributes]
   '''
   
@@ -3386,6 +3539,9 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `timestamp` DateTime64(6) CODEC(DoubleDelta),
       `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
       `trace_id` String,
       `span_id` String,
       `trace_flags` Int32,
@@ -3412,6 +3568,8 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
       `service_name` LowCardinality(String),
       `resource_attributes` Map(LowCardinality(String), String),
       `attributes` Map(LowCardinality(String), String),
@@ -3422,6 +3580,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series1', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
   SETTINGS index_granularity = 8192
   
   '''
@@ -3640,7 +3799,7 @@
       stack_trace,
   
       JSONExtractInt(log_comment, 'team_id') as team_id,
-      log_comment,
+      if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
       ProfileEvents
   FROM system.query_log
   WHERE
@@ -9402,6 +9561,45 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[message_assets_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS message_assets_data
+  (
+      team_id Int64,
+      function_kind LowCardinality(String),
+      function_id String,
+      parent_run_id String,
+      invocation_id String,
+      action_id String,
+      kind LowCardinality(String),
+      distinct_id String,
+      person_id String,
+      recipient String,
+      subject String,
+      status LowCardinality(String),
+      sent_at DateTime64(6, 'UTC'),
+      version UInt64,
+      is_deleted UInt8 DEFAULT 0,
+      html String CODEC(ZSTD(3)),
+      INDEX parent_run_idx parent_run_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX distinct_id_idx distinct_id  TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX person_id_idx   person_id    TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX recipient_idx   recipient    TYPE bloom_filter(0.01) GRANULARITY 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.message_assets_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(sent_at)
+  ORDER BY (team_id, function_kind, function_id, invocation_id, action_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[metric_attributes]
   '''
   
@@ -9439,6 +9637,9 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `timestamp` DateTime64(6) CODEC(DoubleDelta),
       `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
       `trace_id` String,
       `span_id` String,
       `trace_flags` Int32,
@@ -9462,6 +9663,8 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
       `service_name` LowCardinality(String),
       `resource_attributes` Map(LowCardinality(String), String),
       `attributes` Map(LowCardinality(String), String),
@@ -9472,6 +9675,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series1', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
   SETTINGS index_granularity = 8192
   
   '''

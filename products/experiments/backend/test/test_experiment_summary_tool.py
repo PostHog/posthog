@@ -250,7 +250,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_when_recent(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # 30 seconds difference - well within the 1 minute threshold
         frontend_refresh = "2020-01-10T11:59:00Z"
@@ -261,7 +261,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_when_stale(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         frontend_refresh = "2020-01-10T10:00:00Z"
         backend_refresh = datetime(2020, 1, 10, 11, 30, tzinfo=ZoneInfo("UTC"))
@@ -272,7 +272,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # 61 seconds difference - just over the 1 minute (60 second) threshold
         frontend_refresh = "2020-01-10T11:58:00Z"
@@ -284,7 +284,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         # Exactly 60 seconds - at the threshold (not over), should NOT trigger warning
         frontend_refresh = "2020-01-10T11:58:00Z"
@@ -295,7 +295,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_handles_none_values(self):
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
 
         self.assertIsNone(data_service.check_data_freshness(None, None))
         self.assertIsNone(data_service.check_data_freshness("2020-01-10T10:00:00Z", None))
@@ -338,10 +338,6 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
-                return_value=False,
-            ),
-            patch(
                 "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
             ) as mock_query_runner_class,
             patch(
@@ -351,7 +347,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertEqual(context.experiment_id, experiment.id)
@@ -362,45 +358,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(pending_calculation)
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
-        self.assertEqual(
-            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        )
-        self.assertEqual(
-            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        )
-
-    @freeze_time("2020-01-10T12:00:00Z")
-    async def test_fetch_experiment_data_uses_sync_execution_when_rollout_flag_enabled(self):
-        experiment = await self.acreate_experiment(name="query-runner-sync-test", with_metrics=True)
-
-        mock_query_result = MagicMock()
-        mock_query_result.variant_results = []
-        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
-
-        mock_exposure_result = MagicMock()
-        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
-        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
-
-        with (
-            patch(
-                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch(
-                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
-            ) as mock_query_runner_class,
-            patch(
-                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
-            ) as mock_exposure_runner_class,
-        ):
-            mock_query_runner_class.return_value.run.return_value = mock_query_result
-            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
-
-            data_service = ExperimentSummaryDataService(self.team)
-            await data_service.fetch_experiment_data(experiment.id)
-
+        # The agent can't poll, so it always blocks on stale cache rather than dropping pending metrics.
         self.assertEqual(
             mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -428,7 +386,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         ]
         await experiment.asave(update_fields=["metrics"])
 
-        data_service = ExperimentSummaryDataService(self.team)
+        data_service = ExperimentSummaryDataService(self.team, self.user)
         context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertFalse(pending_calculation)
@@ -497,10 +455,6 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
-                return_value=False,
-            ),
-            patch(
                 "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
             ) as mock_query_runner_class,
             patch(
@@ -510,7 +464,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
         self.assertEqual(len(context.primary_metrics_results), 1)
@@ -596,10 +550,6 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.experiment_summary_data_service.posthoganalytics.feature_enabled",
-                return_value=False,
-            ),
-            patch(
                 "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
             ) as mock_query_runner_class,
             patch(
@@ -609,7 +559,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_query_runner_class.return_value.run.return_value = mock_query_result
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
-            data_service = ExperimentSummaryDataService(self.team)
+            data_service = ExperimentSummaryDataService(self.team, self.user)
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
         # 1 inline primary + 1 saved primary = 2

@@ -8,9 +8,11 @@ export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | nul
 }
 
 export function evaluationSupportsReports(
-    evaluation: Pick<EvaluationConfig, 'output_type'> | null | undefined
+    evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
 ): boolean {
-    return isBooleanEvaluationOutput(evaluation?.output_type)
+    // Trace-level evals aren't supported by the report agent yet — the backend rejects
+    // report creation for them, so hide the report UI rather than surface that error.
+    return isBooleanEvaluationOutput(evaluation?.output_type) && evaluation?.target !== 'trace'
 }
 
 export function evaluationTypeUsesModelConfiguration(evaluationType: EvaluationType | null | undefined): boolean {

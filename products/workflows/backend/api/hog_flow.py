@@ -7,6 +7,7 @@ from typing import Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -14,6 +15,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -69,6 +71,14 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.message_assets import (
+    MessageAssetContentRequestSerializer,
+    MessageAssetSerializer,
+    MessageAssetsRequestSerializer,
+    fetch_message_asset_html,
+    fetch_message_assets,
+    workflow_email_assets_ui_enabled,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -474,7 +484,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={"function_type": template.type},
+                    context={
+                        "function_type": template.type,
+                        "is_dwh_source": self.context.get("is_dwh_source", False),
+                    },
                 )
 
                 if not strict:
@@ -851,6 +864,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = self.instance.status
         if status != "active":
             self.context["is_draft"] = True
+
+        # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
+        # synced row. Flag it before child action validation so function-input compilation rewrites it.
+        actions = data.get("actions")
+        if actions is None and self.instance:
+            actions = self.instance.actions
+        self.context["is_dwh_source"] = any(
+            isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            for action in (actions or [])
+        )
         return super().to_internal_value(data)
 
     class Meta:
@@ -1165,6 +1190,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "metrics_totals",
         "metrics_global",
         "user_blast_radius",
+        "assets",
+        "asset_content",
     ]
     scope_object_write_actions = [
         "create",
@@ -1202,6 +1229,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
+            return ["hog_flow:read", "person:read"]
+        # Assets expose recipient/distinct_id/person_id and the message bytes — require
+        # person:read so a hog_flow:read-only token can't enumerate who got emailed.
+        if self.action in ("assets", "asset_content"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
@@ -1565,6 +1596,82 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if data is None:
             raise exceptions.NotFound("Invocation not found.")
         return Response(HogInvocationResultDetailSerializer(data).data)
+
+    @extend_schema(
+        operation_id="hog_flows_assets_retrieve",
+        parameters=[MessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def assets(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        if not workflow_email_assets_ui_enabled(self.team, request.user):
+            raise exceptions.NotFound()
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            offset=params["offset"],
+            parent_run_id=params.get("parent_run_id"),
+            action_id=params.get("action_id"),
+            invocation_id=params.get("invocation_id"),
+            distinct_id=params.get("distinct_id"),
+            search=params.get("search"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(MessageAssetSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_asset_content_retrieve",
+        parameters=[MessageAssetContentRequestSerializer],
+        responses={(200, "text/html"): OpenApiTypes.STR},
+    )
+    @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
+    def asset_content(self, request: Request, *args, **kwargs):
+        # Ownership-check the HogFlow first so other teams' assets can't be probed.
+        obj = self.get_object()
+        if not workflow_email_assets_ui_enabled(self.team, request.user):
+            raise exceptions.NotFound()
+
+        param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        html = fetch_message_asset_html(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            invocation_id=params["invocation_id"],
+            action_id=params.get("action_id", ""),
+        )
+        if html is None:
+            raise exceptions.NotFound("Asset content is no longer available.")
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        # Enforce sandboxing at the response layer so direct navigation to the asset URL
+        # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
+        # scripts or make same-origin requests as the viewer. `sandbox` (no allow-list)
+        # is the most restrictive CSP mode; the other directives are defense-in-depth.
+        response["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Referrer-Policy"] = "no-referrer"
+        return response
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",

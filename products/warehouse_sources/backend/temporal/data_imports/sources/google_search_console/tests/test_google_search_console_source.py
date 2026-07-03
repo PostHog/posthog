@@ -96,6 +96,13 @@ def test_invalid_grant_is_non_retryable(error_message):
     assert any(key in error_message for key in non_retryable_errors)
 
 
+def test_missing_integration_is_non_retryable():
+    # The message raised mid-sync by Integration.objects.get when the row was deleted.
+    error_message = "Integration matching query does not exist."
+    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
+
+
 @pytest.mark.parametrize(
     "status_code,expected_substring",
     [

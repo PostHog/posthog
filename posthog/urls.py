@@ -40,7 +40,6 @@ from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
-from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -49,6 +48,7 @@ from posthog.temporal.codec_server import decode_payloads
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
+from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
@@ -60,7 +60,11 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_workspace_claims_view,
 )
-from products.slack_app.backend.views import slack_user_link_authorize, slack_user_link_callback
+from products.slack_app.backend.views import (
+    slack_app_command_handler,
+    slack_user_link_authorize,
+    slack_user_link_callback,
+)
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
@@ -467,6 +471,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
@@ -493,7 +498,7 @@ if settings.CLOUD_DEPLOYMENT == "EU":
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
     # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/unit_metrics.py
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
     # for details on the production metrics setup.
 
     # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)

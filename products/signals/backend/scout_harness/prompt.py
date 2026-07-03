@@ -246,19 +246,29 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
-  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
-  `report:` scratchpad entry is a pointer*).
-- **Edit when it already exists.** If a report covers the issue, prefer
-  `signals-scout-edit-report`: `append_note` to add your fresh evidence (additive,
-  audit-friendly, and works on any report — even one you didn't author), or
-  rewrite `title`/`summary` on a report you own. One living report beats three
-  near-duplicates fragmenting the inbox.
-- **Author only when it's genuinely new.** A materially new issue — or a known one
-  with new evidence that changes the verdict — warrants a fresh report. Never
-  retry an `emit_report` that looked like it failed: a retry that actually
-  succeeded the first time silently doubles the report. If unsure whether it
-  landed, look it up with `inbox-reports-list` rather than re-emitting."""
+  to report on) with `ordering=-updated_at` — the default ordering buckets by your
+  own reviewer-match and status first, so without it the most recent duplicate can
+  sort below older rows and you'd miss it — and read the closest matches with
+  `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer
+  from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter
+  by `source_product=<your product>`: a report you authored persists its backing
+  signals under `source_product=signals_scout`, so a product-named filter matches
+  none of your own reports.
+- **Edit when it already exists *and is still live*.** If a report covers the issue,
+  prefer `signals-scout-edit-report`: `append_note` to add your fresh evidence
+  (additive, audit-friendly, and works on any report — even one you didn't author),
+  or rewrite `title`/`summary` on a report you own. One living report beats three
+  near-duplicates fragmenting the inbox. But `edit_report` can't change a report's
+  status, so appending to a `resolved` / `suppressed` / `failed` report buries a real
+  relapse under a closed item — when the match is no longer live, treat the relapse
+  as genuinely new (author a fresh report and repoint your `report:` pointer at it).
+- **Author only when it's genuinely new.** A materially new issue — or a known one with
+  new evidence that changes the verdict, or a relapse whose prior report is no longer
+  live — warrants a fresh report. Neither `emit_report` nor `edit_report` is idempotent —
+  never retry a call that looked like it failed: a retried `emit_report` that actually
+  landed silently doubles the report, and a retried `edit_report(append_note=...)` appends
+  a second note. If unsure whether it landed, re-read with `inbox-reports-list` /
+  `inbox-reports-retrieve` rather than re-sending."""
 
 _AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
 
@@ -268,30 +278,50 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
-  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
-  `report:` scratchpad entry is a pointer*).
-- **Don't duplicate an existing report.** This run can't edit reports, so if one
-  already covers the issue, leave it alone — record a `remember(...)` note and
-  skip rather than authoring a near-duplicate.
-- **Author only when it's genuinely new.** A materially new issue warrants a fresh
-  report. Never retry an `emit_report` that looked like it failed: a retry that
-  actually succeeded the first time silently doubles the report. If unsure whether
-  it landed, look it up with `inbox-reports-list` rather than re-emitting."""
+  to report on) with `ordering=-updated_at` (the default ordering can sort the most
+  recent duplicate below older rows) and read the closest matches with
+  `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer
+  from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter
+  by `source_product=<your product>`: a report you authored persists its backing
+  signals under `source_product=signals_scout`, so a product-named filter matches
+  none of your own reports.
+- **Don't duplicate a *live* report.** This run can't edit reports, so if a still-open
+  report already covers the issue, leave it alone — record a `remember(...)` note and
+  skip rather than authoring a near-duplicate. But a `resolved` / `suppressed` / `failed`
+  report won't resurface and you can't reopen it, so a genuine relapse of a closed report
+  is genuinely new — author a fresh report for it.
+- **Author only when it's genuinely new.** A materially new issue — or a relapse whose
+  prior report is no longer live — warrants a fresh report. Never retry an `emit_report`
+  that looked like it failed: a retry that actually succeeded the first time silently
+  doubles the report. If unsure whether it landed, look it up with `inbox-reports-list`
+  rather than re-emitting."""
 
 _EDITING_REPORT_EDIT_ONLY = """# Editing existing reports
 
 This run updates reports that already exist — it can't author new ones. Find the
 report your evidence bears on, then keep it current:
 
-- **Find it.** `inbox-reports-list` (filter/search by the entity, error, or topic)
-  and `inbox-reports-retrieve` to read the candidate in full. Reuse the
-  `report:<domain>:<entity>` scratchpad entry / `report_id` from a prior run when
-  you have one.
+- **Find it.** `inbox-reports-list` (filter/search by the entity, error, or topic) with
+  `ordering=-updated_at` so the most recently updated match sorts to the top, then
+  `inbox-reports-retrieve` to read the candidate in full. Don't filter by
+  `source_product=<your product>` — a scout-authored report's signals persist under
+  `source_product=signals_scout`, so a product-named filter misses your own reports. Reuse
+  the `report:<domain>:<entity>` scratchpad entry / `report_id` from a prior run when you
+  have one.
 - **Append, or rewrite.** Prefer `append_note` to add fresh evidence — it's
   additive, audit-friendly, and works on any report, even one you didn't author.
   Rewrite `title`/`summary` only on a report you own, and only when the framing is
   genuinely stale; lead the summary with the verdict (see *Writing the summary*).
+- **Route an unrouted report.** If a report surfaced assigned to no one, set
+  `suggested_reviewers` to route it to an owner — each reviewer an object, `{github_login}`
+  (a bare lowercase login, no `@`) or `{user_uuid}` (the server resolves it for you), never
+  a bare string. If the owner
+  isn't already named in the report, call `signals-scout-members-list` to look up this
+  project's members (each carries a resolved `github_login`; the org-scoped
+  `org-member-get-github-login` / `org-members-list` tools aren't available in a scout
+  run). This replaces the report's reviewer list and re-runs autostart, so a report that
+  already has a repo + priority but lacked a qualifying reviewer can now open a draft
+  PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent — a retried
   `append_note` appends a second note. If unsure whether an edit landed, re-read
   the report rather than re-sending."""
@@ -321,24 +351,41 @@ Treat it as an **index into the inbox, never a copy of the report**:
 _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 
 This is the single highest-leverage field you set. `suggested_reviewers` (a list of
-GitHub logins) is what actually **routes** a report to the people who can act on it
-— and, paired with `priority` + `repository`, is what lets an immediately-actionable
-report open a draft PR automatically (autostart). A report with no suggested
-reviewers still surfaces in the inbox, but it routes to no one, so it tends to sit
-unactioned.
+reviewer **objects**, each `{github_login}` and/or `{user_uuid}` — never a bare string) is what actually
+**routes** a report to the people who can act on it — and, paired with `priority` +
+`repository`, is what lets an immediately-actionable report open a draft PR
+automatically (autostart). A report with no suggested reviewers still surfaces in the
+inbox, but it routes to no one, so it tends to sit unactioned.
 
 - **Always try to set `suggested_reviewers`.** Spend real effort identifying who
   owns the affected area — lean on the evidence you already gathered (code owners,
   recent authors on the relevant surface, the team that owns the product) to name
-  the right GitHub logins. Treat "I couldn't find an owner" as a last resort, not
-  a default.
-- **Resolve the GitHub login — never guess it.** Entries must be bare, lowercase
-  GitHub logins, and the inbox routes by matching them exactly, so a guessed,
-  mis-cased, or display-name handle reaches no one. The owner you identify is
-  usually a PostHog member, not a handle: call `org-member-get-github-login` with
-  their user UUID (from `org-members-list`, or `@me`) to turn that member into
-  their linked GitHub login. If you can't resolve a confident login, leave the
-  field empty rather than inventing one.
+  the right owner. Each reviewer is an object, identifiable two ways: by `github_login`
+  (a bare lowercase login — `{github_login: "octocat"}`, no `@`, no display name), or —
+  when your evidence already names a PostHog user (an account owner, an entity's
+  creator) — by `user_uuid` (`{user_uuid: "..."}`), which the server resolves to their
+  linked GitHub login for you. Treat "I couldn't find an owner" as a last
+  resort, not a default.
+- **Don't guess a `github_login`.** The inbox routes by matching it exactly, so a
+  guessed, mis-cased, or display-name handle reaches no one. When you only know the
+  owner as a PostHog member, pass their `user_uuid` and let the server resolve it
+  rather than inventing a handle.
+- **Check for human corrections first.** When humans edit a report's reviewers in the
+  inbox, the change is recorded with before/after login lists — the project profile's
+  `recent_reviewer_corrections` section carries the recent ones. A human swapping a
+  suggested reviewer for someone else is the strongest ownership evidence there is:
+  treat it as authoritative precedent over commit history, and fold what you learn into
+  your `reviewer:` memory keys. For history beyond the profile window, query
+  `advanced-activity-logs-list` with `scopes=["SignalReport"]`,
+  `activities=["suggested_reviewers_changed"]` (on an org without the audit-logs feature
+  that call fails with a payment-required error — skip it and move on, don't retry).
+- **No owner in your evidence? List the members.** When the owner isn't already named in
+  what you gathered, call `signals-scout-members-list` to get this project's members —
+  each row carries the member's `email`, name, and resolved `github_login` (pass `search`
+  to narrow a big project). Match the owner by email/name and use their `github_login`; a
+  member whose `github_login` is null can't be routed to at all, so pick a different owner
+  or leave the field empty. The org-scoped `org-member-get-github-login` / `org-members-list`
+  tools are not available in a scout run — this is the in-run lookup path.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass
@@ -437,6 +484,15 @@ you this run.
   run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
+_WRITING_STYLE = """# Writing style
+
+- We use American English and the Oxford comma.
+- Sentence case rather than title case, including in titles, headings, subheadings, and bold text (keep the original case when quoting provided text).
+- When writing numbers in the thousands to the billions, abbreviate them (like 10M or 100B, capital letter, no space) or write the full number with commas (like 15,000,000).
+- Never use the em-dash (—); use the en-dash (–).
+- Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays")."""
+
+
 _OUTPUT_FORMAT = """# Output format
 
 Respond at end_turn with a single JSON object matching this schema:
@@ -453,6 +509,7 @@ _SIGNAL_TAIL_SECTIONS = [
     _FINDING_SCHEMA,
     _TAGGING,
     _WRITING_DESCRIPTION_SIGNAL,
+    _WRITING_STYLE,
     _WRITING_SUMMARY,
     _BUSINESS_KNOWLEDGE,
     _DEDUPE_RULES_SIGNAL,
@@ -469,7 +526,8 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     fail closed on the *exact* tool (`views._assert_report_tool_opted_in`), so the prompt must never
     steer a scout toward a tool it lacks — an edit-only scout pointed at `emit_report` just earns a
     PermissionDenied. We therefore pick the run-step / authoring guidance to match, and include the
-    author-time sections (suggested reviewers, writing a report) only when the scout can author."""
+    standalone author-time sections (the suggested-reviewers deep-dive, writing a report) only when the
+    scout can author — the edit-only persona folds its own (reviewer-setting included) guidance inline."""
     if can_emit and can_edit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
@@ -494,6 +552,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
         _SCRATCHPAD_KEYS,
         _RECENCY_LENS,
         *channel_sections,
+        _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
         _GROUND_RULES,
@@ -591,5 +650,13 @@ and counts of existing inbox reports. One call gives you the orientation that
 would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
 computed from authoritative tables, distinct from the scout-inferred notes
 in `signals-scout-scratchpad-search`.
+
+Check `emit_eligibility.can_emit` first. If it's `false`, nothing you emit this
+run can reach the inbox. This profile is cached (up to ~1h), so an admin may have
+just fixed the gate — before acting, re-fetch once with `force_refresh=true` to
+confirm against the live state. If it's still `false`, read
+`emit_eligibility.remediation` for the one-line reason and next step, note it in
+your run summary, and close out immediately rather than investigating findings
+that would be silently dropped.
 
 {tail}"""

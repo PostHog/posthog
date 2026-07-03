@@ -58,6 +58,7 @@ from ..logic import (
     run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+from .date_window import normalize_tracing_date_range
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -599,9 +600,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}')), DateRange)
-        except (json.JSONDecodeError, Exception):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}'))
+        except json.JSONDecodeError:
+            raw_date_range = {"date_from": "-1h"}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
@@ -629,7 +631,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         query_data = request.data.get("query", {})
 
         after_cursor = query_data.get("after", None)
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         order_by = query_data.get("orderBy")
         if order_by not in ("timestamp", "duration"):
@@ -744,7 +746,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
         filter_group = (
             self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
             if query_data.get("filterGroup")
@@ -822,7 +824,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        date_range = self.get_model(
+            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        )
 
         response = run_symbol_stats_query(team=self.team, file_path=file_path, date_range=date_range, symbols=symbols)
         granularity = response.granularity.value
@@ -849,7 +853,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -879,7 +883,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -905,7 +909,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def aggregate(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {}) or {}
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -959,7 +963,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -1027,7 +1031,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
             filter_group = (
@@ -1072,7 +1076,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
-        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        date_range = self.get_model(
+            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        )
         try:
             # verify the trace_id is valid
             bytes.fromhex(trace_id)
@@ -1142,9 +1148,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         offset = int(request.GET.get("offset", "0"))
 
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
+        except json.JSONDecodeError:
+            raw_date_range = {}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span_attribute", "span_resource_attribute"):
@@ -1175,9 +1182,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         offset = int(request.GET.get("offset", "0"))
 
         try:
-            date_range = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            date_range = DateRange(date_from="-1h")
+            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
+        except json.JSONDecodeError:
+            raw_date_range = {}
+        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):

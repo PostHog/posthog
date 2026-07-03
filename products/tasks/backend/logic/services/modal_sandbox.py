@@ -26,13 +26,20 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
-from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    SnapshotKind,
+)
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -99,10 +106,13 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     ModalTimeoutError,
     ModalConnectionError,
+    ModalServiceError,
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
 )
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -121,6 +131,12 @@ DEFAULT_MODAL_REGION = "us-east"
 
 def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
+def _normalize_snapshot_kind(value: object) -> SnapshotKind:
+    if value == SNAPSHOT_KIND_DIRECTORY:
+        return SNAPSHOT_KIND_DIRECTORY
+    return SNAPSHOT_KIND_FILESYSTEM
 
 
 def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
@@ -392,23 +408,39 @@ class ModalSandbox(SandboxBase):
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
+            config.snapshot_restored = False
+            snapshot_external_id: str | None = None
+            snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
+            # No default-fill: a directory snapshot must arrive with an explicit allowed mount
+            # path, or the mount below is refused. Defaulting here would silently re-target a
+            # snapshot that upstream validation invalidated (mount path stripped).
+            snapshot_mount_path: str | None = config.snapshot_mount_path
+            snapshot_image: modal.Image | None = None
             used_snapshot_image = False
 
             if config.snapshot_external_id:
+                snapshot_external_id = config.snapshot_external_id
                 try:
-                    image = _attach_local_package_mounts(
-                        modal.Image.from_id(config.snapshot_external_id), config.template
-                    )
-                    used_snapshot_image = True
+                    snapshot_image = modal.Image.from_id(config.snapshot_external_id)
+                    if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                        image = _attach_local_package_mounts(snapshot_image, config.template)
+                        used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
             elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
+                    snapshot_external_id = snapshot.external_id
+                    snapshot_kind = _normalize_snapshot_kind(snapshot.metadata.get("snapshot_kind"))
+                    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
+                    if isinstance(metadata_mount_path, str) and metadata_mount_path:
+                        snapshot_mount_path = metadata_mount_path
                     try:
-                        image = _attach_local_package_mounts(modal.Image.from_id(snapshot.external_id), config.template)
-                        used_snapshot_image = True
+                        snapshot_image = modal.Image.from_id(snapshot.external_id)
+                        if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                            image = _attach_local_package_mounts(snapshot_image, config.template)
+                            used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
@@ -446,6 +478,7 @@ class ModalSandbox(SandboxBase):
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    config.snapshot_restored = used_snapshot_image
             except Exception as e:
                 if not used_snapshot_image:
                     raise
@@ -454,6 +487,38 @@ class ModalSandbox(SandboxBase):
                 create_kwargs["image"] = base_image
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    config.snapshot_restored = False
+
+            if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
+                # The mount REPLACES the target directory in the running sandbox — over a live
+                # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
+                # and a snapshot's content only fits the path it was captured from. Last-line
+                # guard for snapshot rows whose stored mount path bypassed normalization.
+                if snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+                    logger.warning(
+                        "Refusing to mount directory snapshot at unsupported path; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                elif not hasattr(sb, "mount_image"):
+                    logger.warning(
+                        "Modal sandbox does not support directory snapshot restore; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                else:
+                    try:
+                        sb.mount_image(snapshot_mount_path, snapshot_image)
+                        config.snapshot_restored = True
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to mount directory snapshot image {snapshot_external_id} at {snapshot_mount_path}: {e}"
+                        )
+                        capture_exception(e)
 
             if config.metadata:
                 sb.set_tags(config.metadata)
@@ -693,6 +758,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
@@ -703,6 +769,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -795,6 +862,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
@@ -843,6 +911,7 @@ class ModalSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
         )
 
@@ -954,8 +1023,8 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
-    def read_agent_server_boot_ms(self) -> int | None:
-        return self._read_health_boot_ms(AGENT_SERVER_PORT)
+    def read_agent_server_session_init_ms(self) -> int | None:
+        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
 
     def _free_agent_server_port(self) -> None:
         self.execute(
@@ -1000,6 +1069,49 @@ class ModalSandbox(SandboxBase):
             logger.exception(f"Failed to create snapshot: {e}")
             raise SnapshotCreationError(
                 f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
+            )
+
+    def create_directory_snapshot(self, path: str) -> str:
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        snapshot_directory = getattr(self._sandbox, "snapshot_directory", None)
+        if snapshot_directory is None:
+            raise SnapshotCreationError(
+                "Modal SDK does not support directory snapshots",
+                {"sandbox_id": self.id, "path": path},
+                cause=RuntimeError("modal.Sandbox.snapshot_directory is unavailable"),
+            )
+
+        try:
+            quoted_path = shlex.quote(path)
+            self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
+            snapshot_id = image.object_id
+
+            logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")
+
+            return snapshot_id
+
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            logger.warning(f"Transient error creating directory snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+
+        except Exception as e:
+            logger.exception(f"Failed to create directory snapshot: {e}")
+            raise SnapshotCreationError(
+                f"Failed to create directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
             )
 
     @staticmethod

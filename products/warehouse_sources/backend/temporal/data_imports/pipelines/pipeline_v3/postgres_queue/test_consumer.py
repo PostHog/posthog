@@ -1057,3 +1057,40 @@ class TestShutdown:
 
         assert drained.is_set()
         assert len(consumer._in_flight) == 0
+
+
+class TestDispatchGroups:
+    def test_fetch_limit_caps_to_free_slots_and_poll_limit(self):
+        consumer = _make_consumer(max_concurrency=16, poll_limit=50)
+        # 1 free slot must not lease a whole 50-batch window (orphaned-lease regression).
+        assert consumer._fetch_limit(1) == 3
+        assert consumer._fetch_limit(4) == 12
+        assert consumer._fetch_limit(16) == 48
+        wide = _make_consumer(max_concurrency=64, poll_limit=50)
+        assert wide._fetch_limit(64) == 50
+
+    @pytest.mark.asyncio
+    async def test_undispatched_groups_release_their_leases_in_the_same_cycle(self):
+        consumer = _make_consumer(max_concurrency=2)
+        consumer._in_flight[(1, "schema-0")] = AsyncMock()
+
+        dispatched = _make_batch(id="00000000-0000-0000-0000-00000000000a", schema_id="schema-1", run_uuid="run-1")
+        dropped_1 = _make_batch(id="00000000-0000-0000-0000-00000000000b", schema_id="schema-2", run_uuid="run-2")
+        dropped_2 = _make_batch(
+            id="00000000-0000-0000-0000-00000000000c", schema_id="schema-2", run_uuid="run-2", batch_index=1
+        )
+
+        with patch.object(consumer._adapter, "unlock", new=AsyncMock()) as mock_unlock:
+            await consumer._dispatch_groups(_make_healthy_conn(), [dispatched, dropped_1, dropped_2])
+
+            # One free slot: schema-1 dispatched; schema-2's lease must be released now,
+            # not left dark until the 300s TTL expires (the fleet-throughput regression).
+            assert (1, "schema-1") in consumer._in_flight
+            assert (1, "schema-2") not in consumer._in_flight
+            released = mock_unlock.call_args.kwargs["batches"]
+            assert {b.id for b in released} == {dropped_1.id, dropped_2.id}
+
+        task = consumer._in_flight.pop((1, "schema-1"))
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

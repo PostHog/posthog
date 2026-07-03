@@ -130,6 +130,10 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -220,10 +224,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
-        is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade._list_tasks_queryset(
-            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
-        )
+        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
         return self.get_paginated_response(
@@ -510,6 +511,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
+        include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
@@ -822,6 +824,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
+        include_serializer_context=True,
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
@@ -1021,7 +1024,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         relay_status, relay_id = tasks_facade.relay_task_run_message(
-            pk, task_id, self.team_id, text=request.validated_data["text"]
+            pk,
+            task_id,
+            self.team_id,
+            text=request.validated_data["text"],
+            text_parts=request.validated_data.get("text_parts"),
         )
         if relay_status == "failed":
             return Response(
@@ -1628,7 +1635,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filtered.append(entry)
 
         matching_count = len(filtered)
-        page = filtered[offset : offset + limit]
+
+        page: list = []
+        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
+        for entry in filtered[offset : offset + limit]:
+            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
+            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
+                break
+            page.append(entry)
+            page_bytes += entry_bytes
+
         has_more = offset + len(page) < matching_count
 
         response = JsonResponse(page, safe=False)
@@ -1863,7 +1879,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # long-lived stream begins — see sse_streaming_response. The stream body is
         # Redis-only, so it never re-acquires one.
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            endpoint="task_run_log",
         )
 
     @staticmethod

@@ -1,8 +1,4 @@
-/**
- * Product manifest for engineering_analytics.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
+/** Product manifest for engineering_analytics: scenes, routes, URLs, and navigation. */
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +12,7 @@ export const manifest: ProductManifest = {
         EngineeringAnalytics: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsScene'),
             projectBased: true,
-            name: 'CI analytics',
+            name: 'Engineering analytics',
             layout: 'app-container',
             description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
@@ -45,20 +41,13 @@ export const manifest: ProductManifest = {
             description: "A single workflow's recent runs across the connected repo.",
             iconType: 'health',
         },
-        EngineeringAnalyticsAuthor: {
-            import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
-            projectBased: true,
-            name: 'Author CI',
-            layout: 'app-container',
-            description: "One author's pull requests and the CI cost they incurred.",
-            iconType: 'health',
-        },
     },
-    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); the cross-repo
-    // aggregate dashboards stay at the product root. Provider lives on the data (RepoRef.provider), so
-    // these url builders are the single place to branch verbs for a future provider (e.g. GitLab).
+    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
+    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
+    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+        '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
@@ -73,11 +62,15 @@ export const manifest: ProductManifest = {
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
-        '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
-    redirects: {},
+    redirects: {
+        // The author surface was removed: analytics stay at team/repo level (see README locked decisions).
+        '/engineering-analytics/authors': '/engineering-analytics',
+        '/engineering-analytics/author/:handle': '/engineering-analytics',
+    },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
+        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -86,14 +79,12 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
-        engineeringAnalyticsAuthor: (handle: string): string =>
-            `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'CI analytics',
+            path: 'Engineering analytics',
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',

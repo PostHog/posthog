@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsBoxPlot from '../../../mocks/fixtures/api/projects/team_id/insights/trendsBoxPlot.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsBoxPlot',
@@ -36,13 +38,8 @@ const meta: Meta = {
 }
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
-export const TrendsBoxPlot: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBoxPlot.json')
-)
+export const TrendsBoxPlot: Story = createInsightStory(__trendsBoxPlot as any)
 TrendsBoxPlot.parameters = { testOptions: { waitForSelector: '[data-attr=box-plot-graph] > canvas' } }
-export const TrendsBoxPlotEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBoxPlot.json'),
-    'edit'
-)
+export const TrendsBoxPlotEdit: Story = createInsightStory(__trendsBoxPlot as any, 'edit')
 TrendsBoxPlotEdit.parameters = { testOptions: { waitForSelector: '[data-attr=box-plot-graph] > canvas' } }
 /* eslint-enable @typescript-eslint/no-var-requires */

@@ -12,6 +12,31 @@ tools:
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
+    engineering-analytics-ci-failure-logs:
+        operation: engineering_analytics_ci_failure_logs
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: CI failure logs for a PR
+        description: >
+            The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer "why did
+            this PR's CI fail". Each failed job returns its failure region (the error lines plus surrounding context,
+            with "... N lines omitted ..." markers) as ordered lines, and every line carries its original 1-based line
+            number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL
+            its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier
+            pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
+            short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
+            run/job metadata behind these logs.
+    engineering-analytics-job-aggregates:
+        operation: engineering_analytics_job_aggregates
+        enabled: false
+    engineering-analytics-master-failures:
+        operation: engineering_analytics_master_failures
+        enabled: false
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true
@@ -35,6 +60,15 @@ tools:
         enabled: false
     engineering-analytics-quarantine:
         operation: engineering_analytics_quarantine
+        enabled: false
+    engineering-analytics-quarantine-request:
+        operation: engineering_analytics_quarantine_request
+        enabled: false
+    engineering-analytics-repo-overview:
+        operation: engineering_analytics_repo_overview
+        enabled: false
+    engineering-analytics-run-failure-logs:
+        operation: engineering_analytics_run_failure_logs
         enabled: false
     engineering-analytics-sources:
         operation: engineering_analytics_sources
@@ -72,6 +106,9 @@ tools:
             yet.
     engineering-analytics-workflow-run:
         operation: engineering_analytics_workflow_run
+        enabled: false
+    engineering-analytics-workflow-run-activity:
+        operation: engineering_analytics_workflow_run_activity
         enabled: false
     engineering-analytics-workflow-runner-costs:
         operation: engineering_analytics_workflow_runner_costs

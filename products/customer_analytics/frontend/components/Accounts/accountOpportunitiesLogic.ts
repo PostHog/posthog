@@ -38,6 +38,16 @@ export interface AccountOpportunitiesResult {
 // Identity used as a "not loaded yet" sentinel by the view — every loaded outcome returns a fresh object.
 export const NOT_LOADED: AccountOpportunitiesResult = { sfdcId: null, opportunities: null }
 
+const OPPORTUNITY_TABLE = 'salesforce.opportunity'
+
+const isExpectedMissingTableError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error ?? '')
+    return (
+        message.includes(OPPORTUNITY_TABLE) &&
+        (message.includes("don't have access to table") || message.includes('Unknown table'))
+    )
+}
+
 export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountOpportunitiesLogic', key]),
     props({} as AccountOpportunitiesLogicProps),
@@ -85,11 +95,11 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                         }))
                         return { sfdcId, opportunities }
                     } catch (error) {
-                        // `salesforce.opportunity` only exists in production. Elsewhere (and on genuine failures,
-                        // which we still report) we degrade to the empty state instead of a red query-error box.
-                        posthog.captureException(error as Error, {
-                            scope: 'accountOpportunitiesLogic.loadOpportunities',
-                        })
+                        if (!isExpectedMissingTableError(error)) {
+                            posthog.captureException(error as Error, {
+                                scope: 'accountOpportunitiesLogic.loadOpportunities',
+                            })
+                        }
                         return { sfdcId, opportunities: null }
                     }
                 },

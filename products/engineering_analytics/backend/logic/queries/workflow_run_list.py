@@ -22,7 +22,7 @@ _SELECT = f"""
         {RUN_DETAIL_COLUMNS}
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
-        AND run_started_at >= {{date_from}} __DATE_TO__
+        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     ORDER BY run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT}
 """
@@ -36,6 +36,7 @@ def query_workflow_run_list(
     workflow_name: str,
     date_from: datetime,
     date_to: datetime | None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     placeholders: dict[str, ast.Expr] = {
         "repo_owner": ast.Constant(value=repo_owner),
@@ -47,8 +48,16 @@ def query_workflow_run_list(
     if date_to is not None:
         date_to_clause = "AND run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
+    branch = branch.strip() if branch else None
+    branch_clause = ""
+    if branch:
+        branch_clause = "AND head_branch = {branch}"
+        placeholders["branch"] = ast.Constant(value=branch)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause),
         query_type="engineering_analytics.workflow_run_list",
         placeholders=placeholders,
     )

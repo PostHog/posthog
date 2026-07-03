@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconList, IconListTree, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconList, IconListTree, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -12,7 +12,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import { DateRangePicker, zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
+import { DateRangePickerWithZoom } from 'lib/components/DateFilter/DateRangePicker'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -67,41 +67,13 @@ export function TracingFilterBar(): JSX.Element {
                         </div>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                        <div className="DateRangePickerButtonGroup">
-                            <LemonButton
-                                size="small"
-                                icon={<IconMinusSquare />}
-                                type="secondary"
-                                tooltip="Zoom out"
-                                onClick={() => {
-                                    const zoomed = zoomDateRange(dateRange, 2)
-                                    setDateRange({
-                                        date_from: zoomed.date_from ?? null,
-                                        date_to: zoomed.date_to ?? null,
-                                    })
-                                }}
-                            />
-                            <DateRangePicker
-                                logicKey="tracing"
-                                dateRange={dateRange}
-                                setDateRange={setDateRange}
-                                timezone={timezone}
-                                onTimezoneChange={setTimezone}
-                            />
-                            <LemonButton
-                                size="small"
-                                icon={<IconPlusSquare />}
-                                type="secondary"
-                                tooltip="Zoom in"
-                                onClick={() => {
-                                    const zoomed = zoomDateRange(dateRange, 0.5)
-                                    setDateRange({
-                                        date_from: zoomed.date_from ?? null,
-                                        date_to: zoomed.date_to ?? null,
-                                    })
-                                }}
-                            />
-                        </div>
+                        <DateRangePickerWithZoom
+                            logicKey="tracing"
+                            dateRange={dateRange}
+                            setDateRange={setDateRange}
+                            timezone={timezone}
+                            onTimezoneChange={setTimezone}
+                        />
                         {!compareMode && (
                             <LemonSegmentedButton<TracingViewMode>
                                 size="small"

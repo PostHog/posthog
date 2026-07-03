@@ -26,16 +26,29 @@ async function ensureAdminOAuth2(): Promise<void> {
         throw new Error('Popup blocked. Please allow popups for this site and try again.')
     }
 
-    await new Promise<void>((resolve) => {
+    // Resolve ONLY once the popup confirms success via `oauth2_complete`. A popup that closes
+    // without sending it means the admin session was never established — proceeding anyway would
+    // fire the impersonation POST against a stale session, which silently fails and forces a retry.
+    await new Promise<void>((resolve, reject) => {
         let checkClosed: ReturnType<typeof setInterval>
+        let gracePeriodTimeout: ReturnType<typeof setTimeout> | null = null
+        let completed = false
+
+        const cleanup = (): void => {
+            clearInterval(checkClosed)
+            if (gracePeriodTimeout) {
+                clearTimeout(gracePeriodTimeout)
+            }
+            window.removeEventListener('message', handleMessage)
+        }
 
         const handleMessage = (event: MessageEvent): void => {
             if (event.origin !== window.location.origin) {
                 return
             }
             if (event.data?.type === 'oauth2_complete') {
-                clearInterval(checkClosed)
-                window.removeEventListener('message', handleMessage)
+                completed = true
+                cleanup()
                 resolve()
             }
         }
@@ -44,8 +57,14 @@ async function ensureAdminOAuth2(): Promise<void> {
         checkClosed = setInterval(() => {
             if (authWindow.closed) {
                 clearInterval(checkClosed)
-                window.removeEventListener('message', handleMessage)
-                resolve()
+                // The success message can land a tick after the popup closes — give it a brief
+                // grace period before deciding this was a cancellation.
+                gracePeriodTimeout = setTimeout(() => {
+                    if (!completed) {
+                        cleanup()
+                        reject(new Error('Admin authentication was cancelled. Please try impersonating again.'))
+                    }
+                }, 500)
             }
         }, 500)
     })

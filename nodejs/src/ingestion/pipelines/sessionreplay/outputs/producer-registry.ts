@@ -1,5 +1,8 @@
 import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP } from '~/ingestion/common/producers'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
+} from '~/ingestion/common/outputs/producers'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER_CONFIG_MAP,

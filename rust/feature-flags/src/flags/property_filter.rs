@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::FeatureFlagId;
-use crate::properties::property_matching::{to_string_representation, REGEX_BACKTRACK_LIMIT};
+use crate::properties::property_matching::{
+    lookup_key_for, to_string_representation, REGEX_BACKTRACK_LIMIT,
+};
 use crate::properties::property_models::{
     CompiledRegex, OperatorType, PropertyFilter, PropertyType,
 };
@@ -45,9 +47,17 @@ impl PropertyFilter {
 
     /// Returns true if the filter requires DB properties to be evaluated.
     ///
-    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
+    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters.
+    ///
+    /// Uses `lookup_key_for` rather than the raw `self.key` so PersonMetadata filters check the
+    /// sentinel-prefixed key (e.g. `__posthog_person_metadata__created_at`). Without this, an SDK
+    /// caller sending a raw `created_at` in `person_properties` overrides would make this return
+    /// `false`, skip the DB fetch, and let the filter fall through to operator defaults — silently
+    /// bypassing the real persons-table value.
     pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
-        !self.is_cohort() && !self.depends_on_feature_flag() && !overrides.contains_key(&self.key)
+        !self.is_cohort()
+            && !self.depends_on_feature_flag()
+            && !overrides.contains_key(lookup_key_for(self).as_ref())
     }
 
     /// Pre-compiles the regex pattern for Regex/NotRegex operators.
@@ -106,6 +116,28 @@ mod tests {
 
             assert!(!filter.requires_db_property(&overrides));
         }
+    }
+
+    #[test]
+    fn test_person_metadata_requires_db_when_only_raw_key_overridden() {
+        use crate::properties::property_matching::person_metadata_key;
+
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "created_at".mock_into(), prop_type: PropertyType::PersonMetadata, operator: Some(OperatorType::IsDateAfter));
+
+        // A raw `created_at` override (e.g. an SDK caller setting person_properties.created_at)
+        // must NOT satisfy the check — the persons-table value is still required from the DB.
+        let raw = HashMap::from([(
+            "created_at".to_string(),
+            Value::String("2024-01-01".to_string()),
+        )]);
+        assert!(filter.requires_db_property(&raw));
+
+        // Only the sentinel-prefixed key (which the matcher actually reads) satisfies the check.
+        let sentinel = HashMap::from([(
+            person_metadata_key("created_at"),
+            Value::String("2024-01-01".to_string()),
+        )]);
+        assert!(!filter.requires_db_property(&sentinel));
     }
 
     #[test]

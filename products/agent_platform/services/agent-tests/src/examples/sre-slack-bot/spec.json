@@ -150,10 +150,6 @@
             "allowed_hosts": ["slack.com"]
         },
         "SLACK_SIGNING_SECRET",
-        {
-            "name": "INCIDENT_IO_TOKEN",
-            "allowed_hosts": ["api.incident.io"]
-        },
         "WEBHOOK_SECRET"
     ],
     "skills": [
@@ -170,7 +166,7 @@
         {
             "id": "incident-io-playbook",
             "path": "skills/incident-io-playbook/SKILL.md",
-            "description": "How to query and update incident.io \u2014 list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
+            "description": "How to work incident.io through its connected MCP \u2014 list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
         },
         {
             "id": "runbook-memory",
@@ -184,5 +180,26 @@
         "max_wall_seconds": 600
     },
     "reasoning": "high",
-    "mcps": []
+    "mcps": [
+        {
+            "kind": "agent",
+            "id": "incident-io",
+            "url": "https://mcp.incident.io/mcp",
+            "connection": "00000000-0000-0000-0000-000000000000",
+            "default_tool_approval": "approve"
+        },
+        {
+            "kind": "principal",
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "default_tool_approval": "allow",
+            "auth": { "provider": "posthog" }
+        }
+    ],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": ["openid", "profile", "email", "user:read", "query:read", "insight:read", "error_tracking:read"]
+        }
+    ]
 }

@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -238,6 +239,51 @@ class TestWindowedCalls:
 
         assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
         assert "cursor=page2" in session.requested_urls[1]
+
+    @parameterized.expand(
+        [
+            # Gong signals an empty date window with a 404; the sync skips it and continues.
+            (
+                "no_calls_body_skips_window",
+                '{"errors":["No calls found corresponding to the provided filters"]}',
+                False,
+            ),
+            # A 404 for any other reason must still surface rather than be swallowed.
+            ("unrelated_404_raises", '{"errors":["Not Found"]}', True),
+        ]
+    )
+    def test_404_handling(self, _name: str, body: str, should_raise: bool) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=100)
+        responses = [
+            _FakeResponse(status_code=404, text=body),
+            _FakeResponse(json_data={"calls": [{"id": "c1"}]}),
+        ]
+        session = _FakeSession(responses)
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "calls",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=last_value,
+            )
+            if should_raise:
+                with pytest.raises(Exception):
+                    list(rows)
+                return
+            batches = list(rows)
+
+        # The empty window yields nothing but does not abort the sync; both windows run.
+        assert batches == [[{"id": "c1"}]]
+        assert len(session.requested_urls) == 2
+        assert len(manager.saved_states) == 2
 
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)

@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { MessageHeader } from 'node-rdkafka'
 import { z } from 'zod'
 
 const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
@@ -62,7 +61,6 @@ export const ParsedMessageDataSchema = z.object({
     eventsRange: EventsRangeSchema,
     snapshot_source: z.string().nullable(),
     snapshot_library: z.string().nullable(),
-    headers: z.array(z.custom<MessageHeader>()).optional(),
     metadata: MessageMetadataSchema,
 })
 

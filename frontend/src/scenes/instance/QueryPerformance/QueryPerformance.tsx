@@ -4,19 +4,24 @@ import { IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
+import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CacheHealth } from './CacheHealth'
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
@@ -43,6 +48,97 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'retention', label: 'Retention' },
 ]
 
+const EXCEPTION_CODE_OPTIONS = [
+    { value: '', label: 'All exit codes' },
+    { value: '307', label: '307 (bytes)' },
+    { value: '159', label: '159 (timeout)' },
+    { value: '241', label: '241 (memory)' },
+    { value: '202', label: '202 (cluster busy)' },
+]
+
+// Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
+// mirroring how the Duration column sums total_duration_ms over the group.
+const groupBytes = (item: SlowestQuery): number =>
+    item.read_bytes + item.sub_queries.reduce((sum, q) => sum + q.read_bytes, 0)
+
+// Off/gated reasons come straight from the runner tag; build-failed/not-ready are derived from the
+// precompute-build sub-queries. Empty tag + no sub-queries is the legacy/forward-only case ("not ready").
+const SKIP_REASON_LABELS: Record<string, string> = {
+    override_direct: 'forced direct (query override)',
+    team_disabled: 'precompute off for team',
+    min_runtime: 'experiment <12h old',
+    data_warehouse: 'data warehouse metric',
+}
+
+function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {
+    const skip = item.experiment_precompute_skip_reason
+    if (skip && SKIP_REASON_LABELS[skip]) {
+        return SKIP_REASON_LABELS[skip]
+    }
+    const builds = item.sub_queries.filter((q) => q.experiment_precompute_table === table)
+    const failed = builds.find((q) => q.exception)
+    if (failed) {
+        return `build failed (${failed.exception_code || 'error'})`
+    }
+    if (builds.length > 0) {
+        return 'build incomplete / not ready'
+    }
+    return 'not ready'
+}
+
+const EXCEPTION_CODE_LABELS: Record<number, string> = {
+    307: 'exceeded byte limit',
+    159: 'timeout',
+    241: 'out of memory',
+    202: 'cluster busy',
+}
+
+const codeLabel = (code: number): string => EXCEPTION_CODE_LABELS[code] ?? `error ${code}`
+
+// One-glance terminal result for the group: the read plus its precompute builds. exception_code 0 = ok.
+function outcome(item: SlowestQuery): { label: string; type: LemonTagType } {
+    const parentFailed = item.exception_code !== 0
+    const buildFailed = item.sub_queries.some((q) => q.exception_code !== 0)
+    if (!parentFailed && !buildFailed) {
+        return { label: 'OK', type: 'success' }
+    }
+    if (parentFailed && buildFailed) {
+        return { label: `Build + read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    if (parentFailed) {
+        return { label: `Read ${codeLabel(item.exception_code)}`, type: 'danger' }
+    }
+    return { label: 'Build failed', type: 'warning' }
+}
+
+// Compact day-span of a scan window, exact dates on hover. Renders nothing for pre-tag (empty) rows.
+function ScanWindow({ from, to }: { from: string; to: string }): JSX.Element | null {
+    if (!from || !to) {
+        return null
+    }
+    const days = Math.max(1, dayjs(to).diff(dayjs(from), 'day'))
+    return (
+        <Tooltip title={`${from} → ${to}`}>
+            <span className="font-mono text-xs">{days}d</span>
+        </Tooltip>
+    )
+}
+
+function QueryStats({
+    read_bytes,
+    read_rows,
+    memory_usage,
+    exception_code,
+}: Pick<SlowestQuery, 'read_bytes' | 'read_rows' | 'memory_usage' | 'exception_code'>): JSX.Element {
+    return (
+        <div className="font-mono text-xs text-muted">
+            Read {humanizeBytes(read_bytes)} · {read_rows.toLocaleString()} rows
+            {memory_usage ? ` · ${humanizeBytes(memory_usage)} peak memory` : ''}
+            {exception_code ? ` · exit code ${exception_code}` : ''}
+        </div>
+    )
+}
+
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
@@ -55,6 +151,7 @@ export function QueryPerformance(): JSX.Element {
         teamIdFilter,
         experimentIdFilter,
         metricTypeFilter,
+        exceptionCodeFilter,
     } = useValues(queryPerformanceLogic)
     const {
         setSearch,
@@ -64,6 +161,7 @@ export function QueryPerformance(): JSX.Element {
         setTeamIdFilter,
         setExperimentIdFilter,
         setMetricTypeFilter,
+        setExceptionCodeFilter,
     } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
@@ -151,11 +249,37 @@ export function QueryPerformance(): JSX.Element {
 
     const slowestQueryColumns: LemonTableColumns<SlowestQuery> = [
         {
+            title: 'Result',
+            width: 220,
+            render: function Result(_, item): JSX.Element {
+                const { label, type } = outcome(item)
+                const tag = <LemonTag type={type}>{label}</LemonTag>
+                if (!item.exception) {
+                    return tag
+                }
+                const firstLine = item.exception.split('\n')[0]
+                const preview = firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+                return (
+                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
+                        <div className="flex items-center gap-1 min-w-0">
+                            {tag}
+                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                        </div>
+                    </Tooltip>
+                )
+            },
+        },
+        {
             title: 'Time',
-            dataIndex: 'timestamp',
-            width: 160,
-            render: function Timestamp(_, item) {
-                return <span className="font-mono text-xs">{item.timestamp}</span>
+            width: 120,
+            render: function Timestamp(_, item): JSX.Element {
+                return (
+                    <Tooltip title={item.timestamp}>
+                        <span className="font-mono text-xs whitespace-nowrap">
+                            {dayjs(item.timestamp).format('MMM D HH:mm:ss')}
+                        </span>
+                    </Tooltip>
+                )
             },
         },
         {
@@ -174,6 +298,31 @@ export function QueryPerformance(): JSX.Element {
                         )}
                     </div>
                 )
+            },
+        },
+        {
+            title: 'Read',
+            key: 'read_bytes',
+            width: 130,
+            sorter: (a, b) => groupBytes(a) - groupBytes(b),
+            render: function Read(_, item): JSX.Element {
+                const total = groupBytes(item)
+                const hasSubQueries = item.sub_queries && item.sub_queries.length > 0
+                return (
+                    <div className="font-mono">
+                        <span>{humanizeBytes(total)}</span>
+                        {hasSubQueries && (
+                            <span className="text-muted text-xs"> · read {humanizeBytes(item.read_bytes)}</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Scan window',
+            width: 110,
+            render: function ScanWindowCol(_, item): JSX.Element | null {
+                return <ScanWindow from={item.experiment_scan_date_from} to={item.experiment_scan_date_to} />
             },
         },
         {
@@ -196,34 +345,40 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Experiment',
-            render: function ExperimentCell(_, item) {
+            render: function ExperimentCell(_, item): JSX.Element {
                 if (!item.experiment_name) {
                     return <span className="text-muted">Unknown</span>
                 }
-                if (!item.experiment_id || !item.team_id) {
-                    return <span className="truncate max-w-60">{item.experiment_name}</span>
-                }
-                return (
-                    <Link
-                        to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
-                        target="_blank"
-                        className="truncate max-w-60"
-                    >
-                        {item.experiment_name}
-                    </Link>
+                const label = (
+                    <span className="truncate max-w-40 inline-block align-bottom">{item.experiment_name}</span>
                 )
+                const content =
+                    item.experiment_id && item.team_id ? (
+                        <Link
+                            to={`/project/${item.team_id}/experiments/${item.experiment_id}`}
+                            target="_blank"
+                            className="truncate max-w-40 inline-block align-bottom"
+                        >
+                            {item.experiment_name}
+                        </Link>
+                    ) : (
+                        label
+                    )
+                return <Tooltip title={item.experiment_name}>{content}</Tooltip>
             },
         },
         {
             title: 'Metric',
-            render: function Metric(_, item) {
+            render: function Metric(_, item): JSX.Element {
                 const metricTypeLabel =
                     item.experiment_metric_type === 'funnel' && item.experiment_funnel_order_type
                         ? `funnel:${item.experiment_funnel_order_type}`
                         : item.experiment_metric_type
                 return (
-                    <div className="flex items-center gap-1">
-                        <span>{item.experiment_metric_name}</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                        <Tooltip title={item.experiment_metric_name}>
+                            <span className="truncate max-w-40">{item.experiment_metric_name}</span>
+                        </Tooltip>
                         {item.experiment_metric_type && <LemonTag type="muted">{metricTypeLabel}</LemonTag>}
                     </div>
                 )
@@ -240,19 +395,30 @@ export function QueryPerformance(): JSX.Element {
                         </LemonTag>
                     )
                 }
-                const pathTag = (label: string, value: string): JSX.Element | null => {
+                const pathTag = (
+                    label: string,
+                    value: string,
+                    table: 'exposures' | 'metric_events'
+                ): JSX.Element | null => {
                     if (!value || value === 'not_applicable') {
                         return null
                     }
+                    if (value === 'precomputed') {
+                        return <LemonTag type="success">{label}: precomputed</LemonTag>
+                    }
                     return (
-                        <LemonTag type={value === 'precomputed' ? 'success' : 'default'}>
-                            {label}: {value === 'precomputed' ? 'precomputed' : 'direct'}
-                        </LemonTag>
+                        <Tooltip title={reasonForDirect(item, table)}>
+                            <LemonTag type="default">{label}: direct</LemonTag>
+                        </Tooltip>
                     )
                 }
                 // Fall back to the deprecated experiment_execution_path for rows logged before the split.
-                const exposures = pathTag('exposures', item.experiment_exposures_path || item.experiment_execution_path)
-                const events = pathTag('events', item.experiment_metric_events_path)
+                const exposures = pathTag(
+                    'exposures',
+                    item.experiment_exposures_path || item.experiment_execution_path,
+                    'exposures'
+                )
+                const events = pathTag('events', item.experiment_metric_events_path, 'metric_events')
                 if (!exposures && !events) {
                     return null
                 }
@@ -261,24 +427,6 @@ export function QueryPerformance(): JSX.Element {
                         {exposures}
                         {events}
                     </div>
-                )
-            },
-        },
-        {
-            title: 'Status',
-            render: function Status(_, item) {
-                if (!item.exception) {
-                    return <LemonTag type="success">OK</LemonTag>
-                }
-                const firstLine = item.exception.split('\n')[0]
-                const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
-                return (
-                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
-                        <div className="flex items-center gap-1 min-w-0">
-                            <LemonTag type="danger">Error</LemonTag>
-                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
-                        </div>
-                    </Tooltip>
                 )
             },
         },
@@ -297,6 +445,20 @@ export function QueryPerformance(): JSX.Element {
             width: 120,
             render: function SubQueryDuration(_, item) {
                 return <span className="font-mono">{Math.round(item.execution_time)}</span>
+            },
+        },
+        {
+            title: 'Scan window',
+            width: 110,
+            render: function SubQueryWindow(_, item): JSX.Element | null {
+                return <ScanWindow from={item.precompute_window_start} to={item.precompute_window_end} />
+            },
+        },
+        {
+            title: 'Read',
+            width: 110,
+            render: function SubQueryRead(_, item): JSX.Element {
+                return <span className="font-mono">{humanizeBytes(item.read_bytes)}</span>
             },
         },
         {
@@ -336,6 +498,7 @@ export function QueryPerformance(): JSX.Element {
                         label: 'Experiments',
                         content: (
                             <>
+                                <CacheHealth />
                                 <h2>Slowest queries</h2>
                                 <div className="flex flex-wrap gap-2 mb-4 items-center">
                                     {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
@@ -373,6 +536,13 @@ export function QueryPerformance(): JSX.Element {
                                         options={METRIC_TYPE_OPTIONS}
                                         className="w-44"
                                     />
+                                    <LemonSelect
+                                        size="small"
+                                        value={exceptionCodeFilter}
+                                        onChange={(value) => setExceptionCodeFilter(value ?? '')}
+                                        options={EXCEPTION_CODE_OPTIONS}
+                                        className="w-44"
+                                    />
                                     <LemonButton
                                         type="secondary"
                                         size="small"
@@ -393,6 +563,24 @@ export function QueryPerformance(): JSX.Element {
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
+                                                    <QueryStats {...item} />
+                                                    <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                        <span>
+                                                            query_id:{' '}
+                                                            <CopyToClipboardInline description="query ID">
+                                                                {item.query_id}
+                                                            </CopyToClipboardInline>
+                                                        </span>
+                                                        {item.experiment_query_group_id && (
+                                                            <span>
+                                                                group:{' '}
+                                                                <CopyToClipboardInline description="group ID">
+                                                                    {item.experiment_query_group_id}
+                                                                </CopyToClipboardInline>
+                                                            </span>
+                                                        )}
+                                                        <LinkMetabaseQuery queryId={item.query_id} />
+                                                    </div>
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>
@@ -403,13 +591,16 @@ export function QueryPerformance(): JSX.Element {
                                                                 expandable={{
                                                                     expandedRowRender: function ExpandedSubQuery(sub) {
                                                                         return (
-                                                                            <CodeSnippet
-                                                                                language={Language.SQL}
-                                                                                thing="query"
-                                                                                maxLinesWithoutExpansion={10}
-                                                                            >
-                                                                                {sub.query}
-                                                                            </CodeSnippet>
+                                                                            <div className="flex flex-col gap-2 p-2">
+                                                                                <QueryStats {...sub} />
+                                                                                <CodeSnippet
+                                                                                    language={Language.SQL}
+                                                                                    thing="query"
+                                                                                    maxLinesWithoutExpansion={10}
+                                                                                >
+                                                                                    {sub.query}
+                                                                                </CodeSnippet>
+                                                                            </div>
                                                                         )
                                                                     },
                                                                 }}
