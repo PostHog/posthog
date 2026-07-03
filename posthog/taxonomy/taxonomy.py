@@ -138,7 +138,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$$heatmap": {
             "label": "Heatmap",
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": True,  # Heatmap events are not useful for LLM
         },
         "$copy_autocapture": {
@@ -292,10 +292,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
         },
-        # Canonical events emitted by the @posthog/mcp analytics SDK. PostHog-owned events are
-        # always `$`-prefixed, so these `$mcp_*` names are the final, going-forward names. They
-        # fire alongside the legacy non-`$` names just below (which the server dual-emits during
-        # the cutover so existing dashboards keep working) — those legacy names are being retired.
+        # Canonical @posthog/mcp SDK events, and the only MCP events to build on. They cover all
+        # traffic since 2026-06-16; the legacy non-`$` names below are frozen (older history only).
         "$mcp_tool_call": {
             "label": "MCP tool call",
             "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
@@ -332,75 +330,86 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP missing capability",
             "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
         },
-        # Legacy in-tree @posthog/mcp event names (non-`$`-prefixed). These were emitted by the
-        # MCP server's hand-rolled analytics path before it moved onto the SDK. The server now
-        # dual-emits them alongside the canonical `$mcp_*` names above so existing insights keep
-        # working through the cutover; they will be removed once those insights are migrated.
+        # LEGACY MCP event names (non-`$`) — DO NOT USE. Dual-emitted through the cutover, now
+        # stopped; query only for pre-2026-06-16 history. `ignored_in_assistant` hides them from
+        # the AI assistant so it doesn't steer people onto them.
         "mcp_tool_call": {
-            "label": "MCP tool call",
-            "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
+            "label": "MCP tool call (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_tool_call`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical tool calls before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_tools_list": {
-            "label": "MCP tools listed",
-            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery — i.e. whether new clients are finding the server.",
+            "label": "MCP tools listed (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_tools_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_initialize": {
-            "label": "MCP initialize",
-            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client.",
+            "label": "MCP initialize (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_initialize`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_resources_list": {
-            "label": "MCP resources listed",
-            "description": "Fires when an MCP client requests the list of available resources.",
+            "label": "MCP resources listed (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_resources_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_resource_read": {
-            "label": "MCP resource read",
-            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+            "label": "MCP resource read (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_resource_read`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_prompts_list": {
-            "label": "MCP prompts listed",
-            "description": "Fires when an MCP client requests the list of available prompts.",
+            "label": "MCP prompts listed (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_prompts_list`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_prompt_get": {
-            "label": "MCP prompt fetched",
-            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+            "label": "MCP prompt fetched (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_prompt_get`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "mcp_custom": {
-            "label": "MCP custom event",
-            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+            "label": "MCP custom event (legacy)",
+            "description": "LEGACY — do not use. Superseded by `$mcp_custom`, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
         "posthog_identify": {
-            "label": "MCP identify",
-            "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
+            "label": "MCP identify (legacy)",
+            "description": "LEGACY — do not use. Superseded by the canonical `$identify` emitted by @posthog/mcp, which covers all MCP traffic from 2026-06-16 on. Query this only for historical data before that date.",
+            "ignored_in_assistant": True,
         },
-        # Older MCP events. Today these are the only events that fire for traffic where @posthog/mcp
-        # isn't enabled yet, and they fire alongside the @posthog/mcp events for traffic where it is.
-        # Not deprecated today — @posthog/mcp is still in internal testing — but slated for removal
-        # once @posthog/mcp reaches general availability. They come from two sources:
-        #   - the mcpcat library PostHog used before @posthog/mcp existed
-        #   - PostHog's in-tree trackEvent path inside the MCP server
+        # Oldest MCP events — LEGACY, DO NOT USE. Predate the `$mcp_*` SDK. The in-tree names have
+        # stopped; the mcpcat `mcp tool call` / `mcp tool response` still trickle in from the
+        # external mcpcat integration until it is switched off. Query only for pre-2026-06-16 history.
         "mcp init": {
-            "label": "MCP init",
-            "description": "MCP initialization event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_initialize where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_initialize if you only want the @posthog/mcp-enabled slice.",
+            "label": "MCP init (legacy)",
+            "description": "LEGACY — do not use. MCP initialization event from the retired mcpcat library. Superseded by `$mcp_initialize`. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": True,
         },
         "mcp_mcpcat:identify": {
-            "label": "MCP identify (mcpcat)",
-            "description": "Identify event emitted by the mcpcat library. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP identify — mcpcat (legacy)",
+            "description": "LEGACY — do not use. Identify event from the retired mcpcat library. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": True,
         },
         "mcp_posthog:identify": {
-            "label": "MCP identify (in-tree)",
-            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP identify — in-tree (legacy)",
+            "description": "LEGACY — do not use. Identify event from PostHog's retired in-tree MCP analytics path. Superseded by the canonical `$identify` emitted by @posthog/mcp. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": True,
         },
         "mcp_tool_called": {
-            "label": "MCP tool called (in-tree)",
-            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_tool_call if you only want the @posthog/mcp-enabled slice.",
+            "label": "MCP tool called — in-tree (legacy)",
+            "description": "LEGACY — do not use. Tool-call event from PostHog's retired in-tree MCP analytics path. Superseded by `$mcp_tool_call`. Query this only for historical data before 2026-06-16.",
+            "ignored_in_assistant": True,
         },
         "mcp tool call": {
-            "label": "MCP tool call (mcpcat)",
-            "description": "Tool-call event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP tool call — mcpcat (legacy)",
+            "description": "LEGACY — do not use. Tool-call event from the external mcpcat integration (still trickling in until that integration is switched off). Superseded by `$mcp_tool_call`, which covers all traffic from 2026-06-16 on. Query this only for older historical data.",
+            "ignored_in_assistant": True,
         },
         "mcp tool response": {
-            "label": "MCP tool response (mcpcat)",
-            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response) for @posthog/mcp-enabled traffic. Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP tool response — mcpcat (legacy)",
+            "description": "LEGACY — do not use. Tool-response event from the external mcpcat integration (still trickling in until that integration is switched off). Responses now ride inline on `$mcp_tool_call` (under `$mcp_response`). Query this only for older historical data.",
+            "ignored_in_assistant": True,
         },
         "mcp project switched": {
             "label": "MCP project switched",
@@ -2704,6 +2713,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP is error",
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
         },
+        "$mcp_error_type": {
+            "label": "MCP error type",
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": ["rate_limited", "validation", "timeout", "api_4xx"],
+        },
+        "$mcp_error_status": {
+            "label": "MCP error status",
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "type": "Numeric",
+            "examples": [429, 500, 403],
+        },
+        "$mcp_error_message": {
+            "label": "MCP error message",
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+        },
         "$mcp_server_name": {
             "label": "MCP server name",
             "description": "The advertised name of the MCP server that handled the request.",
@@ -3346,6 +3370,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "numerical_event_properties": {},
+    "person_metadata": {
+        # Top-level persons-table columns surfaced as filterable "person metadata", distinct from
+        # the person properties JSON. Keep in sync with PERSON_METADATA_FIELDS in posthog/hogql/property.py.
+        "created_at": {
+            "label": "First seen",
+            "description": "The time when the person was first seen.",
+            "type": "DateTime",
+        },
+    },
     "person_properties": {
         "email": {
             "label": "Email address",
@@ -3583,14 +3616,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "click_count": {
             "label": "Clicks",
             "description": "Number of clicks during the session",
+            "type": "Numeric",
         },
         "keypress_count": {
             "label": "Key presses",
             "description": "Number of key presses during the session",
+            "type": "Numeric",
+        },
+        "mouse_activity_count": {
+            "label": "Mouse activity",
+            "description": "Number of mouse activity events during the session",
+            "type": "Numeric",
         },
         "console_error_count": {
             "label": "Errors",
             "description": "Number of console errors during the session",
+            "type": "Numeric",
         },
     },
     "log_entries": {

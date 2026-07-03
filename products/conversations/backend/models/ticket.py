@@ -46,8 +46,16 @@ class Ticket(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
+    # Trust signal (tri-state):
+    #   True  — the claimed identity was attested by the server (widget HMAC,
+    #           SPF-authenticated email, or a signature-validated platform webhook).
+    #   False — assessed but not attested (anonymous claim we couldn't verify).
+    #   None  — unknown; we never assessed it (e.g. predates this signal and the
+    #           channel doesn't structurally guarantee verification).
+    identity_verified = models.BooleanField(null=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
+    ai_triage = models.JSONField(default=dict, blank=True)
 
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
@@ -96,6 +104,9 @@ class Ticket(UUIDTModel):
 
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
+
+    # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
+    organization_id = models.CharField(max_length=400, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -7,6 +7,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonLabel,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
 } from '@posthog/lemon-ui'
@@ -17,6 +18,17 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
+
+const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
+    { value: 'labels', label: 'Labels' },
+    { value: 'values', label: 'Values' },
+    { value: 'none', label: 'Nothing' },
+]
+
+const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: string }[] = [
+    { value: 'absolute', label: 'Absolute' },
+    { value: 'percentage', label: 'Percentage' },
+]
 
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
@@ -108,20 +120,39 @@ export const DisplayTab = (): JSX.Element => {
                                 />
                                 {isPieChart ? (
                                     <>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show values on slices"
-                                            checked={chartSettings.showValuesOnSeries ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showValuesOnSeries: value })
-                                            }}
-                                        />
+                                        <div className="flex flex-col gap-1">
+                                            <LemonLabel>Show on slices</LemonLabel>
+                                            <LemonSegmentedButton
+                                                className="w-full"
+                                                value={chartSettings.pie?.sliceContent ?? 'values'}
+                                                onChange={(value) =>
+                                                    updateChartSettings({ pie: { sliceContent: value } })
+                                                }
+                                                options={PIE_SLICE_CONTENT_OPTIONS}
+                                                fullWidth
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <LemonLabel>Show values as</LemonLabel>
+                                            <LemonSegmentedButton
+                                                className="w-full"
+                                                value={chartSettings.pie?.valueDisplay ?? 'absolute'}
+                                                onChange={(value) =>
+                                                    updateChartSettings({ pie: { valueDisplay: value } })
+                                                }
+                                                options={PIE_VALUE_DISPLAY_OPTIONS}
+                                                fullWidth
+                                            />
+                                        </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label="Show total below chart"
-                                            checked={chartSettings.showPieTotal ?? true}
+                                            checked={
+                                                chartSettings.pie?.showTotal ??
+                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
+                                            }
                                             onChange={(value) => {
-                                                updateChartSettings({ showPieTotal: value })
+                                                updateChartSettings({ pie: { showTotal: value } })
                                             }}
                                         />
                                     </>

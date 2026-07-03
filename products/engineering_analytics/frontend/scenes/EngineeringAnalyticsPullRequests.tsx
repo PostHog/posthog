@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
 import {
     LemonButton,
@@ -8,31 +7,16 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
 } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { newInternalTab } from 'lib/utils/newInternalTab'
-import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
-import { CIStatusTag } from '../components/CIStatusTag'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { PullRequestTable } from '../components/PullRequestTable'
+import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
-import { githubPrUrl } from '../lib/github'
-import {
-    CIStatusFilter,
-    PRStateFilter,
-    PullRequestRow,
-    engineeringAnalyticsLogic,
-    prKeyOf,
-} from './engineeringAnalyticsLogic'
+import { CIStatusFilter, PRStateFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsPullRequests(): JSX.Element {
     const {
@@ -67,9 +51,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         refresh,
     } = useActions(engineeringAnalyticsLogic)
 
-    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
-    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
-    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
+    // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
+    // the PR list) shows a retryable error, never the misleading "connect" state.
     if (notConnected) {
         return <ConnectGitHubSource />
     }
@@ -78,134 +61,15 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
     }
 
     const failingPct =
-        cards && cards.openPrs > 0 ? `${humanFriendlyNumber((cards.failingCi / cards.openPrs) * 100)}% of open` : '—'
-
-    const columns: LemonTableColumns<PullRequestRow> = [
-        {
-            title: 'Pull request',
-            key: 'title',
-            render: (_, row) => (
-                <div className="flex flex-col gap-0.5">
-                    <Link
-                        to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
-                        target="_blank"
-                        className="font-medium"
-                    >
-                        {row.title}
-                    </Link>
-                    <div className="flex items-center gap-1.5 text-xs text-secondary">
-                        <span className="font-mono">
-                            {row.repoOwner}/{row.repoName} #{row.number}
-                        </span>
-                        {row.isDraft && <LemonTag type="muted">draft</LemonTag>}
-                        {row.labels.slice(0, 3).map((label) => (
-                            <LemonTag key={label} type="option">
-                                {label}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'CI',
-            key: 'ci',
-            width: 190,
-            render: (_, row) => <CIStatusTag rollup={row} />,
-        },
-        {
-            title: 'Author',
-            key: 'author',
-            width: 190,
-            render: (_, row) => (
-                <div className="flex items-center gap-1.5">
-                    {row.authorAvatarUrl && (
-                        <img src={row.authorAvatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
-                    )}
-                    <span className="text-xs">{row.authorHandle}</span>
-                    {row.isBot && <LemonTag type="muted">bot</LemonTag>}
-                </div>
-            ),
-        },
-        {
-            title: 'Opened',
-            key: 'age',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap">
-                    <TZLabel time={row.createdAt} />
-                </span>
-            ),
-        },
-        {
-            title: 'Open→merge',
-            key: 'openToMerge',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap text-secondary">
-                    {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
-                </span>
-            ),
-        },
-        // Cost & performance lens: friction signals available today (pushes / re-runs) plus the cost
-        // scaffold ("pending" until the job-level warehouse source lands).
-        ...(costLensEnabled
-            ? ([
-                  {
-                      title: 'Pushes',
-                      key: 'pushes',
-                      width: 90,
-                      align: 'right',
-                      tooltip:
-                          'Distinct head commits that triggered CI for this PR (all-time, not windowed). Fork PRs are unattributed.',
-                      sorter: (a, b) => a.pushes - b.pushes,
-                      render: (_, row) => (
-                          <span className="text-xs tabular-nums">{humanFriendlyNumber(row.pushes)}</span>
-                      ),
-                  },
-                  {
-                      title: 'Re-runs',
-                      key: 'rerunCycles',
-                      width: 90,
-                      align: 'right',
-                      tooltip: 'Workflow runs on this PR that were a 2nd+ attempt (a re-run).',
-                      sorter: (a, b) => a.rerunCycles - b.rerunCycles,
-                      render: (_, row) => (
-                          <span className="text-xs tabular-nums">
-                              {row.rerunCycles > 0 ? humanFriendlyNumber(row.rerunCycles) : '—'}
-                          </span>
-                      ),
-                  },
-                  {
-                      title: 'Est. cost',
-                      key: 'estimatedCostUsd',
-                      width: 110,
-                      align: 'right',
-                      tooltip: 'Estimated Depot CI cost. Lands with job-level CI data — not available yet.',
-                      render: (_, row) =>
-                          row.estimatedCostUsd == null ? (
-                              <LemonTag type="muted">pending</LemonTag>
-                          ) : (
-                              <span className="text-xs tabular-nums">
-                                  {humanFriendlyCurrency(row.estimatedCostUsd)}
-                              </span>
-                          ),
-                  },
-              ] as LemonTableColumns<PullRequestRow>)
-            : []),
-    ]
+        cards && cards.openPrs > 0 ? `${Math.round((cards.failingCi / cards.openPrs) * 100)}% of open` : undefined
 
     return (
         <div className="flex flex-col gap-4">
+            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <StatCard
                     label="Open PRs"
                     value={cards ? humanFriendlyNumber(cards.openPrs) : '—'}
-                    caption={cards ? `across ${pluralize(cards.repos, 'repo')}` : ' '}
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('open')}
                     active={activeCard === 'open'}
@@ -214,7 +78,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 <StatCard
                     label="Failing CI"
                     value={cards ? humanFriendlyNumber(cards.failingCi) : '—'}
-                    caption={`${failingPct} · workflow-level`}
+                    caption={failingPct}
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('failing')}
                     active={activeCard === 'failing'}
@@ -223,7 +87,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 <StatCard
                     label="Stuck > 7d"
                     value={cards ? humanFriendlyNumber(cards.stuck) : '—'}
-                    caption="open > 7d, not draft, not bot"
+                    caption="excludes drafts and bots"
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('stuck')}
                     active={activeCard === 'stuck'}
@@ -283,7 +147,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     />
                 </div>
                 <LemonSwitch
-                    label="Cost & performance lens"
+                    label="Cost columns"
                     checked={costLensEnabled}
                     onChange={setCostLensEnabled}
                     size="small"
@@ -292,42 +156,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 />
             </div>
 
-            <LemonTable
-                data-attr="engineering-analytics-pr-table"
-                size="small"
-                columns={columns}
-                dataSource={filteredPullRequests}
-                rowKey={prKeyOf}
+            <PullRequestTable
+                rows={filteredPullRequests}
                 loading={pullRequestsLoading}
-                onRow={(row) => {
-                    // Carry the selected source so the PR's detail page reads the same one.
-                    const detailUrl = combineUrl(
-                        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
-                        sourceId ? { source: sourceId } : {}
-                    ).url
-                    return {
-                        // Inner links (PR title → GitHub) keep their own behavior.
-                        onClick: (e: React.MouseEvent) => {
-                            if ((e.target as HTMLElement).closest('a, button')) {
-                                return
-                            }
-                            if (e.metaKey || e.ctrlKey) {
-                                e.preventDefault()
-                                newInternalTab(detailUrl)
-                            } else {
-                                router.actions.push(detailUrl)
-                            }
-                        },
-                        onAuxClick: (e: React.MouseEvent) => {
-                            if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
-                                e.preventDefault()
-                                newInternalTab(detailUrl)
-                            }
-                        },
-                    }
-                }}
-                useURLForSorting={false}
-                pagination={{ pageSize: 50 }}
+                sourceId={sourceId}
+                costLensEnabled={costLensEnabled}
                 emptyState={
                     hasActiveFilters ? (
                         <div className="flex flex-col items-center gap-2">
@@ -337,16 +170,15 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No pull requests yet — they show up as soon as CI events arrive.'
+                        "No pull requests yet. They'll appear once the GitHub source syncs."
                     )
                 }
-                nouns={['pull request', 'pull requests']}
             />
 
             <div className="text-xs text-tertiary">
-                CI is a workflow-level rollup via the head-commit join, not per-check — a run that hasn't completed
-                shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs only), never
-                review or cycle time.
+                CI status is workflow-level for each pull request's latest commit, not per-check. A run that hasn't
+                completed shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs
+                only), never review or cycle time.
                 {tableTruncated && ' Showing the most recent 1000 PRs.'}
             </div>
         </div>

@@ -20,12 +20,13 @@ interface RuleModalProps {
     width?: number
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     saveDisabledReason?: string
-    suffix: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
+    suffix?: (issuesLink: JSX.Element, dateRangeLabel: string) => JSX.Element
     filterLabels?: ReactNode
     extraFields?: ReactNode
     footerExtra?: ReactNode
     samplingRate?: number
     filtersOptional?: boolean
+    showTestButton?: boolean
 }
 
 export function RuleModal({
@@ -42,6 +43,7 @@ export function RuleModal({
     footerExtra,
     samplingRate,
     filtersOptional = false,
+    showTestButton = true,
 }: RuleModalProps): JSX.Element {
     const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
         useValues(logic)
@@ -116,17 +118,19 @@ export function RuleModal({
                         {footerExtra}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
-                            disabledReason={
-                                !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
-                            }
-                            onClick={loadMatchCount}
-                        >
-                            Test rule
-                        </LemonButton>
+                        {showTestButton && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
+                                disabledReason={
+                                    !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
+                                }
+                                onClick={loadMatchCount}
+                            >
+                                Test rule
+                            </LemonButton>
+                        )}
                         <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>
@@ -190,7 +194,7 @@ export function RuleModal({
 
                 {extraFields}
 
-                {matchResult !== null && !matchResultLoading ? (
+                {matchResult !== null && !matchResultLoading && suffix ? (
                     <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
                         <MatchResultBanner
                             matchResult={matchResult}

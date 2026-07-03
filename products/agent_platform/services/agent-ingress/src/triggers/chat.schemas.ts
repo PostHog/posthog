@@ -11,9 +11,19 @@
 
 import { z } from 'zod'
 
+import { SUPPORTED_CLIENT_TOOL_ID_MAX_LEN, SUPPORTED_CLIENT_TOOLS_MAX_LEN } from '@posthog/agent-shared'
+
 export const ChatRunBodySchema = z.object({
     message: z.string().min(1, 'message must be a non-empty string'),
     external_key: z.string().optional(),
+    // `kind:'client'` tool ids this client can fulfil; the runner exposes the
+    // matching spec tools to the model. UX hint, never a security boundary.
+    // Capped to stop a misbehaving caller from inflating the session row's
+    // `trigger_metadata` JSONB. Bounds mirror trigger-metadata.ts.
+    supported_client_tools: z
+        .array(z.string().min(1).max(SUPPORTED_CLIENT_TOOL_ID_MAX_LEN))
+        .max(SUPPORTED_CLIENT_TOOLS_MAX_LEN)
+        .optional(),
 })
 
 /**

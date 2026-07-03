@@ -28,11 +28,13 @@
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
+- Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
+  **Agents must use it too**: when a hogli command or dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Agent-sent feedback is tagged as such, and it's the fastest signal the devex team gets, so use it liberally rather than suffering friction silently.
 
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- Check docs for any content that may need updating, you can find these at `docs/`
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
 
 ### Commit types
 
@@ -59,9 +61,7 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
-Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
-Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
 
 ### Rules
 
@@ -71,15 +71,20 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 
 ### Pushing to remote
 
-Don't open GitHub issues or pull requests without human instruction.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+#### Pre-push checks — ci:preflight
+
+A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
+If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Public open source repo guidance
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
 
-- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Never mention internal-only systems, private incidents, customer data, Slack thread contents, unreleased roadmap details, or security-sensitive implementation details. Slack thread links and channel references are fine to include — they sit behind PostHog auth and are useful as origin context — but do not quote or paraphrase what was said in the thread.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
@@ -87,8 +92,10 @@ This repository is public and all commit messages, pull request titles, and pull
 Examples:
 
 - ✅ `fix(insights): handle missing series color in trend export`
+- ✅ A PR description that links to the originating Slack thread for context
 - ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
 - ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
+- ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 
 ## CI / GitHub Actions
 
@@ -98,7 +105,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines — least privilege, secrets & service-to-service auth (don't add new `INTERNAL_API_SECRET` callers), SQL, HogQL, and semgrep.
 
 ## Architecture guidelines
 
@@ -116,11 +123,13 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - **PostHog does not enable `ATOMIC_REQUESTS` — there is no implicit per-request transaction.** Each database operation runs in autocommit mode unless explicitly wrapped. Use `with transaction.atomic():` around the specific writes that must succeed or fail together. Do not wrap an entire view method atomically — keep the block as narrow as possible around the related writes. Avoid performing irreversible side effects (sending emails, calling external APIs, enqueuing Celery tasks) inside an atomic block: if the transaction rolls back, those side effects have already happened. Schedule such side effects after the commit, or use `transaction.on_commit()` for Celery task dispatch.
 - **Prefer SeaweedFS over MinIO for object storage — we are working to remove MinIO from the stack.** SeaweedFS (the `seaweedfs` service, S3 API on `:8333`) is the direction of travel for S3-compatible object storage and already backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings, default endpoint `http://seaweedfs:8333`). MinIO (the `objectstorage` service, S3 API on `:19000`) still backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), but it is being phased out. Do not introduce new dependencies on MinIO: don't add new docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container or hardcode `objectstorage:19000`. Both stores are S3-compatible, so code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable as MinIO is retired. When a new local-dev feature needs an S3-compatible store, point it at SeaweedFS.
 - **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
+- **Outbound calls to a third-party API that need rate-limiting or egress telemetry belong in `posthog/egress/` — add a `<domain>/` incarnation (GitHub is the reference) and route callers through its gated, recorded transport, never hand-rolled `requests`. See `posthog/egress/README.md`.**
 
 ## Code Style
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
 - Python imports: keep imports at module level — not inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow hot paths with repeated lookups, and mask circular-import problems instead of fixing them; ruff's `PLC0415` enforces this. Defer an import only to (1) break a true unavoidable circular import (fix the structure first if you can), (2) reference types under `TYPE_CHECKING`, or (3) keep a heavy/optional dependency off the import path so it loads only when its code runs. For (3), add a justified `# noqa: PLC0415` on the import line (e.g. `# noqa: PLC0415 — keeps the heavy dep off the import path`) — never blanket-suppress the rule
+- Frontend: for any frontend work — the main app (`frontend/src/`) **or** a product frontend (`products/*/frontend/`) — follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md): reuse existing Lemon/quill components instead of hand-rolling tables/badges/labels, import generated `*Api` types instead of handwriting them, and run typecheck/typegen at the right moments. Product frontends share the same components and generated types, so the same rules apply there
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
@@ -161,7 +170,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Always invoke:**
 
 - `/improving-drf-endpoints` — any DRF viewset or serializer change
-- `/django-migrations` — any Django migration
+- `/django-migrations` — any Django migration, including deleting a model, table, column, or whole product/app (even when no migration file is written, e.g. removing a product folder)
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)

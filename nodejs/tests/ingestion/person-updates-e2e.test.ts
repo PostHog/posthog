@@ -17,19 +17,20 @@ import { v4 } from 'uuid'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { UUIDT } from '~/common/utils/utils'
+import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { UUIDT } from '~/utils/utils'
+import { PipelineEvent, ProjectId, Team } from '~/types'
 
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -38,7 +39,7 @@ jest.mock('~/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 const DEFAULT_TEAM: Team = {
     id: 1,
@@ -171,7 +172,7 @@ const formatConfigName = (config: PersonUpdateConfig): string => {
 describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     const configName = formatConfigName(config)
     let clickhouse: Clickhouse
-    let hub: Hub
+    let infra: IngestionTestInfra
     let kafkaProducer: KafkaProducerWrapper
     let ingester: IngestionConsumer
     let team: Team
@@ -190,10 +191,10 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     })
 
     beforeEach(async () => {
-        hub = await createHub({
+        infra = await createIngestionTestInfra({
             ...config,
         })
-        kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        kafkaProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
         const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
@@ -211,7 +212,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         }
 
         await createUserTeamAndOrganization(
-            hub.postgres,
+            infra.postgres,
             team.id,
             userId,
             userUuid,
@@ -220,7 +221,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             { extra_settings: { person_last_seen_at_enabled: true } }
         )
 
-        const fetchedTeam = await hub.teamManager.getTeam(team.id)
+        const fetchedTeam = await infra.teamManager.getTeam(team.id)
         if (!fetchedTeam) {
             throw new Error(`Failed to fetch team ${team.id} from database`)
         }
@@ -228,12 +229,23 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         currentToken = team.api_token
 
         const outputs = createTestIngestionOutputs(kafkaProducer)
-        ingester = new IngestionConsumer(hub, {
-            ...hub,
+        ingester = new IngestionConsumer(infra.config, {
+            postgres: infra.postgres,
+            redisPool: infra.redisPool,
+            teamManager: infra.teamManager,
+            groupTypeManager: infra.groupTypeManager,
+            groupRepository: infra.groupRepository,
+            personRepository: infra.personRepository,
+            cookielessManager: infra.cookielessManager,
             aiSubpipelineFactory: createAiEventSubpipeline,
-            hogTransformer: createHogTransformerService(hub, {
-                ...hub,
+            hogTransformer: createHogTransformerService(infra.config, {
+                geoipService: infra.geoipService,
+                postgres: infra.postgres,
+                pubSub: infra.pubSub,
+                encryptedFields: infra.encryptedFields,
+                integrationManager: infra.integrationManager,
                 monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
+                teamManager: infra.teamManager,
             }),
             outputs,
             clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
@@ -250,7 +262,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     afterEach(async () => {
         await ingester.stop()
         await kafkaProducer.disconnect()
-        await closeHub(hub)
+        await infra.close()
     })
 
     describe(configName, () => {
@@ -264,7 +276,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.team_id).toBe(team.id)
                 // last_seen_at should be set to an hour-rounded timestamp
@@ -296,7 +308,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -337,7 +349,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -369,7 +381,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Wait for person to be created
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -394,7 +406,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -426,7 +438,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -451,7 +463,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 // Value should remain unchanged
                 expect(person!.properties.first_seen).toBe('original_value')
@@ -478,7 +490,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toHaveProperty('remove_prop')
             })
@@ -499,7 +511,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -546,7 +558,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.properties).toEqual(
                     expect.objectContaining({
@@ -580,7 +592,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.last_seen_at).toBeDefined()
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
@@ -596,7 +608,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.last_seen_at).toBeDefined()
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.plus({ hours: 2 }).toMillis())
@@ -623,7 +635,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
             })
@@ -642,7 +654,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 // last_seen_at should remain unchanged
                 expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
@@ -664,7 +676,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, anonDistinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, anonDistinctId)
                 expect(person).toBeDefined()
                 expect(person!.is_identified).toBe(false)
             })
@@ -687,7 +699,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             await waitForExpect(async () => {
                 // After merge, the person should be identified and accessible via the identified distinct ID
-                const person = await hub.personRepository.fetchPerson(team.id, identifiedDistinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, identifiedDistinctId)
                 expect(person).toBeDefined()
                 expect(person!.is_identified).toBe(true)
             })
@@ -703,7 +715,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             const disabledOrgMembershipId = new UUIDT().toString()
 
             await createUserTeamAndOrganization(
-                hub.postgres,
+                infra.postgres,
                 disabledTeamId,
                 disabledUserId,
                 disabledUserUuid,
@@ -711,7 +723,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 disabledOrgMembershipId
             )
 
-            const fetchedTeam = await hub.teamManager.getTeam(disabledTeamId)
+            const fetchedTeam = await infra.teamManager.getTeam(disabledTeamId)
             if (!fetchedTeam) {
                 throw new Error(`Failed to fetch team ${disabledTeamId} from database`)
             }
@@ -739,7 +751,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             let initialLastSeenAt: number | undefined
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 initialLastSeenAt = person!.last_seen_at?.toMillis()
             })
@@ -753,7 +765,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
-                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.last_seen_at?.toMillis()).toBe(initialLastSeenAt)
             })

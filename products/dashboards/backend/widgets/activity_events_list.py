@@ -47,11 +47,15 @@ def _build_activity_events_query(
 
     property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
 
+    event_name = config.get("eventName")
+    event = event_name if isinstance(event_name, str) and event_name else None
+
     return EventsQuery(
         kind="EventsQuery",
         select=ACTIVITY_EVENTS_WIDGET_SELECT,
         orderBy=["timestamp DESC"],
         after=after,
+        event=event,
         filterTestAccounts=resolve_filter_test_accounts(config, team),
         properties=property_filters or None,
         limit=limit,

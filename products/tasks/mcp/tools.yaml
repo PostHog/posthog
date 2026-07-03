@@ -252,3 +252,6 @@ tools:
     tasks-update:
         operation: tasks_update
         enabled: false
+    tasks-warm-create:
+        operation: tasks_warm_create
+        enabled: false

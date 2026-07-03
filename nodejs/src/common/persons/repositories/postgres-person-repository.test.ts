@@ -2,22 +2,22 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-topics'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
 import { createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { NoRowsUpdatedError, UUIDT } from '~/utils/utils'
 
 import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 describe('PostgresPersonRepository', () => {
     let hub: Hub

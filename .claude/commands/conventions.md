@@ -46,14 +46,13 @@ Hence the explicit separation between the data and view layers.
   - Props for both logics and components are PascalCase and end with `Props` (`DashboardLogicProps` & `DashboardMenuProps`)
   - Name the `.ts` file according to its main export: `DashboardMenu.ts` or `DashboardMenu.tsx` or `dashboardLogic.ts` or `Dashboard.scss`. Pay attention to the case.
   - Avoid `index.ts`, `styles.css`, and other generic names, even if this is the only file in a directory.
-- Scenes & tabs
-  - Our app is built of _tabs that contain scenes_, managed through a scene router in `sceneLogic`.
+- Scenes
+  - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.
   - A scene is the smallest unit in the router and for code splitting. Usually we split scenes by resource type (dashboard, insight) and function (edit, index).
   - Each scene (e.g. Dashboards) exports an object of type `SceneExport`, containing the scene's root `logic` and its React `component`.
-  - The scene's logic is automatically mounted if on a tab, and receives a `tabId: string` prop. It's strongly recommended to key your logic with this `tabId`.
-  - It's also strongly recommended to add the `tabAwareScene()` function to your scene's logic. This catches bugs when mounting the logic from somewhere without the `tabId` prop.
-  - Instead of `urlToAction` and `actionToUrl`, use `tabAwareUrlToAction` and `tabAwareActionToUrl`. Try to only only use them on the scene's logic, not in any deeper logics.
-  - When a scene becomes inactive (you open a different tab), it's still around in the background. However any logics mounted by React components through the view layer will unmount. Use `useAttachedLogic(dataNoteLogic(propsFromComponent), mySceneLogic({ tabId }))` to attach any logic to a scene logic. It'll persist until the scene's logic is unmounted, surviving React component remounts.
+  - The scene's logic is automatically mounted and receives the scene's URL params as props (via `paramsToProps`).
+  - Use `urlToAction` and `actionToUrl` on the scene's logic to sync state with the URL. Try to only use them on the scene's logic, not in any deeper logics.
+  - Logics mounted by React components through the view layer unmount when the component unmounts. Use `useAttachedLogic(dataNodeLogic(propsFromComponent), mySceneLogic())` to attach a logic to the scene's logic so it persists until the scene's logic is unmounted, surviving React component remounts.
   - You can control what's shown on the tab via the `breadcrumbs` selector in your scene's logic. The last breadcrumb controls the title and the icon, the one before that controls the back button. If there are more breadcrumbs, they will be ignored.
 - Kea
   - It's worth repeating: think of the data flow. Then work to simplify it. Derive as much state as possible via selectors, update the source via cascading actions, and avoid complex loops where a value triggers a subscription which calls an action which changes the value which triggers the subscription, ...

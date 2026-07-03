@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -11,6 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
+
+import { CustomPropertiesConfig } from './CustomPropertiesConfig'
 
 const NO_ACCOUNT_GROUP = -1
 
@@ -39,20 +41,24 @@ export function CustomerAnalyticsAccountConfig(): JSX.Element {
     const value = customerAnalyticsConfig.account_group_type_index ?? NO_ACCOUNT_GROUP
 
     return (
-        <LemonSelect
-            data-attr="customer-analytics-account-group-type"
-            value={value}
-            onChange={(newValue) =>
-                updateCurrentTeam({
-                    customer_analytics_config: {
-                        account_group_type_index: newValue === NO_ACCOUNT_GROUP ? null : newValue,
-                    } as CustomerAnalyticsConfig,
-                })
-            }
-            disabledReason={currentTeamLoading ? 'Loading...' : restrictedReason}
-            fullWidth
-            className="max-w-160"
-            options={options}
-        />
+        <div className="flex flex-col gap-4">
+            <LemonSelect
+                data-attr="customer-analytics-account-group-type"
+                value={value}
+                onChange={(newValue) =>
+                    updateCurrentTeam({
+                        customer_analytics_config: {
+                            account_group_type_index: newValue === NO_ACCOUNT_GROUP ? null : newValue,
+                        } as CustomerAnalyticsConfig,
+                    })
+                }
+                disabledReason={currentTeamLoading ? 'Loading...' : restrictedReason}
+                fullWidth
+                className="max-w-160"
+                options={options}
+            />
+            <LemonDivider />
+            <CustomPropertiesConfig />
+        </div>
     )
 }

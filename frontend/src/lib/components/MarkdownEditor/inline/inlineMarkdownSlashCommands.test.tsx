@@ -34,6 +34,7 @@ const PREFLIGHT_WITH_OBJECT_STORAGE = {
     slack_service: { available: false },
     data_warehouse_integrations: { hubspot: {}, salesforce: {} },
     object_storage: true,
+    wizard_cloud_run_available: false,
 } satisfies PreflightStatus
 
 const PREFLIGHT_WITHOUT_OBJECT_STORAGE: PreflightStatus = {

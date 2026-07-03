@@ -19,7 +19,10 @@ pub struct VmHeap {
     // improve this. Right now our heap is append-only
     freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
 
-    pub(crate) current_bytes: usize, // Pub: the vm occasionally directly writes to this
+    pub(crate) current_bytes: usize, // Pub: the vm occasionally writes to this via set_current_bytes
+    // High-water mark of current_bytes — mirrors the reference VM's `maxMemUsed`. Bumped whenever
+    // usage rises and never decremented, so it reports the true peak even after values are replaced.
+    pub(crate) peak_bytes: usize,
     max_bytes: usize,
 }
 
@@ -31,8 +34,16 @@ impl VmHeap {
             inner: Vec::new(),
             freed: Vec::new(),
             current_bytes: 0,
+            peak_bytes: 0,
             max_bytes,
         }
+    }
+
+    /// Set current usage and raise the high-water mark. Used by ops that replace a heap value in
+    /// place (which can lower `current_bytes`) so the peak still reflects the largest usage seen.
+    pub(crate) fn set_current_bytes(&mut self, bytes: usize) {
+        self.current_bytes = bytes;
+        self.peak_bytes = self.peak_bytes.max(bytes);
     }
 
     fn assert_can_allocate(&self, new_bytes: usize) -> Result<(), VmError> {
@@ -52,6 +63,7 @@ impl VmHeap {
         };
 
         self.current_bytes = self.current_bytes.saturating_add(value.size());
+        self.peak_bytes = self.peak_bytes.max(self.current_bytes);
 
         if self.inner.len() <= next_idx {
             self.inner.push(HeapValue {

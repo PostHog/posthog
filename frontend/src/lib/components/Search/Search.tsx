@@ -380,7 +380,7 @@ export interface SearchRootProps {
     className?: string
     /** Initial search value (useful for stories/tests) */
     defaultSearchValue?: string
-    /** Optional suggested items shown above recents/apps */
+    /** Optional suggested items shown above recents/tools */
     suggestedItems?: SearchItem[]
 }
 
@@ -428,14 +428,14 @@ function SearchRoot({
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
-            // Client-side fuzzy filter for recents/apps/starred; keep server results as-is
-            const clientItems = allItems.filter((item) => ['recents', 'apps', 'starred'].includes(item.category))
-            const serverItems = allItems.filter((item) => !['recents', 'apps', 'starred'].includes(item.category))
+            // Client-side fuzzy filter for recents/tools/starred; keep server results as-is
+            const clientItems = allItems.filter((item) => ['recents', 'tools', 'starred'].includes(item.category))
+            const serverItems = allItems.filter((item) => !['recents', 'tools', 'starred'].includes(item.category))
             const filteredClientItems = filterSearchItems(clientItems, searchValue)
             items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents, starred, and apps
-            items = allItems.filter((item) => ['recents', 'starred', 'apps'].includes(item.category))
+            // When not searching, show recents, starred, and tools
+            items = allItems.filter((item) => ['recents', 'starred', 'tools'].includes(item.category))
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -541,8 +541,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, starred, apps, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'starred', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
+        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -550,13 +550,13 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/apps (with skeleton if loading); starred only when items or loading
+            // When not searching: always show recents/tools (with skeleton if loading); starred only when items or loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : (category === 'suggested' && items.length > 0) ||
                   category === 'recents' ||
-                  category === 'apps' ||
+                  category === 'tools' ||
                   (category === 'starred' && (items.length > 0 || isLoading))
 
             if (shouldShow) {
@@ -764,7 +764,7 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and apps'
+                return 'Recents and tools'
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }

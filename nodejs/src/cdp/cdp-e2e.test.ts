@@ -3,6 +3,11 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
@@ -12,12 +17,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from '../../src/cdp/consumers/cdp-data-warehouse-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { UUIDT } from '../../src/utils/utils'
-import { logger } from '../utils/logger'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
@@ -29,7 +29,7 @@ import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { compileHog } from './templates/compiler'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 describe('CDP Consumer loop', () => {
     jest.setTimeout(20000)

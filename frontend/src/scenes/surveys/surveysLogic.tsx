@@ -473,13 +473,31 @@ export const surveysLogic = kea<surveysLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setTab: () => {
-            return [router.values.location.pathname, { ...router.values.searchParams, tab: values.tab }]
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams, tab: values.tab },
+                router.values.hashParams,
+            ]
+        },
+        setSearchTerm: () => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.searchTerm) {
+                searchParams.search = values.searchTerm
+            } else {
+                delete searchParams.search
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.surveys()]: (_, { tab }) => {
+    urlToAction(({ actions, values }) => ({
+        [urls.surveys()]: (_, { tab, search }) => {
             if (tab) {
                 actions.setTab(tab)
+            }
+            // The router parses purely-numeric query params into numbers, so coerce to a string.
+            const nextSearchTerm = search != null ? String(search) : ''
+            if (nextSearchTerm !== values.searchTerm) {
+                actions.setSearchTerm(nextSearchTerm)
             }
             actions.addProductIntent({
                 product_type: ProductKey.SURVEYS,

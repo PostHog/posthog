@@ -1,7 +1,7 @@
 import pytest
 
 from products.revenue_analytics.backend.views.core import view_prefix_for_event, view_prefix_for_source
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 @pytest.mark.parametrize(

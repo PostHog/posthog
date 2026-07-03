@@ -112,7 +112,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Message channel of the template. Currently 'email'."),
     message_category: zod
-        .uuid()
+        .string()
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
@@ -220,7 +220,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Message channel of the template. Currently 'email'."),
     message_category: zod
-        .uuid()
+        .string()
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),

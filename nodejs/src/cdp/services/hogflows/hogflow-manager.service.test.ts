@@ -1,12 +1,12 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertHogFlow } from '../../_tests/fixtures-hogflows'
 import { HogFlowManagerService } from './hogflow-manager.service'

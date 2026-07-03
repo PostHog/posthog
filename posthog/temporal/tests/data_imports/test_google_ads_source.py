@@ -14,20 +14,24 @@ import pyarrow as pa
 
 from posthog.models import Team
 from posthog.models.organization import Organization
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsMccAccountConfig, GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.configs import (
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+    GoogleAdsIsMccAccountConfig,
+    GoogleAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
 )
-from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsTable,
     _search_as_arrow_tables,
     get_schemas,
     google_ads_client,
     google_ads_source,
 )
-from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
 SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS" not in os.environ
@@ -337,7 +341,7 @@ class TestSearchAsArrowTablesResume:
         service = _make_search_service(pages_by_token)
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads._response_as_dicts",
             side_effect=[iter(rows) for rows in response_rows],
         ):
             tables = list(
@@ -375,7 +379,7 @@ class TestGoogleAdsSourceResumableBinding:
         fake_redis.exists.side_effect = lambda key: 1 if key in store else 0
 
         with mock.patch(
-            "posthog.temporal.data_imports.sources.common.resumable.get_client",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client",
             return_value=fake_redis,
         ):
             original = GoogleAdsResumeConfig(page_token="TEST_TOKEN")
@@ -419,7 +423,9 @@ class TestGoogleAdsSourceValidation:
             assert any("Please enter a valid Google Ads customer ID" in error for error in errors)
             assert is_valid is False
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_success(self, mock_client):
         mock_customer_service = mock.MagicMock()
         mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/1234567890"]
@@ -432,7 +438,9 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is True
         assert error is None
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_invalid_customer_id(self, mock_client):
         mock_customer_service = mock.MagicMock()
         mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/9999999999"]
@@ -446,7 +454,9 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "is not correct" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_access_token_scope_insufficient(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
@@ -460,7 +470,9 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "Insufficient permissions" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_not_ads_user(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception(
             "NOT_ADS_USER: The Google account is not associated with any Ads accounts"
@@ -474,7 +486,9 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "not associated with any Google Ads accounts" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_generic_error(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception("Some unexpected error occurred")
 
@@ -486,7 +500,9 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "Error validating credentials" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_mcc_success(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_response = [mock.MagicMock()]
@@ -507,7 +523,9 @@ class TestGoogleAdsSourceValidation:
         call_kwargs = mock_ga_service.search.call_args[1]
         assert call_kwargs["customer_id"] == "1234567890"
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_mcc_customer_not_found(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_ga_service.search.side_effect = Exception("CUSTOMER_NOT_FOUND: Customer not found")
@@ -525,7 +543,9 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "is not accessible" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
+    )
     def test_validate_credentials_mcc_permission_denied(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_ga_service.search.side_effect = Exception("USER_PERMISSION_DENIED: User does not have permission")
@@ -554,9 +574,13 @@ class TestGoogleAdsClientStaleConnection:
     connections before the ORM query so the next lookup grabs a fresh one.
     """
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.Integration")
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+    )
     def test_oauth_client_closes_stale_connections_before_integration_lookup(
         self, mock_close_old_connections, mock_integration_model, mock_client_cls
     ):
@@ -579,9 +603,15 @@ class TestGoogleAdsClientStaleConnection:
         call_order = [name for name, _, _ in manager.mock_calls]
         assert call_order.index("close_old_connections") < call_order.index("integration_get")
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.service_account")
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.service_account"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+    )
     def test_service_account_client_does_not_touch_django_connections(
         self, mock_close_old_connections, mock_client_cls, mock_service_account
     ):
@@ -606,7 +636,7 @@ import os, sys
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
 django.setup()
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 SourceRegistry._ensure_loaded()
 print("\\n".join(sorted(m for m in sys.modules if m.startswith("google.ads"))))
 """

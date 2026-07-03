@@ -88,7 +88,9 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     const processedCriteria = { ...criteria }
 
     if (
-        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(criteria.type) &&
+        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person, BehavioralFilterKey.PersonMetadata].includes(
+            criteria.type
+        ) &&
         !('value_property' in criteria)
     ) {
         processedCriteria.value_property = criteria.value
@@ -212,11 +214,17 @@ export const cohortsModel = kea<cohortsModelType>([
                 if (!cohort) {
                     return state
                 }
+                // Upsert: a cohort opened directly (via cohortEditLogic.fetchCohort) may not be in
+                // the list yet, so append it when missing — otherwise its name never reaches
+                // cohortsById and the breadcrumb / browser tab title falls back to "Untitled".
+                const exists = state.results.some((existingCohort) => existingCohort.id === cohort.id)
                 return {
                     ...state,
-                    results: state.results.map((existingCohort) =>
-                        existingCohort.id === cohort.id ? cohort : existingCohort
-                    ),
+                    results: exists
+                        ? state.results.map((existingCohort) =>
+                              existingCohort.id === cohort.id ? cohort : existingCohort
+                          )
+                        : [...state.results, cohort],
                 }
             },
             cohortCreated: (state, { cohort }) => {

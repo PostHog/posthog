@@ -1,4 +1,4 @@
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
 
 import { SesWebhookHandler } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -243,8 +243,9 @@ describe('SesWebhookHandler', () => {
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
-        // No metric recorded for the test send, but the hard bounce still triggers an opt-out.
+        // No metric or log entry recorded for the test send, but the hard bounce still triggers an opt-out.
         expect(result.metrics).toEqual([])
+        expect(result.logEntries).toEqual([])
         expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
     })
 
@@ -489,5 +490,186 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_opened')
+    })
+
+    describe('log entries', () => {
+        const logCases: { name: string; event: Record<string, any>; level: string; message: string }[] = [
+            {
+                name: 'Bounce permanent',
+                event: {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            {
+                                emailAddress: 'to@example.com',
+                                status: '5.1.1',
+                                diagnosticCode: 'mailbox does not exist',
+                            },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                level: 'error',
+                message: '[Action:act789] Permanent bounce to to@example.com, mailbox does not exist (5.1.1)',
+            },
+            {
+                name: 'Bounce transient',
+                event: {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Transient',
+                        bouncedRecipients: [
+                            { emailAddress: 'to@example.com', status: '4.1.1', diagnosticCode: 'temp' },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                level: 'warn',
+                message: '[Action:act789] Transient bounce to to@example.com, temp (4.1.1)',
+            },
+            {
+                name: 'Complaint',
+                event: {
+                    eventType: 'Complaint',
+                    mail: baseMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'to@example.com' }],
+                        timestamp: '2025-10-03T12:05:00Z',
+                        complaintFeedbackType: 'abuse',
+                    },
+                },
+                level: 'warn',
+                message: '[Action:act789] Complaint from to@example.com, feedback type: abuse',
+            },
+            {
+                name: 'RenderingFailure',
+                event: {
+                    eventType: 'RenderingFailure',
+                    mail: baseMail,
+                    renderingFailure: { errorMessage: 'bad template', templateName: 'welcome' },
+                },
+                level: 'error',
+                message: '[Action:act789] Rendering failure for template welcome: bad template',
+            },
+            {
+                name: 'Reject',
+                event: { eventType: 'Reject', mail: baseMail, reject: { reason: 'spam' } },
+                level: 'error',
+                message: '[Action:act789] Message rejected by SES: spam',
+            },
+        ]
+
+        it.each(logCases)('emits a $name log entry', async ({ event, level, message }) => {
+            const result = await handler.handleWebhook({ body: [event], headers: {} })
+            expect(result.logEntries).toEqual([
+                expect.objectContaining({ functionId: 'abc123', invocationId: 'inv456', level, message }),
+            ])
+        })
+
+        it.each([
+            { name: 'Open', event: { eventType: 'Open', mail: baseMail, open: { timestamp: '2025-10-03T12:01:00Z' } } },
+            {
+                name: 'Delivery',
+                event: { eventType: 'Delivery', mail: baseMail, delivery: { timestamp: '2025-10-03T12:03:00Z' } },
+            },
+            { name: 'Send', event: { eventType: 'Send', mail: baseMail } },
+        ])('does not emit a log entry for the info-level $name event', async ({ event }) => {
+            const result = await handler.handleWebhook({ body: [event], headers: {} })
+            expect(result.logEntries).toEqual([])
+        })
+
+        it('emits one log entry per bounced recipient', async () => {
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            { emailAddress: 'a@example.com', diagnosticCode: 'mailbox full' },
+                            { emailAddress: 'b@example.com', diagnosticCode: 'mailbox full' },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.map((e) => e.message)).toEqual([
+                '[Action:act789] Permanent bounce to a@example.com, mailbox full',
+                '[Action:act789] Permanent bounce to b@example.com, mailbox full',
+            ])
+        })
+
+        it('does not duplicate the status when SES inlines it inside diagnosticCode', async () => {
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            {
+                                emailAddress: 'to@example.com',
+                                status: '5.1.1',
+                                diagnosticCode: 'smtp; 550 5.1.1 user unknown <to@example.com>',
+                            },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.[0].message).toBe(
+                '[Action:act789] Permanent bounce to to@example.com, smtp; 550 5.1.1 user unknown <to@example.com>'
+            )
+        })
+
+        it('drops the [Action:...] prefix when the actionId contains unsafe characters', async () => {
+            // A ph_id whose actionId would close the Action token early and inject an Actor token
+            // must not reach the rich-log viewer with brackets intact.
+            const maliciousInvocation = {
+                ...baseInvocation,
+                state: { actionId: 'act] [Actor:attacker@evil.com' },
+            }
+            const maliciousMail = {
+                ...baseMail,
+                headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(maliciousInvocation) }],
+                tags: { ph_id: [signer.generateShort(maliciousInvocation)] },
+            }
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: maliciousMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'unknown' }],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.[0].message).toBe('Permanent bounce to to@example.com, unknown')
+        })
+
+        it('accepts DeliveryDelay without producing a metric or log (so SNS does not retry)', async () => {
+            const body = [
+                {
+                    eventType: 'DeliveryDelay',
+                    mail: baseMail,
+                    deliveryDelay: {
+                        delayType: 'MailboxFull',
+                        timestamp: '2025-10-03T12:06:00Z',
+                        delayedRecipients: [{ emailAddress: 'to@example.com' }],
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+            expect(result.metrics).toEqual([])
+            expect(result.logEntries).toEqual([])
+        })
     })
 })

@@ -5,10 +5,10 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -65,7 +65,7 @@ export function EndpointsScene(): JSX.Element {
                             type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                         }}
                         actions={
-                            <AppShortcut
+                            <Shortcut
                                 name="EndpointsNew"
                                 keybind={[keyBinds.new]}
                                 intent="New endpoint"
@@ -95,7 +95,7 @@ export function EndpointsScene(): JSX.Element {
                                         New
                                     </LemonButton>
                                 </AccessControlAction>
-                            </AppShortcut>
+                            </Shortcut>
                         }
                     />
                     <ProductIntroduction

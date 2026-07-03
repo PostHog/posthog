@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/tasks/frontend/types'
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { inboxTaskKickoffLogicType } from './inboxTaskKickoffLogicType'
 import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalReportTaskRelationship } from './types'

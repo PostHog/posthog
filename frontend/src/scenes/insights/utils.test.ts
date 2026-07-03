@@ -101,6 +101,12 @@ describe('getDisplayNameFromEntityNode()', () => {
             })
         }
     })
+
+    it('returns null instead of throwing when a series node is null', () => {
+        // Malformed insight records can carry a null entry in query.series; the
+        // function must not read `.id` off it (caught rendering the saved insights list).
+        expect(getDisplayNameFromEntityNode(null as any)).toBeNull()
+    })
 })
 
 describe('extractObjectDiffKeys()', () => {

@@ -62,6 +62,7 @@ function AddWidgetCatalogPicker({
     return (
         <WidgetTypePickerCard
             label={entry.label}
+            badge={entry.badge}
             description={entry.description}
             selected={selected}
             preview={WidgetPreview ? <WidgetPreview /> : <div />}

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { IconServer } from '@posthog/icons'
 import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
 
+import { DataWarehouseColumnsHint } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -33,11 +34,14 @@ export function isDataWarehouseTableTriggerConfig(
 function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { dataWarehouseTables, databaseLoading } = useValues(databaseTableListLogic)
+    const { externalDataSourceTables, dataWarehouseTables, dataWarehouseTablesMap, databaseLoading } =
+        useValues(databaseTableListLogic)
     const { loadDatabase } = useActions(databaseTableListLogic)
 
     useEffect(() => {
         // The list isn't loaded automatically on mount, so kick it off when the panel opens.
+        // Guard on the full table list, not the source-filtered subset, so a project with only
+        // self-managed tables (which have no source) doesn't refetch on every mount.
         if (!dataWarehouseTables.length) {
             loadDatabase()
         }
@@ -48,12 +52,16 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
     const selectedTableName = config.table_name || null
     const properties = config.filters?.properties ?? []
     const validationResult = actionValidationErrorsById[node.data.id]
-    const hasNoTables = !databaseLoading && dataWarehouseTables.length === 0
+    const hasNoTables = !databaseLoading && externalDataSourceTables.length === 0
 
-    const tableOptions = dataWarehouseTables.map((table) => ({
+    const tableOptions = externalDataSourceTables.map((table) => ({
         label: table.name,
         value: table.name,
     }))
+
+    const schemaColumns = selectedTableName
+        ? Object.values(dataWarehouseTablesMap[selectedTableName]?.fields ?? {})
+        : []
 
     const updateTriggerConfig = (tableName: string | null, newProperties: any[]): void => {
         setWorkflowActionConfig(node.data.id, {
@@ -93,11 +101,17 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
                 )}
             </LemonField.Pure>
 
+            {selectedTableName ? (
+                <DataWarehouseColumnsHint schemaColumns={schemaColumns} tableName={selectedTableName} />
+            ) : null}
+
             <LemonField.Pure label="Only trigger for specific rows">
                 <HogFlowPropertyFilters
                     filtersKey={`data-warehouse-table-trigger-${node.data.id}`}
                     filters={{ properties }}
                     setFilters={(filters) => updateTriggerConfig(selectedTableName, filters?.properties ?? [])}
+                    schemaColumns={schemaColumns}
+                    dataWarehouseTableName={selectedTableName ?? undefined}
                 />
             </LemonField.Pure>
         </div>

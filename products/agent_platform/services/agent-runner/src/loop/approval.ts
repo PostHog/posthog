@@ -28,11 +28,9 @@ import {
     ApprovalStore,
     type ApprovalType,
     AssistantMessageRecord,
-    CLIENT_KIND_POSTHOG_CODE,
     ConversationMessage,
     hashCanonicalArgs,
     parseApprovalDecidedMarker,
-    readSessionClientKind,
 } from '@posthog/agent-shared'
 
 import type { RealToolExecute, ToolResultDetails } from './build-agent-tools'
@@ -100,27 +98,21 @@ export async function queueApprovalResult(input: {
             type: input.policy.type,
             allow_edit: input.policy.allow_edit,
         },
-        // Stamp the session's preview mode on the row so the dispatch path
-        // and the listing serializer don't have to re-join `agent_session`.
-        is_preview: input.session.is_preview,
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
 
-    // Posthog-code sessions render an in-chat approval card on top of every
-    // queued tool call; the model echoing a "track it here: <url>" line on top
-    // of that card is redundant when the user is already in the app the deep
-    // link would open. Drop the URL + approver hint so the model has nothing to
-    // repeat about how the user should approve. Other clients (Slack, MCP) still
-    // surface the deep link so the approval can be opened in PostHog Code.
-    const suppressApprovalChannel = readSessionClientKind(input.session.trigger_metadata) === CLIENT_KIND_POSTHOG_CODE
     const buildUrl = input.buildApprovalUrl ?? defaultApprovalUrl
     const approval: Record<string, unknown> = {
         request_id: upsert.request.id,
         state: 'queued',
-    }
-    if (!suppressApprovalChannel) {
-        approval.approver_hint = input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL
-        approval.approval_url = buildUrl(upsert.request.id)
+        // The inline approval card renders straight from this envelope (live
+        // `tool_result` + persisted transcript on reload) — no extra fetch. It
+        // needs the edit affordance and whether it's decidable inline
+        // (`principal`) or console-only (`agent`); neither is on the tool_call.
+        allow_edit: input.policy.allow_edit,
+        approver_scope: { type: input.policy.type },
+        approver_hint: input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL,
+        approval_url: buildUrl(upsert.request.id),
     }
     if (!upsert.deduped && previous && isTerminal(previous.state)) {
         approval.prior_decision = { state: previous.state, reason: previous.decision_reason ?? undefined }
@@ -128,7 +120,13 @@ export async function queueApprovalResult(input: {
 
     return {
         content: [{ type: 'text', text: JSON.stringify({ approval }) }],
-        details: { queued: true, requestId: upsert.request.id, deduped: upsert.deduped },
+        details: {
+            queued: true,
+            requestId: upsert.request.id,
+            deduped: upsert.deduped,
+            allowEdit: input.policy.allow_edit,
+            approverType: input.policy.type,
+        },
         terminate: false,
     }
 }

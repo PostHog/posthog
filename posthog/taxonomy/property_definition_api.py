@@ -7,7 +7,6 @@ from django.db.models import Manager, QuerySet
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -20,6 +19,7 @@ from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
@@ -928,7 +928,7 @@ class PropertyDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=instance_id,
             scope="PropertyDefinition",
             activity="deleted",

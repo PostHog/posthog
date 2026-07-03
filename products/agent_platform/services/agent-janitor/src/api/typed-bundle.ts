@@ -9,7 +9,7 @@
  *
  * Resources:
  *   - `agent_md`            ← the system prompt (string)
- *   - `skills/<id>`         ← { description, body }  (stored at skills/<id>/SKILL.md)
+ *   - `skills/<id>`         ← { description, body, files? }  (SKILL.md + companions under skills/<id>/)
  *   - `tools/<id>`          ← { description, args_schema, source }
  *   - `spec`                ← author-facing slice (no skills[]/tools[])
  *
@@ -35,6 +35,7 @@ import {
     RevisionState,
     RevisionStore,
     skillBodyPath,
+    skillCompanionPath,
     syncBundleToStore,
     toolCompiledPath,
     TypedBundleSchema,
@@ -53,7 +54,21 @@ const ResourceIdParamSchema = z
     .max(64)
     .regex(RESOURCE_ID_REGEX, { message: 'id must be lowercase letters, digits, hyphens, or underscores' })
 
-const SkillPutBodySchema = TypedSkillSchema.omit({ id: true })
+// A skill companion file (e.g. `references/api.md`, `scripts/setup.sh`) shipped
+// alongside SKILL.md. `path` is relative to the skill folder; it's resolved +
+// safety-checked against `skillCompanionPath` in the handler. Limits mirror the
+// llma-skill store (≤50 files, ≤1 MB each) so a store skill round-trips cleanly.
+const SkillFilePutSchema = z.object({
+    path: z.string().min(1).max(255),
+    content: z.string().max(1_000_000),
+})
+const SkillPutBodySchema = TypedSkillSchema.omit({ id: true }).extend({
+    // Store skills allow a ≤1 MB body and render_skill_md prepends frontmatter,
+    // so allow headroom above the store cap. (Limits mirror the llma-skill store
+    // so a resolved store skill round-trips cleanly into the bundle.)
+    body: z.string().max(1_100_000),
+    files: z.array(SkillFilePutSchema).max(50).default([]),
+})
 const ToolPutBodySchema = TypedToolSchema.omit({ id: true })
 
 const AgentMdPutBodySchema = z.object({
@@ -64,7 +79,7 @@ const SpecPutBodySchema = z.object({
     spec: TypedSpecSchema,
 })
 
-const TypedBundlePutBodySchema = TypedBundleSchema
+const TypedBundlePutBodySchema = TypedBundleSchema.omit({ skills: true })
 
 export interface TypedBundleRouterOpts {
     revisions: RevisionStore
@@ -195,12 +210,26 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                 return
             }
             const id = idCheck.data
-            // Clear the skill folder first so a re-PUT also sweeps any stray
-            // legacy files (e.g. old `skills/<id>/files/*` companions) before
-            // writing the fresh SKILL.md body.
+            // Resolve + safety-check every companion path BEFORE touching the
+            // store, so invalid input can't half-clear an existing skill folder.
+            let companions: { path: string; content: string }[]
+            try {
+                companions = parsed.data.files.map((f) => ({
+                    path: skillCompanionPath(id, f.path),
+                    content: f.content,
+                }))
+            } catch (e) {
+                res.status(400).json({ error: 'invalid_skill_file_path', message: (e as Error).message })
+                return
+            }
+            // Clear the skill folder first so a re-PUT sweeps SKILL.md plus any
+            // stale companions before writing the fresh body + companion set.
             await deleteSkillFiles(req.params.id, opts.bundles, id)
             await opts.bundles.write(req.params.id, skillBodyPath(id), parsed.data.body)
-            res.json({ ok: true, skill_id: id })
+            for (const c of companions) {
+                await opts.bundles.write(req.params.id, c.path, c.content)
+            }
+            res.json({ ok: true, skill_id: id, files_written: companions.length })
         })
     )
 

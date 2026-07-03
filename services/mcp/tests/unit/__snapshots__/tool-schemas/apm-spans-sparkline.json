@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "query": {
-            "description": "The sparkline / duration-histogram query to execute.",
+            "description": "The sparkline query to execute.",
             "properties": {
                 "dateRange": {
                     "description": "Date range for the query. Defaults to last hour.",
@@ -70,6 +70,11 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "rootSpans": {
+                    "default": false,
+                    "description": "When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume.",
+                    "type": "boolean"
                 },
                 "serviceNames": {
                     "description": "Filter by service names.",

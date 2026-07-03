@@ -3,7 +3,7 @@
 # ruff: noqa: F401, F841, E501
 #
 # `paths.include` in the rule scopes the matchers to
-# `posthog/temporal/data_imports/sources/**`, but for the test fixture the
+# `products/warehouse_sources/backend/temporal/data_imports/sources/**`, but for the test fixture the
 # paths setting is ignored — semgrep applies the rule directly to this file.
 
 import grpc
@@ -95,12 +95,12 @@ def do_something() -> None:
 
 
 def ok_tracked_channel(channel):
-    from posthog.temporal.data_imports.sources.common.grpc import make_tracked_channel
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 
     return make_tracked_channel(channel, host="host")
 
 
 def ok_tracked_interceptors(client):
-    from posthog.temporal.data_imports.sources.common.grpc import tracked_interceptors
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 
     return client.get_service("GoogleAdsService", interceptors=tracked_interceptors("host"))

@@ -1,6 +1,120 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "config": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
+                                },
+                                "series_index": {
+                                    "description": "Zero-based index of the series in the insight's query to monitor.",
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "default": "TrendsAlertConfig",
+                                    "enum": ["TrendsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["series_index"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column)."
+                                },
+                                "evaluation": {
+                                    "description": "How to read the result rows — an explicit choice, no implicit default.",
+                                    "enum": ["last_row", "first_row", "any_row"],
+                                    "type": "string"
+                                },
+                                "label_column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row)."
+                                },
+                                "type": {
+                                    "default": "HogQLAlertConfig",
+                                    "enum": ["HogQLAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["evaluation"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                },
+                                "funnel_step": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
+                                },
+                                "metric": {
+                                    "enum": ["conversion_from_start", "conversion_from_previous"],
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "default": "FunnelsAlertConfig",
+                                    "enum": ["FunnelsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["metric"],
+                            "type": "object"
+                        }
+                    ],
+                    "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends."
+        },
         "date_from": {
             "anyOf": [
                 {
@@ -10,7 +124,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples."
+            "description": "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series."
         },
         "detector_config": {
             "anyOf": [
@@ -2075,7 +2189,7 @@
         },
         "series_index": {
             "default": 0,
-            "description": "Zero-based index of the series to analyze.",
+            "description": "Zero-based index of the series to analyze (trends insights only).",
             "type": "number"
         }
     },

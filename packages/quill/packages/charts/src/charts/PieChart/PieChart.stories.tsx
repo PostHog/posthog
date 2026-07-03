@@ -94,6 +94,25 @@ export const WithBreakdownLabels: Story = {
     },
 }
 
+export const LabelsTowardRim: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Push labels out onto the wider part of each wedge and skip slices under 10%, so a long
+        // tail of thin slices doesn't crowd labels at the center.
+        const config: PieChartConfig = {
+            showLabelOnSlice: true,
+            showValueOnSlice: false,
+            labelRadiusRatio: 0.72,
+            minSlicePercentForLabel: 0.1,
+        }
+        return (
+            <Stage>
+                <PieChart series={BROWSERS} theme={theme} config={config} />
+            </Stage>
+        )
+    },
+}
+
 export const LongLabelTooltip: Story = {
     render: () => {
         const theme = useReactiveTheme()

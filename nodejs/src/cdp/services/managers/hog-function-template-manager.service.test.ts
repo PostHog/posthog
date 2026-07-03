@@ -1,8 +1,8 @@
 import { DBHogFunctionTemplate } from '~/cdp/types'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { insertHogFunctionTemplate } from '../../_tests/fixtures'
 import { HogFunctionTemplateManagerService } from './hog-function-template-manager.service'

@@ -34,7 +34,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
@@ -591,6 +591,13 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
+            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+            allowed_resources = get_allowed_resources()
+
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -601,7 +608,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=site_url,
+                        audience=allowed_resources,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
@@ -720,7 +727,9 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
     even though individual `SharingConfiguration` rows remain `enabled=True`.
     """
-    organization = sharing_configuration.team.organization
+    # Fetch the organization directly via the team FK rather than `sharing_configuration.team.organization`,
+    # which would lazy-load the entire wide `posthog_team` row just to hop to the organization.
+    organization = Organization.objects.get(team=sharing_configuration.team_id)
     return (
         organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
         and not organization.allow_publicly_shared_resources

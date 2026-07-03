@@ -1,12 +1,12 @@
+import { captureException } from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { processAiEvent } from '~/ingestion/pipelines/ai/process-ai-event'
 import { PluginEvent } from '~/plugin-scaffold'
-import { captureException } from '~/utils/posthog'
-import { UUIDT } from '~/utils/utils'
 
 import { createProcessAiEventStep } from './process-ai-event-step'
 
-jest.mock('~/utils/posthog', () => ({
+jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 

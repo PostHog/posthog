@@ -1,8 +1,7 @@
-from posthog.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME
-
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.product import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME
 
 
 class TestProductStripeBuilder(StripeSourceBaseTest):

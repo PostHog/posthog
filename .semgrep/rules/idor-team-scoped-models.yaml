@@ -90,6 +90,10 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomOAuth2Integration
+                              |CustomPropertyDefinition
+                              |CustomPropertySource
+                              |CustomPropertyValue
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -103,13 +107,13 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -119,6 +123,7 @@ rules:
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -167,6 +172,7 @@ rules:
                               |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
+                              |KnowledgeGapSuggestion
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -228,6 +234,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -251,6 +258,7 @@ rules:
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
+                              |TracingView
                               |UploadedMedia
                               |UserInterview
                               |UserInterviewTopic
@@ -258,6 +266,7 @@ rules:
                               |VisionAction
                               |VisionActionRun
                               |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -354,6 +363,10 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomOAuth2Integration
+                        |CustomPropertyDefinition
+                        |CustomPropertySource
+                        |CustomPropertyValue
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -367,13 +380,13 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -383,6 +396,7 @@ rules:
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
@@ -431,6 +445,7 @@ rules:
                         |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
+                        |KnowledgeGapSuggestion
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -488,6 +503,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -511,6 +527,7 @@ rules:
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
+                        |TracingView
                         |UploadedMedia
                         |UserInterview
                         |UserInterviewTopic
@@ -518,6 +535,7 @@ rules:
                         |VisionAction
                         |VisionActionRun
                         |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
@@ -934,6 +952,7 @@ rules:
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
+                              |WebAnalyticsUserConfig
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1006,6 +1025,7 @@ rules:
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
+                        |WebAnalyticsUserConfig
                     )$
           # Exclude when BOTH user AND team filters are present
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ..., team=$T, ...)

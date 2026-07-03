@@ -9,13 +9,10 @@ from temporalio.common import RetryPolicy
 
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.data_imports.signals import get_signal_config
-from posthog.temporal.data_imports.workflow_activities.emit_signals import (
-    EmitDataImportSignalsWorkflow,
-    EmitSignalsActivityInputs,
-)
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.signals.backend.emission import get_signal_config
+from products.signals.backend.emission.emit_signals import EmitDataImportSignalsWorkflow, EmitSignalsActivityInputs
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 # Maps the CLI --type arg to (ExternalDataSourceType value, registered schema name).
 # Conversations is excluded — it's an internal Postgres source, not warehouse-backed.
@@ -108,7 +105,7 @@ class Command(BaseCommand):
         if get_signal_config(source_type, schema_name) is None:
             raise CommandError(
                 f"No signal emitter registered for {source_type}/{schema_name} — "
-                f"check posthog/temporal/data_imports/signals/registry.py"
+                f"check products/signals/backend/emission/registry.py"
             )
 
         schema = (
