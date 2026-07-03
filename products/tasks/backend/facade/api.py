@@ -36,6 +36,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
+from products.tasks.backend.logic.services.staged_artifacts import RUN_ARTIFACT_TTL_DAYS, tag_task_artifact
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -1527,11 +1528,6 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
 
 
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
-    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
-        RUN_ARTIFACT_TTL_DAYS,
-        tag_task_artifact,
-    )
-
     tag_task_artifact(
         storage_path,
         ttl_days=str(run.resolve_ttl_days(int(RUN_ARTIFACT_TTL_DAYS))),
@@ -2986,7 +2982,6 @@ def finalize_task_staged_artifacts(
         build_task_artifact_entry,
         cache_task_staged_artifact,
         get_safe_artifact_name,
-        tag_task_artifact,
     )
     from products.tasks.backend.presentation.serializers import (  # noqa: PLC0415
         build_task_run_artifact_size_error,
@@ -3243,10 +3238,8 @@ def run_task(
     gate (429) is applied by the view before calling this.
     """
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
-        RUN_ARTIFACT_TTL_DAYS,
         build_task_staged_artifact_cache_key,
         get_task_staged_artifacts,
-        tag_task_artifact,
     )
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
