@@ -74,7 +74,7 @@ class HogQLQueryExecutor:
     placeholders: Optional[dict[str, ast.Expr]] = None
     variables: Optional[dict[str, HogQLVariable]] = None
     workload: Workload = Workload.DEFAULT
-    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
+    ch_user: Optional[ClickHouseUser] = None
     settings: Optional[HogQLGlobalSettings] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
@@ -627,7 +627,7 @@ class HogQLQueryExecutor:
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
-            clickhouse_user_kwargs = {"ch_user": self.ch_user} if self.ch_user != ClickHouseUser.DEFAULT else {}
+            ch_user_kwargs = {"ch_user": self.ch_user} if self.ch_user is not None else {}
 
             try:
                 self.results, self.types = sync_execute(
@@ -638,7 +638,7 @@ class HogQLQueryExecutor:
                     team_id=self.team.pk,
                     readonly=True,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
-                    **clickhouse_user_kwargs,
+                    **ch_user_kwargs,
                 )
             except Exception as e:
                 if self.debug:
@@ -661,7 +661,7 @@ class HogQLQueryExecutor:
                     team_id=self.team.pk,
                     readonly=True,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
-                    **clickhouse_user_kwargs,
+                    **ch_user_kwargs,
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):
