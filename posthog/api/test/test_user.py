@@ -2403,6 +2403,33 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
+    def test_cant_validate_email_verification_token_without_a_uuid(self):
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/verify_email/", {"token": token})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "uuid",
+            },
+        )
+
+    def test_cant_request_verification_email_without_a_uuid(self):
+        response = self.client.post(f"/api/users/request_email_verification/", {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "uuid",
+            },
+        )
+
     def test_invalid_verification_token_returns_error(self):
         valid_token = default_token_generator.make_token(self.user)
 

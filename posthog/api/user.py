@@ -1029,10 +1029,13 @@ class UserViewSet(
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
-        user_uuid = request.data["uuid"]
+        user_uuid = request.data["uuid"] if "uuid" in request.data else None
 
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+
+        if not user_uuid:
+            raise serializers.ValidationError({"uuid": ["This field is required."]}, code="required")
 
         # Special handling for E2E tests
         if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
@@ -1086,7 +1089,9 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data["uuid"] if "uuid" in request.data else None
+        if not uuid:
+            raise serializers.ValidationError({"uuid": ["This field is required."]}, code="required")
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
