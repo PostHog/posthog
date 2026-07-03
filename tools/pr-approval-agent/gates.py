@@ -107,6 +107,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "authenticate",
             "authorize",
             "authorization",
+            r"two[_-]?factor",
         ],
         # Past participles hard-deny the wrong things as path patterns
         # (web analytics' authorized_urls.py health check is domain config,
@@ -114,7 +115,6 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         "titles": [
             "authenticated",
             "authorized",
-            r"two[_-]?factor",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
@@ -129,7 +129,6 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "auth/session",
             "auth/token",
             "permission",
-            r"two[_-]?factor",
         ],
     },
     "crypto_secrets": {
@@ -710,9 +709,7 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
 
 
 def is_size_exempt(path: str) -> bool:
-    if Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS:
-        return True
-    return bool(_SIZE_EXEMPT_PATH_RE.search(path))
+    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
 
 
 def substantive_size(files: list[dict]) -> tuple[int, int]:

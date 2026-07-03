@@ -41,43 +41,38 @@ def _package_json_risky_subtree(text: str) -> object:
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
 
 
-def _toml_risky_subtree(text: str) -> object:
-    """build-system plus every nested scripts/entry-points table, with paths."""
-    data = tomllib.loads(text) if text.strip() else {}
-    found: list[tuple[tuple[str, ...], object]] = [((), data.get("build-system"))]
-
-    def walk(node: object, path: tuple[str, ...]) -> None:
-        if not isinstance(node, dict):
-            return
-        for key in sorted(node):
-            if key in ("scripts", "entry-points", "entry_points"):
-                found.append(((*path, key), node[key]))
-            walk(node[key], (*path, key))
-
-    walk(data, ())
-    return found
-
-
+_TOML_RISKY_KEYS = frozenset({"scripts", "entry-points", "entry_points"})
 # Cargo resolves manifests at build time and our CI doesn't pass --locked
 # everywhere (cargo test in ci-rust.yml, cargo build in ci-mcp/ci-nodejs), so
 # a dependency or feature edit without Cargo.lock silently fetches new code.
 _CARGO_RISKY_KEYS = frozenset({"dependencies", "dev-dependencies", "build-dependencies", "features", "build"})
 
 
-def _cargo_risky_subtree(text: str) -> object:
-    data = tomllib.loads(text) if text.strip() else {}
+def _collect_risky_keys(data: dict[str, object], keys: frozenset[str]) -> list[tuple[tuple[str, ...], object]]:
+    """Walk a TOML dict tree and collect (path, value) for every matching key."""
     found: list[tuple[tuple[str, ...], object]] = []
 
     def walk(node: object, path: tuple[str, ...]) -> None:
         if not isinstance(node, dict):
             return
         for key in sorted(node):
-            if key in _CARGO_RISKY_KEYS:
+            if key in keys:
                 found.append(((*path, key), node[key]))
             walk(node[key], (*path, key))
 
     walk(data, ())
     return found
+
+
+def _toml_risky_subtree(text: str) -> object:
+    """build-system plus every nested scripts/entry-points table, with paths."""
+    data = tomllib.loads(text) if text.strip() else {}
+    return [((), data.get("build-system")), *_collect_risky_keys(data, _TOML_RISKY_KEYS)]
+
+
+def _cargo_risky_subtree(text: str) -> object:
+    data = tomllib.loads(text) if text.strip() else {}
+    return _collect_risky_keys(data, _CARGO_RISKY_KEYS)
 
 
 def _tsconfig_risky_subtree(text: str) -> object:
