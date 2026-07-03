@@ -24,6 +24,7 @@ import json
 import time
 import argparse
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from gates import (
@@ -123,6 +124,23 @@ def _is_retryable_error(err_msg: str) -> bool:
 BOT_REVIEW_WAIT_BUDGET_SECONDS = 300
 BOT_REVIEW_POLL_SECONDS = 30
 
+# A bot 👀 much older than any real review is a crashed reviewer, not an
+# in-flight one — reactions never expire and a human can't remove another
+# app's reaction, so without this cutoff a wedged bot would make every run
+# WAIT forever. Reactions missing a timestamp count as fresh (fail toward
+# waiting).
+BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+
+
+def _reaction_age_seconds(created_at: str | None) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - created).total_seconds()
+
 
 # ── Gate result ──────────────────────────────────────────────────
 
@@ -146,6 +164,7 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
+        self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.classification: dict = {}
         self.gate_results: list[GateResult] = []
@@ -159,25 +178,36 @@ class Pipeline:
         if self.pr.author_is_bot:
             return self._refuse_bot_author()
 
-        if not self.dry_run:
-            wait_verdict = self._handle_in_flight_bot_reviews()
-            if wait_verdict:
-                return wait_verdict
-
-        self._classify()
-        self._run_gates()
+        gate_verdict = self._classify_and_gate()
 
         if self._only_pending_migration_check():
             return self._refuse_pending_migration_check()
-
-        gate_verdict = self._gate_verdict()
 
         if self.dry_run:
             self.final_verdict = "DRY-RUN"
             return self.final_verdict
 
+        # Gate denials skip the wait: a refusal can't approve over an
+        # in-flight review, so waiting would only burn runner minutes before
+        # the inevitable REFUSE. The wait refetches the PR, so on the paths
+        # that did wait, re-derive classification and gates from fresh data.
+        if gate_verdict != "DENIED":
+            wait_verdict = self._handle_in_flight_bot_reviews()
+            if wait_verdict:
+                return wait_verdict
+            if self._wait_refetched_pr:
+                gate_verdict = self._classify_and_gate()
+                if self._only_pending_migration_check():
+                    return self._refuse_pending_migration_check()
+
         self._llm_review(gate_verdict)
         return self.final_verdict
+
+    def _classify_and_gate(self) -> str:
+        self.gate_results = []
+        self._classify()
+        self._run_gates()
+        return self._gate_verdict()
 
     def _only_pending_migration_check(self) -> bool:
         """True when the only thing blocking approval is a pending Migration risk check.
@@ -216,12 +246,14 @@ class Pipeline:
         return self.final_verdict
 
     def _in_flight_bot_reviewers(self) -> list[str]:
-        """Allowlisted reviewer bots with an 👀 reaction on the PR right now."""
+        """Allowlisted reviewer bots with a fresh 👀 reaction on the PR."""
         return sorted(
             {
                 r["user"]
                 for r in self.pr.pr_reactions
-                if r["emoji"] == "👀" and r["user"].lower() in TRUSTED_REACTOR_BOTS
+                if r["emoji"] == "👀"
+                and r["user"].lower() in TRUSTED_REACTOR_BOTS
+                and _reaction_age_seconds(r.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
             }
         )
 
@@ -247,6 +279,7 @@ class Pipeline:
             except Exception as exc:
                 print(_warn(f"refetch failed ({exc}); treating as still in flight"))
                 continue
+            self._wait_refetched_pr = True
             bots = self._in_flight_bot_reviewers()
             if not bots:
                 return None
