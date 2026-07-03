@@ -105,6 +105,41 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
 
 
 @pytest.mark.asyncio
+async def test_pointer_omits_workflow_started_at_for_legacy_ctx(activity_environment) -> None:
+    """An activity input serialized before `workflow_started_at` existed (field
+    is None) must still send a valid pointer, just without the key. Guards the
+    backwards-compat rollout: an in-flight or retried old payload crossing a
+    deploy can't crash the enqueue, and billing skips the metric via `.get(...)`.
+    """
+    legacy_ctx = WorkflowContext(
+        run_id="run-legacy",
+        period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
+        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
+        date_str="2026-05-04",
+    )
+    fake_producer = MagicMock()
+    fake_producer.send_message.return_value = {"MessageId": "abc"}
+
+    with (
+        patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog"),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=fake_producer),
+        patch("posthog.temporal.usage_report.activities.get_instance_region", return_value="US"),
+    ):
+        mock_settings.EE_AVAILABLE = True
+        mock_settings.SITE_URL = "https://us.posthog.com"
+
+        await activity_environment.run(
+            enqueue_pointer_message,
+            EnqueuePointerInputs(ctx=legacy_ctx, aggregate=_agg()),
+        )
+
+    fake_producer.send_message.assert_called_once()
+    body = json.loads(fake_producer.send_message.call_args.kwargs["message_body"])
+    assert "workflow_started_at" not in body
+
+
+@pytest.mark.asyncio
 async def test_pointer_skipped_when_ee_unavailable(activity_environment) -> None:
     """Self-hosted (no EE) → activity is a no-op, no SQS import or call."""
     fake_producer = MagicMock()
