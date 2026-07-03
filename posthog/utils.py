@@ -858,9 +858,10 @@ def _has_person_email_cache_key(project_id: int) -> str:
 def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
     if has_person_email:
         return HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS
-    # Ingestion writes property definitions with raw SQL (property-defs-rs), which
-    # bypasses the Django signals — so for a project still setting up, this TTL is
-    # the only thing standing between "started sending email" and the flag flipping.
+    # Most writes bypass the invalidation signal (raw-SQL ingestion via
+    # property-defs-rs, bulk_create/queryset.update, renames, the EE subclass), so
+    # these TTLs are the real freshness bound — for a project still setting up, the
+    # only thing standing between "started sending email" and the flag flipping.
     if timezone.now() - team.project.created_at < YOUNG_PROJECT_AGE:
         return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
     return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
