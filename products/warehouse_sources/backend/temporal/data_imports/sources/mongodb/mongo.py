@@ -8,6 +8,7 @@ import collections
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import certifi
 import structlog
@@ -29,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    _is_host_safe,
+    log_connection_open,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -260,6 +264,8 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    # rpartition strips credentials; multiple hosts stay comma-joined as-is.
+    log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
         "serverSelectionTimeoutMS": 10000,
         "tls": True,
