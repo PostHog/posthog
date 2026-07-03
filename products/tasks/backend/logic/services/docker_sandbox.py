@@ -911,10 +911,12 @@ class DockerSandbox(SandboxBase):
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
 
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
@@ -923,10 +925,12 @@ class DockerSandbox(SandboxBase):
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
