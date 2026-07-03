@@ -317,10 +317,18 @@ INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
 # Capped insert — keep only the top-K `breakdown_value`s by `{top_k_metric}` (the
 # query's sort metric, merged over the job's window), then store all their per-hour
 # rows. `{top_k_metric}` is in the AST so the sort dimension joins the job hash —
-# each sort variant gets its own correctly-capped job. NOTE: `per_window` is
-# referenced twice, so ClickHouse re-evaluates the events aggregation once for the
-# top-K selection and once for the output; acceptable for the background insert, a
-# candidate for a single-pass window-function rewrite if it proves too heavy.
+# each sort variant gets its own correctly-capped job.
+#
+# `per_window` is referenced exactly ONCE: the top-K membership is computed inline with
+# window functions instead of a re-scanning `breakdown_value IN (SELECT … FROM per_window)`
+# subquery. The earlier double-reference let ClickHouse's analyzer inline the CTE twice and
+# prune the inner events subquery's projection per reference — which dropped test-account
+# filter-only `mat_*` columns (e.g. `$raw_user_agent` bot filters) out from under the filter
+# that still referenced them → `Code 47 UNKNOWN_IDENTIFIER`. A single reference can't be
+# pruned inconsistently. `{top_k_metric}` is the sort metric merged across the breakdown's
+# windows via `… OVER (PARTITION BY breakdown_value)`; `dense_rank()` over it (constant per
+# breakdown) ranks distinct breakdowns, so `<= PATHS_TOP_K` keeps the top-K breakdowns and
+# all their per-hour rows. The metric stays in the AST, so each sort variant gets its own job.
 INSERT_QUERY_TEMPLATE_CAPPED = (
     "WITH per_window AS ("
     + _PER_WINDOW_AGG_SQL
@@ -331,14 +339,27 @@ SELECT
     uniq_users_state AS uniq_users_state,
     sum_pageviews_state AS sum_pageviews_state,
     avg_bounce_state AS avg_bounce_state
-FROM per_window
-WHERE breakdown_value IN (
-    SELECT breakdown_value FROM per_window
-    GROUP BY breakdown_value
-    ORDER BY {top_k_metric} DESC, breakdown_value ASC
-    LIMIT """
+FROM (
+    SELECT
+        time_window_start AS time_window_start,
+        breakdown_value AS breakdown_value,
+        uniq_users_state AS uniq_users_state,
+        sum_pageviews_state AS sum_pageviews_state,
+        avg_bounce_state AS avg_bounce_state,
+        dense_rank() OVER (ORDER BY breakdown_rank_metric DESC, breakdown_value ASC) AS breakdown_rank
+    FROM (
+        SELECT
+            time_window_start AS time_window_start,
+            breakdown_value AS breakdown_value,
+            uniq_users_state AS uniq_users_state,
+            sum_pageviews_state AS sum_pageviews_state,
+            avg_bounce_state AS avg_bounce_state,
+            {top_k_metric} AS breakdown_rank_metric
+        FROM per_window
+    )
+)
+WHERE breakdown_rank <= """
     + str(PATHS_TOP_K)
-    + "\n)"
 )
 
 
@@ -351,19 +372,29 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     1-visit paths), so a cap would be unstable and shrink nothing — we store the full
     set uncapped instead. Field/direction default to `visitors DESC`, matching
     `WebStatsTableQueryRunner._resolve_sort_field`. Bounce NaN (paths with no entry
-    sessions) ranks last via the `-1.0` sentinel, matching the read's NULLS-LAST."""
+    sessions) ranks last via the `-1.0` sentinel, matching the read's NULLS-LAST.
+
+    The metric is merged across the breakdown's per-hour rows via
+    `OVER (PARTITION BY breakdown_value)` so the capped template can rank breakdowns in a
+    single pass over `per_window` (see `INSERT_QUERY_TEMPLATE_CAPPED`)."""
     order_by = runner.query.orderBy or []
     # A missing direction (single-element or empty orderBy) defaults to DESC, matching
     # `_resolve_sort_field`'s fallback — so we still cap rather than storing the full set.
     direction = order_by[1] if len(order_by) > 1 else WebAnalyticsOrderByDirection.DESC
     if direction != WebAnalyticsOrderByDirection.DESC:
         return None
+    # The `OVER (PARTITION BY breakdown_value)` window merges the metric across the
+    # breakdown's per-hour rows so the capped template can rank in one pass. Fully static
+    # SQL — no interpolation, no user input.
     field = order_by[0] if order_by else WebAnalyticsOrderByFields.VISITORS
     if field == WebAnalyticsOrderByFields.VIEWS:
-        return parse_expr("sumMerge(sum_pageviews_state)")
+        return parse_expr("sumMerge(sum_pageviews_state) OVER (PARTITION BY breakdown_value)")
     if field == WebAnalyticsOrderByFields.BOUNCE_RATE:
-        return parse_expr("if(isNaN(avgMerge(avg_bounce_state)), -1.0, avgMerge(avg_bounce_state))")
-    return parse_expr("uniqMerge(uniq_users_state)")
+        return parse_expr(
+            "if(isNaN(avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value)), -1.0, "
+            "avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value))"
+        )
+    return parse_expr("uniqMerge(uniq_users_state) OVER (PARTITION BY breakdown_value)")
 
 
 def ensure_web_stats_paths_precomputed(
