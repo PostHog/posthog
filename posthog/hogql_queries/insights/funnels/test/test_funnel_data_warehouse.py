@@ -69,6 +69,10 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     "clickhouse": "DateTime64(3, 'UTC')",
                     "hogql": "DateTimeDatabaseField",
                 },
+                "created_epoch": {
+                    "clickhouse": "Int64",
+                    "hogql": "IntegerDatabaseField",
+                },
                 "event_name": {
                     "clickhouse": "String",
                     "hogql": "StringDatabaseField",
@@ -198,6 +202,42 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     id_field="uuid",
                     aggregation_target_field="user_id",
                     timestamp_field="created",
+                ),
+            ],
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_data_warehouse_integer_epoch_timestamp(self):
+        # Warehouse sources like Stripe store dates as Unix-epoch integers. The funnel must
+        # convert them via fromUnixTimestamp instead of raising ValidationError. created_epoch
+        # mirrors the created DateTime column, so counts match test_funnels_data_warehouse.
+        table_name = self.setup_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created_epoch",
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="uuid",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created_epoch",
                 ),
             ],
         )

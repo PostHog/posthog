@@ -21,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
+    IntegerDatabaseField,
     StringDatabaseField,
     UUIDDatabaseField,
 )
@@ -230,6 +231,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif isinstance(field, StringDatabaseField):
             return ast.Call(
                 name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
+            )
+        elif isinstance(field, IntegerDatabaseField):
+            # Warehouse sources like Stripe store dates as Unix-epoch integers (seconds).
+            return ast.Call(
+                name="fromUnixTimestamp",
+                args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])],
             )
         else:
             raise ValidationError(
