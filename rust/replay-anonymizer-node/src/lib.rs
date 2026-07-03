@@ -101,9 +101,14 @@ type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str,
 
 fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     // One copy on the event loop: the buffer's bytes move into the task (they can't be borrowed
-    // across threads, and simd-json needs a mutable scratch anyway).
+    // across threads, and simd-json needs a mutable scratch anyway). Decompression happens inside
+    // the task too — gunzip of a multi-MB payload has no business on the event loop.
     let buf = cx.argument::<JsBuffer>(0)?;
-    let mut payload = buf.as_slice(&cx).to_vec();
+    let raw = buf.as_slice(&cx).to_vec();
+    let content_encoding: Option<String> = cx
+        .argument_opt(1)
+        .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
+        .map(|s| s.value(&mut cx));
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -115,6 +120,11 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
+                let mut payload =
+                    match snapshot::decompress_payload(raw, content_encoding.as_deref()) {
+                        Ok(p) => p,
+                        Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
+                    };
                 match snapshot::anonymize_kafka_payload(allow, &mut payload) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)

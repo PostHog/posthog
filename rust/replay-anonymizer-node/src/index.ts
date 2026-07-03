@@ -72,10 +72,14 @@ export function initAnonymizer(allow: AllowListsInput): void {
 }
 
 /**
- * Anonymize a decompressed replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`).
- * Rust owns the parse, the scrub, and the serialize; only the raw bytes cross the FFI boundary.
- * CPU work runs off the Node event loop.
+ * Anonymize a replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`). Rust owns the
+ * decompression (lz4 via the `content-encoding` header, gzip via magic bytes), the parse, the
+ * scrub, and the serialize; only the raw bytes cross the FFI boundary. CPU work — including the
+ * decompression — runs off the Node event loop.
  */
-export function anonymizeKafkaPayload(payload: Buffer): Promise<AnonymizeKafkaPayloadResult> {
-    return native.anonymizeKafkaPayload(payload)
+export function anonymizeKafkaPayload(
+    payload: Buffer,
+    contentEncoding?: string | null
+): Promise<AnonymizeKafkaPayloadResult> {
+    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined)
 }

@@ -14,7 +14,8 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer) => mockAnonymizeKafkaPayload(payload),
+    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null) =>
+        mockAnonymizeKafkaPayload(payload, contentEncoding),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -96,15 +97,23 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect((result as any).value.parsedMessage.session_id).toBe(upper.toLowerCase())
     })
 
-    it('hands the addon the decompressed payload bytes', async () => {
+    it('hands the addon the raw bytes and content encoding (decompression lives in Rust)', async () => {
         addonSuccess()
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
         await step({ message: kafkaMessage(zipped), headers })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null)
+
+        mockAnonymizeKafkaPayload.mockClear()
+        addonSuccess()
+        const lz4Message = kafkaMessage(raw)
+        lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
+        await step({ message: lz4Message, headers })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4')
     })
 
     test.each([
+        ['invalid_compressed_data', PipelineResultType.DLQ],
         ['invalid_json', PipelineResultType.DLQ],
         ['invalid_message_payload', PipelineResultType.DLQ],
         ['received_non_snapshot_message', PipelineResultType.DLQ],

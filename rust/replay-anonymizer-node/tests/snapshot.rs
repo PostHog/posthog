@@ -260,6 +260,36 @@ fn pass_through_events_are_emitted_byte_exact() {
 }
 
 #[test]
+fn decompress_payload_matches_the_capture_producer_format() {
+    use replay_anonymizer_node::snapshot::decompress_payload;
+    let body = br#"{"distinct_id":"d","data":"{}"}"#.to_vec();
+
+    // lz4: capture writes `block::compress` output behind a 4-byte LE uncompressed-size prefix,
+    // signalled by the content-encoding header.
+    let compressed = lz4::block::compress(&body, None, false).unwrap();
+    let mut framed = (body.len() as u32).to_le_bytes().to_vec();
+    framed.extend_from_slice(&compressed);
+    assert_eq!(decompress_payload(framed, Some("lz4")).unwrap(), body);
+
+    // gzip: detected by magic bytes, no header needed.
+    {
+        use std::io::Write;
+        let mut enc =
+            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(&body).unwrap();
+        let zipped = enc.finish().unwrap();
+        assert_eq!(decompress_payload(zipped, None).unwrap(), body);
+    }
+
+    // Uncompressed passes through untouched.
+    assert_eq!(decompress_payload(body.clone(), None).unwrap(), body);
+
+    // Corrupt lz4 fails closed with the TS parse step's classification.
+    let err = decompress_payload(vec![9, 0, 0, 0, 0xff, 0xff], Some("lz4")).unwrap_err();
+    assert_eq!(err.kind.reason(), "invalid_compressed_data");
+}
+
+#[test]
 fn adaptive_routing_only_takes_the_tree_before_any_in_place_parse() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     // A full snapshot big enough to dominate the message (> half the inner bytes).

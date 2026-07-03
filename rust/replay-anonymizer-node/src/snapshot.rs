@@ -42,6 +42,8 @@ use crate::scan::{self, Span};
 /// step classifies failures exactly like the TS parse step does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailKind {
+    /// The Kafka message value could not be decompressed (dlq `invalid_compressed_data`).
+    InvalidCompressedData,
     /// The outer Kafka payload is not valid JSON (dlq `invalid_json`).
     InvalidJson,
     /// The outer payload parses but lacks `distinct_id`/`data` strings (dlq `invalid_message_payload`).
@@ -57,6 +59,7 @@ pub enum FailKind {
 impl FailKind {
     pub fn reason(self) -> &'static str {
         match self {
+            FailKind::InvalidCompressedData => "invalid_compressed_data",
             FailKind::InvalidJson => "invalid_json",
             FailKind::InvalidMessagePayload => "invalid_message_payload",
             FailKind::NonSnapshotMessage => "received_non_snapshot_message",
@@ -167,6 +170,44 @@ pub struct AnonymizedMessage {
     pub lines: Vec<u8>,
     pub meta: SnapshotMeta,
     pub route: Route,
+}
+
+/// Decompressed payloads are capped so a forged lz4 size prefix (a u32, so up to 4 GiB) cannot
+/// force the allocation; real replay payloads decompress to tens of MB at most.
+const MAX_DECOMPRESSED_LEN: usize = 256 * 1024 * 1024;
+
+const GZIP_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x00];
+
+/// Decompress a raw Kafka message value the way capture wraps it (mirrors the TS
+/// `decompressMessageValue`): lz4 block with a 4-byte LE uncompressed-size prefix when the
+/// `content-encoding` header says lz4, gzip when the magic bytes say so, else pass through.
+pub fn decompress_payload(raw: Vec<u8>, content_encoding: Option<&str>) -> SResult<Vec<u8>> {
+    let bad = |detail: &str| Failure::new(FailKind::InvalidCompressedData, detail);
+    if content_encoding == Some("lz4") {
+        let size_bytes: [u8; 4] = raw
+            .get(..4)
+            .and_then(|b| b.try_into().ok())
+            .ok_or_else(|| bad("lz4 payload too short for size prefix"))?;
+        let size = u32::from_le_bytes(size_bytes) as usize;
+        if size > MAX_DECOMPRESSED_LEN {
+            return Err(bad("lz4 uncompressed size exceeds limit"));
+        }
+        return lz4::block::decompress(&raw[4..], Some(size as i32))
+            .map_err(|e| bad(&format!("lz4 decompress failed: {e}")));
+    }
+    if raw.starts_with(GZIP_MAGIC) {
+        use std::io::Read;
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(&raw[..])
+            .take(MAX_DECOMPRESSED_LEN as u64 + 1)
+            .read_to_end(&mut out)
+            .map_err(|e| bad(&format!("gzip decompress failed: {e}")))?;
+        if out.len() > MAX_DECOMPRESSED_LEN {
+            return Err(bad("gzip uncompressed size exceeds limit"));
+        }
+        return Ok(out);
+    }
+    Ok(raw)
 }
 
 /// Anonymize a decompressed replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`).

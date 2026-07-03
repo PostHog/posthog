@@ -10,7 +10,7 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
-import { ParseMessageStepInput, ParseMessageStepOutput, decompressMessageValue } from './parse-message-step'
+import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -26,7 +26,12 @@ function getRustAnonymizer(): RustAnonymizer {
 }
 
 // Addon failure reasons that map to a DLQ (mirroring the TS parse step's classifications).
-const DLQ_REASONS = new Set(['invalid_json', 'invalid_message_payload', 'received_non_snapshot_message'])
+const DLQ_REASONS = new Set([
+    'invalid_compressed_data',
+    'invalid_json',
+    'invalid_message_payload',
+    'received_non_snapshot_message',
+])
 
 /**
  * Fused parse + anonymize through the native Rust addon (`@posthog/replay-anonymizer`): the
@@ -50,17 +55,17 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return dlq('message_value_or_timestamp_is_empty')
         }
 
-        let messageUnzipped: Buffer
-        try {
-            messageUnzipped = decompressMessageValue(message)
-        } catch (error) {
-            return dlq('invalid_compressed_data', error)
-        }
+        // Decompression happens inside the addon, off the event loop (gunzipSync here would block
+        // it); the encoding metric only needs the header and the magic bytes.
+        const contentEncoding = getContentEncoding(message.headers)
+        SessionRecordingIngesterMetrics.incrementMessagesByEncoding(
+            contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
+        )
 
         const t0 = performance.now()
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(messageUnzipped)
+            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })

@@ -31,11 +31,11 @@ export interface ParseMessageStepOutput {
     parsedMessage: ParsedMessageData
 }
 
-function isGzipped(buffer: Buffer): boolean {
+export function isGzipped(buffer: Buffer): boolean {
     return buffer.subarray(0, GZIP_HEADER.length).equals(GZIP_HEADER)
 }
 
-function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
+export function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
     if (!headers) {
         return null
     }
