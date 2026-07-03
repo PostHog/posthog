@@ -155,6 +155,19 @@ class TestRequestPage:
         result = _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
         assert result == {"data": [{"id": 1}]}
 
+    def test_empty_data_list_is_accepted(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _fake_response(200, {"data": []})
+        assert _request_page(session, "url", {}, {}, MagicMock(), MagicMock()) == {"data": []}
+
+    @parameterized.expand([("missing_data_key", {"items": []}), ("not_a_dict", [1, 2, 3])])
+    def test_malformed_envelope_is_retryable(self, _name: str, body: Any) -> None:
+        # A 2xx body without a `data` key must fail loudly (retryable), not silently end the sync.
+        session = MagicMock()
+        session.get.return_value = _fake_response(200, body)
+        with pytest.raises(KatanaRetryableError):
+            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
+
 
 class TestWaitKatana:
     def test_honours_retry_after(self) -> None:

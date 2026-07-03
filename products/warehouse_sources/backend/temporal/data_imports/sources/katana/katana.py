@@ -143,7 +143,14 @@ def _request_page(
         logger.error(f"Katana API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
 
-    return response.json()
+    body = response.json()
+    # Every Katana list endpoint wraps results as {"data": [...]}, returning {"data": []} when empty.
+    # A 2xx body missing the `data` key (maintenance page, changed envelope) would otherwise read as an
+    # empty page and silently end pagination mid-sync, so treat it as retryable rather than lose data.
+    if not isinstance(body, dict) or "data" not in body:
+        raise KatanaRetryableError(f"Unexpected Katana response envelope (no 'data' key): url={url}")
+
+    return body
 
 
 @retry(
