@@ -25,6 +25,7 @@ packages:
     - tools/*
     - '!tools/hedgebox-dummy'
     - rust/cyclotron-node
+    - rust/common/hogvm/node
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade

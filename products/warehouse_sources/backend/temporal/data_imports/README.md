@@ -52,7 +52,32 @@ Observability: `warehouse_repartition_flagged` / `started` / `completed` / `fail
 
 The existing admin repartition action now stages a `repartition_pending` target and triggers this cheap in-place path (no reset, no source re-pull) instead of a reset + resync.
 
+## Admin panel actions
+
+Most day-to-day interventions no longer need a k8s pod — they're buttons on the `ExternalDataSchema` change page in the Django admin (`/admin/warehouse_sources/externaldataschema/<schema_id>/change/`).
+All admin-triggered runs are non-billable, and admin-triggered runs auto-pause the per-schema schedule for the duration and auto-unpause it on success.
+
+- **Trigger sync / resync.** Runs an ad-hoc `external-data-job` workflow, with checkboxes for `reset_pipeline` (wipe existing files and re-pull from scratch) and `billable`. This replaces the pod snippets under [How to resync](#how-to-resync) for most cases.
+- **Repartition / change partition mode.** Stages a `repartition_pending` target and triggers the cheap [in-place repartition](#automated-in-place-repartitioning) — rewrites the data already in S3, no source re-pull, no pod, no oversized partition materialised. You can switch `partition_mode` (`datetime` / `numerical` / `md5`), set the partitioning keys, and set the mode's knob (`partition_format`, `partition_size`, or `partition_count`).
+- **Pause / unpause schedule.** Pause the per-schema Temporal schedule manually while doing admin work.
+
+### Overriding the read chunk size (`chunk_size_override`)
+
+For SQL sources (Postgres, Redshift, ClickHouse) the pipeline auto-sizes how many rows it reads per fetch by sampling the p95 row size and targeting ~150 MB per chunk.
+That estimate ignores the top 5% of rows and undercounts the Python/Arrow heap the rows expand into, so a wide table with large outlier cells (long text, big arrays) can compute a huge chunk size and OOM the pod on _read_ — before any merge.
+
+To cap it, add `chunk_size_override` (an integer row count) to the schema's `sync_type_config` JSON via the admin change form, then Save:
+
+```json
+{ "...": "...", "chunk_size_override": 15000 }
+```
+
+It bypasses the auto-sizing, is read at the start of the next run (no reset needed — a full-refresh re-reads everything anyway), and survives resets.
+Start conservative (e.g. 10k–25k) and tune up: smaller chunks lower peak read memory at the cost of more fetches and more Delta files, which end-of-run compaction cleans up.
+
 ## How to resync
+
+Prefer the admin **Trigger sync** action above; use the pod method below only when the admin isn't suitable (e.g. bulk-resyncing many schemas at once).
 
 When we resync a table, we do so from a k8s pod. We have the ability to disable billing for a sync via this method meaning that a user won't be charged for us repartitioning their data.
 
