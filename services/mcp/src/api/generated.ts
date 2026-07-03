@@ -13259,6 +13259,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10
+     */
+    export type ColorEnum = typeof ColorEnum[keyof typeof ColorEnum];
+
+
+    export const ColorEnum = {
+      Preset1: 'preset-1',
+      Preset2: 'preset-2',
+      Preset3: 'preset-3',
+      Preset4: 'preset-4',
+      Preset5: 'preset-5',
+      Preset6: 'preset-6',
+      Preset7: 'preset-7',
+      Preset8: 'preset-8',
+      Preset9: 'preset-9',
+      Preset10: 'preset-10',
+    } as const;
+
+    /**
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
@@ -14188,6 +14216,7 @@ export namespace Schemas {
      * * `date` - date
      * * `datetime` - datetime
      * * `boolean` - boolean
+     * * `select` - select
      */
     export type CustomPropertyDisplayTypeEnum = typeof CustomPropertyDisplayTypeEnum[keyof typeof CustomPropertyDisplayTypeEnum];
 
@@ -14200,7 +14229,37 @@ export namespace Schemas {
       Date: 'date',
       Datetime: 'datetime',
       Boolean: 'boolean',
+      Select: 'select',
     } as const;
+
+    /**
+     * An allowed value of a select custom property.
+     */
+    export interface CustomPropertyOption {
+      /**
+         * Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.
+         * @nullable
+         */
+      id?: string | null;
+      /**
+         * Display label of the option. Stored as the account's value when picked.
+         * @maxLength 400
+         */
+      label: string;
+      /** Preset color token used to render the option ('preset-1' through 'preset-10').
+       *
+       * * `preset-1` - preset-1
+       * * `preset-2` - preset-2
+       * * `preset-3` - preset-3
+       * * `preset-4` - preset-4
+       * * `preset-5` - preset-5
+       * * `preset-6` - preset-6
+       * * `preset-7` - preset-7
+       * * `preset-8` - preset-8
+       * * `preset-9` - preset-9
+       * * `preset-10` - preset-10 */
+      color: ColorEnum;
+    }
 
     /**
      * Binds a materialized data-warehouse view column to a custom property definition; the view's
@@ -14275,7 +14334,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -14283,10 +14342,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source: CustomPropertySource | null;
       readonly created_at: string;
@@ -36685,7 +36750,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
        *
        * * `text` - text
        * * `number` - number
@@ -36693,10 +36758,16 @@ export namespace Schemas {
        * * `percent` - percent
        * * `date` - date
        * * `datetime` - datetime
-       * * `boolean` - boolean */
+       * * `boolean` - boolean
+       * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /**
+         * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+         * @nullable
+         */
+      options?: CustomPropertyOption[] | null;
       /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
       readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
