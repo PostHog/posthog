@@ -1,4 +1,9 @@
-import { APP_METRICS_OUTPUT, HOG_INVOCATION_RESULTS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
+import {
+    APP_METRICS_OUTPUT,
+    HOG_INVOCATION_RESULTS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    MESSAGE_ASSETS_OUTPUT,
+} from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
 import {
@@ -32,6 +37,10 @@ export function createCdpOutputsRegistry() {
         .register(HOG_INVOCATION_RESULTS_OUTPUT, {
             topicKey: 'HOG_INVOCATION_RESULTS_TOPIC',
             producerKey: 'HOG_INVOCATION_RESULTS_PRODUCER',
+        })
+        .register(MESSAGE_ASSETS_OUTPUT, {
+            topicKey: 'MESSAGE_ASSETS_TOPIC',
+            producerKey: 'MESSAGE_ASSETS_PRODUCER',
         })
         .register(PREFILTERED_EVENTS_OUTPUT, {
             topicKey: 'CDP_PREFILTERED_EVENTS_TOPIC',

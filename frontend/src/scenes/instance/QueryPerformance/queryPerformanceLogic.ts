@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,6 +13,34 @@ export interface PrecomputationTeam {
     organization_name: string | null
     organization_arr: number | null
     experiment_precomputation_enabled: boolean
+}
+
+export interface CachePartitionStats {
+    partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
+    rows: number
+    bytes_on_disk: number
+    parts: number
+}
+
+export interface CacheTableStats {
+    table: string
+    total_rows: number
+    bytes_on_disk: number
+    active_parts: number
+    partition_count: number
+    oldest_partition: string | null
+    newest_partition: string | null
+    partitions: CachePartitionStats[]
+}
+
+export interface CacheHealthResponse {
+    tables: CacheTableStats[]
+}
+
+// One row of the partition breakdown table: a single expiry day, with each cache table's stats for that day.
+export interface CachePartitionRow {
+    partition: string
+    perTable: Record<string, CachePartitionStats>
 }
 
 export interface SlowestQuery {
@@ -60,6 +88,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
+        setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
     }),
     reducers({
         search: [
@@ -92,6 +121,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setMetricTypeFilter: (_, { metricType }) => metricType,
             },
         ],
+        exceptionCodeFilter: [
+            '',
+            {
+                setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precomputationTeams: [
@@ -119,6 +154,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 },
             },
         ],
+        cacheHealth: [
+            null as CacheHealthResponse | null,
+            {
+                loadCacheHealth: async () => {
+                    return await api.get('api/debug_ch_queries/cache_health/')
+                },
+            },
+        ],
         slowestQueries: [
             [] as SlowestQuery[],
             {
@@ -138,11 +181,32 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                             params.append('funnel_order_type', funnelOrderType)
                         }
                     }
+                    if (values.exceptionCodeFilter) {
+                        params.append('exception_code', values.exceptionCodeFilter)
+                    }
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
         ],
     })),
+    selectors({
+        cachePartitionRows: [
+            (s) => [s.cacheHealth],
+            (cacheHealth): CachePartitionRow[] => {
+                const byPartition: Record<string, CachePartitionRow> = {}
+                for (const table of cacheHealth?.tables ?? []) {
+                    for (const partition of table.partitions) {
+                        const row = (byPartition[partition.partition] ??= {
+                            partition: partition.partition,
+                            perTable: {},
+                        })
+                        row.perTable[table.table] = partition
+                    }
+                }
+                return Object.values(byPartition).sort((a, b) => a.partition.localeCompare(b.partition))
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
@@ -162,11 +226,15 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setMetricTypeFilter: () => {
             actions.loadSlowestQueries()
         },
+        setExceptionCodeFilter: () => {
+            actions.loadSlowestQueries()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
             actions.loadSlowestQueries()
+            actions.loadCacheHealth()
         }
     }),
 ])

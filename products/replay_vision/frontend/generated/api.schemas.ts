@@ -400,26 +400,6 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-} as const
-
-/**
- * * `google` - Google
- */
-export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
-
-export const ScannerProviderEnumApi = {
-    Google: 'google',
-} as const
-
-/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -434,15 +414,10 @@ export interface ScannerSnapshotApi {
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
-    /** Concrete model that ran the observation.
-     *
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-    model: ScannerModelEnumApi
-    /** Concrete provider that ran the observation.
-     *
-     * * `google` - Google */
-    provider: ScannerProviderEnumApi
+    /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+    model: string
+    /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+    provider: string
     /** Whether the observation was run with Signal emission enabled. */
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
@@ -487,7 +462,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -538,6 +513,14 @@ export interface PaginatedReplayObservationListApi {
     results: ReplayObservationApi[]
 }
 
+/**
+ * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
+ */
+export interface RetryResponseApi {
+    /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
+    workflow_id: string
+}
+
 export interface VisionQuotaApi {
     /** Total observations the org may complete per calendar month. */
     readonly monthly_quota: number
@@ -555,6 +538,26 @@ export interface VisionQuotaApi {
     readonly projected_monthly_observations: number
 }
 
+/**
+ * * `google` - Google
+ */
+export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
+
+export const ScannerProviderEnumApi = {
+    Google: 'google',
+} as const
+
+/**
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+} as const
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -562,7 +565,10 @@ export interface ReplayScannerApi {
      * @maxLength 255
      */
     name: string
-    /** Free-form description shown in the scanner management UI. */
+    /**
+     * Free-form description shown in the scanner management UI.
+     * @maxLength 1000
+     */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
@@ -576,7 +582,7 @@ export interface ReplayScannerApi {
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
     /**
-     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
      * @minimum 0
      * @maximum 1
      */
@@ -625,7 +631,10 @@ export interface PatchedReplayScannerApi {
      * @maxLength 255
      */
     name?: string
-    /** Free-form description shown in the scanner management UI. */
+    /**
+     * Free-form description shown in the scanner management UI.
+     * @maxLength 1000
+     */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
@@ -639,7 +648,7 @@ export interface PatchedReplayScannerApi {
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
     /**
-     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
      * @minimum 0
      * @maximum 1
      */
@@ -963,7 +972,7 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
@@ -1017,7 +1026,7 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**

@@ -21,8 +21,10 @@ export class RetentionService {
         private keyPrefix = '@posthog/replay/'
     ) {}
 
-    private generateRedisKey(sessionId: string): string {
-        return `${this.keyPrefix}session-retention-${sessionId}`
+    private generateRedisKey(teamId: TeamId, sessionId: string): string {
+        // Retention is a per-team property, so the cache key must be scoped by team — a session id is
+        // only unique within a team and can collide across teams.
+        return `${this.keyPrefix}session-retention-${teamId}-${sessionId}`
     }
 
     /**
@@ -44,7 +46,7 @@ export class RetentionService {
         const startTime = performance.now()
         const client = await this.redisPool.acquire()
         try {
-            const redisKeys = unique.map(({ sessionId }) => this.generateRedisKey(sessionId))
+            const redisKeys = unique.map(({ teamId, sessionId }) => this.generateRedisKey(teamId, sessionId))
             const cached = await client.mget(redisKeys)
 
             const missIndexes: number[] = []

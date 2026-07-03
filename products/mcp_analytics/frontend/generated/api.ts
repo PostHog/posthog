@@ -250,7 +250,7 @@ export const getMcpAnalyticsSessionsToolCallsUrl = (
 }
 
 /**
- * List all $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
  */
 export const mcpAnalyticsSessionsToolCalls = async (
     projectId: string,
