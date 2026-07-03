@@ -577,11 +577,11 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Intraday usage report run every 3 hours at minute 45 (8 times a day).
+    """Intraday usage report run every 30 minutes.
 
     Reports *today's* usage so far (`day_offset=0`) so billing gets fresh
     numbers throughout the day. A failed slot is superseded by the next one
-    3 hours later, so no retries. The complete-day capture is handled by the
+    30 minutes later, so no retries. The complete-day capture is handled by the
     daily finalizer schedule (`create_finalize_usage_reports_schedule`). The
     workflow writes per-org usage data to S3 and sends a single SQS pointer
     to the billing service.
@@ -596,15 +596,7 @@ async def create_run_usage_reports_schedule(client: Client):
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Every 3 hours at minute 45 (01:45, 04:45, ..., 22:45 UTC)",
-                    hour=[ScheduleRange(start=1, end=22, step=3)],
-                    minute=[ScheduleRange(start=45, end=45)],
-                )
-            ]
-        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
