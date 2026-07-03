@@ -56,6 +56,11 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
             >
                 {enabled ? 'Disable subscription' : 'Enable subscription'}
             </LemonButton>
+            {editHref ? (
+                <LemonButton type="secondary" onClick={() => push(editHref)}>
+                    Edit subscription
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="primary"
                 onClick={() => deliverSubscription(sub.id)}
@@ -65,11 +70,6 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
             >
                 Test delivery
             </LemonButton>
-            {editHref ? (
-                <LemonButton type="secondary" onClick={() => push(editHref)}>
-                    Edit subscription
-                </LemonButton>
-            ) : null}
             <LemonButton
                 type="secondary"
                 status="danger"
