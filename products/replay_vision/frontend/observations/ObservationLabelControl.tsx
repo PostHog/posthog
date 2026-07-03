@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -36,25 +36,23 @@ export function ObservationLabelControl({ observationId }: { observationId: stri
                     <LemonButton
                         size="xsmall"
                         type={label?.is_correct === true ? 'primary' : 'secondary'}
-                        icon={<IconCheck />}
+                        icon={label?.is_correct === true ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         loading={labelSaving}
                         disabledReason={editDisabledReason ?? undefined}
+                        tooltip="Scanner got this right"
                         onClick={() => setLabel(true, '')}
-                        data-attr="replay-vision-label-correct"
-                    >
-                        Correct
-                    </LemonButton>
+                        data-attr="replay-vision-label-thumbs-up"
+                    />
                     <LemonButton
                         size="xsmall"
                         type={labeledIncorrect ? 'primary' : 'secondary'}
-                        icon={<IconX />}
+                        icon={labeledIncorrect ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         loading={labelSaving}
                         disabledReason={editDisabledReason ?? undefined}
+                        tooltip="Scanner got this wrong. Add feedback to improve the prompt"
                         onClick={() => setLabel(false, feedbackDraft)}
-                        data-attr="replay-vision-label-incorrect"
-                    >
-                        Incorrect
-                    </LemonButton>
+                        data-attr="replay-vision-label-thumbs-down"
+                    />
                     {label && canEdit && (
                         <LemonButton
                             size="xsmall"

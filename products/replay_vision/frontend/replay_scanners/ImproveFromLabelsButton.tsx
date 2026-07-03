@@ -135,7 +135,9 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
                     ]
                 })
                 if (examples.length === 0) {
-                    lemonToast.info('Label some sessions first, then improve the prompt from them.')
+                    lemonToast.info(
+                        'Rate some observations with a thumbs up or down first, then improve the prompt from them.'
+                    )
                     return
                 }
                 const message = buildImproveFromLabelsMessage({ scannerName, scannerType, prompt, examples })
@@ -151,8 +153,8 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
 ])
 
 /**
- * Scanner-level "Improve scanner prompt" entry point: gathers the sessions the user labeled
- * and hands them, with the current prompt, to PostHog AI.
+ * Scanner-level "Improve scanner prompt" entry point: gathers the observations the team rated
+ * (thumbs up/down) and hands them, with the current prompt, to PostHog AI.
  */
 export function ImproveFromLabelsButton({
     scannerId,
@@ -179,7 +181,7 @@ export function ImproveFromLabelsButton({
             size="small"
             icon={<IconAI />}
             loading={improving}
-            tooltip="Gathers the sessions your team labeled (correct ones to keep passing, incorrect ones with their feedback) and asks PostHog AI to rewrite this scanner's prompt"
+            tooltip="Gathers the observations your team rated (thumbs up to keep passing, thumbs down with their feedback) and asks PostHog AI to rewrite this scanner's prompt"
             onClick={() => improveFromLabels(scannerName, scannerType, prompt)}
             data-attr="replay-vision-improve-from-labels"
         >
