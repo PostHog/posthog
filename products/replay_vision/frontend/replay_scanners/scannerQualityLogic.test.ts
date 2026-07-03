@@ -22,12 +22,6 @@ jest.mock('../generated/api', () => ({
     visionScannersPromptSuggestionsList: jest.fn(),
 }))
 
-// The jest environment has no app-context access levels, so the editor gate would fail closed
-// and block the auto-generate path under test.
-jest.mock('lib/utils/accessControlUtils', () => ({
-    getAccessControlDisabledReason: jest.fn(() => null),
-}))
-
 const TEAM_ID = String(MOCK_DEFAULT_TEAM.id)
 
 const PENDING_SUGGESTION = {
@@ -105,25 +99,16 @@ describe('scannerQualityLogic', () => {
         expect(logic.values.observations.find((obs) => obs.id === 'obs-1')?.label).toBeNull()
     })
 
-    it('auto-regenerates a stale recommendation once, not on every staleness report', async () => {
+    it('never auto-generates on load, even when the recommendation is stale', async () => {
+        // Generation is expensive; the daily backend refresh owns freshness, the tab only reports it.
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: PENDING_SUGGESTION,
             stale: true,
             rated_count: 3,
         })
         await mountLogic()
-        await expectLogic(logic).toDispatchActions(['generateSuggestion', 'generateSuggestionSuccess'])
-        expect(logic.values.currentSuggestion?.id).toBe('sug-2')
-
-        // A later staleness report (e.g. after another rating) must not fire the expensive LLM call again.
-        logic.actions.loadCurrentSuggestion()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(visionScannersPromptSuggestionsGenerateCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not generate when the recommendation is current', async () => {
-        await mountLogic()
         await expectLogic(logic).toFinishAllListeners()
         expect(visionScannersPromptSuggestionsGenerateCreate).not.toHaveBeenCalled()
+        expect(logic.values.suggestionStale).toBe(true)
     })
 })
