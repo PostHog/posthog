@@ -10,7 +10,7 @@ import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { AnalyticsConsumerConfig, AnalyticsOutputs, createAnalyticsConsumer } from '~/ingestion/pipelines/analytics'
-import { HealthCheckResultOk } from '~/types'
+import { HealthCheckResult, HealthCheckResultOk } from '~/types'
 
 import { IngestionTestInfra } from './ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from './ingestion-outputs'
@@ -23,8 +23,10 @@ function passthrough<T extends object>(value: T): Component<T> {
 export interface AnalyticsTestConsumer {
     /** Drives the consumer's Kafka batch handler directly, bypassing a real broker. */
     handleKafkaBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>
-    /** Started scope container — reach the persons/group stores and hog transformer here. */
+    /** Started scope container — reach the persons/group stores, hog transformer, overflow service here. */
     container: Record<string, object>
+    /** The started consumer, e.g. for its `name` and healthcheck. */
+    consumer: { name: string; isHealthy: () => Promise<HealthCheckResult> }
     stop: () => Promise<void>
 }
 
@@ -39,7 +41,7 @@ export interface AnalyticsTestConsumer {
 export async function startAnalyticsTestConsumer(
     infra: IngestionTestInfra,
     mockProducer: KafkaProducerWrapper,
-    overrides?: { topic?: string; groupId?: string }
+    overrides?: Partial<AnalyticsConsumerConfig>
 ): Promise<AnalyticsTestConsumer> {
     let capturedHandler: ((messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>) | undefined
     ;(createKafkaConsumer as jest.Mock).mockImplementation(() => ({
@@ -56,8 +58,7 @@ export async function startAnalyticsTestConsumer(
     const config: AnalyticsConsumerConfig = {
         ...infra.config,
         ...getDefaultIngestionOutputsConfig(),
-        ...(overrides?.topic ? { INGESTION_CONSUMER_CONSUME_TOPIC: overrides.topic } : {}),
-        ...(overrides?.groupId ? { INGESTION_CONSUMER_GROUP_ID: overrides.groupId } : {}),
+        ...overrides,
     }
 
     const sharedScope = newScope('analytics-test-shared', (b) =>
@@ -81,7 +82,7 @@ export async function startAnalyticsTestConsumer(
     )
 
     const consumerScope = createAnalyticsConsumer(config, sharedScope, createAiEventSubpipeline)
-    const { stop, container } = await consumerScope.start()
+    const { consumer, stop, container } = await consumerScope.start()
 
     if (!capturedHandler) {
         throw new Error('Kafka consumer handler was not captured — did the test jest.mock the kafka consumer module?')
@@ -91,6 +92,7 @@ export async function startAnalyticsTestConsumer(
     return {
         handleKafkaBatch: (messages: Message[]) => handler(messages),
         container,
+        consumer,
         stop,
     }
 }
