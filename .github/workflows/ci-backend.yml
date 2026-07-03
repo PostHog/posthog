@@ -1618,6 +1618,7 @@ jobs:
                       exit 0
                   fi
                   echo "has_changes=true" >> "$GITHUB_OUTPUT"
+                  echo "migration_count=$(echo "$CHANGED" | grep -c .)" >> "$GITHUB_OUTPUT"
                   {
                       echo '<!-- ch-migration-sql -->'
                       echo '## ClickHouse migration SQL per cloud environment'
@@ -1667,58 +1668,21 @@ jobs:
                       done
                   fi
 
-            - name: Post CH migration SQL PR comment
-              # Sticky comment: find the marker and update in place so pushes don't spam the PR.
+            - name: Post CH migration SQL to CI report comment
+              # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const marker = '<!-- ch-migration-sql -->';
-                      const hasChanges = process.env.HAS_CHANGES === 'true';
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find((c) => c.body.includes(marker));
-                      if (!hasChanges) {
-                          // No migrations changed — clean up a stale sticky comment if one exists
-                          // (e.g. migrations were added then removed in a later push), otherwise no-op.
-                          if (existing) {
-                              await github.rest.issues.deleteComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                              });
-                          }
-                          return;
-                      }
-                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
-                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
-                      if (body.length > LIMIT) {
-                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
-                      }
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
+                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ -f .github/scripts/post-ch-migration-section.mjs ]; then
+                      node .github/scripts/post-ch-migration-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping CH migration section — script not present on this checkout"
+                  fi
 
     check-openapi-types:
         needs: [changes]

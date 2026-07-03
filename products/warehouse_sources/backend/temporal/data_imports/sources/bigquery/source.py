@@ -71,6 +71,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
             # the volatile temp-table id.
             "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # Creating the `__posthog_import_...` temp tables (the `WRITE_TRUNCATE` destination in
+            # `_run_destination_query_with_job_retry`, on incremental / view / row-filtered reads) needs
+            # create access on the dataset those tables live in. When the service account only has read
+            # access, BigQuery rejects it with "Permission bigquery.tables.create denied on dataset
+            # <id>" — the create-side twin of the `bigquery.tables.update` denial above. Like that key,
+            # it also starts with "Access Denied:", so it must sit above that key or the customer is told
+            # to grant *read* access (Data Viewer), which can't fix a *create* failure. Deterministic IAM
+            # config problem — retrying can't grant the permission. Matched on the stable permission name,
+            # not the volatile dataset id.
+            "bigquery.tables.create": "BigQuery denied permission to create a temporary table PostHog needs in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account permission to create tables (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -110,6 +120,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # grant the missing permission (e.g. the BigQuery Read Session User role). Matched on the
             # stable permission name rather than the volatile project id.
             "bigquery.readsessions.create": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.create permission. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
+            # Raised while reading rows from a Storage Read API stream (see `get_rows` in `bigquery.py`)
+            # when the service account can create a read session but lacks `bigquery.readsessions.getData`,
+            # the separate permission required to pull data from the session's streams. The
+            # google.api_core PermissionDenied stringifies as "there was an error operating on
+            # 'projects/<id>/.../streams/<id>': the user does not have 'bigquery.readsessions.getData'
+            # permission for '...'", so neither the "Access Denied:"/403 keys nor the readsessions.create
+            # key cover this wording, and it retries forever. Same IAM config fix as create — the BigQuery
+            # Read Session User role grants both. Matched on the stable permission name rather than the
+            # volatile session/stream ids.
+            "bigquery.readsessions.getData": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.getData permission needed to read data from a read session. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
             # Raised from query jobs when the configured dataset/table doesn't exist in the location
             # we query — the dataset was deleted or renamed, or it lives in a different region than the
             # one we run against. The google exception stringifies as "404 Not found: Dataset ... was

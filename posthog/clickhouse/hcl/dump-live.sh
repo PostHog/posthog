@@ -38,6 +38,8 @@ ROLES=(
   "ops       localhost 9300 posthog"
   "logs      localhost 9500 posthog"
   "ai_events localhost 9100 posthog"
+  "aux       localhost 9200 posthog"
+  "sessions  localhost 9400 posthog"
 )
 
 # Pin to the same chschema build as bin/hclexp; override via repo variable.

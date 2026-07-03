@@ -1104,7 +1104,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1285,7 +1285,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FulcrumSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1295,12 +1295,19 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
@@ -1548,7 +1555,7 @@ class HoorayHRSourceConfig(config.Config):
 
 @config.config
 class HubplannerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1632,7 +1639,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1647,7 +1654,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1657,7 +1664,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1702,7 +1710,8 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -1712,7 +1721,8 @@ class JustSiftSourceConfig(config.Config):
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
@@ -1727,7 +1737,7 @@ class KafkaSourceConfig(config.Config):
 
 @config.config
 class KatanaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1811,7 +1821,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1853,7 +1863,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2095,7 +2105,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2143,7 +2154,7 @@ class NewsApiSourceConfig(config.Config):
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2257,7 +2268,7 @@ class OpenExchangeRatesSourceConfig(config.Config):
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
@@ -2431,7 +2442,7 @@ class PersistIqSourceConfig(config.Config):
 
 @config.config
 class PersonaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2460,7 +2471,8 @@ class PhylloSourceConfig(config.Config):
 
 @config.config
 class PicqerSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key: str
 
 
 @config.config
