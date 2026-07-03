@@ -114,8 +114,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
-    EngineeringAnalyticsAuthor: () =>
-        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -218,6 +216,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
@@ -245,6 +244,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
@@ -259,7 +259,6 @@ export const productRoutes: Record<string, [string, string]> = {
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
-    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -454,6 +453,8 @@ export const productRedirects: Record<
     },
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+    '/engineering-analytics/authors': '/engineering-analytics',
+    '/engineering-analytics/author/:handle': '/engineering-analytics',
     '/error_tracking/configuration': (_params, searchParams, hashParams) => {
         const { tab, ...restSearchParams } = searchParams
         return combineUrl(
@@ -690,13 +691,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflow runs',
         layout: 'app-container',
         description: "A single workflow's recent runs across the connected repo.",
-        iconType: 'health',
-    },
-    EngineeringAnalyticsAuthor: {
-        projectBased: true,
-        name: 'Author CI',
-        layout: 'app-container',
-        description: "One author's pull requests and the CI cost they incurred.",
         iconType: 'health',
     },
     ErrorTracking: {
@@ -982,6 +976,7 @@ export const productUrls = {
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+    customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
@@ -1084,6 +1079,7 @@ export const productUrls = {
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
     engineeringAnalytics: (): string => '/engineering-analytics',
+    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1092,8 +1088,6 @@ export const productUrls = {
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
-    engineeringAnalyticsAuthor: (handle: string): string =>
-        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1819,7 +1813,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsPullRequest',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
-            'EngineeringAnalyticsAuthor',
         ],
     },
     {
