@@ -1,4 +1,4 @@
-import { applyOuterStackCaps, computeBarAtIndex } from '../../../core/bar-layout'
+import { applyOuterStackCaps, computeBarAtIndex, computeBarTrackRect } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
@@ -44,6 +44,30 @@ export function cursorOutsideBarFillExtent(
     return isHorizontal
         ? point.x < bar.x || point.x > bar.x + bar.width
         : point.y < bar.y || point.y > bar.y + bar.height
+}
+
+/** True when the cursor sits beyond a series' per-bar track ceiling — the blank, inert region above a
+ *  capped `trackData` track (a funnel compare bar's volume gap). False when the series has no ceiling
+ *  at this bar (the track spans the whole axis). Callers establish band-axis containment and that the
+ *  cursor is already outside the bar's own fill before calling. */
+export function cursorBeyondTrackCeiling(
+    series: { trackData?: number[] },
+    bar: BarRect,
+    scales: BarScaleSet,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    const ceiling = series.trackData?.[bar.dataIndex]
+    if (ceiling == null) {
+        return false
+    }
+    const ceilingPixel = scales.value(ceiling)
+    if (!isFinite(ceilingPixel)) {
+        return false
+    }
+    // Track grows from the value baseline (range start) to the ceiling; beyond it is the blank gap.
+    const [axisBaseline = 0] = scales.value.range()
+    return !barContainsPoint(computeBarTrackRect(bar, axisBaseline, ceilingPixel, isHorizontal), point)
 }
 
 export interface BarsAtCursorArgs {
@@ -101,6 +125,36 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
         layout
     )
     yield* results
+}
+
+/** True when the cursor sits in a bar's inert volume gap — lined up on the band axis with a bar
+ *  whose capped `trackData` ceiling it has passed (a funnel compare period's blank space above its
+ *  track). Such a position takes no hover, tooltip, highlight, or click. Bars whose track spans the
+ *  full axis are never a gap. A grouped cursor lines up with a single column of the group; stacked
+ *  segments all share their band slot, so the cursor must clear every segment's fill before a
+ *  segment's ceiling can declare the position a gap. */
+export function cursorInInertTrackGap(
+    args: Omit<BarsAtCursorArgs, 'series'> & {
+        // `trackData` beyond the base pick so the ceiling check sees each series' cap.
+        series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data' | 'trackData'>[]
+        cursor: { x: number; y: number }
+    }
+): boolean {
+    const { cursor, isHorizontal, scales } = args
+    let beyondACeiling = false
+    for (const { series: s, bar } of barsAtCursor(args)) {
+        if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
+            continue
+        }
+        // The cursor is over this bar's own fill — an actual segment, never a gap.
+        if (!cursorOutsideBarFillExtent(bar, cursor, isHorizontal)) {
+            return false
+        }
+        if (cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)) {
+            beyondACeiling = true
+        }
+    }
+    return beyondACeiling
 }
 
 export interface ResolveBarsAtCursorResult {
