@@ -136,7 +136,7 @@ def _reaction_age_seconds(created_at: str | None) -> float:
     if not created_at:
         return 0.0
     try:
-        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        created = datetime.fromisoformat(created_at)
     except ValueError:
         return 0.0
     return (datetime.now(UTC) - created).total_seconds()
