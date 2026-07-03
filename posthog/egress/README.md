@@ -46,7 +46,8 @@ GitHub's budget is per **installation** (the unit GitHub meters): 13,500 request
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.
 All priorities draw from the _same_ per-key counter — the lane only changes how much headroom must stay free for the call to be admitted (a _reserved floor_), so deferrable bulk traffic (`BATCH`) is denied before critical traffic as the budget fills, without ever splitting the budget into separate buckets.
 Admission tests `n + reserve` but only consumes `n`, so an empty reserve is bit-identical to pre-priority behavior.
-GitHub ships with no active reserves yet: the mechanism is wired end to end (callers already declare their lane), and turning it on is a one-line change once a `CRITICAL` path is actually gated.
+GitHub reserves 30% of each window for non-`BATCH` callers, so deferrable warehouse polling (`BATCH`) is denied first as the shared budget fills — before the `NORMAL` job-logs worker and `CRITICAL` user-facing traffic starve.
+An unpressured window is unaffected; only under contention does `BATCH` shed.
 
 ### Backend
 

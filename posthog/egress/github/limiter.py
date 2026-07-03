@@ -16,14 +16,13 @@ from posthog.egress.limiter.policies import Priority, RatePolicy, register_polic
 
 GITHUB_DOMAIN = "github"
 
-# No reserves are active yet — a deliberate default, not a limitation. Every GitHub call now gates
-# through the limiter: user-facing traffic at CRITICAL (integration, visual review, conversations,
-# error tracking), warehouse at BATCH, the job-logs worker at NORMAL. So a BATCH reserve would now
-# have a real beneficiary — it would shed deferrable warehouse polling before critical traffic as the
-# budget fills. It stays empty until the grant/deny metrics show the shared budget (13.5k under
-# GitHub's 15k) actually getting tight; turning it on is a one-line change here — e.g.
-# {Priority.BATCH: 0.30} to shed warehouse polling first.
-_RESERVE: dict[Priority, float] = {}
+# Every GitHub call gates through the limiter: user-facing traffic at CRITICAL (integration, visual
+# review, conversations, error tracking), warehouse polling at BATCH, the job-logs worker at NORMAL.
+# Reserve 30% of each window for non-BATCH callers so deferrable warehouse polling is denied first as
+# the shared budget fills — before the NORMAL job-logs worker (and CRITICAL user-facing traffic)
+# starve. Admission tests n + reserve but consumes only n, so this never splits the budget into
+# buckets: an unpressured window behaves exactly as before, and only under contention does BATCH shed.
+_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30}
 
 # Default under GitHub's real 15k/hr ceiling so the reactive backoff (GitHubRateLimitError in
 # posthog/egress/github/transport.py) absorbs drift between our local count and GitHub's actual

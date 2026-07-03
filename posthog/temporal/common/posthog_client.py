@@ -14,6 +14,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.errors import is_benign_application_error
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -69,6 +70,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # control flow, not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
+            # BENIGN ApplicationErrors are deliberate backoff signals (e.g. an egress-budget denial),
+            # not defects — Temporal still retries them, but they must not register as crashes.
+            if is_benign_application_error(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -103,6 +108,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if is_benign_application_error(e):
+                raise  # Deliberate backoff signal, not a defect — don't report as a crash
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

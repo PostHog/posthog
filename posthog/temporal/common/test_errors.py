@@ -1,10 +1,11 @@
 import pytest
 
-from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
+from temporalio.exceptions import ActivityError, ApplicationError, ApplicationErrorCategory, ChildWorkflowError
 
 from posthog.temporal.common.errors import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_ERROR_TRACE_CHARS,
+    is_benign_application_error,
     truncate_for_temporal_payload,
     unwrap_temporal_cause,
 )
@@ -82,3 +83,22 @@ class TestUnwrapTemporalCause:
 
     def test_returns_none_when_wrapper_chain_bottoms_out_on_non_application(self) -> None:
         assert unwrap_temporal_cause(_activity_error(ValueError("not an app error"))) is None
+
+
+class TestIsBenignApplicationError:
+    # This gates whether the PostHog Temporal interceptor reports an error to error tracking: a
+    # BENIGN ApplicationError is a deliberate backoff (e.g. an egress-budget denial), not a crash.
+    # Misclassifying either way re-floods error tracking or hides a real defect.
+    def test_true_for_bare_benign_application_error(self) -> None:
+        err = ApplicationError("budget exhausted", type="X", category=ApplicationErrorCategory.BENIGN)
+        assert is_benign_application_error(err) is True
+
+    def test_false_for_unspecified_application_error(self) -> None:
+        assert is_benign_application_error(ApplicationError("boom", type="X")) is False
+
+    def test_true_for_benign_error_wrapped_by_temporal(self) -> None:
+        leaf = ApplicationError("budget exhausted", type="X", category=ApplicationErrorCategory.BENIGN)
+        assert is_benign_application_error(_activity_error(leaf)) is True
+
+    def test_false_for_non_application_error(self) -> None:
+        assert is_benign_application_error(ValueError("x")) is False

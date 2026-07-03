@@ -15,7 +15,7 @@ from django.conf import settings
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.models.integration import GitHubIntegration, Integration
@@ -68,8 +68,17 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
     if not await acquire_github_installation(installation_id, source="job_logs"):
-        # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
-        raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
+        # Over the shared GitHub budget — a deliberate backoff, not a defect. Raise BENIGN so it isn't
+        # reported to error tracking (see the interceptor in posthog/temporal/common/posthog_client.py),
+        # and non-retryable so the workflow's transient-error retries don't compound with the
+        # coordinator's re-fan-out: the next coordinator tick re-drives this job, which is the natural
+        # budget-aware backoff. Stacking both multiplied one budget-tight window into a flood.
+        raise ApplicationError(
+            "GitHub egress budget exhausted",
+            type="GithubEgressBudgetExhausted",
+            category=ApplicationErrorCategory.BENIGN,
+            non_retryable=True,
+        )
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
         log.info("github_job_log_unavailable")

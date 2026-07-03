@@ -1,6 +1,6 @@
 import traceback
 
-from temporalio.exceptions import ApplicationError, FailureError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, FailureError
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
@@ -22,6 +22,14 @@ def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
     while isinstance(current, FailureError) and not isinstance(current, ApplicationError):
         current = current.cause
     return current if isinstance(current, ApplicationError) else None
+
+
+def is_benign_application_error(exc: BaseException) -> bool:
+    """True when ``exc`` (or the ApplicationError it wraps) was raised with the BENIGN category — a
+    deliberate, expected backoff signal (e.g. an egress-budget denial) rather than a defect. Such
+    errors still drive Temporal retries but must not be reported to error tracking as crashes."""
+    leaf = exc if isinstance(exc, ApplicationError) else unwrap_temporal_cause(exc)
+    return leaf is not None and leaf.category == ApplicationErrorCategory.BENIGN
 
 
 def resolve_exception_class(exc: BaseException) -> str:
