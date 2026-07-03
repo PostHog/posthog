@@ -81,6 +81,17 @@ _SNOWFLAKE_IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
 # Snowflake exposes one metadata schema per database; everything else is user data.
 SNOWFLAKE_SYSTEM_SCHEMA = "INFORMATION_SCHEMA"
 
+# Bound the connector's per-request retry budget. `network_timeout` defaults to infinite, so a
+# stalled/half-open connection mid-request (peer or network drop) retries forever in the worker
+# thread. The sync activities are threaded and the heartbeater runs on a separate event-loop task,
+# so the stall isn't surfaced by a missed heartbeat — the activity just runs until Temporal's
+# `start_to_close_timeout` cancels the thread mid socket-read, surfacing a misleading
+# `WantReadError`/`CancelledError`. Bounding it turns the stall into a fast, retryable
+# `OperationalError` well before the activity is cancelled. It applies per request, so it never caps
+# a long-running streaming sync. Kept comfortably under the schema-discovery activity's 10-minute
+# `start_to_close_timeout` while leaving ample room for legitimate per-request round-trips and retries.
+_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS = 300
+
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
     """Split a `schema.table` display name into `(schema, table)`.
@@ -262,6 +273,7 @@ class SnowflakeImplementation(
             # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
             schema=normalize_namespace(config.schema),
             role=config.role,
+            network_timeout=_SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
             **auth_connect_args,
         ) as connection:
             yield connection

@@ -38,6 +38,12 @@ RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned 
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
 
+# Per-poll fetch cap multiplier: fetch at most (free slots x this) batches so a poll
+# never leases far more groups than it can dispatch. Runs average ~2 batches per
+# group (batch 0 + final), so x3 gives headroom for multi-batch runs without
+# re-creating the over-claim problem.
+BATCHES_PER_GROUP_FETCH_FACTOR = 3
+
 
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
@@ -300,7 +306,7 @@ class BatchConsumer:
                     conn = await self._ensure_poll_conn()
                     batches = await self._adapter.fetch_and_lock(
                         conn,
-                        limit=self._config.poll_limit,
+                        limit=self._fetch_limit(available),
                         retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                         owner_token=self._owner_token,
                         lease_ttl_seconds=self._lease_ttl_seconds,
@@ -317,26 +323,57 @@ class BatchConsumer:
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
 
-                groups = _group_by_key(batches)
-
-                logger.debug(
-                    self._event("poll_returned"),
-                    batch_count=len(batches),
-                    group_count=len(groups),
-                )
-
-                for key, group_batches in groups.items():
-                    if key in self._in_flight:
-                        continue
-                    if len(self._in_flight) >= self._config.max_concurrency:
-                        break
-                    task = asyncio.create_task(self._process_group_tracked(key, group_batches))
-                    self._in_flight[key] = task
-                    self._metrics.active_groups.inc()
+                await self._dispatch_groups(conn, batches)
 
                 await self._wait_or_shutdown(self._config.poll_interval_seconds)
         finally:
             await self._close()
+
+    def _fetch_limit(self, available: int) -> int:
+        """Cap the poll fetch so we never lease far more groups than we have free slots to run.
+
+        ``fetch_and_lock`` claims a lease for every group it returns, and a
+        leased-but-undispatched group is dark to the whole fleet until its TTL
+        expires.
+        """
+        return min(self._config.poll_limit, available * BATCHES_PER_GROUP_FETCH_FACTOR)
+
+    async def _dispatch_groups(self, conn: psycopg.AsyncConnection[Any], batches: list[PendingBatch]) -> None:
+        """Start a group task per fetched group, up to ``max_concurrency``; release the rest.
+
+        Groups the poll leased but we cannot dispatch are unlocked immediately —
+        holding their leases would leave them unclaimable fleet-wide until the
+        lease TTL expires. Groups already in flight keep their (just renewed) leases.
+        """
+        groups = _group_by_key(batches)
+
+        logger.debug(
+            self._event("poll_returned"),
+            batch_count=len(batches),
+            group_count=len(groups),
+        )
+
+        undispatched: list[PendingBatch] = []
+        for key, group_batches in groups.items():
+            if key in self._in_flight:
+                continue
+            if len(self._in_flight) >= self._config.max_concurrency:
+                undispatched.extend(group_batches)
+                continue
+            task = asyncio.create_task(self._process_group_tracked(key, group_batches))
+            self._in_flight[key] = task
+            self._metrics.active_groups.inc()
+
+        if undispatched:
+            logger.info(
+                self._event("released_undispatched_groups"),
+                batch_count=len(undispatched),
+            )
+            try:
+                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token)
+            except Exception as e:
+                logger.exception(self._event("release_undispatched_failed"))
+                capture_exception(e)
 
     def _reap_finished_tasks(self) -> None:
         """Remove completed group tasks from the in-flight registry."""

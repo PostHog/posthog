@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
     ChartLegendConfig,
     ChartTheme,
@@ -15,24 +14,17 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
-import {
-    useXTickFormatter,
-    useYTickFormatter,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { GoalLineConfig } from '../../utils/goal-lines'
+import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
-import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
-import {
-    resolveValueLabelsConfig,
-    useSeriesWithValueLabelAllowlist,
-    type ValueLabelsConfig,
-} from '../utils/use-value-labels'
+import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
-    yAxis?: YAxisConfig
+    /** Single object for a standard left axis; array for dual left+right axes. */
+    yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -46,6 +38,10 @@ export interface TimeSeriesComboChartConfig {
     showCrosshair?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
     showAxisLines?: boolean
+    /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
+    showTickMarks?: boolean
+    /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -92,65 +88,53 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         showCrosshair,
         showAxisLines,
+        showTickMarks,
+        curve,
         tooltip: tooltipConfig,
         legend,
         trendLines,
     } = config ?? {}
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(yAxis)
+    const {
+        xTickFormatter,
+        yTickFormatter,
+        legendProps,
+        visibleSeries,
+        chartSeries,
+        valueLabelsConfig,
+        valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
 
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
-
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
-
-    const referenceLines = useMemo(
-        () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
-        [goalLines, seriesAfterValueLabels]
-    )
-
-    // Extend the value axis to cover goal lines that sit outside the data range, so a goal line
-    // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
-    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
-    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
-
-    const trendSeries = useMemo(() => {
-        if (!trendLines?.length) {
-            return []
-        }
-        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
-        return trendLines.flatMap((tl) => {
-            const source = byKey.get(tl.seriesKey)
-            return source
-                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
-                : []
-        })
-    }, [trendLines, visibleSeries])
+    const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const comboChartConfig: ComboChartConfig = {
-        yScaleType: yAxis?.scale,
+        yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: yAxis?.hide,
+        hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
-        yAxisLabel: yAxis?.label,
-        showGrid: yAxis?.showGrid,
+        yAxisLabel: primaryYAxis?.label,
+        showGrid: primaryYAxis?.showGrid,
         showAxisLines,
+        showTickMarks,
+        curve,
         showCrosshair,
         defaultSeriesType,
         barLayout,
         barCornerRadius,
         tooltip: tooltipConfig,
         valueDomain,
+        yAxes,
     }
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-combo-legend">
             <ComboChart
-                series={seriesAfterValueLabels}
+                series={chartSeries}
                 labels={labels}
                 config={comboChartConfig}
                 theme={theme}

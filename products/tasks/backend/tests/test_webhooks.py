@@ -519,6 +519,10 @@ class TestExternalPRWebhook(TestCase):
                 "title": "Internal customer change",
                 "base": {"ref": "main"},
                 "head": {"ref": "feature/x"},
+                "additions": 120,
+                "deletions": 30,
+                "changed_files": 5,
+                "commits": 3,
             },
         }
 
@@ -551,6 +555,10 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(props["pr_number"], 7)
         self.assertEqual(props["pr_author"], "octocat")
         self.assertEqual(props["pr_base_ref"], "main")
+        self.assertEqual(props["pr_additions"], 120)
+        self.assertEqual(props["pr_deletions"], 30)
+        self.assertEqual(props["pr_changed_files"], 5)
+        self.assertEqual(props["pr_commits"], 3)
         self.assertIsNone(props["task_id"])
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])

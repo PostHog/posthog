@@ -5,8 +5,9 @@ description: >
   per-source code. Use when the user points at an API that has no built-in PostHog connector — "import data from this
   REST API", "sync my internal API", "connect this API from its docs", "build a custom data warehouse source" — and
   gives a docs URL or a natural-language description of the endpoints. Walks through drafting the RESTAPIConfig manifest
-  (auth, pagination, record path, incremental cursor, parent/child fan-out), validating it, test-reading live rows to
-  verify the field mappings, and creating the source. If the API already has a native PostHog connector, use
+  (auth — bearer, API key, HTTP basic, or OAuth2 client credentials / refresh token — pagination, record path,
+  incremental cursor, parent/child fan-out), validating it, test-reading live rows to verify the field mappings, and
+  creating the source. If the API already has a native PostHog connector, use
   setting-up-a-data-warehouse-source instead — this skill checks the connector registry first and only handles APIs
   with no native connector.
 ---
@@ -64,8 +65,10 @@ The skeleton:
 
 **Secrets never go inline in the manifest.** `manifest_json` holds only the non-secret structure. The credential
 travels in a separate payload key chosen by the manifest's `client.auth.type`: `auth_token` (bearer), `auth_api_key`
-(api_key), or `auth_password` (http_basic). The engine injects it at run time, and PostHog redacts it from every
-response. Putting a token inline is rejected at validation.
+(api_key), `auth_password` (http_basic), or `auth_oauth2_client_secret` for oauth2 (plus
+`auth_oauth2_refresh_token` for the refresh-token grant only). The
+engine injects it at run time, and PostHog redacts it from every response. Putting a token inline is rejected at
+validation.
 
 ## Available tools
 
@@ -97,7 +100,8 @@ Get either a **docs URL** (fetch it and read the auth scheme, the list endpoints
 pagination) or a **natural-language description** of the endpoints. You need, per resource you'll import:
 
 - the **path** (relative to a common `base_url`) and method (GET, or POST for query-style read endpoints),
-- the **auth scheme** (bearer token / API key in header or query / HTTP basic),
+- the **auth scheme** (bearer token / API key in header or query / HTTP basic / OAuth2 with a customer-owned client —
+  `client_credentials` or a pre-obtained refresh token; the interactive `authorization_code` flow is not supported),
 - the **record path** — where the array of records sits in the JSON response (e.g. `data`, `results`, `items`),
 - how the API **paginates** (next-URL, link header, cursor, offset, page number, or single page),
 - a **primary key** field, and
@@ -118,7 +122,8 @@ fan-out example. Keep it to one level of nesting.
 
 Call `external-data-sources-db-schema` with `{ source_type: "Custom", manifest_json: "<stringified manifest>",
 auth_token: "<credential>" }`. The credential key is **not literally `auth_*`** — use the one for your auth type:
-`auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic). It validates the manifest structure,
+`auth_token` (bearer), `auth_api_key` (api_key), `auth_password` (http_basic), or `auth_oauth2_client_secret` (+
+`auth_oauth2_refresh_token` for the refresh-token grant). It validates the manifest structure,
 the fan-out graph, and the credential (a bounded live probe),
 then returns one table entry per resource with `detected_primary_keys` and `incremental_fields`. If it returns a 400,
 the `message` is plain English (e.g. `resources[0].endpoint.path: must not be empty`) — fix the manifest and retry.
@@ -162,3 +167,10 @@ After creation, call `external-data-schemas-list` to show the user the initial s
   source API.
 - **Pick the cursor carefully.** Prefer an `updated_at`-style field over `created_at` (it catches edits), and set
   `cursor_type` when the cursor isn't a datetime (e.g. an integer id) so it's compared with the right type.
+- **OAuth2 secrets are adopted into a server-managed credential store** on the first db-schema / preview / create
+  call, and any rotated single-use refresh token is persisted server-side — so keep the entire `client.auth` block
+  identical across those calls within one setup, and re-submit the same secrets each time. Changing any auth-block
+  field mid-setup discards the stored rotation, and providers that rotate single-use refresh tokens will then reject
+  the next mint until the user fetches a fresh token. Never set `auth_oauth2_integration_id` yourself (it is server-owned); to
+  reconnect a source whose token broke, update it with re-entered `auth_oauth2_client_secret` /
+  `auth_oauth2_refresh_token`. See the OAuth2 section of the manifest reference for the auth block fields.

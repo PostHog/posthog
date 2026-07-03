@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
@@ -127,6 +128,7 @@ class TestFixAndRecord(BaseTest):
     def test_successful_fix_increments_correct_counter(self, issue_type, expected_counter):
         """Test that successful fix increments the correct counter for each issue type."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.update_fn.return_value = True
 
         result = VerificationResult()
@@ -153,6 +155,7 @@ class TestFixAndRecord(BaseTest):
     def test_failed_fix_increments_fix_failed(self):
         """Test that failed fix increments fix_failed counter."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.update_fn.return_value = False
 
         result = VerificationResult()
@@ -173,6 +176,7 @@ class TestFixAndRecord(BaseTest):
     def test_exception_in_update_fn_increments_fix_failed(self):
         """Test that exception in update_fn increments fix_failed."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.update_fn.side_effect = Exception("Update failed")
 
         result = VerificationResult()
@@ -192,6 +196,7 @@ class TestFixAndRecord(BaseTest):
     def test_uses_db_data_from_verification_directly(self):
         """Test that _fix_and_record uses verification['db_data'] to set cache directly, bypassing update_fn."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         db_data = {"flags": ["flag1", "flag2"]}
 
         result = VerificationResult()
@@ -211,6 +216,28 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 1
         assert self.team.id in result.fixed_team_ids
 
+    def test_db_data_write_skipped_when_should_skip_write_vetoes(self):
+        """A config write guard (e.g. group_type_mapping emptied) vetoes the direct
+        db_data write, counting neither a fix nor a failure."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write.return_value = True
+        db_data: dict = {"flags": [], "group_type_mapping": {}}
+
+        result = VerificationResult()
+
+        _fix_and_record(
+            team=self.team,
+            config=mock_config,
+            issue_type="cache_miss",
+            cache_type="test_cache",
+            result=result,
+            verification={"status": "miss", "db_data": db_data},
+        )
+
+        mock_config.hypercache.set_cache_value.assert_not_called()
+        assert result.cache_miss_fixed == 0
+        assert result.fix_failed == 0
+
     @parameterized.expand(
         [
             ("empty_dict", {}),
@@ -220,6 +247,7 @@ class TestFixAndRecord(BaseTest):
     def test_falls_back_to_update_fn_when_no_db_data_in_verification(self, _name, verification):
         """Test that _fix_and_record falls back to update_fn when verification has no db_data."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.update_fn.return_value = True
 
         result = VerificationResult()
@@ -242,6 +270,7 @@ class TestFixAndRecord(BaseTest):
     def test_db_data_set_cache_value_exception_increments_fix_failed(self):
         """Test that exceptions in set_cache_value (db_data path) increment fix_failed."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.set_cache_value.side_effect = Exception("Redis error")
         db_data = {"flags": ["flag1"]}
 
@@ -259,6 +288,41 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
+    @parameterized.expand(
+        [
+            ("update_fn", False),
+            ("set_cache_value", True),
+        ]
+    )
+    def test_soft_time_limit_exceeded_propagates_instead_of_failing_fix(self, _name, use_db_data):
+        """SoftTimeLimitExceeded must propagate so the task winds down cleanly,
+        instead of being recorded as a fix failure like a real cache error (which
+        previously happened because it subclasses Exception)."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+
+        verification: dict = {"status": "miss"}
+        if use_db_data:
+            verification["db_data"] = {"flags": ["flag1"]}
+            mock_config.hypercache.set_cache_value.side_effect = SoftTimeLimitExceeded()
+        else:
+            mock_config.update_fn.side_effect = SoftTimeLimitExceeded()
+
+        result = VerificationResult()
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="test_cache",
+                result=result,
+                verification=verification,
+            )
+
+        assert result.fix_failed == 0
+        assert result.cache_miss_fixed == 0
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixBatch(BaseTest):
@@ -267,6 +331,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_match_status_does_not_fix(self):
         """Test that cache match status doesn't trigger a fix."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
@@ -300,6 +365,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_status_triggers_fix(self, status, issue, expected_counter):
         """Test that miss/mismatch status triggers the appropriate fix."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
@@ -324,9 +390,52 @@ class TestVerifyAndFixBatch(BaseTest):
         # When db_batch_data is None (no batch_load_fn), it falls back to update_fn
         mock_config.update_fn.assert_called_once_with(self.team)
 
+    @parameterized.expand(
+        [
+            # A no-DB-fallback cache (repair_miss_during_grace_period=True) must repair a
+            # miss even in the grace period, or the reader 503s until the next sweep. A
+            # read-through cache (False) keeps the skip since it cold-loads on miss.
+            (True, True),
+            (False, False),
+        ]
+    )
+    def test_grace_period_repair_miss_is_config_gated(self, repair_miss_during_grace_period, expect_fixed):
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+        mock_config.repair_miss_during_grace_period = repair_miss_during_grace_period
+        # Team IS inside the grace period (recently updated), with a full miss.
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = {self.team.id}
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        if expect_fixed:
+            assert result.cache_miss_fixed == 1
+            assert result.skipped_for_grace_period == 0
+            mock_config.update_fn.assert_called_once_with(self.team)
+        else:
+            assert result.cache_miss_fixed == 0
+            assert result.skipped_for_grace_period == 1
+            mock_config.update_fn.assert_not_called()
+
     def test_expiry_missing_triggers_fix_for_match_status(self):
         """Test that missing expiry tracking triggers fix even when cache matches."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
@@ -358,6 +467,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_verification_error_increments_errors(self):
         """Test that verification errors are counted."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
 
@@ -379,8 +489,82 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.errors == 1
         assert result.total_fixed == 0
 
+    def test_soft_time_limit_exceeded_propagates_and_stops_batch(self):
+        """SoftTimeLimitExceeded from verify_team_fn must propagate so the run winds
+        down, instead of being counted as a verification error and continuing on to
+        the next team in the batch (which previously happened because it subclasses
+        Exception)."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        processed_team_ids: list[int] = []
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            processed_team_ids.append(team.id)
+            if team.id == self.team.id:
+                raise SoftTimeLimitExceeded()
+            return {"status": "match", "issue": None}
+
+        result = VerificationResult()
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team, other_team],
+                    config=mock_config,
+                    verify_team_fn=verify_fn,
+                    cache_type="test_cache",
+                    result=result,
+                )
+
+        assert result.errors == 0
+        assert processed_team_ids == [self.team.id]
+
+    @parameterized.expand(
+        [
+            ("batch_get_from_cache",),
+            ("get_team_ids_to_skip_fix_fn",),
+            ("batch_load_fn",),
+        ]
+    )
+    def test_soft_time_limit_exceeded_in_batch_setup_propagates(self, failing_attr):
+        """A SoftTimeLimitExceeded from any of the batch-level setup calls (cache
+        read, skip-fix check, DB load) must propagate, instead of being logged as a
+        routine fallback warning and letting the batch continue toward the per-team
+        loop."""
+        mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.hypercache.batch_load_fn.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = set()
+        if failing_attr == "get_team_ids_to_skip_fix_fn":
+            mock_config.get_team_ids_to_skip_fix_fn.side_effect = SoftTimeLimitExceeded()
+        else:
+            getattr(mock_config.hypercache, failing_attr).side_effect = SoftTimeLimitExceeded()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            raise AssertionError("Should never reach per-team verification")
+
+        result = VerificationResult()
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team],
+                    config=mock_config,
+                    verify_team_fn=verify_fn,
+                    cache_type="test_cache",
+                    result=result,
+                )
+
+        assert result.total == 0
+
     def test_batch_load_fn_called_when_available(self) -> None:
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_db_batch_data: dict = {self.team.id: {"flags": []}}
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -417,6 +601,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_fix_uses_db_data_from_verification(self, _name, base_verification_result, expiry_status, result_attr):
         """Test that fixes use db_data from verify_fn result to avoid redundant DB queries."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn.return_value = {self.team.id: {"flags": ["flag1", "flag2"]}}
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.get_team_ids_to_skip_fix_fn = None
@@ -444,6 +629,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_expiry_missing_fix_uses_batch_data_via_injection(self):
         """Test that expiry_missing fixes use batch-loaded db_data even when verify_fn omits it."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn.return_value = {self.team.id: {"flags": ["flag1", "flag2"]}}
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
@@ -481,6 +667,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_fix_uses_batch_data(self, _name, verification_result, expiry_status, result_attr):
         """Test that fixes use preloaded batch data via set_cache_value when available."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         db_data = {"flags": ["flag1", "flag2"]}
         mock_db_batch_data: dict = {self.team.id: db_data}
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
@@ -510,6 +697,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_fix_falls_back_to_update_fn_without_batch_load(self):
         """Test that fixes fall back to update_fn when batch_load_fn is not available."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
@@ -537,6 +725,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_batch_get_from_cache_error_falls_back_to_empty_dict(self):
         """Test that batch_get_from_cache errors fall back to empty dict (individual lookups)."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.side_effect = Exception("Redis connection failed")
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
@@ -564,9 +753,11 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 0  # Should not count as error, just fallback
 
-    def test_get_team_ids_to_skip_fix_fn_skips_fix_for_full_verification(self):
-        """Test that get_team_ids_to_skip_fix_fn can skip fixes for teams with recent updates."""
+    def test_get_team_ids_to_skip_fix_fn_skips_mismatch_fix(self):
+        """A mismatch on a skip-listed (recently updated) team is left for the in-flight
+        async rebuild. (A miss is the exception — see test_grace_period_repair_miss_is_config_gated.)"""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         # Return team ID in the skip set
@@ -575,7 +766,7 @@ class TestVerifyAndFixBatch(BaseTest):
         result = VerificationResult()
 
         def verify_fn(team, db_batch_data, cache_batch_data):
-            return {"status": "miss", "issue": "CACHE_MISS"}
+            return {"status": "mismatch", "issue": "DATA_MISMATCH"}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
             _verify_and_fix_batch(
@@ -597,6 +788,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_get_team_ids_to_skip_fix_fn_none_does_not_skip(self):
         """Test that when get_team_ids_to_skip_fix_fn is None, fixes proceed normally."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.get_team_ids_to_skip_fix_fn = None  # No skip function
@@ -625,6 +817,7 @@ class TestVerifyAndFixBatch(BaseTest):
     def test_get_team_ids_to_skip_fix_fn_empty_set_does_not_skip(self):
         """Test that when get_team_ids_to_skip_fix_fn returns empty set, fixes proceed."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.get_team_ids_to_skip_fix_fn.return_value = set()  # Empty set - don't skip
@@ -657,6 +850,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_processes_all_teams_in_chunks(self):
         """Test that all teams are processed in chunks."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.get_teams_queryset.return_value = Team.objects.all()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -679,6 +873,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_returns_aggregated_results(self):
         """Test that results are aggregated across all chunks."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.get_teams_queryset.return_value = Team.objects.all()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -710,6 +905,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.get_teams_queryset.return_value = Team.objects.filter(id=team2.id)
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -736,6 +932,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
     def test_empty_queryset_processes_zero_teams(self):
         """When get_teams_queryset() returns empty queryset, no teams are verified."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.get_teams_queryset.return_value = Team.objects.none()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -756,6 +953,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
     def test_iterates_all_teams_when_queryset_fn_is_none(self):
         """When get_teams_queryset() has no scoping function, all teams are verified."""
         mock_config = MagicMock()
+        mock_config.should_skip_write = None  # default: no write guard
         mock_config.get_teams_queryset.return_value = Team.objects.all()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}

@@ -51,6 +51,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -89,6 +90,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -145,6 +147,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},

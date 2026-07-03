@@ -19,6 +19,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
+from posthog.egress.github.transport import GitHubRateLimitError, raise_if_github_rate_limited
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
@@ -32,7 +33,6 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
-    GitHubRateLimitError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -43,7 +43,6 @@ from posthog.models.integration import (
     S3CredentialIntegrationError,
     SlackIntegration,
     invalidate_github_repository_caches_for_installation,
-    raise_if_github_rate_limited,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -950,7 +949,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
             assert result == {
                 "success": True,
@@ -958,13 +957,13 @@ class TestGitHubIntegrationModel(BaseTest):
                 "truncated": False,
             }
             mock_get.assert_called_once()
-            assert "/compare/master...feature/foo" in mock_get.call_args.args[0]
+            assert "/compare/master...feature/foo" in mock_get.call_args.args[1]
 
     def test_get_diff_pins_to_shas_when_given(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
                 "PostHog/posthog",
                 target_branch="feature/foo",
@@ -973,20 +972,20 @@ class TestGitHubIntegrationModel(BaseTest):
                 base_sha="def456a",
             )
             assert result["success"] is True
-            assert "/compare/def456a...abc123f" in mock_get.call_args.args[0]
+            assert "/compare/def456a...abc123f" in mock_get.call_args.args[1]
 
     def test_get_diff_maps_upstream_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=404, text="Not Found")
-        with patch.object(github, "_github_api_get", return_value=mock_response):
+        with patch.object(github, "api_request", return_value=mock_response):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result == {"success": False, "error": "Not Found", "status_code": 404}
 
     def test_get_diff_handles_request_exception(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
-        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+        with patch.object(github, "api_request", side_effect=GitHubIntegrationError("network error")):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result["success"] is False
         assert result["status_code"] == 502
@@ -1027,7 +1026,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         oversized = "x" * (_MAX_DIFF_CHARS + 100)
         mock_response = MagicMock(status_code=200, text=oversized)
-        with patch.object(github, "_github_api_get", return_value=mock_response):
+        with patch.object(github, "api_request", return_value=mock_response):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result["success"] is True
         assert result["truncated"] is True
@@ -1051,7 +1050,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
         kwargs.update(overrides)
-        with patch.object(github, "_github_api_get") as mock_get:
+        with patch.object(github, "api_request") as mock_get:
             result = github.get_diff(**kwargs)
         assert result["success"] is False
         assert result["status_code"] == 400
@@ -1061,7 +1060,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
                 "PostHog/posthog", target_branch="feature/nested/branch", base_branch="release/v1.2"
             )
@@ -1123,7 +1122,7 @@ class TestGitHubIntegrationModel(BaseTest):
             ),
         ]
     )
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
         self,
         _name: str,
@@ -1155,11 +1154,12 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
-        GitHubIntegration(integration)._github_api_get(
-            "https://api.github.com/repos/PostHog/posthog",
-            endpoint="/repos/{owner}/{repo}",
-            headers={"Accept": "application/vnd.github+json"},
-        )
+        with patch.object(GitHubIntegration, "access_token_expired", return_value=False):
+            GitHubIntegration(integration).api_request(
+                "GET",
+                "/repos/PostHog/posthog",
+                endpoint="/repos/{owner}/{repo}",
+            )
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
         assert (
@@ -1184,7 +1184,7 @@ class TestGitHubIntegrationModel(BaseTest):
             == expected_reset
         )
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -1201,36 +1201,18 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
-        with pytest.raises(requests.RequestException):
-            GitHubIntegration(integration)._github_api_get(
-                "https://api.github.com/repos/PostHog/posthog",
+        with (
+            patch.object(GitHubIntegration, "access_token_expired", return_value=False),
+            pytest.raises(GitHubIntegrationError),
+        ):
+            GitHubIntegration(integration).api_request(
+                "GET",
+                "/repos/PostHog/posthog",
                 endpoint="/repos/{owner}/{repo}",
-                headers={"Accept": "application/vnd.github+json"},
             )
 
-        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
-
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
-        integration = self.create_integration(
-            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
-            {"access_token": "ACCESS_TOKEN"},
-        )
-        mock_client_request.side_effect = requests.RequestException("network failure")
-
-        labels = {
-            "installation_id": integration.integration_id,
-            "method": "POST",
-            "endpoint": "/app/installations/{installation_id}/access_tokens",
-            "status_code": "exception",
-            "source": "integration",
-        }
-        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
-
-        with pytest.raises(requests.RequestException):
-            GitHubIntegration(integration).refresh_access_token()
-
-        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+        # GET retries the network error once; both attempts record an exception sample.
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 2
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
@@ -1303,7 +1285,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1335,7 +1317,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1358,7 +1340,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_all_repositories_raises_when_later_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1922,8 +1904,12 @@ class TestGitHubIntegrationModel(BaseTest):
 
     # --- exception hierarchy ---
 
-    def test_github_rate_limit_error_is_integration_error(self):
-        assert isinstance(GitHubRateLimitError("test"), GitHubIntegrationError)
+    def test_github_rate_limit_error_is_egress_error_not_fatal_integration_error(self):
+        # Deliberately NOT a GitHubIntegrationError: a transient rate limit is retryable, not a fatal
+        # integration failure, and it lives in the egress layer. Backoff filters key off these fields.
+        err = GitHubRateLimitError("test", retry_after=45)
+        assert not isinstance(err, GitHubIntegrationError)
+        assert err.retry_after == 45
 
     # --- get_access_token ---
 
@@ -1977,7 +1963,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_returns_parsed_json_body(self, _mock_expired, mock_get):
         ok = MagicMock()
@@ -1989,7 +1975,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert body == {"default_branch": "main"}
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_retries_once_on_transient_5xx(self, _mock_expired, mock_get):
         transient = MagicMock()
@@ -2005,22 +1991,21 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert body == {"ok": True}
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_raises_rate_limit_error_on_secondary_limit(self, _mock_expired, mock_get):
         resp = MagicMock()
         resp.status_code = 403
-        resp.headers = {"Retry-After": "5"}
+        resp.headers = {"retry-after": "5"}
         resp.json.return_value = {"message": "secondary rate limit"}
         mock_get.return_value = resp
 
         integration = self._create_integration()
-        with pytest.raises(GitHubIntegrationError) as excinfo:
+        with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 5.0
+        assert excinfo.value.retry_after == 5
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_detects_secondary_limit_from_body_when_headers_missing(self, _mock_expired, mock_get):
         resp = MagicMock()
@@ -2031,12 +2016,11 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.return_value = resp
 
         integration = self._create_integration()
-        with pytest.raises(GitHubIntegrationError) as excinfo:
+        with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 60.0
+        assert excinfo.value.retry_after == 60
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.refresh_access_token")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_refreshes_token_on_401(self, _mock_expired, mock_refresh, mock_get):

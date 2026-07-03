@@ -24,7 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.facade.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult

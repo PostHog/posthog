@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -262,7 +262,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
     def test_list_signal_report_tasks_hidden_by_default(self):
         # Signal-report tasks are always created with internal=True, so the
         # default list still hides them. The retrieve-by-ID path (and the
-        # staff/DEBUG `?internal=true` path) is how they're surfaced.
+        # `?internal=true` / `?internal=all` filters) is how they're surfaced.
         other_user = self.create_organization_user("signal-owner")
         signal_task = Task.objects.create(
             team=self.team,
@@ -332,6 +332,38 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_retrieve_hogdesk_task_owned_by_another_user_is_visible(self):
+        # HogDesk Code threads are pinned to a support ticket via a shared ticket
+        # tag; any agent opening the ticket must be able to load the same task.
+        other_user = self.create_organization_user("hogdesk-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="HogDesk Task",
+            description="Started from a support ticket",
+            origin_product=Task.OriginProduct.HOGDESK,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_list_runs_hogdesk_task_owned_by_another_user_succeeds(self):
+        other_user = self.create_organization_user("hogdesk-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="HogDesk Task",
+            description="Started from a support ticket",
+            origin_product=Task.OriginProduct.HOGDESK,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
 
     def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
         # Non-signal internal tasks created by another user remain private.
@@ -914,7 +946,6 @@ class TestTaskAPI(BaseTaskAPITest):
                 self.team.id,
                 self.user.id,
                 filters={"stage": "building"},
-                is_debug_or_staff=False,
             ).query
         ).upper()
         self.assertIn("EXISTS", query_sql)
@@ -2240,8 +2271,9 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow, mock_capture):
         task = self.create_task()
 
         response = self.client.post(
@@ -2265,6 +2297,24 @@ class TestTaskAPI(BaseTaskAPITest):
             "attr": "reasoning_effort",
         }
         mock_workflow.assert_not_called()
+
+        # The rejection used to be visible only in the client's 400 response; it must also
+        # be captured server-side so recurring bad model/effort combos are queryable.
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "reasoning_effort": "high",
+                "error": (
+                    "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-4-5'. Supported values: none."
+                ),
+            },
+            groups=ANY,
+        )
 
     @parameterized.expand(
         [
@@ -2295,6 +2345,82 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["model"] == "claude-fable-5"
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_claude_sonnet_5_reasoning_effort(self, reasoning_effort, mock_workflow):
+        # claude-sonnet-5 was missing from the supported-model map, so every reasoning_effort
+        # (including these valid ones) was rejected with "Supported values: none."
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-sonnet-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
+        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
+        # rejection capture also fires for a model that has some supported efforts.
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+                "error": (
+                    "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                ),
+            },
+            groups=ANY,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
@@ -2943,38 +3069,12 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
-        # Non-staff user with DEBUG=False must not have internal tasks surfaced.
+    def test_list_internal_true_shows_only_internal_tasks(self):
+        # `internal=true` narrows to only-internal tasks for any team member — it's a visibility toggle,
+        # not a staff/DEBUG gate (task visibility is the real access boundary).
         self.assertFalse(self.user.is_staff)
         with self.settings(DEBUG=False):
             response = self.client.get("/api/projects/@current/tasks/?internal=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        task_ids = [t["id"] for t in data["results"]]
-        self.assertIn(str(self.external_task.id), task_ids)
-        self.assertNotIn(str(self.internal_task.id), task_ids)
-
-    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
-        with self.settings(DEBUG=True):
-            response = self.client.get("/api/projects/@current/tasks/?internal=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        task_ids = [t["id"] for t in data["results"]]
-        self.assertNotIn(str(self.external_task.id), task_ids)
-        self.assertIn(str(self.internal_task.id), task_ids)
-
-    def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
-        # Staff users can list internal tasks even with DEBUG=False.
-        staff_user = User.objects.create_user(
-            email="staff@example.com", password="password", first_name="Staff", is_staff=True
-        )
-        self.organization.members.add(staff_user)
-        staff_client = APIClient()
-        staff_client.force_authenticate(staff_user)
-        with self.settings(DEBUG=False):
-            response = staff_client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -2990,6 +3090,18 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         task_ids = [t["id"] for t in data["results"]]
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_all_includes_both_for_non_staff(self):
+        # `internal=all` surfaces internal tasks to any team member without a staff/DEBUG requirement —
+        # the internal flag is a default-visibility toggle, not an access gate (task visibility is).
+        self.assertFalse(self.user.is_staff)
+        with self.settings(DEBUG=False):
+            response = self.client.get("/api/projects/@current/tasks/?internal=all")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_ids = [t["id"] for t in response.json()["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
 
     def test_internal_field_in_response(self):
         response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")

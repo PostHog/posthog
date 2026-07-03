@@ -17,8 +17,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.egress.github.limiter import acquire_github_installation
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.rate_limiting.github import acquire_github_installation
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -38,6 +38,10 @@ class FetchJobLogInputs:
     run_id: int | None = None
     branch: str | None = None
     conclusion: str | None = None
+    job_name: str | None = None
+    workflow_name: str | None = None
+    run_attempt: int | None = None
+    head_sha: str | None = None
 
 
 def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, str]:
@@ -63,7 +67,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
-    if not await acquire_github_installation(installation_id):
+    if not await acquire_github_installation(installation_id, source="job_logs"):
         # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
         raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
@@ -76,6 +80,13 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "repo": inputs.repo,
         "branch": inputs.branch or "",
         "conclusion": inputs.conclusion or "",
+        # job_name/workflow_name make records readable in the Logs UI without a warehouse join;
+        # run_attempt disambiguates re-runs (all attempts share run_id, i.e. one trace); head_sha
+        # is the per-commit anchor (SPEC §7 — precision key only, never the attribution key).
+        "job_name": inputs.job_name or "",
+        "workflow_name": inputs.workflow_name or "",
+        "run_attempt": inputs.run_attempt or 0,
+        "head_sha": inputs.head_sha or "",
         # Total lines in the full log before thinning — the denominator for each line's orig_line.
         "orig_total": len(archive.splitlines()),
     }
