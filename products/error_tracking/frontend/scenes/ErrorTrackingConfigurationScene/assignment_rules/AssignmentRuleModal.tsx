@@ -14,7 +14,11 @@ export function AssignmentRuleModal(): JSX.Element {
     const { rule, hasFilters, hasAssignee } = useValues(assignmentRuleModalLogic)
     const { updateRule } = useActions(assignmentRuleModalLogic)
 
-    const saveDisabledReason = !hasFilters ? 'Add at least one filter' : !hasAssignee ? 'Choose an assignee' : undefined
+    const saveDisabledReason = !hasFilters
+        ? 'Add a filter with a value selected'
+        : !hasAssignee
+          ? 'Choose an assignee'
+          : undefined
 
     return (
         <RuleModal

@@ -5,6 +5,7 @@ import api from 'lib/api'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { filtersContainValues, ruleSaveErrorMessage } from '../rules/ruleModalUtils'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingBypassRule, ErrorTrackingRuleType } from '../rules/types'
 import type { bypassRuleModalLogicType } from './bypassRuleModalLogicType'
@@ -42,6 +43,16 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
                 openModal: (_: ErrorTrackingBypassRule, { rule }: { rule: ErrorTrackingBypassRule | null }) =>
                     rule ?? emptyRule(),
                 updateRule: (_: ErrorTrackingBypassRule, { rule }: { rule: ErrorTrackingBypassRule }) => rule,
+            },
+        ],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { error: string; errorObject?: any }) =>
+                    ruleSaveErrorMessage(errorObject),
             },
         ],
     }),
@@ -87,10 +98,7 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
     selectors({
         hasFilters: [
             (s) => [s.rule],
-            (rule: ErrorTrackingBypassRule): boolean => {
-                const filters = rule.filters as UniversalFiltersGroup
-                return (filters.values?.length ?? 0) > 0
-            },
+            (rule: ErrorTrackingBypassRule): boolean => filtersContainValues(rule.filters as UniversalFiltersGroup),
         ],
     }),
 ])

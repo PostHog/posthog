@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { filtersContainValues, ruleSaveErrorMessage } from '../rules/ruleModalUtils'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingRuleType, ErrorTrackingSuppressionRule } from '../rules/types'
 import type { suppressionRuleModalLogicType } from './suppressionRuleModalLogicType'
@@ -64,6 +65,17 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                     const next: Record<string, string> = { '-7d': '-30d', '-30d': '-90d' }
                     return next[state] ?? state
                 },
+            },
+        ],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                updateSamplingRate: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { error: string; errorObject?: any }) =>
+                    ruleSaveErrorMessage(errorObject),
             },
         ],
     }),
@@ -149,10 +161,8 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
     selectors({
         hasFilters: [
             (s) => [s.rule],
-            (rule: ErrorTrackingSuppressionRule): boolean => {
-                const filters = rule.filters as UniversalFiltersGroup
-                return (filters.values?.length ?? 0) > 0
-            },
+            (rule: ErrorTrackingSuppressionRule): boolean =>
+                filtersContainValues(rule.filters as UniversalFiltersGroup),
         ],
     }),
 ])

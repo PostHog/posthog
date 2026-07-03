@@ -32,7 +32,6 @@ import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/ale
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
-import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
@@ -109,7 +108,6 @@ export function EditAlertModal({
     const {
         alertForm,
         isAlertFormSubmitting,
-        alertFormChanged,
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
@@ -140,9 +138,6 @@ export function EditAlertModal({
     const { hasAvailableFeature } = useValues(userLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-
-    const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
-    const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -382,7 +377,6 @@ export function EditAlertModal({
                             type="primary"
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
-                            disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
                             onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}

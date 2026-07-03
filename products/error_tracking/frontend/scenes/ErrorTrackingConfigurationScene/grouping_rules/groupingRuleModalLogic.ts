@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { filtersContainValues, ruleSaveErrorMessage } from '../rules/ruleModalUtils'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from '../rules/types'
 import type { groupingRuleModalLogicType } from './groupingRuleModalLogicType'
@@ -56,6 +57,16 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                     const next: Record<string, string> = { '-7d': '-30d', '-30d': '-90d' }
                     return next[state] ?? state
                 },
+            },
+        ],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { error: string; errorObject?: any }) =>
+                    ruleSaveErrorMessage(errorObject),
             },
         ],
     }),
@@ -143,10 +154,7 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
     selectors({
         hasFilters: [
             (s) => [s.rule],
-            (rule: ErrorTrackingGroupingRule): boolean => {
-                const filters = rule.filters as UniversalFiltersGroup
-                return (filters.values?.length ?? 0) > 0
-            },
+            (rule: ErrorTrackingGroupingRule): boolean => filtersContainValues(rule.filters as UniversalFiltersGroup),
         ],
     }),
 ])

@@ -45,12 +45,21 @@ export function RuleModal({
     filtersOptional = false,
     showTestButton = true,
 }: RuleModalProps): JSX.Element {
-    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
-        useValues(logic)
+    const {
+        isOpen,
+        rule,
+        hasFilters,
+        matchResult,
+        matchResultLoading,
+        savingLoading,
+        deletingLoading,
+        dateRange,
+        saveError,
+    } = useValues(logic)
     const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } = useActions(logic)
 
     const isEditing = rule.id !== 'new'
-    const defaultSaveDisabled = !filtersOptional && !hasFilters ? 'Add at least one filter' : undefined
+    const defaultSaveDisabled = !filtersOptional && !hasFilters ? 'Add a filter with a value selected' : undefined
     const resolvedSaveDisabled = saveDisabledReason ?? defaultSaveDisabled
 
     const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -124,7 +133,9 @@ export function RuleModal({
                                 size="small"
                                 icon={matchResultLoading ? <Spinner textColored /> : <IconFlask />}
                                 disabledReason={
-                                    !filtersOptional && !hasFilters ? 'Add at least one filter first' : undefined
+                                    !filtersOptional && !hasFilters
+                                        ? 'Add a filter with a value selected first'
+                                        : undefined
                                 }
                                 onClick={loadMatchCount}
                             >
@@ -147,6 +158,7 @@ export function RuleModal({
             }
         >
             <div className="space-y-4 py-2">
+                {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
                 {rule.disabled_data && <DisabledRuleBanner rule={rule} onClose={closeModal} />}
                 <div>
                     <div className="flex items-center justify-between mb-3">
