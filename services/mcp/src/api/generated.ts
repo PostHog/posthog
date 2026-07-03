@@ -54408,6 +54408,11 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+     */
+    export type _LogPatternSeverityCounts = {[key: string]: number};
+
     export interface _LogPattern {
       /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
       pattern: string;
@@ -54431,6 +54436,8 @@ export namespace Schemas {
       services: string[];
       /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
       sparkline: number[];
+      /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+      severity_counts: _LogPatternSeverityCounts;
     }
 
     /**

@@ -7,9 +7,28 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
+import type { LogMessage } from '~/queries/schema/schema-general'
+
+import { LogTag } from 'products/logs/frontend/components/LogTag'
 import type { _LogPatternApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsPatternsLogic } from './logsPatternsLogic'
+
+// Most-severe-first, so ties in sample counts resolve to the stronger signal.
+const SEVERITY_RANK: LogMessage['severity_text'][] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace']
+
+function dominantSeverity(severityCounts: Record<string, number>): LogMessage['severity_text'] | null {
+    let best: LogMessage['severity_text'] | null = null
+    let bestCount = 0
+    for (const severity of SEVERITY_RANK) {
+        const count = severityCounts[severity] ?? 0
+        if (count > bestCount) {
+            best = severity
+            bestCount = count
+        }
+    }
+    return best
+}
 
 // Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
 // `<hex>`, …) the runner emits — see _MASKING_INSTRUCTIONS in
@@ -55,6 +74,15 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     }
 
     const columns: LemonTableColumns<_LogPatternApi> = [
+        {
+            title: 'Level',
+            key: 'severity',
+            width: 0,
+            render: (_, row) => {
+                const severity = dominantSeverity(row.severity_counts)
+                return severity ? <LogTag level={severity} /> : <span className="text-muted">-</span>
+            },
+        },
         {
             title: 'Pattern',
             dataIndex: 'pattern',
@@ -132,7 +160,8 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                               1
                           )}% of the window`
                         : ''}
-                    . Counts are estimates for the full window — hover a count for the underlying sample figure.
+                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
+                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
                 </LemonBanner>
             )}
             <LemonTable
