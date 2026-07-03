@@ -42,6 +42,7 @@ export const heatmapRecordingFallbackLogic = kea<heatmapRecordingFallbackLogicTy
         actions: [sessionPlayerModalLogic, ['openSessionPlayer']],
     })),
     actions({
+        loadMatchingRecordings: true,
         openRecording: (recordingId: string) => ({ recordingId }),
     }),
     loaders(({ props }) => ({

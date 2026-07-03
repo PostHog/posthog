@@ -151,6 +151,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
     })),
     actions({
         setClickmapEnabled: (enabled: boolean) => ({ enabled }),
+        loadElementStats: true,
         maybeLoadElementStats: true,
         recomputeClickmap: true,
         setClickmapBoxes: (boxes: ClickmapBox[]) => ({ boxes }),
