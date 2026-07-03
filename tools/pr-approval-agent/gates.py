@@ -592,9 +592,7 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
 
 
 def is_size_exempt(path: str) -> bool:
-    if Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS:
-        return True
-    return bool(_SIZE_EXEMPT_PATH_RE.search(path))
+    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
 
 
 def substantive_size(files: list[dict]) -> tuple[int, int]:
