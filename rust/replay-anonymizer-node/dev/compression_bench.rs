@@ -163,7 +163,19 @@ fn main() {
 
     let mut rows = Vec::new();
 
-    for level in [1, 3, 6, 9, 12] {
+    // GZIP_LEVELS / ZSTD_LEVELS: comma-separated overrides for level sweeps (empty = skip codec).
+    let levels_env = |name: &str, default: &[i32]| -> Vec<i32> {
+        match std::env::var(name) {
+            Ok(v) => v
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim().parse().expect("integer level"))
+                .collect(),
+            Err(_) => default.to_vec(),
+        }
+    };
+
+    for level in levels_env("GZIP_LEVELS", &[1, 3, 6, 9, 12]) {
         let lvl = libdeflater::CompressionLvl::new(level).unwrap();
         rows.push(bench(
             &format!("gzip (libdeflate) -{level}"),
@@ -186,7 +198,7 @@ fn main() {
         ));
     }
 
-    for level in [1, 3, 6, 12, 19] {
+    for level in levels_env("ZSTD_LEVELS", &[1, 3, 6, 12, 19]) {
         rows.push(bench(
             &format!("zstd -{level}"),
             &payloads,

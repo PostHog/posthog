@@ -176,15 +176,32 @@ Full-corpus table:
 | zstd 12             | 99            | 3070            | 0.123 |
 | lz4 block           | 1351          | 6120            | 0.232 |
 
+Full zstd level sweep (1k even-stride sample, `GZIP_LEVELS=6 ZSTD_LEVELS=-7..22`; gzip-6 measured
+0.121 @ 185 MB/s on the same sample — sample ratios skew lower than the full corpus, relative
+comparisons are stable):
+
+| zstd level    | compress MB/s | ratio       |
+| ------------- | ------------- | ----------- |
+| -7 .. -1      | 1449 -> 1199  | 0.202-0.145 |
+| 1 .. 4        | 957 -> 775    | 0.121-0.120 |
+| 5 .. 9        | 382 -> 189    | 0.111-0.100 |
+| 10 .. 12      | 146 -> 113    | 0.099-0.098 |
+| 13 .. 22      | 60 -> 3       | 0.098-0.093 |
+
+Curve shape: ratio is flat across 1-4 (zstd-1 is the frontier point — gzip-6's ratio at 5.2x its
+speed), a knee at 5 (speed halves, ratio -8%), then smooth diminishing returns to 12, and a cliff
+past 13 where speed collapses for ~0.5% more. Decompress speed is flat ~2.8-3.4 GB/s across all
+positive levels, so the consumer is insensitive to the choice.
+
 Conclusions:
 
-- **zstd level 1 equals gzip level 6's ratio at ~5x the compress speed** (and ~1.6x the decompress
-  speed for the consumer); zstd 3 beats the ratio at ~4.5x. Since compression of changed payloads
-  is the single largest pipeline cost, re-emitting changed cv payloads as zstd is the biggest
-  remaining lever — the SDK input stays gzip (we always decode gzip), only the re-emitted format
-  changes. It needs a format marker (e.g. a new `cv` version value) and support in the one
-  consumer, the MLHog prep loader — a coordinated but small change, deliberately not made
-  unilaterally here.
+- **zstd dominates gzip at every operating point**: same storage 5x faster (zstd-1), same speed
+  17% smaller (zstd-8/9), or both ~1.5-2x faster and ~11% smaller (zstd-5/6). Since compression of
+  changed payloads is the single largest pipeline cost, re-emitting changed cv payloads as zstd is
+  the biggest remaining lever — the SDK input stays gzip (we always decode gzip), only the
+  re-emitted format changes. It needs a format marker (e.g. a new `cv` version value) and support
+  in the one consumer, the MLHog prep loader — a coordinated but small change, deliberately not
+  made unilaterally here.
 - Staying gzip: level 3 is ~1.45x compress speed for ~9% more storage, level 1 ~2x for ~13% more.
   Real but far less attractive than the format switch.
 - The corpus median cv payload decompresses to **2 bytes** (`[]` — the SDK gzips even empty
