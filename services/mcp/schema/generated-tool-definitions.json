@@ -2593,6 +2593,48 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-bypass-rules-create": {
+        "description": "Create a rate limit bypass rule for the current project. Exception events matching the rule skip both the project-wide and per-issue exception rate limits and are always ingested. Provide `filters` with at least one condition — empty match-all rules are rejected; to stop rate limiting entirely, update the rate limits via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause unbounded volume.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking bypass rule",
+        "title": "Create error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-bypass-rules-list": {
+        "description": "List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking bypass rules",
+        "title": "List error tracking bypass rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-bypass-rules-update": {
+        "description": "Update a rate limit bypass rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them scoped to the specific errors that must never be dropped.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking bypass rule",
+        "title": "Update error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-external-references-create": {
         "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
         "category": "Error tracking",

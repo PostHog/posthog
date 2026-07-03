@@ -63,13 +63,38 @@ tools:
         enabled: false
     error-tracking-bypass-rules-create:
         operation: error_tracking_bypass_rules_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Create error tracking bypass rule
+        description: >
+            Create a rate limit bypass rule for the current project. Exception events matching the rule skip both the
+            project-wide and per-issue exception rate limits and are always ingested. Provide `filters` with at least
+            one condition — empty match-all rules are rejected; to stop rate limiting entirely, update the rate limits
+            via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be
+            dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause
+            unbounded volume.
     error-tracking-bypass-rules-destroy:
         operation: error_tracking_bypass_rules_destroy
         enabled: false
     error-tracking-bypass-rules-list:
         operation: error_tracking_bypass_rules_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking bypass rules
+        description: >
+            List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide
+            and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled
+            state. Supports pagination with `limit` and `offset`.
     error-tracking-bypass-rules-partial-update:
         operation: error_tracking_bypass_rules_partial_update
         enabled: false
@@ -81,7 +106,19 @@ tools:
         enabled: false
     error-tracking-bypass-rules-update:
         operation: error_tracking_bypass_rules_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking bypass rule
+        description: >
+            Update a rate limit bypass rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule
+            also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception
+            events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them
+            scoped to the specific errors that must never be dropped.
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
         enabled: true
