@@ -112,6 +112,53 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         return table.name
 
+    def setup_data_warehouse_with_decoy_timestamp(self):
+        # Table whose real event time lives in `event_time`, but which also has a DateTime column
+        # literally named `timestamp` (e.g. an ingestion timestamp). The DataWarehouseEventsModifier
+        # must still map the configured `timestamp_field` so queries don't bucket on the wrong column.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_dw_decoy_timestamp.csv",
+            table_name="test_table_decoy",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "event_time": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
+    def test_trends_data_warehouse_uses_configured_timestamp_field(self):
+        # Regression: the configured `timestamp_field` must drive bucketing even when the source table
+        # has its own DateTime column named `timestamp`. Each row has a distinct `event_time` day, so
+        # bucketing by `event_time` spreads counts across days ([1, 1, 1, 1, 0, 0, 0]); bucketing by the
+        # decoy `timestamp` (all 2023-01-04) would pile everything onto day 4 ([0, 0, 0, 4, 0, 0, 0]).
+        table_name = self.setup_data_warehouse_with_decoy_timestamp()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="event_time",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.columns is not None
+        assert set(response.columns).issubset({"date", "total"})
+        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+
     @snapshot_clickhouse_queries
     def test_trends_data_warehouse(self):
         table_name = self.setup_data_warehouse()

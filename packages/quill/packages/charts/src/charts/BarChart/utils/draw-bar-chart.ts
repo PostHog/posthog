@@ -162,7 +162,13 @@ export function drawBarChartStatic(
     if (barTrack && barLayout === 'grouped') {
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
         for (const { series: s, bars } of seriesBars) {
-            const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
+            const tracks = bars.map((b) => {
+                // `trackData` caps the track at a per-bar ceiling (funnel compare's entry level); the
+                // region beyond is left blank rather than drawn as track.
+                const ceiling = s.trackData?.[b.dataIndex]
+                const farEnd = ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : axisEnd
+                return computeBarTrackRect(b, axisStart, farEnd, isHorizontal)
+            })
             drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
         }
     }
@@ -220,9 +226,12 @@ export function drawBarHoverItems(
             } else {
                 trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
             }
+            const ceiling = s.trackData?.[bar.dataIndex]
+            const trackFarEnd =
+                ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : trackAxisEnd
             drawBarHighlight(
                 ctx,
-                computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
+                computeBarTrackRect(bar, trackAxisStart, trackFarEnd, isHorizontal),
                 trackColor,
                 highlightRadius
             )

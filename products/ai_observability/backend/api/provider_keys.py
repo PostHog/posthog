@@ -29,7 +29,6 @@ from ..llm.providers.azure_openai import (
     is_allowed_azure_endpoint,
 )
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluation_configs import EvaluationType
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -440,11 +439,12 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         if provider == "openai":
             trial_filter |= Q(model_configuration__isnull=True)
 
-        # Only LLM-as-a-judge evaluations use a provider key — Hog and Sentiment never do, so the
-        # legacy "no model_configuration" clause above would otherwise sweep them in.
-        trial_evals = Evaluation.objects.filter(
-            trial_filter, team_id=self.team_id, deleted=False, evaluation_type=EvaluationType.LLM_JUDGE
-        ).values("id", "name", "enabled")[:50]
+        # The legacy "no model_configuration" clause above would otherwise include Hog/Sentiment evals.
+        trial_evals = (
+            Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False)
+            .using_provider_keys()
+            .values("id", "name", "enabled")[:50]
+        )
 
         return Response({"evaluations": list(trial_evals)})
 
@@ -479,14 +479,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
 
             # Handle legacy evaluations (no model_configuration) — these are always
-            # OpenAI, so only create a config if the key matches.
+            # OpenAI, so only create a config if the key matches. Exclude Hog/Sentiment: minting a
+            # config for them locks the eval out of all future edits.
             if instance.provider == "openai":
                 legacy_evals = Evaluation.objects.filter(
                     id__in=evaluation_ids,
                     team_id=self.team_id,
                     model_configuration__isnull=True,
                     deleted=False,
-                )
+                ).using_provider_keys()
                 for eval_obj in legacy_evals:
                     mc = LLMModelConfiguration.objects.create(
                         team_id=self.team_id,
@@ -502,14 +503,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             # dependent evals — the cause no longer applies once they're attached to a live key.
             for eval_obj in Evaluation.objects.filter(
                 id__in=evaluation_ids, team_id=self.team_id, deleted=False, status="error"
-            ):
+            ).using_provider_keys():
                 eval_obj.set_status("paused")
 
             evals_enabled = 0
             if enable:
                 for eval_obj in Evaluation.objects.filter(
                     id__in=evaluation_ids, team_id=self.team_id, deleted=False, enabled=False
-                ):
+                ).using_provider_keys():
                     eval_obj.set_status("active")
                     evals_enabled += 1
 
