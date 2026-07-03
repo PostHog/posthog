@@ -30,6 +30,11 @@ ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
 )
 
 
+# Each activity's retry budget must exhaust inside workflow_execution: a server-side
+# workflow timeout skips workflow code entirely, so the SLO completion would never be
+# emitted and the alert's next_check_at would never advance. Compound worst cases
+# (e.g. a slow prepare pushing evaluate past the envelope) can still hit the
+# server-side timeout; activity_schedule_to_close guarantees no single activity does.
 @dataclasses.dataclass(frozen=True)
 class AlertTimeouts:
     workflow_execution: dt.timedelta

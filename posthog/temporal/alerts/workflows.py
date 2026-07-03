@@ -33,12 +33,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
 
-# Each activity's retry budget must exhaust inside the child workflow's execution
-# timeout: a server-side workflow timeout skips workflow code entirely, so the SLO
-# completion would never be emitted and the alert's next_check_at would never advance.
-# Compound worst cases (e.g. a slow prepare pushing evaluate past the envelope) can
-# still hit the server-side timeout; the cap guarantees no single activity does.
-
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
