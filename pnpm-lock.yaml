@@ -369,7 +369,7 @@ importers:
         version: 0.25.12
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       puppeteer:
         specifier: 19.0.0
         version: 19.0.0(encoding@0.1.13)
@@ -448,7 +448,7 @@ importers:
         version: 5.3.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
@@ -465,6 +465,9 @@ importers:
         specifier: ^7.3.3
         version: 7.3.5(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
     devDependencies:
+      '@playwright/test':
+        specifier: 'catalog:'
+        version: 1.60.0
       http-server:
         specifier: ^14.1.1
         version: 14.1.1
@@ -789,6 +792,9 @@ importers:
       '@stripe/stripe-js':
         specifier: ^4.5.0
         version: 4.5.0
+      '@tanstack/react-virtual':
+        specifier: ^3.14.3
+        version: 3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/dom':
         specifier: '>=9.3.4'
         version: 9.3.4
@@ -903,6 +909,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      core-js:
+        specifier: ^3.40.0
+        version: 3.40.0
       country-flag-emoji-polyfill:
         specifier: ^0.1.8
         version: 0.1.8
@@ -1839,7 +1848,7 @@ importers:
         version: 3.6.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       storybook:
         specifier: 'catalog:'
         version: 10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3088,6 +3097,9 @@ importers:
 
   products/engineering_analytics:
     dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3605,6 +3617,9 @@ importers:
       '@posthog/brand':
         specifier: 'catalog:'
         version: 0.3.0(react@18.3.1)
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -3775,6 +3790,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@tanstack/react-virtual':
+        specifier: '*'
+        version: 3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3820,9 +3838,6 @@ importers:
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
-      react-window:
-        specifier: '*'
-        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
         specifier: '*'
         version: 2.2.2
@@ -11598,9 +11613,18 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
+  '@tanstack/react-virtual@3.14.3':
+    resolution: {integrity: sha512-k/cnHPVaOfn46hSbiY6n4Dzf4QjCGWSF40zR5QIIYUqPAjpA6TN7InfYmcMiDVQGP2iUn9xsRbAl8u1v3UmeVQ==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
   '@tanstack/table-core@8.21.3':
     resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
     engines: {node: '>=12'}
+
+  '@tanstack/virtual-core@3.17.1':
+    resolution: {integrity: sha512-VZyW2Uiml5tmBZwPGrSD3Sz73OxzljQMCmzYHsUTPEuTsERf5xwa+uWb01xEzkz3ZSYTjj8NEb/mKHvgKxyZdA==}
 
   '@temporalio/activity@1.15.0':
     resolution: {integrity: sha512-kKEIrHMTsANiEpDVZd+v3OT6kU20UtcvAK7iibJNzQnoZUGC7XnqdKQlBuGYBxgpJzD9ppGgskXRczW+XU5Kng==}
@@ -31729,7 +31753,15 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@tanstack/react-virtual@3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/virtual-core': 3.17.1
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   '@tanstack/table-core@8.21.3': {}
+
+  '@tanstack/virtual-core@3.17.1': {}
 
   '@temporalio/activity@1.15.0':
     dependencies:
