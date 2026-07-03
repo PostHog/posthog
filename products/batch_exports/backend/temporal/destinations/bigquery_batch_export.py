@@ -108,16 +108,6 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
-def _cast_to_lossless_timestamp(arr: pa.Array, *, unit: typing.Literal["s", "us", "ms", "ns"]) -> pa.Array:
-    """Create a new timestamp array with an adjusted unit if the conversion is lossless."""
-    return arr.cast(pa.timestamp(unit, tz="UTC"), safe=True)
-
-
-def _cast_as_type(arr: pa.Array, *, type: pa.DataType) -> pa.Array:
-    """Wrapper around an array's cast."""
-    return arr.cast(type, safe=True)
-
-
 FileFormat = typing.Literal["Parquet", "JSONLines"]
 BigQueryTypeName = typing.Literal[
     "JSON",
