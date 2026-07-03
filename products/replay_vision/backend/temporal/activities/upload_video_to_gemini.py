@@ -14,6 +14,7 @@ from google.genai import (
 from temporalio import activity
 
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -42,7 +43,10 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     workflow_id = activity.info().workflow_id
     if workflow_id is None:
         raise ScannerFailureError("upload_video_to_gemini_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)
-    asset = await ExportedAsset.objects.aget(id=inputs.asset_id)
+    # Read through a thread-isolated connection: Django's async ORM binds one psycopg
+    # connection per event loop, which concurrent Temporal activities on the shared loop
+    # would trample, desyncing the Postgres wire protocol.
+    asset = await database_sync_to_async(_read_asset, thread_sensitive=False)(inputs.asset_id)
 
     video_bytes: bytes | None
     if asset.content:
@@ -112,6 +116,10 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
         mime_type=uploaded_file.mime_type or asset.export_format,
         gemini_file_name=gemini_file_name,
     )
+
+
+def _read_asset(asset_id: int) -> ExportedAsset:
+    return ExportedAsset.objects.get(id=asset_id)
 
 
 def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str) -> types.File:
