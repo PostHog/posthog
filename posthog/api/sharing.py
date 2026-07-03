@@ -43,7 +43,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
@@ -700,7 +700,7 @@ def custom_404_response(request):
 
 
 def _compute_inline_query_results_for_shared_notebook(
-    notebook: Notebook, team: Team, user: Optional[SharedLinkViewer]
+    notebook: Notebook, team: Team, user: Optional[SharedLinkUser]
 ) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
@@ -930,7 +930,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
         # is a bare AnonymousUser. Build the shared-link viewer from the resolved config so shared
         # queries execute without warehouse access control.
-        shared_link_viewer = SharedLinkViewer(resource) if isinstance(resource, SharingConfiguration) else None
+        shared_link_user = SharedLinkUser(resource) if isinstance(resource, SharingConfiguration) else None
 
         context = {
             "view": self,
@@ -940,7 +940,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
-            "shared_link_viewer": shared_link_viewer,
+            "shared_link_user": shared_link_user,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1249,7 +1249,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update(
                 {
                     "inline_query_results": _compute_inline_query_results_for_shared_notebook(
-                        resource.notebook, resource.team, shared_link_viewer
+                        resource.notebook, resource.team, shared_link_user
                     )
                 }
             )

@@ -51,7 +51,6 @@ from posthog.hogql.workload import WorkloadCollector
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.shared_link_viewer import SharedLinkViewer
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
@@ -160,11 +159,9 @@ def prepare_ast_for_printing(
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
-            # Shared-link viewer has no membership to resolve against; treat as userless so only default rules apply.
-            restrictions_user = None if isinstance(context.user, SharedLinkViewer) else context.user
             context.restricted_properties = get_restricted_properties_for_team(
                 team_id=context.team_id,
-                user=restrictions_user,
+                user=context.user,
             )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:

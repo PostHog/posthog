@@ -126,10 +126,9 @@ from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
-from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
@@ -1643,7 +1642,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # We'll proceed as usual if there's no user connected to this request, or for a
                     # shared-link viewer - the share link is its authorization, it has no RBAC identity.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if user is not None and not isinstance(user, SharedLinkViewer):
+                    if user is not None and not isinstance(user, SharedLinkUser):
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:
@@ -2015,9 +2014,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        # Shared-link viewer has no membership to resolve against; treat as userless so only default rules apply.
-        user = None if isinstance(self.user, SharedLinkViewer) else self.user
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=user)
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         if not restricted:
             return None
         return sorted(restricted)
@@ -2340,12 +2337,10 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
-        before any database exists, which a cache hit never reaches. None for userless runs and for
-        synthetic principals (e.g. a project secret API key)."""
-        # user is typed Optional[User] but a project secret API key passes a SyntheticUser at runtime;
-        # broaden for isinstance.
-        user = cast("Optional[User | SyntheticUser]", self.user)
-        if user is None or isinstance(user, SyntheticUser | SharedLinkViewer):
+        before any database exists, which a cache hit never reaches. None unless the principal is a
+        real User - non-real principals (service tokens, shared-link viewers) have no RBAC identity."""
+        user = self.user
+        if not isinstance(user, User):
             return None
         if self._user_access_control is None:
             self._user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2355,12 +2350,10 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         payload = super().get_cache_payload()
 
         # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL
-        # feature is unavailable and a user is provided (i.e. not a userless query or a project token)
-        user = cast("Optional[User | SyntheticUser]", self.user)
-        if (
-            user is not None
-            and not isinstance(user, SyntheticUser | SharedLinkViewer)
-            and not self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        # feature is unavailable and a real user is provided (i.e. not a userless query or a
+        # non-real principal such as a project token or shared-link viewer)
+        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
+            AvailableFeature.ACCESS_CONTROL
         ):
             return payload
 
@@ -2395,15 +2388,15 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
         """Resources the user has no resource-level access to, scoped to the resources this query reads."""
-        user = cast("Optional[User | SyntheticUser]", self.user)
+        user = self.user
 
         # Userless runs fail-closed - every access-controlled table is denied.
         if user is None:
             return ["*"] if queried_resources is None else sorted(queried_resources) or None
 
-        # Synthetic principals (e.g. a project secret API key) are scope-gated; partition on the readable
-        # scopes so a narrower token can't be served a broader principal's cached result.
-        if isinstance(user, SyntheticUser | SharedLinkViewer):
+        # Non-real principals (service tokens, shared-link viewers) are scope-gated; partition on the
+        # readable scopes so a narrower token can't be served a broader principal's cached result.
+        if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
             return sorted(queried_resources - user.readable_system_table_access_scopes()) or None

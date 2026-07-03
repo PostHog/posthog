@@ -34,7 +34,7 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -51,7 +51,7 @@ def process_query_dict(
     variables_override_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: "Optional[User | SharedLinkViewer]" = None,
+    user: "Optional[User | SharedLinkUser]" = None,
     user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
@@ -121,7 +121,7 @@ def process_query_model(
     variables_override: Optional[list[HogQLVariable]] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: "Optional[User | SharedLinkViewer]" = None,
+    user: "Optional[User | SharedLinkUser]" = None,
     user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,

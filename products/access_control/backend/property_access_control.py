@@ -13,7 +13,7 @@ from django.dispatch import receiver
 from celery.signals import task_postrun, task_prerun
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, User
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -83,8 +83,6 @@ def _invalidate_restriction_cache_on_change(**_kwargs: object) -> None:
 
 
 if TYPE_CHECKING:
-    from posthog.models import User
-
     from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -294,6 +292,11 @@ def get_restricted_properties_for_team(
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+    # Non-real principals (shared-link viewers, synthetic service-token users) have no membership
+    # to resolve restrictions against; treat them as userless so only the default rules apply.
+    if user is not None and not isinstance(user, User):
+        user = None
+
     cache = _restriction_cache_var.get()
     cache_key = (team_id, user.pk if user is not None else None)
     if cache is not None:

@@ -765,9 +765,9 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
 
-    def test_shared_link_viewer_skips_warehouse_view_acl_but_hides_system_tables(self):
+    def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
         from posthog.models.sharing_configuration import SharingConfiguration
-        from posthog.shared_link_viewer import SharedLinkViewer
+        from posthog.shared_link_user import SharedLinkUser
 
         self._create_ac(
             resource="warehouse_view",
@@ -775,7 +775,7 @@ class TestWarehouseViewAccessControl(BaseTest):
             access_level="none",
             member=self._membership(),
         )
-        viewer = SharedLinkViewer(SharingConfiguration(team=self.team, enabled=True))
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
 
         database = Database.create_for(team=self.team, user=viewer)
 
@@ -785,12 +785,28 @@ class TestWarehouseViewAccessControl(BaseTest):
         # But scoped system tables stay hidden, exactly like a userless build.
         assert "system.dashboards" in database._denied_tables
 
-    def test_shared_link_viewer_requires_enabled_configuration(self):
+    def test_shared_link_user_requires_enabled_configuration(self):
         from posthog.models.sharing_configuration import SharingConfiguration
-        from posthog.shared_link_viewer import SharedLinkViewer
+        from posthog.shared_link_user import SharedLinkUser
 
         with self.assertRaises(ValueError):
-            SharedLinkViewer(SharingConfiguration(team=self.team, enabled=False))
+            SharedLinkUser(SharingConfiguration(team=self.team, enabled=False))
+
+    def test_synthetic_principal_skips_warehouse_view_acl(self):
+        from posthog.synthetic_user import SyntheticUser
+
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=SyntheticUser(self.team, "test-token"))
+
+        # Service-token principals bypass warehouse access control by design (see Database.create_for).
+        assert "denied_view" not in database._denied_tables
+        assert "system.dashboards" in database._denied_tables
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""

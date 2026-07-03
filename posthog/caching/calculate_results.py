@@ -14,7 +14,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -54,7 +54,7 @@ def calculate_for_query_based_insight(
     team: Team,
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
-    user: "Optional[User | SharedLinkViewer]",
+    user: "Optional[User | SharedLinkUser]",
     user_access_control: Optional["UserAccessControl"] = None,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,

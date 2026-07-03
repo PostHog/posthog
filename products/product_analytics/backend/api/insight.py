@@ -112,7 +112,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -1115,24 +1115,17 @@ class InsightSerializer(InsightBasicSerializer):
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
-                req_user = self.context["request"].user
-                if isinstance(req_user, SharedLinkViewer):
-                    # Sharing-token API refresh: the authenticator returns the shared-link viewer.
-                    request_user = req_user
-                elif req_user.is_anonymous:
-                    # /shared/ page render: the authenticator doesn't run, so the viewer is built
-                    # from the resolved resource and passed via context.
-                    request_user = self.context.get("shared_link_viewer")
-                else:
-                    request_user = req_user
+                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                if request_user is None and is_shared:
+                    # Anonymous shared views execute as the shared-link viewer, so warehouse-backed
+                    # tiles resolve instead of failing closed userless.
+                    request_user = self.context.get("shared_link_user")
                 # Reuse the request's single UserAccessControl across all of a dashboard's insight
                 # runners, so the cache fingerprint resolves access once per request, not per tile.
-                # A shared-link viewer has none; only real users reuse the view's snapshot.
+                # Real users only - a shared-link viewer has no access-control snapshot.
                 view = self.context.get("view")
                 request_user_access_control = (
-                    getattr(view, "user_access_control", None)
-                    if request_user is not None and not request_user.is_anonymous
-                    else None
+                    getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
                 )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
@@ -1473,6 +1466,10 @@ class InsightViewSet(
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
+        if isinstance(self.request.user, SharedLinkUser):
+            # Sharing-token API refreshes authenticate as the shared-link viewer; expose it under
+            # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
+            context["shared_link_user"] = self.request.user
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context

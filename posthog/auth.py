@@ -47,7 +47,7 @@ from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -765,7 +765,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
-                return (SharedLinkViewer(sharing_configuration), None)
+                return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
@@ -827,7 +827,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
-            return (SharedLinkViewer(sharing_configuration), None)
+            return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
             # Expected: JWT decode failed (likely a personal API key was passed)

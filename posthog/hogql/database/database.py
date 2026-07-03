@@ -152,7 +152,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
-from posthog.shared_link_viewer import SharedLinkViewer
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -207,7 +207,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User | SyntheticUser | SharedLinkViewer"]
+    user: Optional["User | SyntheticUser | SharedLinkUser"]
     connection_id: str | None
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
@@ -440,7 +440,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 def _compute_system_table_access_decision(
     team: "Team",
-    user: Optional["User | SyntheticUser | SharedLinkViewer"],
+    user: Optional["User | SyntheticUser | SharedLinkUser"],
     user_access_control: Optional["UserAccessControl"] = None,
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
@@ -451,7 +451,7 @@ def _compute_system_table_access_decision(
     system_children = SystemTables().children
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared viewer / team token).
-    if user is None or isinstance(user, SyntheticUser | SharedLinkViewer):
+    if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, {
             name
@@ -1051,7 +1051,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser | SharedLinkViewer"] = None,
+        user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1078,7 +1078,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser | SharedLinkViewer"] = None,
+        user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1307,12 +1307,12 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            # Principals that skip warehouse access control by design: synthetic project-secret-key
-            # principals (project-wide, bypass object-level RBAC) and shared-link viewers (publishing
-            # is the explicit access decision). Both declare `bypasses_warehouse_access_control`.
-            # System tables stay scope-gated for them via _compute_system_table_access_decision above.
+            # Principals that skip warehouse access control by design: synthetic principals
+            # (project-wide service tokens, bypass object-level RBAC) and shared-link viewers
+            # (publishing is the explicit access decision). System tables stay scope-gated for
+            # both via _compute_system_table_access_decision above.
             bypass_warehouse_access_control=bypass_warehouse_access_control
-            or getattr(user, "bypasses_warehouse_access_control", False),
+            or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
