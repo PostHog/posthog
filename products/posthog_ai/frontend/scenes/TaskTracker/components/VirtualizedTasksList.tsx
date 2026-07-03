@@ -41,7 +41,7 @@ function TaskRow({
     const task = tasks[index]
 
     return (
-        <div ref={rowRef} style={style} data-index={index} className="px-4 lg:px-0">
+        <div ref={rowRef} style={style} data-index={index} className="px-4 lg:pl-0">
             {task ? (
                 <TaskListItem task={task} isActive={task.id === selectedTaskId} />
             ) : (

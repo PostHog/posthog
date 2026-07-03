@@ -5,7 +5,9 @@ import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from 
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    LINE_STROKE_WIDTH,
     drawAxes,
+    resolveAxisLineColor,
     drawBarHighlight,
     drawBars,
     drawGrid,
@@ -89,7 +91,9 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -181,15 +185,22 @@ function ComboChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
+            // nor lines paint over the baseline where they meet the axis.
             if (showGrid) {
-                const categoryTicks = computeVisibleXLabels(
-                    drawLabels,
-                    (label) => bandCenter(comboScales, label),
-                    xTickFormatter
-                ).map((entry) => entry.x)
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                // In the axis-line style only the value-axis grid guides reading; category lines
+                // through the band gaps are noise (line charts never draw them either).
+                const categoryTicks = showAxisLines
+                    ? []
+                    : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
+                          (entry) => entry.x
+                      )
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -221,7 +232,18 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+            }
         },
         [
             seriesTypeOf,
@@ -232,6 +254,7 @@ function ComboChartInner<Meta = unknown>({
             barStackedData,
             topStackedKeyByAxis,
             barCornerRadius,
+            smooth,
         ]
     )
 

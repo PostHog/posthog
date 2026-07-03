@@ -48,6 +48,10 @@ class CommandResult:
     data: dict[str, Any] | None = None
     error: str | None = None
     retryable: bool = False
+    # True only when the request body was fully sent and the agent is still
+    # processing it (local read timeout). A 504 *response* (e.g. from the
+    # Modal tunnel) leaves this False — there delivery is unknown.
+    turn_in_flight: bool = False
 
 
 def validate_sandbox_url(url: str) -> str | None:
@@ -171,6 +175,20 @@ def send_agent_command(
             timeout=timeout,
             params=query_params or None,
         )
+    except requests.ReadTimeout:
+        # The request body was already sent — the sandbox has the command and
+        # is still processing it. Callers rely on turn_in_flight meaning
+        # "delivered but not finished" (e.g. a long agent turn), as opposed to
+        # the connection failures below where the command never arrived.
+        # ConnectTimeout subclasses both Timeout and ConnectionError; catching
+        # ReadTimeout first keeps it in the 502 bucket.
+        return CommandResult(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+            turn_in_flight=True,
+        )
     except requests.ConnectionError:
         return CommandResult(
             success=False,
@@ -252,13 +270,21 @@ def send_user_message(
     artifacts: list[dict[str, Any]] | None = None,
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
+    message_id: str | None = None,
 ) -> CommandResult:
-    """Send a user_message command to the sandbox agent."""
+    """Send a user_message command to the sandbox agent.
+
+    ``message_id`` is an idempotency key: the agent-server ignores a
+    redelivery carrying an id it has already accepted, which makes retrying
+    delivery after an attempt-level death (worker restart) safe.
+    """
     params: dict[str, Any] = {}
     if message:
         params["content"] = message
     if artifacts:
         params["artifacts"] = artifacts
+    if message_id:
+        params["messageId"] = message_id
     return send_agent_command(
         task_run,
         method="user_message",

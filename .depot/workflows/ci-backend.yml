@@ -177,6 +177,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -333,6 +334,11 @@ jobs:
                         # depot strips canonical's separate persons-migration job
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -886,6 +892,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         timeout-minutes: 10
+        permissions:
+            contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -914,6 +923,15 @@ jobs:
               run: tach check --dependencies --interfaces
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+            # Block deleting historical migration files (see safe-django-migrations.md).
+            # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
+            - name: Check deleted migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GITHUB_ACTIONS: 'false'
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh | ./bin/hogli lint:migration-deletions
 
     validate-product-yamls:
         needs: [changes]
@@ -1663,7 +1681,7 @@ jobs:
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
-              run: | # async_migrations covered in ci-async-migrations.yml
+              run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
                   # Pick the split algorithm and granularity at runtime: optimal_chunks + file
@@ -1837,8 +1855,6 @@ jobs:
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         outputs:
-            # Oldest supported version for main Django tests (JSON array for matrix)
-            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # Fully expanded compat matrix (version x shard group)
@@ -1854,13 +1870,12 @@ jobs:
                   compat_shards="2"
                   echo "Using $compat_shards shard(s) per compat version"
 
-                  # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)
+                  # Oldest supported version for main Django tests (for max compatibility)
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
-                  echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
@@ -1902,9 +1917,11 @@ jobs:
         needs:
             [
                 sample,
+                changes,
+                get_clickhouse_versions,
+                build_django_matrix,
                 django,
                 check-migrations,
-                async-migrations,
                 turbo-discover,
                 build-product-test-matrix,
                 turbo-tests,
@@ -1923,9 +1940,11 @@ jobs:
                     echo "### Backend CI dependency results"
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
+                    echo "| changes | ${{ needs.changes.result }} |"
+                    echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
+                    echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
-                    echo "| async-migrations | ${{ needs.async-migrations.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
@@ -1951,131 +1970,19 @@ jobs:
                     exit 1
                   }
 
+                  # Upstream jobs whose failure would otherwise only cascade into django
+                  # being *skipped*, which this gate reads as success — a green gate with
+                  # zero backend tests run. Naming them makes the failure hit the gate
+                  # directly; legitimate skips (frontend-only PRs) and plain successes still pass.
+                  check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
+                  check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
-                  check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   echo "All backend and product checks passed."
-    async-migrations:
-        name: Async migrations tests - events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}, ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
-        needs: [changes, turbo-discover, get_clickhouse_versions]
-        strategy:
-            fail-fast: false
-            matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-                new-events-schema: [false, true]
-        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
-        if: |
-            always() &&
-            github.event_name != 'push' &&
-            needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' ||
-             needs.turbo-discover.outputs.run_legacy == 'true' ||
-             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
-        steps:
-            - name: 'Checkout repo'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-                  clean: false
-            - name: Clean up data directories with container permissions
-              run: |
-                  # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-            - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-            - name: Start stack with Docker Compose
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-              run: |
-                  # nohup detaches the launch so it survives Depot's step-shell teardown
-                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
-                  nohup bin/ci-wait-for-docker launch --background --down \
-                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-            - name: Install uv
-              id: setup-uv-async
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
-            - name: Install SAML (python3-saml) dependencies
-              if: steps.setup-uv-async.outputs.cache-hit != 'true'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
-            - name: Install sqlx-cli
-              uses: ./.depot/actions/setup-sqlx-cli
-            - name: Install python dependencies
-              shell: bash
-              run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Add service hostnames to /etc/hosts
-              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-            - name: Set up needed files
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/exporter.html
-            - name: Wait for Docker services
-              shell: bash
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-              run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
-            - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
-                  key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
-                  restore-keys: |
-                      ${{ needs.turbo-discover.outputs.schema_cache_key }}
-            - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
-              if: ${{ github.event_name == 'pull_request' }}
-              run: |
-                  if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
-                      exit 0
-                  fi
-                  mkdir -p .postgres-backups
-                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
-                  fi
-            - name: Run async migrations tests
-              env:
-                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-              run: |
-                  # Scope async migration tests directly and reuse the primed test database.
-                  pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
     # Shadow trial: calculate-running-time job stripped (would poison trial metrics).

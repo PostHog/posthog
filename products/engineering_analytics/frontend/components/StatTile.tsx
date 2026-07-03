@@ -3,8 +3,7 @@ import { ReactNode } from 'react'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 
-/** A plain headline metric tile: small label, big number, muted caption for the caveat/breakdown.
- *  For the clickable variant that doubles as a quick-filter toggle, use StatCard. */
+/** Plain headline metric tile. For the clickable filter-toggle variant, use StatCard. */
 export function StatTile({
     label,
     value,
