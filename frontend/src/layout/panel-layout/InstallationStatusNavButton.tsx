@@ -73,6 +73,16 @@ function CloudRunPhaseReporter({
  */
 export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element | null {
     const sidebarEnabled = useFeatureFlag('ONBOARDING_WIZARD_SIDEBAR', 'test')
+    // Gate BEFORE mounting any logic: the inner component mounts the session detector (directly and
+    // via installationStatusNavLogic's connect), whose afterMount starts a 60s REST poll. Flag-off
+    // users must not pay that traffic (INC-886 pattern, mirrors WizardProgressFab).
+    if (!sidebarEnabled) {
+        return null
+    }
+    return <InstallationStatusNavButtonInner iconOnly={iconOnly} />
+}
+
+function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): JSX.Element | null {
     const { shouldShow, isRunActive, phase: logicPhase, onboardingUrl } = useValues(installationStatusNavLogic)
     const { openDialog } = useActions(installationStatusNavLogic)
 
@@ -107,7 +117,7 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
         }
     }, [effectivePhase])
 
-    if (!sidebarEnabled || !shouldShow) {
+    if (!shouldShow) {
         return null
     }
 

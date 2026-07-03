@@ -193,7 +193,7 @@ function WizardSyncLocalGate(): JSX.Element | null {
 /**
  * The single detached wizard sync widget, mounted app-wide (AuthenticatedShell). It surfaces whichever
  * run is in flight, cloud or local, in one place: a cloud run (the persisted handle) takes precedence,
- * otherwise a local wizard session detected by the poll. Replaces the separate CloudRunProgressFab and
+ * otherwise a local wizard session detected by the poll. Replaces the earlier separate cloud-run and
  * WizardProgressFab so there is one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {

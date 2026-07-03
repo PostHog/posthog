@@ -235,6 +235,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         },
         disconnect: () => {
             cache.disposables.dispose('event-source')
+            cache.disposables.dispose('queued-stall')
         },
     })),
 ])
