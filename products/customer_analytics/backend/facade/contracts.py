@@ -466,3 +466,25 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class EventStreamView:
+    """The team's event stream as returned by the event-stream endpoints.
+
+    A single stream per team: the events to watch (``event_names``), the Slack delivery
+    target, and the member accounts (``account_ids``) whose users' events are streamed.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    enabled: bool = False
+    event_names: list[str] = field(default_factory=list)
+    slack_integration: int | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    account_ids: list[UUID] = field(default_factory=list)
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None

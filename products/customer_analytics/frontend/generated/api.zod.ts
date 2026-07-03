@@ -623,6 +623,163 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     sidebar: zod.unknown().optional(),
 })
 
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsCreateBodyEnabledDefault = false
+export const eventStreamsCreateBodyEventNamesItemMax = 400
+
+export const eventStreamsCreateBodySlackChannelIdDefault = ``
+export const eventStreamsCreateBodySlackChannelIdMax = 200
+
+export const eventStreamsCreateBodySlackChannelNameDefault = ``
+export const eventStreamsCreateBodySlackChannelNameMax = 200
+
+export const EventStreamsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsCreateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsCreateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelIdMax)
+            .default(eventStreamsCreateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelNameMax)
+            .default(eventStreamsCreateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+    )
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsUpdateBodyEnabledDefault = false
+export const eventStreamsUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelIdMax)
+            .default(eventStreamsUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelNameMax)
+            .default(eventStreamsUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+    )
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsPartialUpdateBodyEnabledDefault = false
+export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsPartialUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsPartialUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsPartialUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsPartialUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelIdMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelNameMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+    )
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
 export const groupsTypesMetricsCreateBodyNameMax = 255
 
 export const groupsTypesMetricsCreateBodyFormatDefault = `numeric`

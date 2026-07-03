@@ -17,6 +17,8 @@ from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
+from django.db import transaction
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
@@ -34,6 +36,7 @@ from posthog.permissions import is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.facade import api, contracts
+from products.customer_analytics.backend.logic import event_stream_destination
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
@@ -49,6 +52,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
+    EventStreamMemberWriteSerializer,
+    EventStreamSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -1166,3 +1171,167 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+_EVENT_STREAM_ID_PARAM = OpenApiParameter(
+    "id",
+    OpenApiTypes.STR,
+    OpenApiParameter.PATH,
+    description="A UUID string identifying this event stream.",
+)
+
+
+@extend_schema(tags=["customer_analytics"])
+class EventStreamViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """The team's event stream: a live feed of selected accounts' events posted to a Slack
+    channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+    the same transaction as every write, so config and delivery can't drift apart."""
+
+    scope_object = "account"
+    serializer_class = EventStreamSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_event_streams(self.team_id, offset=offset, limit=limit),
+            EventStreamSerializer,
+        )
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        stream = api.get_event_stream(self.team_id, self.kwargs["pk"])
+        if stream is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EventStreamSerializer(instance=stream).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = EventStreamSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.create_event_stream(
+                    team_id=self.team_id,
+                    enabled=data.enabled,
+                    event_names=data.event_names,
+                    slack_integration_id=data.slack_integration,
+                    slack_channel_id=data.slack_channel_id,
+                    slack_channel_name=data.slack_channel_name,
+                    user=user,
+                )
+                event_stream_destination.sync_event_stream_destination_by_id(
+                    team=self.team, stream_id=str(stream.id), user=user
+                )
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        except api.EventStreamConflictError as e:
+            raise Conflict(str(e))
+        return Response(
+            EventStreamSerializer(instance=api.get_event_stream(self.team_id, str(stream.id))).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = EventStreamSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.update_event_stream(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    fields=_event_stream_write_fields(serializer.validated_data, request.data),
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                event_stream_destination.sync_event_stream_destination_by_id(
+                    team=self.team, stream_id=str(stream.id), user=user
+                )
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        return Response(EventStreamSerializer(instance=api.get_event_stream(self.team_id, str(stream.id))).data)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        with transaction.atomic():
+            event_stream_destination.archive_event_stream_destination_by_id(
+                team_id=self.team_id, stream_id=self.kwargs["pk"]
+            )
+            deleted = api.delete_event_stream(team_id=self.team_id, stream_id=self.kwargs["pk"])
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=True)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def remove_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=False)
+
+    def _set_member(self, request: Request, *, included: bool) -> Response:
+        write = EventStreamMemberWriteSerializer(data=request.data)
+        write.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.set_event_stream_member(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    account_id=write.validated_data["account_id"],
+                    included=included,
+                    user=user,
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                event_stream_destination.sync_event_stream_destination_by_id(
+                    team=self.team, stream_id=str(stream.id), user=user
+                )
+        except api.Account_DoesNotExist:
+            raise ValidationError({"account_id": "Account not found for this team."})
+        return Response(EventStreamSerializer(instance=stream).data)
+
+
+def _event_stream_write_fields(validated, raw_data: dict) -> dict:
+    """The event-stream columns the caller actually sent, so a PATCH that omits a field
+    leaves it untouched (the serializer fields carry defaults for create)."""
+    fields: dict = {}
+    if "enabled" in raw_data:
+        fields["enabled"] = validated.enabled
+    if "event_names" in raw_data:
+        fields["event_names"] = validated.event_names
+    if "slack_integration" in raw_data:
+        fields["slack_integration_id"] = validated.slack_integration
+    if "slack_channel_id" in raw_data:
+        fields["slack_channel_id"] = validated.slack_channel_id
+    if "slack_channel_name" in raw_data:
+        fields["slack_channel_name"] = validated.slack_channel_name
+    return fields

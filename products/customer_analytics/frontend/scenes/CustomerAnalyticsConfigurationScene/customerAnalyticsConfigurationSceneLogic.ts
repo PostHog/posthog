@@ -15,6 +15,7 @@ export type ConfigurationSceneTabType =
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
     | 'customer-analytics-accounts'
+    | 'customer-analytics-event-stream'
 
 export interface CustomerAnalyticsConfigurationSceneLogicProps {
     initialTab?: ConfigurationSceneTabType

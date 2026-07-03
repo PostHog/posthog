@@ -642,6 +642,8 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
+    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",

@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
@@ -216,6 +217,7 @@ export function AccountNotebooksExpansion({
                 <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />
                     <ActiveRelationships accountId={accountId} />
+                    <AccountEventStreamToggle accountId={accountId} externalId={externalId} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <LemonTabs

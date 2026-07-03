@@ -22258,6 +22258,51 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * The team's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel. One stream per team.
+     */
+    export interface EventStream {
+      readonly id: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids: readonly string[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * Request body for adding or removing an event-stream member account.
+     */
+    export interface EventStreamMemberWrite {
+      /** UUID of the account to add to or remove from the stream. */
+      account_id: string;
+    }
+
     export interface EventSuggestionsResponse {
       /** Ranked candidate events for conversion goals */
       candidates: CandidateEvent[];
@@ -34036,6 +34081,15 @@ export namespace Schemas {
       results: EventSchema[];
     }
 
+    export interface PaginatedEventStreamList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: EventStream[];
+    }
+
     export interface PaginatedExperimentBasicList {
       count: number;
       /** @nullable */
@@ -40010,6 +40064,43 @@ export namespace Schemas {
       property_group_id?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * The team's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel. One stream per team.
+     */
+    export interface PatchedEventStream {
+      readonly id?: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids?: readonly string[];
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -67502,6 +67593,17 @@ export namespace Schemas {
     };
 
     export type EventSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EventStreamsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -29,7 +29,7 @@ from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import OrganizationMembership, Tag
+from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -59,6 +59,8 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    EventStream,
+    EventStreamMember,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -1943,3 +1945,133 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+# --- EventStream ---
+
+
+class EventStreamValidationError(Exception):
+    """Raised when an event-stream write references a Slack integration that isn't the
+    team's (→ 400)."""
+
+
+class EventStreamConflictError(Exception):
+    """Raised when creating a second event stream for a team (→ 409)."""
+
+
+def _to_event_stream_view(stream: EventStream) -> contracts.EventStreamView:
+    account_ids = list(stream.members.order_by("created_at").values_list("account_id", flat=True))
+    return contracts.EventStreamView(
+        id=stream.id,
+        enabled=stream.enabled,
+        event_names=list(stream.event_names or []),
+        slack_integration=stream.slack_integration_id,
+        slack_channel_id=stream.slack_channel_id,
+        slack_channel_name=stream.slack_channel_name,
+        account_ids=account_ids,
+        created_at=stream.created_at,
+        created_by=stream.created_by_id,
+        updated_at=stream.updated_at,
+    )
+
+
+def _validate_slack_integration(team_id: int, integration_id: int | None) -> None:
+    if integration_id is None:
+        return
+    if not Integration.objects.filter(team_id=team_id, id=integration_id, kind="slack").exists():
+        raise EventStreamValidationError("Slack integration not found for this team.")
+
+
+def _normalize_event_names(event_names: Iterable[str]) -> list[str]:
+    """Deduplicated, order-preserving event names with blanks dropped."""
+    return [name for name in dict.fromkeys(event_names) if name and name.strip()]
+
+
+def list_event_streams(team_id: int, offset: int, limit: int) -> tuple[list[contracts.EventStreamView], int]:
+    """The team's event streams (at most one exists). Returns ``(page, total_count)``."""
+    queryset = EventStream.objects.for_team(team_id).order_by("created_at")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_event_stream_view(s) for s in page], total_count
+
+
+def get_event_stream(team_id: int, stream_id: str | UUID) -> contracts.EventStreamView | None:
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    return _to_event_stream_view(stream) if stream is not None else None
+
+
+def create_event_stream(
+    *,
+    team_id: int,
+    enabled: bool,
+    event_names: list[str],
+    slack_integration_id: int | None,
+    slack_channel_id: str,
+    slack_channel_name: str,
+    user: "User",
+) -> contracts.EventStreamView:
+    """Create the team's event stream. Raises :class:`EventStreamConflictError` when one
+    already exists and :class:`EventStreamValidationError` for a foreign Slack integration."""
+    _validate_slack_integration(team_id, slack_integration_id)
+    try:
+        stream = EventStream.objects.for_team(team_id).create(
+            team_id=team_id,
+            created_by=user,
+            enabled=enabled,
+            event_names=_normalize_event_names(event_names),
+            slack_integration_id=slack_integration_id,
+            slack_channel_id=slack_channel_id,
+            slack_channel_name=slack_channel_name,
+        )
+    except IntegrityError as exc:
+        if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
+            raise
+        raise EventStreamConflictError("An event stream already exists for this project.")
+    return _to_event_stream_view(stream)
+
+
+def update_event_stream(
+    *, team_id: int, stream_id: str | UUID, fields: dict[str, Any]
+) -> contracts.EventStreamView | None:
+    """Apply ``fields`` (enabled / event_names / slack_integration_id / slack_channel_id /
+    slack_channel_name) to the team's stream. Returns None (→ 404) when no stream matches."""
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    if stream is None:
+        return None
+    if "slack_integration_id" in fields:
+        _validate_slack_integration(team_id, fields["slack_integration_id"])
+    if "event_names" in fields:
+        fields = {**fields, "event_names": _normalize_event_names(fields["event_names"])}
+    for attr, value in fields.items():
+        setattr(stream, attr, value)
+    stream.save()
+    return _to_event_stream_view(stream)
+
+
+def delete_event_stream(*, team_id: int, stream_id: str | UUID) -> bool:
+    """Delete the team's stream (memberships cascade). Returns False when none matched (→ 404)."""
+    deleted, _ = EventStream.objects.for_team(team_id).filter(id=stream_id).delete()
+    return deleted > 0
+
+
+def set_event_stream_member(
+    *, team_id: int, stream_id: str | UUID, account_id: str | UUID, included: bool, user: "User | None" = None
+) -> contracts.EventStreamView | None:
+    """Add or remove an account from the stream. Idempotent in both directions. Returns
+    None (→ 404) when no stream matches; raises ``Account_DoesNotExist`` for a foreign or
+    unknown account."""
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    if stream is None:
+        return None
+    account = Account.objects.for_team(team_id).filter(id=account_id).first()
+    if account is None:
+        raise Account_DoesNotExist()
+    if included:
+        # for_team() filters don't propagate into creation — team_id must be in defaults.
+        EventStreamMember.objects.for_team(team_id).get_or_create(
+            stream=stream,
+            account=account,
+            defaults={"team_id": team_id, "created_by": user},
+        )
+    else:
+        EventStreamMember.objects.for_team(team_id).filter(stream=stream, account=account).delete()
+    return _to_event_stream_view(stream)
+

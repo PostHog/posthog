@@ -32,6 +32,9 @@ import type {
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
     CustomerProfileConfigsListParams,
+    EventStreamApi,
+    EventStreamMemberWriteApi,
+    EventStreamsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
@@ -42,6 +45,7 @@ import type {
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
+    PaginatedEventStreamListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
@@ -49,6 +53,7 @@ import type {
     PatchedCustomPropertySourceUpdateApi,
     PatchedCustomerJourneyApi,
     PatchedCustomerProfileConfigApi,
+    PatchedEventStreamApi,
     PatchedGroupUsageMetricApi,
 } from './api.schemas'
 
@@ -970,6 +975,188 @@ export const customerProfileConfigsDestroy = async (
     return apiMutator<void>(getCustomerProfileConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEventStreamsListUrl = (projectId: string, params?: EventStreamsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_streams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_streams/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsList = async (
+    projectId: string,
+    params?: EventStreamsListParams,
+    options?: RequestInit
+): Promise<PaginatedEventStreamListApi> => {
+    return apiMutator<PaginatedEventStreamListApi>(getEventStreamsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventStreamsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_streams/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsCreate = async (
+    projectId: string,
+    eventStreamApi?: NonReadonly<EventStreamApi>,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventStreamApi),
+    })
+}
+
+export const getEventStreamsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventStreamsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsUpdate = async (
+    projectId: string,
+    id: string,
+    eventStreamApi?: NonReadonly<EventStreamApi>,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventStreamApi),
+    })
+}
+
+export const getEventStreamsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedEventStreamApi?: NonReadonly<PatchedEventStreamApi>,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEventStreamApi),
+    })
+}
+
+export const getEventStreamsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEventStreamsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getEventStreamsAddAccountCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/add_account/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsAddAccountCreate = async (
+    projectId: string,
+    id: string,
+    eventStreamMemberWriteApi: EventStreamMemberWriteApi,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsAddAccountCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventStreamMemberWriteApi),
+    })
+}
+
+export const getEventStreamsRemoveAccountCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_streams/${id}/remove_account/`
+}
+
+/**
+ * The team's event stream: a live feed of selected accounts' events posted to a Slack
+ * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
+ * the same transaction as every write, so config and delivery can't drift apart.
+ */
+export const eventStreamsRemoveAccountCreate = async (
+    projectId: string,
+    id: string,
+    eventStreamMemberWriteApi: EventStreamMemberWriteApi,
+    options?: RequestInit
+): Promise<EventStreamApi> => {
+    return apiMutator<EventStreamApi>(getEventStreamsRemoveAccountCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventStreamMemberWriteApi),
     })
 }
 

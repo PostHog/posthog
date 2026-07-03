@@ -44,6 +44,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
+    EventStreamView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -603,3 +604,74 @@ class AccountRelationshipWriteSerializer(serializers.Serializer):
     user = serializers.IntegerField(
         help_text="PostHog user id of the assignee. Must be a member of the account's organization."
     )
+class EventStreamSerializer(DataclassSerializer):
+    """The team's event stream — a live feed of selected accounts' events posted to a
+    Slack channel. One stream per team."""
+
+    id = serializers.UUIDField(read_only=True)
+    enabled = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether the stream delivers to Slack. Delivery also requires at least one event, "
+            "at least one member account with an external ID, and a Slack workspace + channel."
+        ),
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        default=list,
+        help_text="Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+    )
+    slack_integration = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the team's Slack workspace integration to deliver through.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Slack channel ID to post to (e.g. C0123ABC).",
+    )
+    slack_channel_name = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Display name of the Slack channel (e.g. #customer-events). Informational only.",
+    )
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text=(
+            "UUIDs of the member accounts whose users' events are streamed. "
+            "Managed via the add_account/remove_account endpoints."
+        ),
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = EventStreamView
+        ref_name = "EventStream"
+        fields = [
+            "id",
+            "enabled",
+            "event_names",
+            "slack_integration",
+            "slack_channel_id",
+            "slack_channel_name",
+            "account_ids",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class EventStreamMemberWriteSerializer(serializers.Serializer):
+    """Request body for adding or removing an event-stream member account."""
+
+    account_id = serializers.UUIDField(help_text="UUID of the account to add to or remove from the stream.")
