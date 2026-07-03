@@ -620,6 +620,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
+            } else if (!values.elementStats) {
+                // the initial load failed, so the button doubles as the retry affordance
+                actions.maybeLoadClickmap()
             }
         },
 

@@ -745,16 +745,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             const payload = e.data.payload
                             actions.setIsEmbeddedInApp(true)
                             actions.toggleClickmapsEnabled(false)
-                            if (payload?.filters !== undefined) {
+                            if (payload?.filters != null) {
                                 actions.patchHeatmapFilters(payload.filters)
                             }
-                            if (payload?.colorPalette !== undefined) {
+                            if (payload?.colorPalette != null) {
                                 actions.setHeatmapColorPalette(payload.colorPalette)
                             }
-                            if (payload?.fixedPositionMode !== undefined) {
+                            if (payload?.fixedPositionMode != null) {
                                 actions.setHeatmapFixedPositionMode(payload.fixedPositionMode)
                             }
-                            if (payload?.commonFilters !== undefined) {
+                            if (payload?.commonFilters != null) {
                                 actions.setCommonFilters(payload.commonFilters)
                             }
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive

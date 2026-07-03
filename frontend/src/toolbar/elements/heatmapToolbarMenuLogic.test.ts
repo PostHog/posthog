@@ -137,5 +137,15 @@ describe('heatmapToolbarMenuLogic', () => {
             ])
             expect(logic.values.heatmapEnabled).toBe(true)
         })
+
+        it('retries the initial load via load more after a stats fetch failure', async () => {
+            jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValueOnce(new Error('network error'))
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsFailure'])
+            await expectLogic(logic, () => logic.actions.loadMoreElementStats()).toDispatchActions([
+                'getElementStats',
+                'getElementStatsSuccess',
+            ])
+            expect(toolbarApi.elementStats.list).toHaveBeenCalledTimes(2)
+        })
     })
 })
