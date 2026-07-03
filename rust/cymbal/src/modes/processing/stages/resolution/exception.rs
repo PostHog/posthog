@@ -80,18 +80,9 @@ impl ValueOperator for ExceptionResolver {
         evt.exception_list = ExceptionResolver::resolve_exception_list(
             team_id,
             std::mem::take(&mut evt.exception_list),
-            ctx.clone(),
+            ctx,
         )
         .await?;
-
-        // Resolve the legacy-order snapshot through the same exception
-        // resolution when wire-order normalization ran, so the legacy
-        // fingerprint stays faithful for SDKs whose exceptions get reshaped
-        // here (java/dart). Frame resolution follows in the next operator.
-        if let Some(legacy) = evt.legacy_order_exception_list.take() {
-            evt.legacy_order_exception_list =
-                Some(ExceptionResolver::resolve_exception_list(team_id, legacy, ctx).await?);
-        }
 
         Ok(Ok(evt))
     }
