@@ -50,7 +50,6 @@ DEPENDENCY_ECOSYSTEMS: dict[str, dict[str, frozenset[str]]] = {
 }
 
 _ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e["lockfiles"] for e in DEPENDENCY_ECOSYSTEMS.values()))
-_ALL_MANIFEST_NAMES: frozenset[str] = frozenset().union(*(e["manifests"] for e in DEPENDENCY_ECOSYSTEMS.values()))
 
 
 def _dependency_ecosystem(name: str) -> str | None:
@@ -332,6 +331,10 @@ DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
         "gemfile.lock",
         "composer.lock",
     }
+)
+
+assert DISMISS_TIME_LOCKFILES <= _ALL_LOCKFILE_NAMES, (
+    "every dismiss-time lockfile must also be a hard-deny lockfile in DEPENDENCY_ECOSYSTEMS"
 )
 
 _DISMISS_TIME_TEST_RE = re.compile(
