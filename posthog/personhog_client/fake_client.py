@@ -508,6 +508,8 @@ class FakePersonHogClient:
                         m.detail_dashboard_id = request.detail_dashboard_id
                     elif field == "default_columns":
                         m.default_columns = request.default_columns
+                    elif field == "created_at":
+                        m.created_at = request.created_at
                 return group_pb2.UpdateGroupTypeMappingResponse(mapping=m)
         import grpc
 
