@@ -83,6 +83,12 @@ CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS = get_from_env(
     "CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS", type_cast=float, default=0.5
 )
 CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS", type_cast=int, default=1000)
+# Wall-clock ceiling per flush: token groups are submitted serially, so many
+# distinct tokens against a slow capture-rs would otherwise stall the sender for
+# the sum of every group's transport budget. Events still unsent at the deadline
+# are dropped (reason="flush_deadline"). A healthy flush finishes well under a
+# second; the ceiling only bites while capture-rs degrades.
+CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS", type_cast=float, default=5.0)
 # Fairness: the largest share of the buffer any single token may hold, so one
 # token's report storm cannot evict every other token's events on overflow.
 CSP_REPORT_BUFFER_MAX_TOKEN_SHARE = get_from_env("CSP_REPORT_BUFFER_MAX_TOKEN_SHARE", type_cast=float, default=0.5)

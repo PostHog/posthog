@@ -9,7 +9,7 @@ from django.test.client import Client
 
 from rest_framework import status
 
-from posthog.api.report_buffer import CSP_BUFFER_FAILED, CSP_BUFFER_SUBMITTED, CspReportBuffer
+from posthog.api.report_buffer import CSP_BUFFER_DROPPED, CSP_BUFFER_FAILED, CSP_BUFFER_SUBMITTED, CspReportBuffer
 
 
 def _capture_result(ok=(), dropped=(), retried=(), unaccounted=(), warnings=()):
@@ -90,11 +90,13 @@ class TestCspReportBufferLogic(SimpleTestCase):
         max_token_share: float = 1.0,
         max_bytes: int = 1_000_000,
         max_event_bytes: int = 100_000,
+        flush_max_seconds: float = 5.0,
     ) -> CspReportBuffer:
         return CspReportBuffer(
             maxsize=maxsize,
             flush_interval=0.01,
             flush_max_events=100,
+            flush_max_seconds=flush_max_seconds,
             max_token_share=max_token_share,
             max_bytes=max_bytes,
             max_event_bytes=max_event_bytes,
@@ -199,3 +201,31 @@ class TestCspReportBufferLogic(SimpleTestCase):
         buf._flush([("token-1", {"event": "a"}, 20)])
         assert mock_capture.call_count == 1
         assert mock_capture_exception.call_count == 1
+
+    # Regression: token groups are submitted serially, so a flood of distinct
+    # tokens against a slow capture-rs could stall the sender for the sum of
+    # every group's transport budget while the queue evicted everything behind
+    # it. The flush deadline must cut the loop and count unsent events.
+    @patch("posthog.api.report_buffer.time.monotonic")
+    @patch("posthog.api.report_buffer.capture_batch_internal")
+    def test_flush_stops_at_deadline_and_drops_remaining_groups(self, mock_capture, mock_monotonic) -> None:
+        mock_capture.return_value = _capture_result(ok=["u1"])
+        # monotonic calls: deadline anchor (0.0), group-1 check (0.5, within
+        # budget), group-2 check (10.0, past it) — groups 2 and 3 never submit.
+        mock_monotonic.side_effect = [0.0, 0.5, 10.0]
+        buf = self._buffer(flush_max_seconds=1.0)
+        dropped_before = CSP_BUFFER_DROPPED.labels(reason="flush_deadline")._value.get()
+
+        buf._flush(
+            [
+                ("token-1", {"event": "a"}, 10),
+                ("token-2", {"event": "b"}, 10),
+                ("token-2", {"event": "c"}, 10),
+                ("token-3", {"event": "d"}, 10),
+            ]
+        )
+
+        assert mock_capture.call_count == 1
+        assert mock_capture.call_args.kwargs["token"] == "token-1"
+        dropped = CSP_BUFFER_DROPPED.labels(reason="flush_deadline")._value.get() - dropped_before
+        assert dropped == 3

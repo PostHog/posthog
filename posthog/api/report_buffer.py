@@ -8,7 +8,8 @@ sender thread batches events to ``capture_batch_internal``.
 
 CSP reporting is best-effort by contract: oversized events and events beyond a
 token's fair share of the buffer are dropped, on count or byte overflow the
-oldest queued events are evicted, and buffered events are lost if the process
+oldest queued events are evicted, events still unsent when a flush exceeds its
+wall-clock deadline are dropped, and buffered events are lost if the process
 dies before the final drain (all drops counted in ``csp_report_buffer_dropped``).
 Browsers never read report responses, so callers get no delivery guarantee
 either way.
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import queue
 import atexit
 import threading
@@ -31,6 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings.ingestion import (
     CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
     CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
+    CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS,
     CSP_REPORT_BUFFER_MAX_BYTES,
     CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     CSP_REPORT_BUFFER_MAX_EVENTS,
@@ -69,12 +72,14 @@ class CspReportBuffer:
         maxsize: int = CSP_REPORT_BUFFER_MAX_EVENTS,
         flush_interval: float = CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
         flush_max_events: int = CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
+        flush_max_seconds: float = CSP_REPORT_BUFFER_FLUSH_MAX_SECONDS,
         max_token_share: float = CSP_REPORT_BUFFER_MAX_TOKEN_SHARE,
         max_bytes: int = CSP_REPORT_BUFFER_MAX_BYTES,
         max_event_bytes: int = CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     ) -> None:
         self.flush_interval = flush_interval
         self.flush_max_events = flush_max_events
+        self.flush_max_seconds = flush_max_seconds
         self.max_bytes = max_bytes
         self.max_event_bytes = max_event_bytes
         # maxsize=0 makes queue.Queue unbounded, which silently removes the count
@@ -220,7 +225,27 @@ class CspReportBuffer:
         by_token: dict[str, list[dict[str, Any]]] = {}
         for token, event, _ in items:
             by_token.setdefault(token, []).append(event)
-        for token, events in by_token.items():
+        # Token groups are submitted serially and tokens are attacker-controlled
+        # (only capture-rs validates them), so a flood of distinct tokens against
+        # a slow capture-rs would otherwise multiply the per-call transport
+        # budget by up to flush_max_events groups — stalling the sender while
+        # the queue evicts everything behind it. The deadline bounds the whole
+        # flush; only the last group started before it can overshoot (by one
+        # call's transport budget). Groups past the deadline are dropped and
+        # counted, matching the buffer's best-effort contract.
+        deadline = time.monotonic() + self.flush_max_seconds
+        groups = list(by_token.items())
+        for index, (token, events) in enumerate(groups):
+            if time.monotonic() > deadline:
+                remaining = sum(len(group_events) for _, group_events in groups[index:])
+                CSP_BUFFER_DROPPED.labels(reason="flush_deadline").inc(remaining)
+                logger.warning(
+                    "csp_report_buffer_flush_deadline",
+                    dropped=remaining,
+                    groups_left=len(groups) - index,
+                    flush_max_seconds=self.flush_max_seconds,
+                )
+                break
             try:
                 # max_attempts=1: token groups are submitted serially, so a
                 # degraded capture-rs must not multiply its timeout by resubmit
@@ -255,9 +280,10 @@ class CspReportBuffer:
                 )
 
     def _drain_on_exit(self) -> None:
-        # Best-effort final flush of at most one batch. The capture call itself can
-        # still take its full timeout/retry budget — that has to fit inside the
-        # pod's termination grace, it is not bounded here.
+        # Best-effort final flush of at most one batch, bounded by the same flush
+        # deadline as regular flushes — flush_max_seconds (plus one call's
+        # transport budget of overshoot) has to fit inside the pod's termination
+        # grace.
         items: list[tuple[str, dict[str, Any], int]] = []
         while len(items) < self.flush_max_events:
             try:
