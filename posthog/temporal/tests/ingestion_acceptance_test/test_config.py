@@ -60,6 +60,14 @@ class TestLoadConfig:
         with pytest.raises(ValueError, match="Lane 'turbo' is misconfigured"):
             load_config("turbo")
 
+    def test_non_integer_team_id_raises_descriptive_error(self, clean_env: pytest.MonkeyPatch) -> None:
+        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANE_TURBO_API_HOST", "https://turbo.example.com")
+        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANE_TURBO_PROJECT_API_KEY", "phc_turbo")
+        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANE_TURBO_TEAM_ID", "not-a-number")
+
+        with pytest.raises(ValueError, match="TEAM_ID must be an integer"):
+            load_config("turbo")
+
     def test_shared_settings_come_from_flat_env_for_lane(self, clean_env: pytest.MonkeyPatch) -> None:
         clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANE_MAIN_API_HOST", "https://main.example.com")
         clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANE_MAIN_PROJECT_API_KEY", "phc_main")
@@ -75,10 +83,13 @@ class TestConfiguredLanes:
     def test_empty_when_unset(self, clean_env: pytest.MonkeyPatch) -> None:
         assert configured_lanes() == []
 
-    def test_parses_comma_separated(self, clean_env: pytest.MonkeyPatch) -> None:
-        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANES", "main,turbo")
-        assert configured_lanes() == ["main", "turbo"]
-
-    def test_strips_whitespace_and_blanks(self, clean_env: pytest.MonkeyPatch) -> None:
-        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANES", " main , , turbo ,")
-        assert configured_lanes() == ["main", "turbo"]
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("main,turbo", ["main", "turbo"]),
+            (" main , , turbo ,", ["main", "turbo"]),
+        ],
+    )
+    def test_parses_lanes(self, clean_env: pytest.MonkeyPatch, raw: str, expected: list[str]) -> None:
+        clean_env.setenv("INGESTION_ACCEPTANCE_TEST_LANES", raw)
+        assert configured_lanes() == expected

@@ -83,9 +83,16 @@ def load_config(lane: str | None = None) -> Config:
     try:
         api_host = os.environ[f"{prefix}API_HOST"]
         project_api_key = os.environ[f"{prefix}PROJECT_API_KEY"]
-        team_id = int(os.environ[f"{prefix}TEAM_ID"])
+        team_id_raw = os.environ[f"{prefix}TEAM_ID"]
     except KeyError as e:
         raise ValueError(f"Lane {lane!r} is misconfigured: missing env var {e.args[0]}") from e
+
+    try:
+        team_id = int(team_id_raw)
+    except ValueError as e:
+        raise ValueError(
+            f"Lane {lane!r} is misconfigured: {prefix}TEAM_ID must be an integer, got {team_id_raw!r}"
+        ) from e
 
     return Config(
         lane=lane,
