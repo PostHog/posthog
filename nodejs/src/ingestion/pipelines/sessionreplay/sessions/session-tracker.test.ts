@@ -129,5 +129,18 @@ describe('SessionTracker', () => {
             expect(SessionBatchMetrics.incrementSessionTrackerRedisErrors).toHaveBeenCalled()
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
         })
+
+        it('still records the session in the local cache when the pipeline write fails', async () => {
+            mockPipeline.exec = jest.fn().mockRejectedValue(new Error('Redis down'))
+
+            await sessionTracker.markSeen(sessionSet([1, 'a']))
+
+            // Redis never persisted the mark, but this consumer must still treat the session as seen —
+            // partition affinity keeps it here, so failing open without the local record would re-key
+            // and re-charge the new-session budget for every session during a Redis blip.
+            const result = await sessionTracker.hasSeen(sessionSet([1, 'a']))
+            expect(result.get(1, 'a')).toBe(true)
+            expect(mockRedisClient.mget).not.toHaveBeenCalled()
+        })
     })
 })
