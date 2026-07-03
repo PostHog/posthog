@@ -2,7 +2,7 @@ import re
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.utils.timezone import now
 
@@ -19,13 +19,21 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import (
+    DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE,
+    SHARDED_EXPERIMENT_EXPOSURES_TABLE,
+)
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
+    DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE,
+    SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -66,6 +74,75 @@ def _nest_subqueries(records: list[dict]) -> list[dict]:
         results.append(parent)
     results.extend(extra_parents)
     return results
+
+
+def _cache_table_stats() -> list[dict]:
+    """Physical footprint of the experiment preaggregation tables, from system.parts.
+
+    Both tables are PARTITION BY toYYYYMMDD(expires_at) with TTL expires_at and
+    ttl_only_drop_parts=1, so each partition id is the day the partition drops — the
+    per-partition breakdown doubles as a TTL/growth timeline.
+    """
+    tables = {
+        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
+        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+    }
+    # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
+    # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
+    # parts — rows/bytes would be multiplied by the replica count.
+    response = sync_execute(
+        """
+        SELECT
+            table,
+            partition,
+            sum(rows) AS rows,
+            sum(bytes_on_disk) AS bytes_on_disk,
+            count() AS parts
+        FROM cluster(%(cluster)s, system, parts)
+        WHERE
+            database = %(database)s
+            AND table IN %(tables)s
+            AND active
+        GROUP BY table, partition
+        ORDER BY table, partition
+        SETTINGS skip_unavailable_shards=1
+        """,
+        {
+            "cluster": CLICKHOUSE_CLUSTER,
+            "database": CLICKHOUSE_DATABASE,
+            "tables": list(tables.keys()),
+        },
+    )
+
+    stats: dict[str, dict[str, Any]] = {
+        sharded: {
+            "table": base,
+            "total_rows": 0,
+            "bytes_on_disk": 0,
+            "active_parts": 0,
+            "partition_count": 0,
+            "oldest_partition": None,
+            "newest_partition": None,
+            "partitions": [],
+        }
+        for sharded, base in tables.items()
+    }
+    for table, partition, rows, bytes_on_disk, parts in response:
+        entry = stats.get(table)
+        if entry is None:
+            continue
+        entry["total_rows"] += rows
+        entry["bytes_on_disk"] += bytes_on_disk
+        entry["active_parts"] += parts
+        entry["partition_count"] += 1
+        entry["partitions"].append(
+            {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
+        )
+    for entry in stats.values():
+        if entry["partitions"]:
+            entry["oldest_partition"] = entry["partitions"][0]["partition"]
+            entry["newest_partition"] = entry["partitions"][-1]["partition"]
+    return list(stats.values())
 
 
 @extend_schema(exclude=True)
@@ -618,3 +695,12 @@ class DebugCHQueries(viewsets.ViewSet):
             }
 
         return Response(_nest_subqueries([_record(row) for row in response]))
+
+    @action(detail=False, methods=["GET"], url_path="cache_health", required_scopes=["query_performance:read"])
+    def cache_health(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view cache health.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        return Response({"tables": _cache_table_stats()})
