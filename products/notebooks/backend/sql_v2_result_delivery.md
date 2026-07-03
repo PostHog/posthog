@@ -80,11 +80,11 @@ rows-as-they-arrive, progress).
 
 ## Three layers — don't conflate them
 
-| Layer | Where it lives | Size |
-| --- | --- | --- |
-| `NotebookNodeRun.envelope` | Postgres JSONField on the run | small — metadata + `first_page` **preview** only |
-| Full result (all pages) | a **result store** the sandbox populates at run time | can be large |
-| `NotebookNodeRun.result_id` | Postgres (UUID column, from the envelope) | tiny — a **handle** into the store |
+| Layer                       | Where it lives                                       | Size                                             |
+| --------------------------- | ---------------------------------------------------- | ------------------------------------------------ |
+| `NotebookNodeRun.envelope`  | Postgres JSONField on the run                        | small — metadata + `first_page` **preview** only |
+| Full result (all pages)     | a **result store** the sandbox populates at run time | can be large                                     |
+| `NotebookNodeRun.result_id` | Postgres (UUID column, from the envelope)            | tiny — a **handle** into the store               |
 
 The envelope carries `{columns, row_count, first_page, result_id}` — a bounded
 preview plus a pointer. **It never holds more than the first page.** The full
@@ -101,7 +101,7 @@ read of an already-materialized result, so it creates **no new `NotebookNodeRun`
 no Temporal workflow, no DB write**. Runs stay the audit/history record; page
 reads stay stateless.
 
-```
+```text
 1 Run click → 1 NotebookNodeRun → 1 result_id → 1 stored result set
                                                      ↑
         page 1, 2, 3, "download all" ──read-only────┘   (0 new runs)
@@ -120,12 +120,12 @@ kernel teardown/reloads.
 
 ## Page fetch with a kernel-resident store
 
-The data is *in* the sandbox, so a page fetch **must round-trip to the sandbox** —
+The data is _in_ the sandbox, so a page fetch **must round-trip to the sandbox** —
 but it must **not** use the run's async callback. The callback exists because a
 run has unbounded latency; slicing rows out of an in-memory frame is fast and
 bounded, so paging is a plain **synchronous request/response**:
 
-```
+```text
 Run (unbounded):   FE → POST /sql_v2/run → Temporal → kernel-server POST /run → 202
                                               (later) → POST /callback → DB → FE polls
 Page (bounded):    FE → GET /sql_v2/results/<result_id>?page=2&page_size=100
@@ -139,10 +139,10 @@ Page (bounded):    FE → GET /sql_v2/results/<result_id>?page=2&page_size=100
   `ensure_sql_v2_server` bootstraps the server via `write_file`/`execute` (docker
   socket). By page-fetch time the kernel-server is already up, so paging is just a
   **network HTTP call** to it — allowed even under the dev Seatbelt sandbox (only
-  the docker *socket* is denied, not network egress). Hence a synchronous
+  the docker _socket_ is denied, not network egress). Hence a synchronous
   web→kernel-server call is fine and low-latency.
 - **To build:** add a synchronous `/page` route to the kernel-server
-  (`sql_v2_kernel_server.py`) + a thin backend read endpoint that proxies to it.
+  (`kernel/server.py`) + a thin backend read endpoint that proxies to it.
 
 ## Kernel-resident tradeoff: alive-only
 
@@ -157,7 +157,7 @@ fresh `result_id`. Durable storage is what removes this later.
   (`TextField`). This matches PostHog Code, which keeps `sandbox_url` /
   `sandbox_connect_token` plaintext in `TaskRun.state` (a plain JSONField). The
   connect token is an ephemeral Modal tunnel token, not a durable account secret
-  (those, e.g. env vars, tasks *does* encrypt via `EncryptedJSONStringField`). If
+  (those, e.g. env vars, tasks _does_ encrypt via `EncryptedJSONStringField`). If
   we ever want defense-in-depth, an encrypted field is the established pattern.
 - **`NotebookNodeRun` has no FK to `KernelRuntime`** and doesn't need one: dispatch
   targets the currently-running kernel and the result returns by `run_id`; a later
