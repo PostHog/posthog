@@ -264,24 +264,6 @@ export const visionObservationsRetrieve = async (
     })
 }
 
-export const getVisionObservationsRetryCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/retry/`
-}
-
-/**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
- */
-export const visionObservationsRetryCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<RetryResponseApi> => {
-    return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getVisionObservationsLabelCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/observations/${id}/label/`
 }
@@ -318,6 +300,24 @@ export const visionObservationsLabelDestroy = async (
     return apiMutator<void>(getVisionObservationsLabelDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionObservationsRetryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/retry/`
+}
+
+/**
+ * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ */
+export const visionObservationsRetryCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RetryResponseApi> => {
+    return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -516,25 +516,6 @@ export const visionScannersObservationsRetrieve = async (
     })
 }
 
-export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/retry/`
-}
-
-/**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
- */
-export const visionScannersObservationsRetryCreate = async (
-    projectId: string,
-    scannerId: string,
-    id: string,
-    options?: RequestInit
-): Promise<RetryResponseApi> => {
-    return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
 }
@@ -576,6 +557,25 @@ export const visionScannersObservationsLabelDestroy = async (
     return apiMutator<void>(getVisionScannersObservationsLabelDestroyUrl(projectId, scannerId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/retry/`
+}
+
+/**
+ * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ */
+export const visionScannersObservationsRetryCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RetryResponseApi> => {
+    return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
