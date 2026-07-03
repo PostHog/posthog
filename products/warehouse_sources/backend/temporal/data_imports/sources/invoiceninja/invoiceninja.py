@@ -43,6 +43,7 @@ MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 
 HOST_NOT_ALLOWED_ERROR = "Invoice Ninja API URL is not allowed"
+HTTP_NOT_ALLOWED_ERROR = "Invoice Ninja API URL must use HTTPS"
 
 
 class InvoiceNinjaRetryableError(Exception):
@@ -81,6 +82,12 @@ def normalize_base_url(base_url: Optional[str]) -> str:
 
 def _host_of(base_url: str) -> str:
     return (urlparse(base_url).hostname or "").lower()
+
+
+def _is_https(base_url: str) -> bool:
+    # The API token rides in the X-API-TOKEN header, so refuse plaintext HTTP to keep an on-path
+    # attacker from capturing it. Invoice Ninja mandates HTTPS anyway (HTTP requests fail).
+    return urlparse(base_url).scheme == "https"
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -127,6 +134,11 @@ def validate_credentials(
         host_ok, host_err = _is_host_safe(host, team_id)
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
+
+    # Refuse plaintext HTTP before the token-bearing request goes out, so a self-hosted URL can't
+    # expose the API token on the network.
+    if not _is_https(resolved_base_url):
+        return False, HTTP_NOT_ALLOWED_ERROR
 
     url = f"{resolved_base_url}/clients?{urlencode({'per_page': 1, 'page': 1})}"
     try:
@@ -195,6 +207,10 @@ def get_rows(
     host_ok, host_err = _is_host_safe(host, team_id)
     if not host_ok:
         raise InvoiceNinjaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+    # Refuse plaintext HTTP before the token is used, so the token is never sent in the clear.
+    if not _is_https(resolved_base_url):
+        raise InvoiceNinjaHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
     headers = _get_headers(api_token)
     request_url = f"{resolved_base_url}{config.path}"

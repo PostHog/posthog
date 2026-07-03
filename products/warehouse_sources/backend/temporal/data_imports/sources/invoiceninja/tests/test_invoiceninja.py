@@ -138,6 +138,15 @@ class TestValidateCredentials:
             validate_credentials(None, "tok")
             assert patched.call_args.kwargs["redact_values"] == ("tok",)
 
+    def test_rejects_plaintext_http_before_sending_token(self):
+        # A plaintext http:// URL would expose the X-API-TOKEN on the wire, so reject it without
+        # ever issuing the token-bearing request.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, msg = validate_credentials("http://invoices.example.com", "tok")
+            assert valid is False
+            assert msg == invoiceninja_module.HTTP_NOT_ALLOWED_ERROR
+            patched.return_value.get.assert_not_called()
+
 
 class TestInvoiceNinjaSourceResponse:
     @pytest.mark.parametrize("endpoint", list(INVOICENINJA_ENDPOINTS.keys()))
@@ -288,6 +297,15 @@ class TestGetRows:
         with mock.patch.object(invoiceninja_module, "_is_host_safe", return_value=(False, "internal address")):
             with pytest.raises(InvoiceNinjaHostNotAllowedError):
                 self._run(manager, [_page([{"id": "1"}], current_page=1, total_pages=1)])
+
+    def test_raises_on_plaintext_http(self):
+        # A plaintext http:// URL must fail before the token-bearing request goes out.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        with pytest.raises(InvoiceNinjaHostNotAllowedError):
+            self._run(
+                manager, [_page([{"id": "1"}], current_page=1, total_pages=1)], base_url="http://invoices.example.com"
+            )
 
     @pytest.mark.parametrize("status_code", [429, 503])
     def test_retries_retryable_status_then_succeeds(self, status_code):

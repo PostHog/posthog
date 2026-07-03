@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InvoiceninjaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.invoiceninja import (
     HOST_NOT_ALLOWED_ERROR,
+    HTTP_NOT_ALLOWED_ERROR,
     InvoiceNinjaResumeConfig,
     invoiceninja_source,
     validate_credentials as validate_invoiceninja_credentials,
@@ -53,6 +54,7 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             "401 Client Error": "Invalid Invoice Ninja API token. Generate a new token in Settings > Account Management > Integrations > API tokens and reconnect.",
             "403 Client Error": "Your Invoice Ninja API token is invalid or lacks permission for this data. Check the token and try again.",
             HOST_NOT_ALLOWED_ERROR: "The Invoice Ninja API URL is not allowed. Please use a publicly reachable host.",
+            HTTP_NOT_ALLOWED_ERROR: "The Invoice Ninja API URL must use HTTPS. Please update the API URL to use https://.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
