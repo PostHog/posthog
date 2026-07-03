@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError
@@ -7,7 +8,7 @@ from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, viewsets
+from rest_framework import exceptions, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -21,8 +22,10 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
+from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
     build_comment_item_url,
+    comment_scope_display_name,
     produce_discussion_mention_events,
     send_mention_notifications,
 )
@@ -30,8 +33,13 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
-# Gates the "send a discussion thread to Slack" action while it rolls out.
-DISCUSSIONS_SLACK_SYNC_FLAG = "discussions-slack-sync"
+# A reservation with no posted root older than this is a crashed send — safe to retry.
+STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
+
+
+class Conflict(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "conflict"
 
 
 def _slack_thread_url(thread: CommentSlackThread) -> str:
@@ -103,7 +111,11 @@ class CommentSerializer(serializers.ModelSerializer):
     def get_slack_thread(self, comment: Comment) -> dict | None:
         by_comment = self.context.get("slack_thread_by_comment") or {}
         thread = by_comment.get(str(comment.id))
-        return {"channel_id": thread.slack_channel_id, "url": _slack_thread_url(thread)} if thread else None
+        # A reservation with no posted root isn't a live mirror — report null so the UI
+        # keeps offering "send to Slack" rather than a dead "Open in Slack" link.
+        if thread is None or not thread.slack_thread_ts:
+            return None
+        return {"channel_id": thread.slack_channel_id, "url": _slack_thread_url(thread)}
 
     class Meta:
         model = Comment
@@ -274,7 +286,9 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
 
 
 class CommentSlackThreadSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who mirrored the discussion. Null if since deleted."
+    )
 
     class Meta:
         model = CommentSlackThread
@@ -307,11 +321,11 @@ class SendCommentToSlackSerializer(serializers.Serializer):
         help_text="ID of the Slack integration (kind='slack') whose bot posts the thread."
     )
     channel_id = serializers.CharField(
-        help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel."
+        max_length=255,
+        help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.",
     )
 
 
->>>>>>> df891a3dd75 (feat(comments): mirror discussion threads to Slack (outbound))
 @extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
@@ -380,6 +394,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             for thread in CommentSlackThread.objects.for_team(self.team.id).filter(scope=scope, item_id=item_id):
                 if thread.source_comment_id:
                     thread_by_comment[str(thread.source_comment_id)] = thread
+        elif pk := self.kwargs.get("pk"):
+            # Detail responses (retrieve/update/complete/reopen) have no scope/item_id params; fetch
+            # the one possible mirror so slack_thread doesn't silently null out — the frontend
+            # replaces list entries with these responses, which would drop the Slack state.
+            for thread in CommentSlackThread.objects.for_team(self.team.id).filter(source_comment_id=pk):
+                thread_by_comment[str(thread.source_comment_id)] = thread
         context["slack_thread_by_comment"] = thread_by_comment
         return context
 
@@ -495,15 +515,27 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         responses=CommentSlackThreadSerializer,
         description=(
             "Mirror this discussion thread to a Slack channel. Posts the comment (and its existing "
-            "replies) as a new Slack thread; later replies on either side sync across. Idempotent per "
-            "(comment, channel) — re-calling returns the existing mirror. 404 when the feature is not "
-            "enabled for the team."
+            "replies) as a new Slack thread; later replies on either side sync across. A discussion "
+            "mirrors to exactly one Slack thread: re-calling with the same channel returns the "
+            "existing mirror; a different channel is a 400 naming the existing one. 409 while a "
+            "concurrent send is in flight. 404 when the feature is not enabled for the team."
         ),
     )
     @action(methods=["POST"], detail=True)
     def send_to_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        if not posthoganalytics.feature_enabled(DISCUSSIONS_SLACK_SYNC_FLAG, str(team.id)):
+        # Keyed on the requesting user (plus org/project groups) so the gate agrees with the
+        # frontend's per-user flag evaluation during partial rollouts.
+        flag_distinct_id = str(getattr(request.user, "distinct_id", None) or team.uuid)
+        try:
+            flag_enabled = posthoganalytics.feature_enabled(
+                DISCUSSIONS_SLACK_SYNC_FLAG,
+                flag_distinct_id,
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+            )
+        except Exception:
+            flag_enabled = False
+        if not flag_enabled:
             raise exceptions.NotFound()
 
         comment = self.get_object()
@@ -537,27 +569,49 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             },
         )
         if not created:
-            # Idempotent: already mirrored — return the existing mapping, no re-post.
-            return Response(CommentSlackThreadSerializer(slack_thread).data)
+            if slack_thread.slack_thread_ts:
+                if slack_thread.slack_channel_id != channel_id:
+                    raise exceptions.ValidationError(
+                        "This discussion is already mirrored to Slack channel "
+                        f"{slack_thread.slack_channel_id} — a discussion can only sync to one thread"
+                    )
+                # Idempotent: already mirrored to this channel — return the mapping, no re-post.
+                return Response(CommentSlackThreadSerializer(slack_thread).data)
+            if timezone.now() - slack_thread.created_at < STALE_SLACK_RESERVATION_GRACE:
+                # Another request holds the reservation and its root post is still in flight.
+                raise Conflict("This discussion is already being sent to Slack — try again shortly")
+            # A reservation this old with no root message is a crashed send that would otherwise
+            # block the discussion forever. Adopt it and retry the post; resetting created_at
+            # re-bounds the reply backfill to this attempt.
+            slack_thread.integration = integration
+            slack_thread.slack_channel_id = channel_id
+            slack_thread.slack_team_id = integration.integration_id
+            slack_thread.created_by = cast(User, request.user)
+            slack_thread.created_at = timezone.now()
+            slack_thread.save(
+                update_fields=["integration", "slack_channel_id", "slack_team_id", "created_by", "created_at"]
+            )
 
         author_name, author_email = slack_author_from_user(comment.created_by)
+        client = SlackIntegration(integration).client
+        client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
         try:
             thread_ts = post_comment_to_slack_thread(
-                client=SlackIntegration(integration).client,
+                client=client,
                 channel=channel_id,
                 content=comment.content or "",
                 rich_content=comment.rich_content,
                 author_name=author_name,
                 author_email=author_email,
                 item_url=build_comment_item_url(comment.scope, comment.item_id),
-                item_label=comment.scope,
+                item_label=comment_scope_display_name(comment.scope),
             )
         except Exception:
             slack_thread.delete()  # release the reservation so a later attempt can retry cleanly
             raise exceptions.ValidationError("Failed to post the discussion to Slack")
         if not thread_ts:
             slack_thread.delete()
-            raise exceptions.ValidationError("Nothing to post to Slack")
+            raise exceptions.ValidationError("Cannot send an empty comment to Slack")
 
         slack_thread.slack_thread_ts = thread_ts
         slack_thread.save(update_fields=["slack_thread_ts"])

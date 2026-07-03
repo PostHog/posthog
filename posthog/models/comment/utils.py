@@ -35,6 +35,24 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Ticket": "/support/tickets/{item_id}",
 }
 
+# Human-readable scope names for user-facing surfaces (e.g. the mirrored Slack card) —
+# raw scope values are internal CamelCase enums and read as jargon.
+SCOPE_DISPLAY_NAMES: dict[str, str] = {
+    "Replay": "a session recording",
+    "Notebook": "a notebook",
+    "Insight": "an insight",
+    "FeatureFlag": "a feature flag",
+    "Dashboard": "a dashboard",
+    "Survey": "a survey",
+    "Experiment": "an experiment",
+    "ErrorTracking": "an error tracking issue",
+    "SupportTicket": "a support ticket",
+}
+
+
+def comment_scope_display_name(scope: str) -> str:
+    return SCOPE_DISPLAY_NAMES.get(scope, "the discussion")
+
 
 def build_comment_item_url(scope: str, item_id: Optional[str], slug: Optional[str] = None) -> str:
     if slug:

@@ -15331,7 +15331,8 @@ export namespace Schemas {
          */
       readonly slack_team_id: string | null;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who mirrored the discussion. Null if since deleted. */
+      readonly created_by: UserBasic | null;
     }
 
     /**
@@ -60912,7 +60913,10 @@ export namespace Schemas {
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
-      /** Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. */
+      /**
+         * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+         * @maxLength 255
+         */
       channel_id: string;
     }
 

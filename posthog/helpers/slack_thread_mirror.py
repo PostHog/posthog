@@ -9,19 +9,10 @@ the Slack event webhook lives.
 import structlog
 from slack_sdk import WebClient
 
-from posthog.comment.formatting import rich_content_to_slack_payload
+from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
 from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
 
 logger = structlog.get_logger(__name__)
-
-
-def escape_slack_mrkdwn(text: str) -> str:
-    """Escape the characters Slack mrkdwn treats as control chars (``& < >``).
-
-    User-controlled strings interpolated into an ``mrkdwn`` block (author names, labels) must be
-    escaped, or a value like ``<https://evil|click me>`` renders as a live link in the channel.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def slack_author_from_user(user: object | None) -> tuple[str, str]:

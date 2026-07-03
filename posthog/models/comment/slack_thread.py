@@ -5,6 +5,11 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 
+# Gates creating new mirrors (fail-closed, in the send_to_slack action) and doubles as the
+# kill switch for syncing on existing mirrors (explicit-off, in the Celery tasks and the
+# inbound ingest) — flipping it off during an incident halts all mirror traffic.
+DISCUSSIONS_SLACK_SYNC_FLAG = "discussions-slack-sync"
+
 
 class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
     """Maps a discussion thread to a mirrored Slack thread so replies sync both ways.
@@ -47,6 +52,9 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
+            # The inbound Slack webhook resolves every threaded message via
+            # (integration, slack_channel_id, slack_thread_ts) — keep that lookup off a seq scan.
+            models.Index(fields=["slack_channel_id", "slack_thread_ts"]),
         ]
 
 
@@ -55,15 +63,16 @@ def mirror_comment_reply_to_slack_on_create(sender, instance: Comment, created: 
     """Sync a newly-created discussion reply out to any mirrored Slack threads.
 
     Only replies (``source_comment`` set) sync — the thread root is posted by the send_to_slack
-    action. Conversations tickets are excluded (that product has its own Slack sync), and
-    Slack-originated replies (``item_context.from_slack``) are skipped to avoid echo loops.
+    action. Conversations tickets are excluded (that product has its own Slack sync),
+    Slack-originated replies (``item_context.from_slack``) are skipped to avoid echo loops, and
+    emoji reactions (``item_context.is_emoji`` — stored as reply comments) don't post as messages.
     """
     if not created or not instance.source_comment_id:
         return
     if instance.scope == "conversations_ticket":
         return
     item_context = instance.item_context
-    if isinstance(item_context, dict) and item_context.get("from_slack"):
+    if isinstance(item_context, dict) and (item_context.get("from_slack") or item_context.get("is_emoji")):
         return
     if (
         not CommentSlackThread.objects.for_team(instance.team_id)

@@ -391,12 +391,15 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. Idempotent per (comment, channel) — re-calling returns the existing mirror. 404 when the feature is not enabled for the team.
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
  */
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
 export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
     channel_id: zod
         .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
         .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
 })
 
