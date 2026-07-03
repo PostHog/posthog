@@ -12,9 +12,9 @@ Pick the severity that matches the rule's intent:
 - **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
 - **WARNING** when there's a known non-zero backlog that will be migrated over time.
 
-A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/devex-rules/`; only the severity changes. To flip a rule:
+A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
-1. Verify locally that `semgrep --config .semgrep/devex-rules/<rule>.yaml common/ ee/ frontend/ posthog/ products/` returns zero findings.
+1. Verify locally that `semgrep --config .semgrep/rules/devex/<rule>.yaml common/ ee/ frontend/ posthog/ products/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
 3. Update the rule's `message:` to drop any "informational, not blocking" phrasing — it's now blocking.
 

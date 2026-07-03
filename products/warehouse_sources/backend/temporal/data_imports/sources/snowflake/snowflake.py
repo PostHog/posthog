@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
     ValidatedRowFilter,
@@ -265,6 +266,10 @@ class SnowflakeImplementation(
                 "user": config.auth_type.user,
             }
 
+        # Mirrors the connector's own host derivation for the common account-id formats.
+        # Deliberately not importing the connector's private `construct_hostname` — a rename
+        # there would crash every Snowflake sync at import time just to feed a log field.
+        log_connection_open(db_host=f"{config.account_id}.snowflakecomputing.com", via="vendor_https")
         with snowflake.connector.connect(
             account=config.account_id,
             warehouse=config.warehouse,

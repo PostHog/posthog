@@ -249,7 +249,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(journey.created_by, self.user)
         self.assertEqual(journey.team, self.team)
 
@@ -304,7 +304,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         self.assertFalse(
-            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
+            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: idor-lookup-without-team
         )
 
     @parameterized.expand(
@@ -435,7 +435,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(account.created_by, self.user)
         self.assertEqual(account.team, self.team)
         self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
