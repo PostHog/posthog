@@ -41,6 +41,13 @@ def _package_json_risky_subtree(text: str) -> object:
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
 
 
+def _composer_json_risky_subtree(text: str) -> object:
+    data = json.loads(text) if text.strip() else {}
+    if not isinstance(data, dict):
+        raise ValueError("composer.json root is not an object")
+    return data.get("scripts")
+
+
 _TOML_RISKY_KEYS = frozenset({"scripts", "entry-points", "entry_points"})
 # Cargo resolves manifests at build time and our CI doesn't pass --locked
 # everywhere (cargo test in ci-rust.yml, cargo build in ci-mcp/ci-nodejs), so
@@ -101,6 +108,11 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_tex
         try:
             return _cargo_risky_subtree(base_text) != _cargo_risky_subtree(head_text)
         except tomllib.TOMLDecodeError:
+            return True
+    if name == "composer.json":
+        try:
+            return _composer_json_risky_subtree(base_text) != _composer_json_risky_subtree(head_text)
+        except ValueError:
             return True
     if name.startswith("tsconfig") and name.endswith(".json"):
         # tsconfig is often JSONC (comments, trailing commas); a strict-JSON

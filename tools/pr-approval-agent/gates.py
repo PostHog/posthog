@@ -6,59 +6,74 @@ tier assignment, and file classification. No external dependencies.
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
-# Single source of truth for how each package ecosystem pairs manifests with
-# lockfiles. The deps_toolchain deny patterns, the manifest/lockfile helper
-# sets, and has_dependency_changes all derive from this table — add a new
-# ecosystem here, not in three places. (DISMISS_TIME_LOCKFILES stays
-# separate: it serves the dismiss-time gate with its own, stricter rationale.)
+# Source of truth for how each package ecosystem pairs manifests with
+# lockfiles. The deps_toolchain deny patterns and the manifest/lockfile
+# helper sets derive from this table — add a new ecosystem here, not in
+# three places. (DISMISS_TIME_LOCKFILES stays separate: it serves the
+# dismiss-time gate with its own, stricter rationale. requirements*.{txt,in}
+# also stays out: a pinned requirements.txt is arguably both manifest and
+# lockfile, so has_dependency_changes recognizes it directly instead of
+# forcing it into one column of this table.)
 
-DEPENDENCY_ECOSYSTEMS: dict[str, dict[str, frozenset[str]]] = {
-    "node": {
-        "manifests": frozenset({"package.json"}),
-        "lockfiles": frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}),
-    },
-    "python": {
+
+@dataclass(frozen=True)
+class Ecosystem:
+    manifests: frozenset[str]
+    lockfiles: frozenset[str]
+
+
+DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
+    "node": Ecosystem(
+        manifests=frozenset({"package.json"}),
+        lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}),
+    ),
+    "python": Ecosystem(
         # setup.py/setup.cfg execute code at install/build time even though
         # no lockfile pairs with them in this repo.
-        "manifests": frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
-        "lockfiles": frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
-    },
-    "ruby": {
-        "manifests": frozenset({"gemfile"}),
-        "lockfiles": frozenset({"gemfile.lock"}),
-    },
+        manifests=frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
+        lockfiles=frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
+    ),
+    "ruby": Ecosystem(
+        manifests=frozenset({"gemfile"}),
+        lockfiles=frozenset({"gemfile.lock"}),
+    ),
     # No composer usage in-repo today; listed so the deny/suppression sets
     # stay a superset of DISMISS_TIME_LOCKFILES and a future composer.json
     # doesn't arrive ungated.
-    "php": {
-        "manifests": frozenset({"composer.json"}),
-        "lockfiles": frozenset({"composer.lock"}),
-    },
-    "rust": {
-        "manifests": frozenset({"cargo.toml"}),
-        "lockfiles": frozenset({"cargo.lock"}),
-    },
-    "go": {
-        "manifests": frozenset({"go.mod"}),
-        "lockfiles": frozenset({"go.sum"}),
-    },
+    "php": Ecosystem(
+        manifests=frozenset({"composer.json"}),
+        lockfiles=frozenset({"composer.lock"}),
+    ),
+    "rust": Ecosystem(
+        manifests=frozenset({"cargo.toml"}),
+        lockfiles=frozenset({"cargo.lock"}),
+    ),
+    "go": Ecosystem(
+        manifests=frozenset({"go.mod"}),
+        lockfiles=frozenset({"go.sum"}),
+    ),
 }
 
-_ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e["lockfiles"] for e in DEPENDENCY_ECOSYSTEMS.values()))
+_ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e.lockfiles for e in DEPENDENCY_ECOSYSTEMS.values()))
 
 
 def _dependency_ecosystem(name: str) -> str | None:
     # tsconfig configures the compiler, not dependencies — no lockfile ever
     # pairs with it, so a tsconfig change is always flagged for scrutiny.
+    # "typescript-config" is a sentinel, not a real DEPENDENCY_ECOSYSTEMS key:
+    # callers only check membership, so it must never collide with an actual
+    # ecosystem name or it would wrongly start pairing with that ecosystem's
+    # lockfile.
     if name.startswith("tsconfig") and name.endswith(".json"):
         return "typescript-config"
     for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
-        if name in spec["manifests"]:
+        if name in spec.manifests:
             return ecosystem
     return None
 
@@ -337,6 +352,13 @@ assert DISMISS_TIME_LOCKFILES <= _ALL_LOCKFILE_NAMES, (
     "every dismiss-time lockfile must also be a hard-deny lockfile in DEPENDENCY_ECOSYSTEMS"
 )
 
+assert all(
+    n == n.lower()
+    for spec in DEPENDENCY_ECOSYSTEMS.values()
+    for names in (spec.manifests, spec.lockfiles)
+    for n in names
+), "DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()"
+
 _DISMISS_TIME_TEST_RE = re.compile(
     r"(?:^|/)(?:__tests__|tests?|fixtures)/"
     r"|(?:^|/)test_[^/]+\.py$"
@@ -556,7 +578,7 @@ def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     """
     names = {Path(f).name.lower() for f in files}
     ecosystems_with_lockfile_change = {
-        ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec["lockfiles"]
+        ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec.lockfiles
     }
     return sorted(
         f
