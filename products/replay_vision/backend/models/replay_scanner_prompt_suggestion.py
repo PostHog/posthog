@@ -8,6 +8,8 @@ class SuggestionStatus(models.TextChoices):
     APPLIED = "applied", "Applied"
     DISMISSED = "dismissed", "Dismissed"
     SUPERSEDED = "superseded", "Superseded"
+    # The model reviewed the ratings and found the current prompt already handles them well.
+    NO_CHANGE = "no_change", "No change"
 
 
 class ReplayScannerPromptSuggestion(UUIDModel):

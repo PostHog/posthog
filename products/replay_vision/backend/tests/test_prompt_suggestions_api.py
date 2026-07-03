@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -13,7 +15,7 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
 )
-from products.replay_vision.backend.prompt_suggestions import _LlmPromptSuggestion
+from products.replay_vision.backend.prompt_suggestions import _LlmPromptSuggestion, refresh_prompt_suggestion_if_stale
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -119,6 +121,37 @@ class TestPromptSuggestions(_VisionAPITestCase):
         resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "dismissed")
+
+    def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
+        self._create_rated_observation("sess-1", True)
+        self.mock_generate.return_value = _LlmPromptSuggestion(
+            suggested_prompt="did the user check out?",
+            rationale="The prompt already handles the rated sessions well.",
+        )
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "no_change")
+
+    def test_daily_refresh_gates(self) -> None:
+        # No ratings at all: nothing to generate from.
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "no_ratings")
+
+        # Ratings but no suggestion yet: generate immediately.
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
+
+        # Same rated set: skip regardless of age.
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "ratings_unchanged")
+
+        # Ratings changed but the newest suggestion is under a day old: wait.
+        self._create_rated_observation("sess-2", True)
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "refreshed_recently")
+
+        # Ratings changed and the newest suggestion is old enough: regenerate.
+        ReplayScannerPromptSuggestion.objects.update(created_at=timezone.now() - timedelta(hours=25))
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 2)
 
     def test_mutations_require_editor_access(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
