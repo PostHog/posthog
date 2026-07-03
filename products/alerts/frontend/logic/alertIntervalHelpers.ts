@@ -37,7 +37,9 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     return HIGH_FREQUENCY_INTERVALS.includes(interval)
 }
 
-type EntitlementResult = { blocked: true; message: string } | { blocked: false; message: null }
+type EntitlementResult =
+    | { blocked: true; message: string; feature: AvailableFeature }
+    | { blocked: false; message: null; feature: null }
 
 export function blockSubmitWithoutEntitlement(
     interval: AlertCalculationInterval,
@@ -47,12 +49,16 @@ export function blockSubmitWithoutEntitlement(
     }: { hasHighFrequencyAlertsEntitlement: boolean; hasRealTimeAlertsEntitlement: boolean }
 ): EntitlementResult {
     if (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) {
-        return { blocked: true, message: HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE }
+        return {
+            blocked: true,
+            message: HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
+            feature: AvailableFeature.HIGH_FREQUENCY_ALERTS,
+        }
     }
     if (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement) {
-        return { blocked: true, message: REAL_TIME_ALERTS_REQUIRED_MESSAGE }
+        return { blocked: true, message: REAL_TIME_ALERTS_REQUIRED_MESSAGE, feature: AvailableFeature.REAL_TIME_ALERTS }
     }
-    return { blocked: false, message: null }
+    return { blocked: false, message: null, feature: null }
 }
 
 export function selectAlertCalculationInterval(

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -331,8 +332,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         AvailableFeature.REAL_TIME_ALERTS
                     ),
                 })
-                if (entitlementCheck.blocked && entitlementCheck.message) {
-                    lemonToast.error(entitlementCheck.message)
+                if (entitlementCheck.blocked) {
+                    upgradeModalLogic.actions.setUpgradeModalFeatureKey(entitlementCheck.feature)
                     throw new Error(entitlementCheck.message)
                 }
 
