@@ -114,6 +114,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
     EngineeringAnalyticsWorkflowRuns: () =>
         import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
+    EngineeringAnalyticsAuthor: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -259,6 +261,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
+    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -454,7 +457,6 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics/authors': '/engineering-analytics',
-    '/engineering-analytics/author/:handle': '/engineering-analytics',
     '/error_tracking/configuration': (_params, searchParams, hashParams) => {
         const { tab, ...restSearchParams } = searchParams
         return combineUrl(
@@ -691,6 +693,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflow runs',
         layout: 'app-container',
         description: "A single workflow's recent runs across the connected repo.",
+        iconType: 'health',
+    },
+    EngineeringAnalyticsAuthor: {
+        projectBased: true,
+        name: 'Author',
+        layout: 'app-container',
+        description: "One author's pull requests \u2014 a filtered view for finding work, not a ranking.",
         iconType: 'health',
     },
     ErrorTracking: {
@@ -1088,6 +1097,8 @@ export const productUrls = {
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+    engineeringAnalyticsAuthor: (handle: string): string =>
+        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1813,6 +1824,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'EngineeringAnalyticsPullRequest',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
+            'EngineeringAnalyticsAuthor',
         ],
     },
     {
