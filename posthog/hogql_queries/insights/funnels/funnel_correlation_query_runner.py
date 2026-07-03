@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Any, Literal, Optional, TypedDict, cast
 
+from django.conf import settings
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -606,14 +608,18 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 )
             """
         else:
-            event_property_array_query = """
+            # New-schema blob reconstruction surfaces keys whose values stringify to '' — drop them.
+            # Legacy blobs must keep ''-valued pairs: JSONExtractKeysAndValues(..., 'String') yields ''
+            # for every non-string value (numbers, bools, objects), and those properties should still
+            # show up in correlation results.
+            properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                properties_pairs = f"arrayFilter(prop -> prop.2 != '', {properties_pairs})"
+            event_property_array_query = f"""
                 if(
                     empty(event_table.event),
                     [],
-                    arrayMap(
-                        prop -> tuple(event_table.event, prop.1, prop.2),
-                        arrayFilter(prop -> prop.2 != '', JSONExtractKeysAndValues(event_table.properties, 'String'))
-                    )
+                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), {properties_pairs})
                 )
             """
 

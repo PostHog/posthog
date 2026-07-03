@@ -89,9 +89,10 @@ def _build_property_access(key: str | ast.Expr) -> ast.Expr:
 
 def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
-    response_keys: list[str | ast.Expr] = [index_based_key]
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or isinstance(id_based_key, str):
-        response_keys.insert(0, id_based_key)
+    # Always check the id-based key first: modern SDKs store responses under $survey_response_<question_id>.
+    # Dynamic (non-str) keys use the legacy whole-blob JSONExtract forms, which stay valid under the new
+    # schema because the printer reconstructs whole-blob `properties` reads into a JSON string.
+    response_keys: list[str | ast.Expr] = [id_based_key, index_based_key]
 
     coalesce_args: list[ast.Expr] = [
         ast.Call(
@@ -138,9 +139,6 @@ def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: s
     Note: JSONExtractArrayRaw doesn't benefit from materialization like string properties do.
     """
     index_value = _build_property_array_raw(index_based_key)
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not isinstance(id_based_key, str):
-        return index_value
-
     id_value = _build_property_array_raw(id_based_key)
     return ast.Call(
         name="if",

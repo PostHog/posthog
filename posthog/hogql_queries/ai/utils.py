@@ -2,6 +2,8 @@ from abc import ABC
 from datetime import datetime
 from typing import Any, Optional
 
+from django.conf import settings
+
 import orjson
 
 from posthog.caching.utils import ThresholdMode, is_stale
@@ -76,7 +78,9 @@ def parse_ai_property_value(value: Any) -> Any:
     except orjson.JSONDecodeError:
         return value
 
-    if isinstance(parsed, list):
+    # Reconstructed new-schema blobs can double-encode list elements as JSON strings; legacy
+    # blobs must keep list elements exactly as stored.
+    if isinstance(parsed, list) and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return [parse_ai_property_value(item) for item in parsed]
 
     return parsed
@@ -87,9 +91,13 @@ def parse_ai_properties(properties: Any) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         return {}
 
-    for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
-        if parsed.get(prop_key) in ("", None):
-            parsed.pop(prop_key, None)
+    # New-schema blob reconstruction materializes subcolumn keys even when absent from the
+    # original event; drop the resulting ""/None placeholders. Legacy blobs only contain keys
+    # that were actually ingested, so an empty value there is real data.
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
+            if parsed.get(prop_key) in ("", None):
+                parsed.pop(prop_key, None)
 
     for prop_key in _NUMERIC_AI_PROPERTIES:
         value = parsed.get(prop_key)

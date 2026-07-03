@@ -6,6 +6,7 @@ from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
 
+from django.conf import settings
 from django.utils import timezone
 
 import posthoganalytics
@@ -39,6 +40,9 @@ PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
 
 def _parse_jsonish_property_value(value: object) -> object:
+    """Decode new-events-schema values: toString(...) over native JSON subcolumns can double-encode
+    strings and emit Python-repr-style containers, so peel quotes/JSON up to twice and fall back to
+    literal_eval for container-looking strings."""
     if isinstance(value, float | int | bool | uuid.UUID | list | tuple | dict):
         return value
     if not isinstance(value, str):
@@ -247,16 +251,36 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
         values: list[object] = []
         for row in rows:
-            values.append(_parse_jsonish_property_value(row[0]))
+            raw = row[0]
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                values.append(_parse_jsonish_property_value(raw))
+            elif isinstance(raw, float | int | bool | uuid.UUID):
+                values.append(raw)
+            else:
+                # ClickHouse strips outer quotes from string values but leaves inner \" escapes,
+                # so '["a","b"]' comes back as [\"a\",\"b\"] — unescape before parsing.
+                cleaned = raw.replace('\\"', '"') if isinstance(raw, str) else raw
+                try:
+                    values.append(json.loads(cleaned))
+                except (json.JSONDecodeError, TypeError):
+                    values.append(cleaned)
         return self._to_property_value_items(values)
 
     def _format_table_results(self, rows: list) -> list[PropertyValueItem]:
         # Values are stored as the raw strings the aggregator coerced at fan-out, so
         # JSON-ish values (arrays, numbers, bools) parse and arrays flatten into
-        # individual entries, matching the events-scan formatting.
+        # individual entries, matching the events-scan formatting. No '\\"' unescape
+        # is needed on the legacy path since the table stores clean strings.
         values: list[object] = []
         for row in rows:
-            values.append(_parse_jsonish_property_value(row[0]))
+            raw = row[0]
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                values.append(_parse_jsonish_property_value(raw))
+            else:
+                try:
+                    values.append(json.loads(raw))
+                except (json.JSONDecodeError, TypeError):
+                    values.append(raw)
         return self._to_property_value_items(values)
 
     def _to_property_value_items(self, values: list[object]) -> list[PropertyValueItem]:

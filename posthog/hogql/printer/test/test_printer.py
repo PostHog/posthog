@@ -3819,7 +3819,10 @@ class TestPrinter(BaseTest):
         self.assertIn("nullIf", result.clickhouse)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertIn("events.properties.`$survey_response`", result.clickhouse)
-            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+            # The dynamic id-based key arm must stay in the coalesce — it reads the whole
+            # reconstructed properties blob via the legacy JSONExtractString form.
+            self.assertIn("toJSONString(events.properties)", result.clickhouse)
+            self.assertIn("JSONExtractString", result.clickhouse)
         else:
             self.assertIn("concat", result.clickhouse)
             # Always uses JSONExtractString for consistent String return type
@@ -3883,7 +3886,8 @@ class TestPrinter(BaseTest):
         # Both branches of coalesce should return String type (via JSONExtractString)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertIn("toString(accurateCastOrNull", result.clickhouse)
-            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+            # The dynamic id-based key arm reads the whole reconstructed properties blob.
+            self.assertIn("toJSONString(events.properties)", result.clickhouse)
         else:
             self.assertIn("JSONExtractString", result.clickhouse)
             # Should NOT contain Float64 casting which would cause type mismatch
@@ -3904,7 +3908,8 @@ class TestPrinter(BaseTest):
         self.assertIn("GROUP BY", printed)
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertIn("events.properties.`$survey_id`", printed)
-            self.assertIn(self._json_dynamic_property_expr("$survey_submission_id"), printed)
+            # The grouping key must read the property as a JSON subcolumn, not extract from the blob.
+            self.assertIn("events.properties.`$survey_submission_id`", printed)
             self.assertNotIn("JSONExtractRaw(events.properties", printed)
         else:
             self.assertIn("JSONExtractRaw(events.properties", printed)
