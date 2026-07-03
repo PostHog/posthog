@@ -9,6 +9,8 @@ from posthog.models.integration import (
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.workflows.backend.providers import SESProvider
+
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
 @skip_team_scope_audit
@@ -75,6 +77,25 @@ def refresh_integration(id: int) -> int:
         firebase_integration.refresh_access_token()
 
     return 0
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.INTEGRATIONS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
+@skip_team_scope_audit
+def delete_ses_identity_if_unused(domain: str) -> None:
+    from posthog.models.integration import Integration
+
+    # Re-check at execution time: the domain may have been re-added since this
+    # task was enqueued, and deleting the identity would break the new sender.
+    if Integration.objects.filter(kind="email", config__domain=domain).exists():
+        return
+
+    SESProvider().delete_identity(domain)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
