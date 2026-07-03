@@ -162,13 +162,14 @@ type FunnelBarHorizontalHoverContext = Pick<
 /** Resolves which breakdown variant a hover maps to. `hoveredSeriesKey` identifies the exact
  *  stacked segment under the cursor (including the tooltip-hidden drop-off filler) — without it,
  *  `seriesData` lists every breakdown segment in declaration order and index 0 is just the first
- *  breakdown, not the hovered one. `firstStep` feeds the period aggregate's from-start rate for
- *  breakdown + compare stack drop-offs. Returns `null` when there is nothing to describe. */
+ *  breakdown, not the hovered one. `firstStep` is the funnel's first step; it feeds the period
+ *  aggregate's from-start rate for breakdown + compare stack drop-offs, and is required so that
+ *  path can't silently degrade to a 0% rate. Returns `null` when there is nothing to describe. */
 export function resolveFunnelBarHorizontalHover(
     context: FunnelBarHorizontalHoverContext,
     step: FunnelStepWithConversionMetrics,
     stepIndex: number,
-    firstStep?: FunnelStepWithConversionMetrics
+    firstStep: FunnelStepWithConversionMetrics
 ): FunnelBarHorizontalHoverTarget | null {
     const { hoveredSeriesKey, seriesData } = context
     const variantAt = (breakdownIndex: number | null | undefined): FunnelStepWithConversionMetrics =>
@@ -232,13 +233,13 @@ export function resolveFunnelBarHorizontalHover(
  *  path: the period's drop-off is not one breakdown's. */
 function comparePeriodAggregate(
     step: FunnelStepWithConversionMetrics,
-    firstStep: FunnelStepWithConversionMetrics | undefined,
+    firstStep: FunnelStepWithConversionMetrics,
     compareLabel: NonNullable<FunnelStepWithConversionMetrics['compare_label']>
 ): FunnelStepWithConversionMetrics {
     const periodVariants = (
-        candidate: FunnelStepWithConversionMetrics | undefined
+        candidate: FunnelStepWithConversionMetrics
     ): Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[] =>
-        (candidate?.nested_breakdown ?? []).filter((variant) => variant.compare_label === compareLabel)
+        (candidate.nested_breakdown ?? []).filter((variant) => variant.compare_label === compareLabel)
     const count = periodVariants(step).reduce((sum, variant) => sum + variant.count, 0)
     const droppedOffFromPrevious = periodVariants(step).reduce(
         (sum, variant) => sum + variant.droppedOffFromPrevious,

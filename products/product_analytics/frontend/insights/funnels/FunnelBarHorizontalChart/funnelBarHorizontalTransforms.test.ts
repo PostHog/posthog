@@ -529,6 +529,16 @@ describe('buildFunnelBarHorizontalData', () => {
                 makeStep({ count: 10, fromBasisStep: 0.25, breakdown_value: 'desktop' }),
             ],
         })
+        // First step of the same funnel; only the breakdown + compare drop-off path reads it.
+        const firstStep = makeStep({
+            count: 100,
+            fromBasisStep: 1,
+            name: 'Viewed',
+            nested_breakdown: [
+                makeStep({ count: 60, fromBasisStep: 1, breakdown_value: 'mobile' }),
+                makeStep({ count: 40, fromBasisStep: 1, breakdown_value: 'desktop' }),
+            ],
+        })
 
         const segmentEntry = (
             breakdownIndex: number | null,
@@ -586,7 +596,12 @@ describe('buildFunnelBarHorizontalData', () => {
                 expected: { series: step.nested_breakdown![0], isDropOffHover: true, color: '#aaa' },
             },
         ])('$description', ({ seriesData, hoveredSeriesKey, hoverPosition, expected }) => {
-            const target = resolveFunnelBarHorizontalHover({ hoveredSeriesKey, seriesData, hoverPosition }, step, 1)
+            const target = resolveFunnelBarHorizontalHover(
+                { hoveredSeriesKey, seriesData, hoverPosition },
+                step,
+                1,
+                firstStep
+            )
             expect(target?.series).toEqual(expected.series)
             expect(target?.isDropOffHover).toBe(expected.isDropOffHover)
             expect(target?.color).toBe(expected.color)
