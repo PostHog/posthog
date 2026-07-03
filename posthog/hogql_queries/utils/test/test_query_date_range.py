@@ -119,12 +119,16 @@ class TestQueryDateRange(APIBaseTest):
             # now is 2021-08-25T10:00Z (a Wednesday) — clip to the end of the last complete interval
             ("day", IntervalType.DAY, "-7d", "2021-08-24T23:59:59.999999Z"),
             ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-21T23:59:59.999999Z"),
+            ("week_monday_start", IntervalType.WEEK, "-30d", "2021-08-22T23:59:59.999999Z"),
             ("month", IntervalType.MONTH, "-3m", "2021-07-31T23:59:59.999999Z"),
             ("quarter", IntervalType.QUARTER, "-2y", "2021-06-30T23:59:59.999999Z"),
+            ("year", IntervalType.YEAR, "-3y", "2020-12-31T23:59:59.999999Z"),
         ]
     )
     def test_exclude_incomplete_periods_clips_date_to(self, _name, interval, date_from, expected_date_to):
         now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        if interval == IntervalType.WEEK and "monday" in _name:
+            self.team.week_start_day = WeekStartDay.MONDAY
         query_date_range = QueryDateRange(
             team=self.team,
             date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
@@ -132,6 +136,20 @@ class TestQueryDateRange(APIBaseTest):
             now=now,
         )
         self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_date_to))
+
+    def test_exclude_incomplete_periods_clips_explicit_date_to_in_current_period(self):
+        # explicitDate=True skips date_to padding, but excludeIncompletePeriods still clips
+        # when the explicit date_to falls inside the incomplete current period.
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(
+                date_from="-3m", date_to="2021-08-26", explicitDate=True, excludeIncompletePeriods=True
+            ),
+            interval=IntervalType.MONTH,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-07-31T23:59:59.999999Z"))
 
     def test_exclude_incomplete_periods_no_op_for_complete_range(self):
         now = parser.isoparse("2021-08-25T10:00:00.000Z")
@@ -508,10 +526,20 @@ class TestPreviousPeriodDateFrom(APIBaseTest):
                 # previous = 2021-08-10 - 10 days = 2021-07-31
                 "2021-07-31T00:00:00Z",
             ),
+            (
+                "7d_with_exclude_incomplete",
+                DateRange(date_from="-7d", excludeIncompletePeriods=True),
+                IntervalType.DAY,
+                # now=2021-08-25T10:00Z → date_to clipped to 2021-08-24T23:59:59.999999Z
+                # date_from = 2021-08-18T00:00:00Z
+                # delta = 2021-08-24T23:59:59.999999Z - 2021-08-18T00:00:00Z ≈ 6d23h59m59.999999s
+                # previous = 2021-08-18 - delta = 2021-08-11T00:00:00.000001Z
+                "2021-08-11T00:00:00.000001Z",
+            ),
         ]
     )
     def test_previous_period_date_from(self, _name, date_range, interval, expected_str):
-        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
         qdr = QueryDateRange(team=self.team, date_range=date_range, interval=interval, now=now)
         self.assertEqual(qdr.previous_period_date_from, parser.isoparse(expected_str))
 
