@@ -148,12 +148,17 @@ export function initKea({
                             errorMessage = null
                         }
                         if (errorMessage) {
-                            lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`, {
-                                // Load failures fire on scene mount; clear them on navigation so a
-                                // scene-scoped endpoint hiccup doesn't leave a red banner lingering
-                                // (and re-firing on retry) after the user has moved on.
-                                dismissOnNavigation: isLoadAction,
-                            })
+                            const message = `${identifierToHuman(actionKey)} failed: ${errorMessage}`
+                            // Load failures fire on scene mount; clear them on navigation so a
+                            // scene-scoped endpoint hiccup doesn't leave a red banner lingering
+                            // (and re-firing on retry) after the user has moved on. Write-action
+                            // failures keep the default lifecycle — a failed save shouldn't vanish
+                            // just because the user navigated away.
+                            if (isLoadAction) {
+                                lemonToast.error(message, { dismissOnNavigation: true })
+                            } else {
+                                lemonToast.error(message)
+                            }
                         }
                     }
                 }
