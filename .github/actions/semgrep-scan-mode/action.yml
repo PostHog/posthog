@@ -1,0 +1,24 @@
+name: 'Semgrep scan mode'
+description: >
+    Decide whether a semgrep job can scan diff-aware. On pull requests the checkout is
+    GitHub's PR merge commit, so HEAD^ is the base branch tip and a diff against it covers
+    exactly the PR's changes — the calling job must check out with fetch-depth 2 for HEAD^
+    to be available. Any other event (or an unresolvable HEAD^) falls back to a full scan.
+outputs:
+    baseline-commit:
+        description: 'Commit for semgrep --baseline-commit; empty means run a full scan'
+        value: ${{ steps.scan-mode.outputs.baseline_commit }}
+runs:
+    using: 'composite'
+    steps:
+        - name: Determine scan mode
+          id: scan-mode
+          shell: bash
+          run: |
+              if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && baseline=$(git rev-parse --verify --quiet HEAD^); then
+                  echo "Diff-aware scan against baseline $baseline"
+                  echo "baseline_commit=$baseline" >> "$GITHUB_OUTPUT"
+              else
+                  echo "Full scan"
+                  echo "baseline_commit=" >> "$GITHUB_OUTPUT"
+              fi
