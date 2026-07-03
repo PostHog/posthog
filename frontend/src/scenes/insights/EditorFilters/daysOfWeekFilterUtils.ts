@@ -17,7 +17,7 @@ export function getEffectiveDaysOfWeek(
     trendsFilter: TrendsFilter | null | undefined
 ): number[] {
     if (dateRange?.daysOfWeek?.length) {
-        return [...dateRange.daysOfWeek].sort()
+        return [...dateRange.daysOfWeek].sort((a, b) => a - b)
     }
     if (trendsFilter?.hideWeekends) {
         return WEEKDAYS

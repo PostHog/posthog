@@ -12,7 +12,7 @@ import { isTrendsQuery } from '~/queries/utils'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { DAY_LABELS, WEEKDAYS, daysOfWeekLabel, getEffectiveDaysOfWeek } from './daysOfWeekFilterUtils'
 
-export function DaysOfWeekFilter(): JSX.Element | null {
+export function DaysOfWeekFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, dateRange, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -21,7 +21,7 @@ export function DaysOfWeekFilter(): JSX.Element | null {
     const selectedDays = getEffectiveDaysOfWeek(dateRange, trendsFilter)
 
     const setDays = (days: number[]): void => {
-        const daysOfWeek = days.length === 0 || days.length === 7 ? null : [...days].sort()
+        const daysOfWeek = days.length === 0 || days.length === 7 ? null : [...days].sort((a, b) => a - b)
         const update: Partial<TrendsQuery> = { dateRange: { ...dateRange, daysOfWeek } }
         // daysOfWeek supersedes the legacy display-only weekend toggle
         if (isTrendsQuery(querySource) && querySource.trendsFilter?.hideWeekends) {

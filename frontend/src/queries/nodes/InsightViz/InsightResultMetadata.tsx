@@ -29,10 +29,10 @@ export const InsightResultMetadata = ({
                     Results calculated from {samplingFactor * 100}% of users
                 </span>
             ) : null}
-            {dateRange?.daysOfWeek?.length ? (
+            {dateRange?.daysOfWeek?.length && dateRange.daysOfWeek.length < 7 ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
-                    {daysOfWeekLabel([...dateRange.daysOfWeek].sort())} only
+                    {daysOfWeekLabel([...dateRange.daysOfWeek].sort((a, b) => a - b))} only
                 </span>
             ) : trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
                 <span className="text-secondary">
