@@ -1067,6 +1067,77 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is True
         mock_get.assert_called_once()
 
+    def test_get_check_runs_maps_runs_and_hits_check_runs_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {
+            "check_runs": [
+                {"name": "CI", "status": "completed", "conclusion": "success", "html_url": "https://gh/1"},
+                # `html_url` falls back to `details_url` when absent.
+                {"name": "lint", "status": "completed", "conclusion": "neutral", "details_url": "https://gh/2"},
+            ]
+        }
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
+            result = github.get_check_runs("PostHog/posthog", "abc123f")
+        assert result["success"] is True
+        assert result["rollup"] == "success"
+        assert result["check_runs"] == [
+            {"name": "CI", "status": "completed", "conclusion": "success", "html_url": "https://gh/1"},
+            {"name": "lint", "status": "completed", "conclusion": "neutral", "html_url": "https://gh/2"},
+        ]
+        assert "/commits/abc123f/check-runs" in mock_get.call_args.args[1]
+
+    @parameterized.expand(
+        [
+            # A known failure is red even while others are still running.
+            (
+                "failure_wins_over_pending",
+                [
+                    {"status": "completed", "conclusion": "failure"},
+                    {"status": "in_progress", "conclusion": None},
+                ],
+                "failure",
+            ),
+            ("pending_when_incomplete", [{"status": "queued", "conclusion": None}], "pending"),
+            (
+                "success_when_all_green",
+                [
+                    {"status": "completed", "conclusion": "success"},
+                    {"status": "completed", "conclusion": "skipped"},
+                ],
+                "success",
+            ),
+            ("none_when_empty", [], None),
+        ]
+    )
+    def test_get_check_runs_rollup_state(self, _name, runs, expected_rollup):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = {"check_runs": runs}
+        with patch.object(github, "api_request", return_value=mock_response):
+            result = github.get_check_runs("PostHog/posthog", "abc123f")
+        assert result["success"] is True
+        assert result["rollup"] == expected_rollup
+
+    def test_get_check_runs_rejects_unsafe_ref(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "api_request") as mock_get:
+            result = github.get_check_runs("PostHog/posthog", "abc?ref=../../etc")
+        assert result["success"] is False
+        assert result["status_code"] == 400
+        mock_get.assert_not_called()
+
+    def test_get_check_runs_maps_upstream_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        with patch.object(github, "api_request", return_value=mock_response):
+            result = github.get_check_runs("PostHog/posthog", "abc123f")
+        assert result == {"success": False, "error": "Not Found", "status_code": 404}
+
     @parameterized.expand(
         [
             ("traversal", "../../other/repo"),

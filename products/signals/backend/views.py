@@ -86,6 +86,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    CheckRunsResponseSerializer,
     CommitDiffResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -2097,6 +2098,100 @@ class SignalReportArtefactViewSet(
             {
                 "diff": result["diff"],
                 "truncated": result.get("truncated", False),
+            }
+        )
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=CheckRunsResponseSerializer,
+                description="The CI check runs for the commit, plus a rollup state.",
+            ),
+            400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/commit SHA."),
+            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            502: OpenApiResponse(description="GitHub could not report the checks (commit not found, fetch failed)."),
+        },
+        summary="Fetch CI checks for a commit artefact",
+        description=(
+            "Fetch the CI check runs for a `commit` artefact's recorded commit via the team's GitHub "
+            "integration, with a rollup state (success / failure / pending) so the report detail can "
+            "show whether the PR is green without leaving for GitHub."
+        ),
+        operation_id="signals_report_artefacts_checks",
+    )
+    @action(detail=True, methods=["get"], url_path="checks", required_scopes=["task:read"])
+    def checks(self, request: Request, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
+            return Response(
+                {"error": f"Checks are only available for commit artefacts, not '{artefact.type}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            content = {}
+        if not isinstance(content, dict):
+            # Log artefacts store arbitrary JSON; a non-object payload has no repository/commit.
+            content = {}
+        repository = content.get("repository")
+        commit_sha = content.get("commit_sha")
+        if not repository or not commit_sha:
+            return Response(
+                {"error": "Artefact is missing a repository or commit SHA."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Same connection-boundary scoping as `diff`: any repo the team's GitHub installation can
+        # reach, and the repo/ref values are validated in `get_check_runs`.
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if github is None:
+            return Response(
+                {"error": f"No GitHub integration can access '{repository}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            result = github.get_check_runs(repository, str(commit_sha))
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning(
+                "signals commit checks fetch errored",
+                repository=repository,
+                commit_sha=commit_sha,
+            )
+            return Response(
+                {"error": "GitHub could not report checks for this commit."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if not result.get("success"):
+            # A 404 from the check-runs API means the commit (or repo) isn't on the remote — most
+            # often a commit that was force-rewritten away after the artefact was recorded.
+            if result.get("status_code") == 404:
+                return Response(
+                    {
+                        "error": f"Commit '{commit_sha}' or repository '{repository}' was not found on GitHub — "
+                        "the commit may have been rewritten or the branch deleted."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.warning(
+                "signals commit checks fetch failed",
+                repository=repository,
+                commit_sha=commit_sha,
+                status_code=result.get("status_code"),
+            )
+            return Response(
+                {"error": "GitHub could not report checks for this commit."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(
+            {
+                "check_runs": result["check_runs"],
+                "rollup": result.get("rollup"),
             }
         )
 

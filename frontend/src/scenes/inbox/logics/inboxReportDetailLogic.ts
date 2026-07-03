@@ -9,8 +9,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsReportArtefactsChecks, signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
+import type { CheckRunsResponseApi, CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     deriveTaskPurpose,
@@ -218,6 +218,21 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // The report's CI checks (its latest `commit` artefact's check runs + rollup), rendered in the
+        // "Checks" section. Loaded alongside the diff, keyed to the report and cascading off the artefact
+        // load — re-fetched only when a *new* commit lands, not on every activity poll.
+        reportChecks: [
+            null as CheckRunsResponseApi | null,
+            {
+                loadReportChecks: async ({ artefactId }: { artefactId: string }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsReportArtefactsChecks(String(teamId), props.reportId, artefactId)
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -272,6 +287,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 loadReportDiff: (_, { artefactId }) => artefactId,
+            },
+        ],
+        // Human-readable checks-load failure (kea-loaders only exposes a boolean loading flag). A failed
+        // fetch usually means the commit was rewritten away or GitHub couldn't be reached.
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecks: () => null,
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load checks — the commit may have been rewritten or removed.",
+            },
+        ],
+        // The commit artefact the current `reportChecks` was loaded for, so the artefact poll re-fetches
+        // the checks only when a new commit lands rather than on every tick.
+        checksArtefactId: [
+            null as string | null,
+            {
+                loadReportChecks: (_, { artefactId }) => artefactId,
             },
         ],
     }),
@@ -447,6 +480,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const commit = values.latestCommitArtefact
             if (commit && commit.id !== values.diffArtefactId) {
                 actions.loadReportDiff({ artefactId: commit.id })
+            }
+            if (commit && commit.id !== values.checksArtefactId) {
+                actions.loadReportChecks({ artefactId: commit.id })
             }
         },
         // Poll the artefact log only while the report is active; stop once it reaches a terminal status

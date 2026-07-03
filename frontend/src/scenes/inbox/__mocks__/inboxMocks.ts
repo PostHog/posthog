@@ -498,6 +498,20 @@ index 9c8b7a6..2f3e4d5 100644
     return { diff, truncated: false }
 }
 
+export function mockCommitChecks(): {
+    check_runs: { name: string; status: string; conclusion: string | null; html_url: string }[]
+    rollup: string
+} {
+    return {
+        check_runs: [
+            { name: 'Backend tests', status: 'completed', conclusion: 'success', html_url: 'https://github.com' },
+            { name: 'Frontend tests', status: 'completed', conclusion: 'failure', html_url: 'https://github.com' },
+            { name: 'Lint', status: 'in_progress', conclusion: null, html_url: 'https://github.com' },
+        ],
+        rollup: 'failure',
+    }
+}
+
 export const mockSourceConfigs = {
     results: [
         {

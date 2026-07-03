@@ -35,6 +35,7 @@ import {
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
+import { PullRequestChecksSection } from './PullRequestChecksSection'
 import { PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
@@ -477,7 +478,10 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             }
             diffSection={
                 canDiff && commit && latestCommitArtefact ? (
-                    <PullRequestDiffPanel report={report} commit={commit} />
+                    <div className="flex flex-col gap-8">
+                        <PullRequestChecksSection report={report} />
+                        <PullRequestDiffPanel report={report} commit={commit} />
+                    </div>
                 ) : undefined
             }
         />

@@ -612,3 +612,42 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class CheckRunResponseSerializer(serializers.Serializer):
+    """A single CI check run reported for a `commit` artefact's ref."""
+
+    name = serializers.CharField(read_only=True, help_text="Check run name, e.g. the CI job or workflow name.")
+    status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Run lifecycle status: 'queued', 'in_progress', or 'completed'.",
+    )
+    conclusion = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'timed_out', "
+        "'action_required', 'skipped', 'stale', or null while the run is still in progress.",
+    )
+    html_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Link to the check run's details on GitHub.",
+    )
+
+
+class CheckRunsResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact checks endpoint — the CI check runs for the commit, plus a
+    rollup state summarizing them for a green/red overview tag."""
+
+    check_runs = CheckRunResponseSerializer(
+        many=True,
+        read_only=True,
+        help_text="Individual CI check runs reported for the commit, via the GitHub check-runs API.",
+    )
+    rollup = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Overall state across all checks: 'success', 'failure', 'pending', or null when no "
+        "checks are reported for the commit.",
+    )

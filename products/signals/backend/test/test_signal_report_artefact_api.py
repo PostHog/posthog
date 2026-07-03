@@ -1266,3 +1266,90 @@ class TestSignalReportCommitDiff(APIBaseTest):
 
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+
+class TestSignalReportCommitChecks(APIBaseTest):
+    """The commit artefact `checks` action — status-code contract the UI relies on."""
+
+    def _checks_url(self, report_id: str, artefact_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/{artefact_id}/checks/"
+
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_commit_artefact(self, report: SignalReport, content: dict | list | None = None) -> SignalReportArtefact:
+        return SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.COMMIT,
+            content=json.dumps(content if content is not None else _COMMIT_CONTENT),
+        )
+
+    def _mock_github(self, result: dict) -> None:
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_check_runs.return_value = result
+
+    def test_checks_rejects_non_commit_artefact(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "x"}),
+        )
+        response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "commit artefacts" in response.json()["error"]
+
+    @parameterized.expand(
+        [
+            ("missing_repository", {"branch": "b", "commit_sha": "abc123f", "message": "m"}),
+            ("missing_commit_sha", {"repository": "PostHog/posthog", "branch": "b", "message": "m"}),
+        ]
+    )
+    def test_checks_rejects_incomplete_content(self, _name, content):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report, content)
+        response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_checks_returns_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
+            response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_checks_success_returns_runs_and_rollup(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        runs = [{"name": "CI", "status": "completed", "conclusion": "success", "html_url": "https://gh/1"}]
+        self._mock_github({"success": True, "check_runs": runs, "rollup": "success"})
+
+        response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"check_runs": runs, "rollup": "success"}
+
+    def test_checks_maps_upstream_404(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._mock_github({"success": False, "error": "Not Found", "status_code": 404})
+
+        response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_checks_maps_upstream_failure_to_502(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        self._mock_github({"success": False, "error": "boom", "status_code": 500})
+
+        response = self.client.get(self._checks_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY

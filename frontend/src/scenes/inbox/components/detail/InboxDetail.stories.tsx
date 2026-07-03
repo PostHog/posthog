@@ -7,6 +7,7 @@ import {
     makeReport,
     mockArtefacts,
     mockBranchDiff,
+    mockCommitChecks,
     mockReviewers,
     mockRunLog,
     mockSignals,
@@ -32,6 +33,7 @@ const detailMocks = mswDecorator({
             mockArtefacts(req.params.reportId as string),
         ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
+        '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/checks/': () => [200, mockCommitChecks()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },

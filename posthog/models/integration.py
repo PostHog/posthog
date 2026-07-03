@@ -115,6 +115,27 @@ def _is_safe_github_sha(sha: str) -> bool:
     return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
 
 
+# Check-run conclusions that make the commit's overall CI state red. Everything else that has
+# completed (success, neutral, skipped) is treated as non-blocking green.
+_FAILING_CHECK_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
+
+
+def _rollup_check_state(check_runs: list[dict[str, Any]]) -> str | None:
+    """Collapse individual check runs into one rollup state for a green/red summary tag.
+
+    A known failure wins over anything still running (`failure`), otherwise a run that hasn't
+    completed keeps the rollup `pending`, otherwise everything green is `success`. Returns
+    ``None`` when there are no checks so the caller can distinguish "no CI" from "CI passed".
+    """
+    if not check_runs:
+        return None
+    if any((run.get("conclusion") or "") in _FAILING_CHECK_CONCLUSIONS for run in check_runs):
+        return "failure"
+    if any(run.get("status") != "completed" for run in check_runs):
+        return "pending"
+    return "success"
+
+
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
 
@@ -2734,6 +2755,53 @@ class GitHubIntegration(GitHubIntegrationBase):
         if truncated:
             diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
         return {"success": True, "diff": diff_text, "truncated": truncated}
+
+    def get_check_runs(self, repository: str, ref: str) -> dict[str, Any]:
+        """Return the CI check runs for ``ref`` (a commit SHA or branch) in ``repository``.
+
+        Mirrors :meth:`get_diff`: ``repository`` may be ``owner/name`` or a bare name resolved against
+        the installation's org, and ``ref`` comes from team-writable artefact content, so both are
+        validated before interpolation — a crafted value could otherwise redirect the authenticated
+        request to a different GitHub endpoint. Uses the GitHub check-runs API (the surface GitHub
+        Actions and most modern CI report to) and derives a single rollup state from the runs so the
+        caller can show a green/red summary without a second request.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        # The ref is usually the recorded commit SHA, but a branch name is equally valid here.
+        if not (_is_safe_github_sha(ref) or _is_safe_github_ref(ref)):
+            return {"success": False, "error": f"Invalid ref '{ref}'.", "status_code": 400}
+
+        try:
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/commits/{ref}/check-runs",
+                endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
+                params={"per_page": 100},
+            )
+        except GitHubIntegrationError:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        try:
+            payload = response.json()
+        except ValueError:
+            return {"success": False, "error": "GitHub returned an unexpected response.", "status_code": 502}
+
+        check_runs = [
+            {
+                "name": run.get("name") or "",
+                "status": run.get("status"),
+                "conclusion": run.get("conclusion"),
+                "html_url": run.get("html_url") or run.get("details_url"),
+            }
+            for run in (payload.get("check_runs") or [])
+            if isinstance(run, dict)
+        ]
+        return {"success": True, "check_runs": check_runs, "rollup": _rollup_check_state(check_runs)}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

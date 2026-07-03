@@ -335,6 +335,43 @@ export interface CommitDiffResponseApi {
     readonly truncated: boolean
 }
 
+/**
+ * A single CI check run reported for a `commit` artefact's ref.
+ */
+export interface CheckRunResponseApi {
+    /** Check run name, e.g. the CI job or workflow name. */
+    readonly name: string
+    /**
+     * Run lifecycle status: 'queued', 'in_progress', or 'completed'.
+     * @nullable
+     */
+    readonly status: string | null
+    /**
+     * Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'timed_out', 'action_required', 'skipped', 'stale', or null while the run is still in progress.
+     * @nullable
+     */
+    readonly conclusion: string | null
+    /**
+     * Link to the check run's details on GitHub.
+     * @nullable
+     */
+    readonly html_url: string | null
+}
+
+/**
+ * Response for the `commit` artefact checks endpoint — the CI check runs for the commit, plus a
+ * rollup state summarizing them for a green/red overview tag.
+ */
+export interface CheckRunsResponseApi {
+    /** Individual CI check runs reported for the commit, via the GitHub check-runs API. */
+    readonly check_runs: readonly CheckRunResponseApi[]
+    /**
+     * Overall state across all checks: 'success', 'failure', 'pending', or null when no checks are reported for the commit.
+     * @nullable
+     */
+    readonly rollup: string | null
+}
+
 export interface SignalReportBulkStateRequestApi {
     /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
      *

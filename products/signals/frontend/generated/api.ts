@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CheckRunsResponseApi,
     CommitDiffResponseApi,
     EditReportRequestApi,
     EditReportResponseApi,
@@ -388,6 +389,26 @@ export const signalsReportArtefactsDiff = async (
     options?: RequestInit
 ): Promise<CommitDiffResponseApi> => {
     return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportArtefactsChecksUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/checks/`
+}
+
+/**
+ * Fetch the CI check runs for a `commit` artefact's recorded commit via the team's GitHub integration, with a rollup state (success / failure / pending) so the report detail can show whether the PR is green without leaving for GitHub.
+ * @summary Fetch CI checks for a commit artefact
+ */
+export const signalsReportArtefactsChecks = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CheckRunsResponseApi> => {
+    return apiMutator<CheckRunsResponseApi>(getSignalsReportArtefactsChecksUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
     })
