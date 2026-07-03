@@ -318,12 +318,13 @@ export function Chart<Meta = unknown>({
     const composedDrawHover = useMemo(() => {
         const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
             crosshairColor: theme.crosshairColor,
+            crosshairDash: theme.crosshairDashPattern,
             showCrosshair,
             axisOrientation,
             labelToCoord,
         })
         return composeDrawHoverWithSelection(withCrosshair)
-    }, [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current])
+    }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHoverRef.current])
 
     useChartDraw({
         ctx,

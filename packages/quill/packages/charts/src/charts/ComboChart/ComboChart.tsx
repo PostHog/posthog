@@ -195,7 +195,12 @@ function ComboChartInner<Meta = unknown>({
                     : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
                           (entry) => entry.x
                       )
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, frame: !showAxisLines, categoryTicks })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────

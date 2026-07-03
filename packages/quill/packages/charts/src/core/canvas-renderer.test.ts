@@ -793,6 +793,17 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawGrid — dash pattern', () => {
+        it('dashes interior grid lines while the frame strokes stay solid', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { gridDash: [3, 3] })
+            const patterns = dashCalls(ctx)
+            expect(patterns[0]).toEqual([3, 3])
+            // Frame strokes reset to solid before drawing.
+            expect(patterns[patterns.length - 1]).toEqual([])
+        })
+    })
+
     describe('drawGrid', () => {
         it('draws a horizontal line at the first y-tick (vertical orientation)', () => {
             const ctx = mockCanvasContext()
