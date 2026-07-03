@@ -469,6 +469,27 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
+// Maturity tag ('beta' / 'alpha') a product's root scene is labeled with in the navbar, keyed by scene.
+// Lets scene titles mirror the navbar's labeling without every scene repeating it. Cached because the
+// product tree is static for the session.
+let productTagBySceneKey: Map<string, 'alpha' | 'beta'> | null = null
+
+export const getProductTagForScene = (sceneId?: string | null): 'alpha' | 'beta' | undefined => {
+    if (!sceneId) {
+        return undefined
+    }
+    if (!productTagBySceneKey) {
+        productTagBySceneKey = new Map()
+        for (const item of getTreeItemsProducts()) {
+            const tag = item.tags?.[0]
+            if (item.sceneKey && tag) {
+                productTagBySceneKey.set(item.sceneKey, tag)
+            }
+        }
+    }
+    return productTagBySceneKey.get(sceneId)
+}
+
 export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
     [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
         a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })

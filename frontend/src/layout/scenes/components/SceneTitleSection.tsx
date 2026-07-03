@@ -13,7 +13,7 @@ import {
     IconSparkles,
     IconWrench,
 } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
@@ -27,6 +27,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -34,7 +35,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
-import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, getProductTagForScene, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
@@ -246,7 +247,16 @@ export function SceneTitleSection({
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
     const { showDescription } = useValues(sceneLayoutLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
+    // Mirror the navbar's "Beta" label on the product's scene title, unless the scene sets its own suffix.
+    const effectiveNameSuffix =
+        nameSuffix ??
+        (getProductTagForScene(activeSceneId) === 'beta' ? (
+            <LemonTag type="completion" className="ml-2 shrink-0">
+                Beta
+            </LemonTag>
+        ) : undefined)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
     const sentinelRef = useRef<HTMLDivElement>(null)
@@ -351,7 +361,7 @@ export function SceneTitleSection({
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         <>
-                                            {nameSuffix}
+                                            {effectiveNameSuffix}
                                             {hasDescription ? (
                                                 <ButtonPrimitive
                                                     className={cn(
