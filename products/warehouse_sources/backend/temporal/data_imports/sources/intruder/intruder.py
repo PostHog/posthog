@@ -105,7 +105,8 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     # is refused rather than followed, so the bearer token can't be forwarded off-origin.
     if response.is_redirect:
         raise requests.HTTPError(
-            f"Intruder API returned an unexpected redirect: status={response.status_code}, url={url}"
+            f"Intruder API returned an unexpected redirect: status={response.status_code}, url={url}",
+            response=response,
         )
 
     # 429 (rate limit) and 5xx are transient — back off and retry rather than fail the whole sync.
