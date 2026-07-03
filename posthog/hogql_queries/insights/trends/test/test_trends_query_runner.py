@@ -610,6 +610,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, response.results[0]["count"])
         self.assertEqual(["2020-01-11"], response.results[0]["days"])
 
+    def test_exclude_incomplete_periods_drops_current_bucket(self):
+        self._create_test_events()
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+                interval=IntervalType.DAY,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual("2020-01-14", response.results[0]["days"][-1])
+
     def test_trends_days(self):
         self._create_test_events()
 

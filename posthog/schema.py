@@ -4698,6 +4698,13 @@ class DateRange(BaseModel):
             " days. Only applied by insight queries."
         ),
     )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description=(
+            "Exclude the current, still-collecting period by clipping date_to to the"
+            " end of the last complete interval (evaluated in the project timezone)."
+        ),
+    )
     explicitDate: bool | None = Field(
         default=False,
         description=(

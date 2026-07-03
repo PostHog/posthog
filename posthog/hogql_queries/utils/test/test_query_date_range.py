@@ -119,6 +119,35 @@ class TestQueryDateRange(APIBaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            # now is 2021-08-25T10:00Z (a Wednesday) — clip to the end of the last complete interval
+            ("day", IntervalType.DAY, "-7d", "2021-08-24T23:59:59.999999Z"),
+            ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-21T23:59:59.999999Z"),
+            ("month", IntervalType.MONTH, "-3m", "2021-07-31T23:59:59.999999Z"),
+            ("quarter", IntervalType.QUARTER, "-2y", "2021-06-30T23:59:59.999999Z"),
+        ]
+    )
+    def test_exclude_incomplete_periods_clips_date_to(self, _name, interval, date_from, expected_date_to):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
+            interval=interval,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_date_to))
+
+    def test_exclude_incomplete_periods_no_op_for_complete_range(self):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-3m", date_to="2021-06-15", excludeIncompletePeriods=True),
+            interval=IntervalType.MONTH,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-06-15T23:59:59.999999Z"))
+
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(

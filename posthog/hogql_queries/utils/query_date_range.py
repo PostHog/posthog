@@ -119,6 +119,11 @@ class QueryDateRange:
                     date_to = date_to.replace(second=59, microsecond=999999)
                 elif self.interval_type == IntervalType.SECOND:
                     date_to = (date_to - timedelta(seconds=1)).replace(microsecond=999999)
+
+        if self._date_range and self._date_range.excludeIncompletePeriods:
+            current_interval_start = self.align_with_interval(self.now_with_timezone)
+            if date_to >= current_interval_start:
+                date_to = current_interval_start - timedelta(microseconds=1)
         return date_to
 
     def get_earliest_timestamp(self) -> datetime:
