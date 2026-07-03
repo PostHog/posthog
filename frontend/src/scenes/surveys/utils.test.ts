@@ -1450,17 +1450,17 @@ describe('doesSurveyRepeatOnEveryEvent', () => {
     it.each([
         [
             'repeated activation with a trigger event',
-            { values: [{ name: 'purchase' }], repeatedActivation: true },
             true,
+            { values: [{ name: 'purchase' }], repeatedActivation: true },
         ],
-        ['repeated activation without trigger events', { values: [], repeatedActivation: true }, false],
+        ['repeated activation without trigger events', false, { values: [], repeatedActivation: true }],
         [
             'trigger events without repeated activation',
-            { values: [{ name: 'purchase' }], repeatedActivation: false },
             false,
+            { values: [{ name: 'purchase' }], repeatedActivation: false },
         ],
-        ['no events object', null, false],
-    ])('%s -> %s', (_name, events, expected) => {
+        ['no events object', false, null],
+    ])('%s -> %s', (_name, expected, events) => {
         const survey = { conditions: events ? { events } : null } as Pick<Survey, 'conditions'>
         expect(doesSurveyRepeatOnEveryEvent(survey)).toBe(expected)
     })
