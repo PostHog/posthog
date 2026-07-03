@@ -19,7 +19,7 @@ import { AsyncOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig } from '~/common/personhog'
-import { PersonHogRoutedRepositoriesComponent } from '~/common/personhog/personhog-routed-repositories-component'
+import { RoutedRepositories } from '~/common/personhog/personhog-routed-repositories-component'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -70,9 +70,10 @@ export type AnalyticsOutputs = IngestionOutputs<
 /**
  * Services shared from the server scope. Like the AI lane, the server injects the hog
  * transformer (the lane can't construct the cdp-owned transformer) and the outputs (the
- * same instance backs the transformer's monitoring). Everything else — restriction manager,
- * event filters, overflow redirect, stores, personhog-routed repositories, tophog — is owned
- * by the analytics scope below.
+ * same instance backs the transformer's monitoring). The personhog-routed person/group
+ * repositories are also server-injected — like legacy, they carry the personhog rollout and
+ * are shared across combined-mode lanes. The analytics scope owns everything else: restriction
+ * manager, event filters, overflow redirect, stores, tophog.
  */
 export type AnalyticsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -83,6 +84,7 @@ export type AnalyticsSharedScope = Scope<{
     producerRegistry: KafkaProducerRegistry<ProducerName>
     hogTransformer: HogTransformer
     outputs: AnalyticsOutputs
+    repositories: RoutedRepositories
 }>
 
 export function createAnalyticsConsumer(
@@ -95,21 +97,16 @@ export function createAnalyticsConsumer(
         !!config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
         config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
     const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
-    // Client name for personhog read/write metrics; mirrors the legacy consumer's label.
-    const clientLabel = config.PLUGIN_SERVER_MODE ?? 'unknown'
 
-    // Parent layer: entries that later layers read (the overflow Redis repository shared by
-    // both redirect services, and the personhog-routed person/group repositories).
+    // Parent layer: the overflow Redis repository, shared by both redirect services below.
     const baseScope = extend(sharedScope, 'analytics-base', (container, builder) =>
-        builder
-            .add(
-                'overflowRedisRepository',
-                new RedisOverflowRepositoryComponent(
-                    container.redisPool,
-                    config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS
-                )
+        builder.add(
+            'overflowRedisRepository',
+            new RedisOverflowRepositoryComponent(
+                container.redisPool,
+                config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS
             )
-            .add('repositories', new PersonHogRoutedRepositoriesComponent(config, container.postgres, clientLabel))
+        )
     )
 
     const scope = extend(baseScope, 'analytics', (container, builder) =>

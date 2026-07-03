@@ -1,6 +1,7 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig } from '~/common/personhog'
+import { RoutedRepositories } from '~/common/personhog/personhog-routed-repositories-component'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -56,6 +57,9 @@ describe('createAnalyticsConsumer', () => {
                 })
                 .add('outputs', {
                     start: () => Promise.resolve({ value: {} as AnalyticsOutputs, stop: () => Promise.resolve() }),
+                })
+                .add('repositories', {
+                    start: () => Promise.resolve({ value: {} as RoutedRepositories, stop: () => Promise.resolve() }),
                 })
         )
     }

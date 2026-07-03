@@ -69,6 +69,11 @@ export async function startAnalyticsTestConsumer(
             .add('teamManager', passthrough(infra.teamManager))
             .add('cookielessManager', passthrough(infra.cookielessManager))
             .add('producerRegistry', passthrough({} as KafkaProducerRegistry<ProducerName>))
+            // Inject the infra's repositories so tests can spy on the same instances the consumer uses.
+            .add(
+                'repositories',
+                passthrough({ personRepository: infra.personRepository, groupRepository: infra.groupRepository })
+            )
             .add(
                 'hogTransformer',
                 new HogTransformerComponent(() =>

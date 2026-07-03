@@ -14,6 +14,7 @@ import {
 import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig } from '~/common/personhog'
+import { PersonHogRoutedRepositoriesComponent } from '~/common/personhog/personhog-routed-repositories-component'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
@@ -231,17 +232,24 @@ export class IngestionGeneralServer implements NodeServer {
 
         // The analytics lane can't construct the cdp-owned hog transformer itself (boundary),
         // so the server injects it (and the lane's outputs, which also back the transformer's
-        // monitoring) through an analytics-specific scope. The consumer owns everything else
-        // (restriction manager, event filters, overflow redirect, stores, personhog-routed
-        // repositories, tophog). In combined mode all three analytics lanes extend this one
-        // scope, so — as before — they share a single hog transformer and outputs instance.
-        const analyticsSharedScope = extend(sharedServicesScope, 'analytics-shared', (_container, builder) =>
+        // monitoring) through an analytics-specific scope. The personhog-routed person/group
+        // repositories are injected here too — like legacy, they carry the personhog rollout and
+        // are shared across combined-mode lanes. The consumer owns everything else (restriction
+        // manager, event filters, overflow redirect, stores, tophog). In combined mode all three
+        // analytics lanes extend this one scope, so — as before — they share a single hog
+        // transformer, outputs, and repositories instance.
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+        const analyticsSharedScope = extend(sharedServicesScope, 'analytics-shared', (container, builder) =>
             builder
                 .add(
                     'hogTransformer',
                     new HogTransformerComponent(() => createHogTransformerService(this.config, hogTransformerDeps))
                 )
                 .add('outputs', new IngestionOutputsComponent(() => ingestionOutputs))
+                .add(
+                    'repositories',
+                    new PersonHogRoutedRepositoriesComponent(this.config, container.postgres, clientLabel)
+                )
         )
 
         const startAnalytics = (override?: { topic: string; groupId: string }) => {
