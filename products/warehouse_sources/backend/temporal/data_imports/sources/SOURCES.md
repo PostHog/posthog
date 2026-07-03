@@ -199,6 +199,7 @@ the row lists both.
 | lattice                 | HTTP                        | requests                                                        | ✅                          |
 | leadfeeder              | HTTP                        | requests                                                        | ✅                          |
 | lemlist                 | HTTP                        | requests                                                        | ✅                          |
+| less_annoying_crm       | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail       | HTTP                        | requests                                                        | ✅                          |
 | linear                  | HTTP                        | requests                                                        | ✅                          |
 | lever                   | HTTP                        | requests                                                        | ✅                          |
@@ -508,7 +509,6 @@ doesn't conflict with concurrent PRs.
 - kyve
 - leexi
 - lemon_squeezy
-- less_annoying_crm
 - lever
 - liana
 - lightfield
