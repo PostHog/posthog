@@ -595,8 +595,8 @@ describe('utility functions', () => {
     })
 
     describe('getExperimentStatusLabel', () => {
-        it('labels exposure_frozen as Measuring', () => {
-            expect(getExperimentStatusLabel(ExperimentStatus.ExposureFrozen)).toBe('Measuring')
+        it('labels exposure_frozen as Exposure frozen', () => {
+            expect(getExperimentStatusLabel(ExperimentStatus.ExposureFrozen)).toBe('Exposure frozen')
         })
     })
 

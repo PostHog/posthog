@@ -144,7 +144,7 @@ const ExperimentsTableFilters = ({
                                 { label: 'Draft', value: ExperimentStatus.Draft },
                                 { label: 'Running', value: ExperimentStatus.Running },
                                 { label: 'Paused', value: ExperimentStatus.Paused },
-                                { label: 'Measuring', value: ExperimentStatus.ExposureFrozen },
+                                { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }

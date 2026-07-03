@@ -1708,7 +1708,7 @@ class ExperimentService:
     def freeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
         """Freeze exposure on a running experiment while metrics keep flowing.
 
-        Moves the experiment into a "measuring" state: it snapshots the
+        Moves the experiment into an "exposure frozen" state: it snapshots the
         already-exposed users into a static cohort and narrows every flag release
         group to that cohort, so new users can no longer enter the experiment while
         already-enrolled users keep their deterministically-assigned variant

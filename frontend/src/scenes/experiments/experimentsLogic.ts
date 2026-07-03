@@ -140,7 +140,7 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
         case ExperimentStatus.Paused:
             return 'Paused'
         case ExperimentStatus.ExposureFrozen:
-            return 'Measuring'
+            return 'Exposure frozen'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
