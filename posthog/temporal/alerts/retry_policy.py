@@ -33,8 +33,11 @@ ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
 # Each activity's retry budget must exhaust inside workflow_execution: a server-side
 # workflow timeout skips workflow code entirely, so the SLO completion would never be
 # emitted and the alert's next_check_at would never advance. Compound worst cases
-# (e.g. a slow prepare pushing evaluate past the envelope) can still hit the
+# (several activities each exhausting their full retry budget) can still hit the
 # server-side timeout; activity_schedule_to_close guarantees no single activity does.
+# That residual risk is accepted: a timed-out check leaves the alert due, so the next
+# schedule tick re-queues it, and the deterministic child workflow ID prevents
+# overlapping runs in the meantime.
 @dataclasses.dataclass(frozen=True)
 class AlertTimeouts:
     workflow_execution: dt.timedelta
@@ -62,8 +65,10 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
 )
 
+# workflow_execution covers prepare (2 min) + evaluate at its schedule_to_close cap
+# (7 min) + notify (1 min), so one activity exhausting its budget can't kill the run.
 _REAL_TIME_TIMEOUTS = AlertTimeouts(
-    workflow_execution=dt.timedelta(minutes=8),
+    workflow_execution=dt.timedelta(minutes=10),
     activity_schedule_to_close=dt.timedelta(minutes=7),
     evaluate_start_to_close=dt.timedelta(minutes=3),
     evaluate_retry_policy=_REAL_TIME_EVALUATE_RETRY_POLICY,
