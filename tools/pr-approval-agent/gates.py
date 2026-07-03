@@ -48,6 +48,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "authenticate",
             "authorize",
             "authorization",
+            r"two[_-]?factor",
         ],
         # Past participles hard-deny the wrong things as path patterns
         # (web analytics' authorized_urls.py health check is domain config,
@@ -55,7 +56,6 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         "titles": [
             "authenticated",
             "authorized",
-            r"two[_-]?factor",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
@@ -70,7 +70,6 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "auth/session",
             "auth/token",
             "permission",
-            r"two[_-]?factor",
         ],
     },
     "crypto_secrets": {
