@@ -2470,6 +2470,10 @@ jobs:
 
             - name: Run Core tests
               id: run-core-tests
+              # continue-on-error so a test failure doesn't fail the job here; the
+              # quarantine gate at the end of the job is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
@@ -2508,8 +2512,8 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
-                      # data with a partial run), no --reruns (selected runs should fail loud so flaky
-                      # tests get fixed instead of masked; the ready-for-review full run has reruns).
+                      # data with a partial run). No reruns anywhere now — Trunk quarantine gates known
+                      # flakes instead of masking them behind retries.
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -2540,7 +2544,6 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
                         $PYTEST_ARGS
@@ -2583,6 +2586,9 @@ jobs:
 
             - name: Run Temporal tests
               id: run-temporal-tests
+              # continue-on-error: the quarantine gate at the end of the job is the verdict.
+              # See "Run Core tests".
+              continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               # See "Run Core tests" for why signal-fanout wraps bash here.
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
@@ -2615,8 +2621,8 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
-                      # timing data with a partial run), no --reruns (fail loud; the ready
-                      # full run still reruns). See the core selected branch for the rationale.
+                      # timing data with a partial run). See the core selected branch for the
+                      # rationale; reruns are gone, Trunk quarantine handles flakes.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           -r fEsxX \
@@ -2635,7 +2641,6 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -2711,6 +2716,36 @@ jobs:
               with:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
+
+            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
+            # failure is an already-quarantined flake, non-zero otherwise (also fail-safes to
+            # 0 if Trunk is unreachable). Runs the token only on internal PRs, master, and the
+            # merge queue — never on fork PRs, which have no secret. This supersedes the old
+            # detection-only trunk-upload job (it also uploads results for classification).
+            - name: Quarantine gate (Core)
+              if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-core.xml
+                  org-slug: posthog-inc
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-core-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Quarantine gate (Temporal)
+              if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-temporal.xml
+                  org-slug: posthog-inc
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # Fork PRs have no Trunk secret, so quarantining can't run there; fall back to the
+            # raw test outcome so forks fail on a red test exactly as before.
+            - name: Fail on test failure (fork PR)
+              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR != 'true' && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') }}
+              shell: bash
+              run: exit 1
 
     # Aggregate and commit snapshot changes from all matrix jobs
 
@@ -3129,31 +3164,3 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
-
-    trunk-upload:
-        name: Upload test results to Trunk
-        # Core/Temporal already emit and upload junit-results-* artifacts;
-        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request
-        # events only (master push + merge queue), so the secret token never runs in a
-        # PR-controlled context; the uploader is a pinned external action, not a local one.
-        needs: [django_tests]
-        runs-on: ubuntu-latest
-        continue-on-error: true
-        timeout-minutes: 10
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-            - name: Download JUnit artifacts
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              continue-on-error: true
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-*
-            - name: Upload to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/**/*.xml
-                  org-slug: posthog-inc
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
