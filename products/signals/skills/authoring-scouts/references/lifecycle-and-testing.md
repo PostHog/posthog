@@ -16,7 +16,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   There is no sampling — every due scout runs.
   `last_run_at` advances for everything dispatched.
 - **Run.** Each dispatched scout becomes one sandboxed agent run with a short budget (single-digit minutes).
-  The body is the system prompt; the agent orients, explores, emits or remembers, and writes a one-paragraph summary to the run row.
+  The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
 
 Pausing a scout = `enabled=false`.
 Slowing it = a larger `run_interval_minutes`.
@@ -35,8 +35,8 @@ posthog:skill-list {"search": "signals-scout"}
 # Read a canonical scout to use as a template
 posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
-# New scout from scratch
-posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
+# New scout from scratch — always include the report-channel allowed_tools
+posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "allowed_tools": ["emit_report", "edit_report"], "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
 
 # Register its config immediately with the schedule you want (otherwise the coordinator
 # auto-registers the default every-24-hours schedule on its next tick)
@@ -60,8 +60,8 @@ Notes:
   Every write bumps an immutable `version`; chain further edits via `base_version`.
 - **Divergence:** once you edit a canonical scout's row for your team, canonical sync treats it as **diverged** and stops force-updating it — you keep your edits but lose upstream improvements to that scout.
   To customize _without_ diverging, `duplicate` the canonical scout into a new `signals-scout-<your-scope>` row and edit that; leave the original alone.
-- Emitting needs the `signal_scout_internal:write` scope (the sandbox has it).
-  Authoring a scout doesn't require it — only the harness emits.
+- Writing reports needs the `signal_scout_internal:write` scope (the sandbox has it).
+  Authoring a scout doesn't require it — only the harness writes.
 
 ## Path B — canonical (in-repo, for PostHog contributors)
 
@@ -97,14 +97,14 @@ The loop is **dogfood → run once ready → inspect**:
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
 2. Author the scout and register its config (`-config-create`, default `emit=true`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
-   - `posthog:inbox-reports-list` — the findings it actually emitted.
+   - `posthog:inbox-reports-list` — the reports it actually wrote.
    - `posthog:signals-scout-runs-list` — run summaries.
    - `posthog:signals-scout-runs-retrieve` — the full reasoning for one run.
    - `posthog:signals-scout-scratchpad-search` — the durable memory it wrote.
 3. If it needs work, go back to dogfooding the queries by hand for the iteration, re-edit via `skill-update`, and spend another `-run-now` only once you've batched a meaningful change.
 
-**Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive, or high-stakes, set `emit=false` so it runs and logs what it _would_ have emitted (visible in `-runs-list` / `-runs-retrieve`) without writing to the inbox.
+**Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive, or high-stakes, set `emit=false` so it runs and logs what it _would_ have written (visible in `-runs-list` / `-runs-retrieve`) without writing to the inbox.
 Trigger it with `-run-now`, inspect, refine, then `config-update` to `emit=true`.
-For most scouts, emitting straight away and watching the inbox is the faster calibration.
+For most scouts, writing straight away and watching the inbox is the faster calibration.
 
 Repo contributors additionally get `hogli sync:skill` to run the scout against the local harness for a tighter loop before merging.

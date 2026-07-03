@@ -319,7 +319,7 @@ per-scout reference. The generalist keeps one bundled reference:
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The entire canonical fleet is now on the **report channel** (ported one scout per PR,
+The entire canonical fleet is on the **report channel** (ported one scout per PR,
 biggest reach first — see the `scouts-emit-reports` spec). A report-channel scout is
 report-only — its frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it
 carries only its _domain-specific_ report framing **inline in its body** (what's
@@ -327,11 +327,11 @@ report-shaped for its surface, its `reviewer:<domain>` / `report:<domain>` scrat
 keys, a tailored title example); the channel contract comes from the prompt, so a ported scout
 bundles **no** `report.md`. The exception is `signals-scout-anomaly-detection`, which keeps a
 slimmed `references/report-contract.md` for its genuinely scout-specific **notebook write-up +
-embedded-chart recipe** (it defers the generic contract to the prompt). The signal channel
-still exists for scouts that don't opt in via `allowed_tools` — today only custom
-(hand-authored) scouts — which emit weak `emit_signal` findings for the pipeline to
-cluster; that emit/dedupe contract's canonical write-up lives in
-`authoring-scouts/references/emit-contract.md`.
+embedded-chart recipe** (it defers the generic contract to the prompt). The legacy signal
+channel (weak `emit_signal` findings for the pipeline to cluster) still exists in the
+harness for old custom scouts that never opted in via `allowed_tools`, but it is
+deprecated: no canonical scout uses it, and the user-facing skills (`authoring-scouts`,
+`exploring-scouts`) no longer teach it — new scouts always list the report tools.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
@@ -340,7 +340,7 @@ read on demand — `signals-scout-anomaly-detection` (`anomaly-methods.md`,
 (`lenses.md`), and `signals-scout-surveys` (`response-querying.md`). Treat the
 generalist as the reference shape. Note that a scout can only read its own bundled
 files at runtime (each team's `LLMSkill` row carries just that skill's files) — which is
-why a signal scout that needs the emit/dedupe conventions in depth bundles its own copy
+why a scout that needs the dedupe/memory conventions in depth bundles its own copy
 rather than pointing at the generalist's. The report-channel contract is the exception to
 that copy-it-locally rule: it rides in the harness prompt, not a file, so report scouts
 share one definition without each bundling a copy.
