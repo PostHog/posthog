@@ -24,6 +24,7 @@ import {
 } from './experiments/experimentsWidgetConfigValidation'
 import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
+import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
 // Widget UI is code-split: the static graph keeps only config-error parsers, types, and the lazy
 // factories below, so a logged-in page no longer eagerly downloads every widget's renderer, edit
@@ -93,6 +94,15 @@ const SessionReplayWidgetTileFilters = lazy(() =>
 )
 const EditSessionReplayWidgetModal = lazy(() =>
     import('./session_replay/EditSessionReplayWidgetModal').then((m) => ({ default: m.EditSessionReplayWidgetModal }))
+)
+const SurveyResultsWidget = lazy(() =>
+    import('./surveys/SurveyResultsWidget').then((m) => ({ default: m.SurveyResultsWidget }))
+)
+const SurveyResultsWidgetTileFilters = lazy(() =>
+    import('./surveys/SurveyResultsWidgetTileFilters').then((m) => ({ default: m.SurveyResultsWidgetTileFilters }))
+)
+const EditSurveyResultsWidgetModal = lazy(() =>
+    import('./surveys/EditSurveyResultsWidgetModal').then((m) => ({ default: m.EditSurveyResultsWidgetModal }))
 )
 
 export type DashboardWidgetConfigApiErrorParser = (
@@ -232,6 +242,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    survey_results: {
+        Component: SurveyResultsWidget,
+        TileFilters: SurveyResultsWidgetTileFilters,
+        EditModal: EditSurveyResultsWidgetModal,
+        productAccess: 'survey',
+        parseConfigApiError: parseSurveyResultsWidgetConfigApiError,
     },
     logs_list: {
         Component: LogsWidget,

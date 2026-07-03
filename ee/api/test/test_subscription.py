@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -349,6 +350,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert properties["delivery_triggered"] is should_fire
         assert properties["reason"] == expected_reason
 
+    @freeze_time("2026-06-15T10:00:00Z")  # Monday — weekly (Sat) is 5 days away, daily is 1 day
     def test_schedule_only_update_still_recomputes_next_delivery_date(self):
         # A schedule edit must not fire a delivery but MUST still reschedule — the model
         # save() recomputes next_delivery_date; this guards that the no-fire short-circuit
