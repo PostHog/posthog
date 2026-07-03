@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Gauge } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -57,6 +57,15 @@ const latestOffsetTimestampGauge = new Gauge({
     help: 'Timestamp of the latest offset that has been committed.',
     labelNames: ['topic', 'partition', 'groupId'],
     aggregator: 'max',
+})
+
+// Keeps the legacy analytics metric name so existing dashboards keep working;
+// every common-consumer pipeline now emits it.
+const backgroundTaskProducesDuration = new Histogram({
+    name: 'ingestion_background_task_produces_duration_seconds',
+    help: 'Time waiting for scheduled Kafka produces in the background task',
+    labelNames: ['groupId'],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
 /**
@@ -199,7 +208,14 @@ class KafkaBatchHandler {
 
         return {
             backgroundTask: instrumentFn('commonIngestionConsumer.awaitScheduledWork', async () => {
-                await this.promiseScheduler.waitForAll()
+                const end = backgroundTaskProducesDuration.startTimer({
+                    groupId: this.config.INGESTION_CONSUMER_GROUP_ID,
+                })
+                try {
+                    await this.promiseScheduler.waitForAll()
+                } finally {
+                    end()
+                }
             }),
         }
     }
