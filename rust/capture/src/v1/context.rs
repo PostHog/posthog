@@ -100,8 +100,9 @@ impl RequestContext {
                 "Authorization must use Bearer scheme".into(),
             ));
         };
-        validate_token(token_raw).map_err(|reason| Error::InvalidApiToken(reason.to_string()))?;
-        let api_token = token_raw.to_string();
+        let api_token = validate_token(token_raw)
+            .map_err(|reason| Error::InvalidApiToken(reason.to_string()))?
+            .to_string();
 
         let content_type_raw = header_str(headers, "content-type")?;
         let mime_type = content_type_raw

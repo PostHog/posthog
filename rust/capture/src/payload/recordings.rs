@@ -105,11 +105,11 @@ pub async fn handle_recording_payload(
 
     Span::current().record("batch_size", events.len());
 
-    // Extract token from first event
-    let token = events[0]
+    // Extract token from first event and normalize (trim) it
+    let raw_token = events[0]
         .extract_token()
         .ok_or(CaptureError::NoTokenError)?;
-    validate_token(&token)?;
+    let token = validate_token(&raw_token)?.to_string();
     Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);

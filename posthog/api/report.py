@@ -17,6 +17,16 @@ from posthog.utils_cors import cors_response
 logger = structlog.get_logger(__name__)
 
 
+def _is_ingestable_token(token: str) -> bool:
+    # A capture token must be present, within the length bound, and free of whitespace or
+    # control characters. Otherwise it either misses the exact-match team lookup or builds an
+    # invalid Bearer header that the capture client rejects — the report is un-ingestable either
+    # way. Mirrors the shape check applied at the Rust ingestion edge (validate_token).
+    if not token or len(token) > 64 or not token.isascii():
+        return False
+    return all(c.isprintable() and not c.isspace() for c in token)
+
+
 @csrf_exempt
 @timed("posthog_cloud_csp_event_endpoint")
 def get_csp_event(request):
@@ -55,25 +65,25 @@ def get_csp_event(request):
             ),
         )
 
-    try:
-        token = get_token(csp_report, request)
-        if not token:
-            token = ""
+    token = get_token(csp_report, request)
+    if not token or not _is_ingestable_token(token):
+        # Missing or malformed token (e.g. an API key with an embedded newline pasted from a
+        # project name, or no token at all in the report-uri). Such reports are inherently
+        # un-ingestable: capture would raise CaptureInternalError or build an invalid Bearer
+        # header. Reject cleanly here rather than letting the exception reach error tracking.
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                "Invalid or missing API token",
+                code="invalid_token",
+                type="invalid_token",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
 
+    try:
         if settings.CSP_REPORT_BUFFERED_FORWARD:
-            # Buffered mode never makes the synchronous capture call that would
-            # reject an empty token, so reject it here before enqueueing.
-            if not token:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "csp_report_capture",
-                        f"Failed to submit CSP report",
-                        code="capture_error",
-                        type="capture_error",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    ),
-                )
             events = csp_report if isinstance(csp_report, list) else [csp_report]
             csp_report_buffer.enqueue(events, token=token)
             return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))

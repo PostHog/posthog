@@ -170,8 +170,7 @@ async fn ai_handler_inner(
         return Err(CaptureError::NoTokenError);
     }
 
-    let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token)?;
+    let token = validate_token(&auth_header[7..])?; // strip "Bearer " prefix and trim
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers

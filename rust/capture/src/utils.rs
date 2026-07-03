@@ -242,7 +242,9 @@ pub fn extract_and_verify_token(
         }
     };
 
-    validate_token(&token)?;
+    // Normalize (trim) the token so an accidental newline in an API key doesn't cause a
+    // team-lookup miss and silent event loss.
+    let token = validate_token(&token)?.to_string();
     Ok(token)
 }
 

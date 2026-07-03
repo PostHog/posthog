@@ -13,6 +13,7 @@ from posthog.api.utils import (
     format_paginated_url,
     get_data,
     get_target_entity,
+    get_token,
     is_async_query,
     is_insight_query,
     raise_if_user_provided_url_unsafe,
@@ -43,6 +44,20 @@ class TestUtils(BaseTest):
         data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
+
+    @parameterized.expand(
+        [
+            ("trailing_newline", "phc_abc123\n", "phc_abc123"),
+            ("surrounding_whitespace", "  phc_abc123  ", "phc_abc123"),
+            ("whitespace_only", "  \n ", None),
+            ("clean", "phc_abc123", "phc_abc123"),
+        ]
+    )
+    def test_get_token_strips_surrounding_whitespace(self, _name: str, raw: str, expected: Any) -> None:
+        # A stray newline in a copied API key must be normalized, otherwise it misses the exact-match
+        # team lookup and events are silently dropped (Zendesk-observed data loss).
+        request = RequestFactory().get("/e/", {"token": raw})
+        self.assertEqual(get_token(None, request), expected)
 
     def test_format_paginated_url(self):
         request = lambda url: cast(Any, RequestFactory().get(url))

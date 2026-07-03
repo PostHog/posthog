@@ -107,8 +107,8 @@ pub async fn otel_handler(
         return Err(err.into_response());
     }
 
-    let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token).map_err(|e| {
+    // strip "Bearer " prefix and trim surrounding whitespace
+    let token = validate_token(&auth_header[7..]).map_err(|e| {
         let err = CaptureError::from(e);
         report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
         err.into_response()

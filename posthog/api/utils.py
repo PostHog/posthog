@@ -191,6 +191,12 @@ def get_token(data, request) -> Optional[str]:
                     token = data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
                 elif data.get("properties") and data["properties"].get("token"):
                     token = data["properties"]["token"]  # JS capture call
+
+    # Normalize whitespace so an accidental newline/space in a copied API key doesn't cause a
+    # team-lookup miss (and silent event loss) or a malformed Bearer header downstream.
+    if token:
+        token = token.strip() or None
+
     return token
 
 

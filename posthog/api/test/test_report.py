@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test.client import Client
 
+from parameterized import parameterized
 from rest_framework import status
 
 
@@ -170,6 +171,29 @@ class TestCspReport(BaseTest):
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert "Invalid CSP report format" in response.json()["detail"]
         assert response.json()["code"] == "invalid_csp_payload"
+
+    @parameterized.expand(
+        [
+            ("missing_token", None),
+            ("embedded_newline", "%0Aproject-name"),
+        ]
+    )
+    @patch("posthog.api.report.capture_exception")
+    @patch("posthog.api.report.capture_internal")
+    def test_csp_report_with_invalid_token_returns_400_without_capturing(
+        self, _name: str, token_suffix, mock_capture, mock_capture_exception
+    ) -> None:
+        # Missing/malformed tokens are inherently un-ingestable. They must be rejected cleanly rather
+        # than reaching capture and surfacing as CaptureInternalError noise in our error tracking.
+        payload = {"csp-report": {"document-uri": "https://example.com", "violated-directive": "default-src self"}}
+        url = "/report/" if token_suffix is None else f"/report/?token={self.team.api_token}{token_suffix}"
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/csp-report")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_token"
+        assert mock_capture.call_count == 0
+        assert mock_capture_exception.call_count == 0
 
     def test_capture_csp_invalid_report_format_gives_invalid_csp_payload(self):
         invalid_csp_report = {"not-a-csp-report": "invalid format"}

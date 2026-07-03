@@ -40,9 +40,15 @@ impl Error for InvalidTokenReason {
     }
 }
 
-/// Check if a token is the right shape. It may not actually be a valid token! We don't validate
-/// these at the edge yet.
-pub fn validate_token(token: &str) -> Result<(), InvalidTokenReason> {
+/// Check if a token is the right shape and normalize it. It may not actually be a valid token!
+/// We don't validate these against team lookup at the edge yet.
+///
+/// Leading/trailing whitespace is stripped so that an accidental newline or space in a copied
+/// API key (e.g. `phc_...\n`) is normalized rather than silently failing team lookup and
+/// dropping the events. The trimmed token is returned and must be used by callers for lookup.
+pub fn validate_token(token: &str) -> Result<&str, InvalidTokenReason> {
+    let token = token.trim();
+
     if token.is_empty() {
         return Err(InvalidTokenReason::Empty);
     }
@@ -64,7 +70,7 @@ pub fn validate_token(token: &str) -> Result<(), InvalidTokenReason> {
         return Err(InvalidTokenReason::NullByte);
     }
 
-    Ok(())
+    Ok(token)
 }
 
 #[cfg(test)]
@@ -110,5 +116,22 @@ mod tests {
 
         assert!(valid.is_err());
         assert_eq!(valid.unwrap_err(), InvalidTokenReason::NullByte);
+    }
+
+    #[test]
+    fn trims_surrounding_whitespace() {
+        // A stray newline in a copied API key must be normalized away, not cause a
+        // team-lookup miss and silent event loss.
+        assert_eq!(validate_token("phc_hellothere\n").unwrap(), "phc_hellothere");
+        assert_eq!(validate_token("  phc_hellothere  ").unwrap(), "phc_hellothere");
+        assert_eq!(validate_token("\tphc_hellothere\r\n").unwrap(), "phc_hellothere");
+    }
+
+    #[test]
+    fn blocks_whitespace_only_token() {
+        let valid = validate_token("   \n");
+
+        assert!(valid.is_err());
+        assert_eq!(valid.unwrap_err(), InvalidTokenReason::Empty);
     }
 }
