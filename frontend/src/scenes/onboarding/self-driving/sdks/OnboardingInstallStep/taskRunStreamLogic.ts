@@ -33,6 +33,13 @@ export function resolvePollingIntervalMs(payload: unknown): number {
     return Math.max(MIN_POLLING_INTERVAL_SECS, secs) * 1000
 }
 
+// Spread poll ticks ±20% around the base cadence so clients whose runs kicked off together (or whose
+// tabs woke together) don't hit the endpoint in lockstep — avoids a thundering herd on the runs API.
+export const POLL_JITTER_RATIO = 0.2
+export function jitteredIntervalMs(baseMs: number, random: () => number = Math.random): number {
+    return Math.round(baseMs * (1 - POLL_JITTER_RATIO + random() * 2 * POLL_JITTER_RATIO))
+}
+
 // Project the REST run snapshot onto the same shape the SSE `task_run_state` events carry, so polling and
 // streaming feed `taskRunStateUpdated` identically and the rest of the logic stays mode-agnostic.
 export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStreamState {
@@ -307,6 +314,12 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             if (!props.runId) {
                 return
             }
+            // Defense in depth: only sync while this run is the project's active cloud run. If the
+            // persisted handle is gone (dismissed, superseded) or belongs to another run, no wizard
+            // run is happening for this key — never hold a background stream/poll open for it.
+            if (values.activeCloudRun?.runId !== props.runId) {
+                return
+            }
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.connectionErrored('No current project — cannot open task run stream.')
@@ -324,14 +337,10 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 )
                 cache.disposables.add((): (() => void) => {
                     let cancelled = false
-                    let inFlight = false
+                    let timer: number | undefined
+                    // Each tick schedules the next one only after its request settles, so a slow
+                    // server can never stack requests, and every gap gets fresh jitter.
                     const poll = async (): Promise<void> => {
-                        // Skip a tick rather than stacking requests when the server responds slower
-                        // than the poll cadence.
-                        if (inFlight) {
-                            return
-                        }
-                        inFlight = true
                         try {
                             const dto = await tasksRunsRetrieve(String(projectId), props.taskId, props.runId)
                             if (cancelled) {
@@ -345,20 +354,20 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                             if (isTerminalStatus(dto.status)) {
                                 actions.streamCompleted()
                                 cache.disposables.dispose('task-run-sync')
+                                return
                             }
                         } catch (err) {
-                            if (!cancelled) {
-                                actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
+                            if (cancelled) {
+                                return
                             }
-                        } finally {
-                            inFlight = false
+                            actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
                         }
+                        timer = window.setTimeout(() => void poll(), jitteredIntervalMs(intervalMs))
                     }
                     void poll()
-                    const timer = window.setInterval(() => void poll(), intervalMs)
                     return () => {
                         cancelled = true
-                        clearInterval(timer)
+                        window.clearTimeout(timer)
                     }
                 }, 'task-run-sync')
                 return

@@ -5,6 +5,8 @@ import {
     DEFAULT_POLLING_INTERVAL_SECS,
     mergeProgressStep,
     parseTaskRunStreamMessage,
+    jitteredIntervalMs,
+    POLL_JITTER_RATIO,
     resolvePollingIntervalMs,
     TaskRunProgressStep,
     taskRunDetailToStreamState,
@@ -167,6 +169,16 @@ describe('taskRunStreamLogic helpers', () => {
             ['a payload without the key', {}, DEFAULT_POLLING_INTERVAL_SECS * 1000],
         ])('resolves %s', (_name, payload, expectedMs) => {
             expect(resolvePollingIntervalMs(payload)).toBe(expectedMs)
+        })
+    })
+
+    describe('jitteredIntervalMs', () => {
+        it.each([
+            ['the lower jitter bound', 0, 3000 * (1 - POLL_JITTER_RATIO)],
+            ['the base cadence at mid-roll', 0.5, 3000],
+            ['the upper jitter bound', 1, 3000 * (1 + POLL_JITTER_RATIO)],
+        ])('spreads ticks within ±20%% — %s', (_name, roll, expectedMs) => {
+            expect(jitteredIntervalMs(3000, () => roll)).toBe(expectedMs)
         })
     })
 
