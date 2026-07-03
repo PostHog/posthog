@@ -21,3 +21,7 @@ simd-json = { version = "0.15", features = ["serde_impl"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+
+[[example]]
+name = "anonymize_bench"
+path = "dev/anonymize_bench.rs"
