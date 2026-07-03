@@ -163,6 +163,14 @@ fn fix_for(lib: &str, lib_version: Option<&str>) -> Option<WireOrderFix> {
 /// This must run before fingerprinting/resolution: fingerprints are computed
 /// over stored frame/exception order, so normalizing here keeps grouping
 /// consistent across SDKs.
+///
+/// Note on the no-in-app fingerprint fallback: when an exception has no in-app
+/// frames, fingerprinting hashes `frames.first()`. After normalization that is
+/// the entry frame rather than the crash site — but that is already how
+/// natively-canonical SDKs (web, node, ...) fingerprint such stacks today, so
+/// this brings crash-first SDKs into line rather than introducing new
+/// divergence. Improving that fallback (e.g. keying on the crash-site frame) is
+/// a cross-SDK fingerprinting change out of scope for wire-order normalization.
 pub fn normalize_wire_order(
     exception_list: &mut ExceptionList,
     lib: Option<&str>,
