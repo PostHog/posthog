@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -189,6 +190,33 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(data["results"]) == 1
         assert data["results"][0]["source_type"] == "session_analysis_cluster"
+
+    @parameterized.expand(
+        [
+            # (name, workflow_running, temporal_error, expected_status)
+            ("running", True, None, "running"),
+            ("not_running", False, None, None),
+            # A slow/unreachable Temporal must degrade to None, not hang or 500 the inbox load.
+            ("temporal_unavailable", None, RuntimeError("temporal unreachable"), None),
+        ]
+    )
+    def test_session_analysis_status_degrades_gracefully(
+        self, _name, workflow_running, temporal_error, expected_status
+    ):
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
+            created_by=self.user,
+        )
+        temporal_probe = AsyncMock(return_value=workflow_running, side_effect=temporal_error)
+        with patch(
+            "products.signals.backend.serializers._a_has_running_session_analysis",
+            temporal_probe,
+        ):
+            response = self.client.get(self._url(str(config.id)))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == expected_status
 
     def test_list_excludes_other_teams(self):
         SignalSourceConfig.objects.create(

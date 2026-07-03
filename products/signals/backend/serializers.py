@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import cast
@@ -9,7 +10,7 @@ from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
@@ -26,6 +27,53 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+# Bounds the Temporal RPC that resolves a session-analysis source's running status. The
+# source-configs list is fetched on inbox load, so a slow or unreachable Temporal must not hang
+# the response — past this budget the status resolves to None ("unknown") instead of blocking.
+SESSION_ANALYSIS_STATUS_RPC_TIMEOUT_SECONDS = 3.0
+
+
+async def _a_has_running_session_analysis(team_id: int) -> bool:
+    query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
+    client = await async_connect()
+    async for _ in client.list_workflows(query=query, page_size=1):
+        return True
+    return False
+
+
+@tracer.start_as_current_span("signals.source_config.session_analysis_status")
+def get_session_analysis_status(team_id: int) -> str | None:
+    """ "running" iff any `summarize-session` workflow for this team is currently executing.
+
+    Bounded by `SESSION_ANALYSIS_STATUS_RPC_TIMEOUT_SECONDS`: a degraded Temporal must not hang the
+    inbox load. On timeout or error the status is None (surfaced on the span so it isn't a silent
+    no-op in APM).
+    """
+    try:
+
+        async def _resolve() -> bool:
+            return await asyncio.wait_for(
+                _a_has_running_session_analysis(team_id),
+                timeout=SESSION_ANALYSIS_STATUS_RPC_TIMEOUT_SECONDS,
+            )
+
+        if async_to_sync(_resolve)():
+            return "running"
+    except Exception as e:
+        # The except swallows the error, so OTel won't auto-record it on the span — mark it
+        # failed explicitly, else an unreachable Temporal (or a timeout) looks like a successful
+        # no-op in APM.
+        span = trace.get_current_span()
+        span.record_exception(e)
+        span.set_status(Status(StatusCode.ERROR))
+        logger.warning("Failed to list session summarization workflows: %s", e)
+    return None
+
+
+# Context key for the per-request memo of session-analysis status keyed by team_id. The status
+# query is per-team, so memoizing collapses repeated resolutions across rows into one RPC per team.
+_SESSION_ANALYSIS_STATUS_CACHE_KEY = "_session_analysis_status_cache"
 
 
 # Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
@@ -56,7 +104,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_session_analysis_status(obj.team_id)
+            return self._resolve_session_analysis_status(obj.team_id)
 
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
@@ -64,31 +112,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
 
-    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
-    # The span surfaces that cost so the N+1 is visible per request in APM.
-    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
-    def _get_session_analysis_status(self, team_id: int) -> str | None:
-        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
-        query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
-
-        try:
-            temporal = sync_connect()
-
-            async def has_running() -> bool:
-                async for _ in temporal.list_workflows(query=query, page_size=1):
-                    return True
-                return False
-
-            if async_to_sync(has_running)():
-                return "running"
-        except Exception as e:
-            # The except swallows the error, so OTel won't auto-record it on the span — mark it
-            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
-            span = trace.get_current_span()
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning("Failed to list session summarization workflows: %s", e)
-        return None
+    def _resolve_session_analysis_status(self, team_id: int) -> str | None:
+        # Resolve the (per-team) running status through a request-scoped memo in the shared
+        # serializer context. When serializing a list, rows of the same team reuse the first
+        # resolution instead of each issuing its own Temporal RPC — the N+1 the source-configs
+        # list was flagged for. The RPC itself is bounded by a timeout, so the response returns
+        # fast even when Temporal is degraded.
+        cache: dict[int, str | None] = self.context.setdefault(_SESSION_ANALYSIS_STATUS_CACHE_KEY, {})
+        if team_id not in cache:
+            cache[team_id] = get_session_analysis_status(team_id)
+        return cache[team_id]
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema

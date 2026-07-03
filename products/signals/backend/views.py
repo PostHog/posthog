@@ -221,8 +221,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @tracer.start_as_current_span("signals.source_configs.list")
     def list(self, request, *args, **kwargs):
         # This list is fetched on inbox load. The default serializer resolves a per-row `status`,
-        # which for session-analysis rows makes a synchronous Temporal RPC — a potential N+1. The
-        # span lets us see how much of the inbox load this endpoint accounts for.
+        # which for session-analysis rows needs a Temporal RPC — bounded by a timeout and memoized
+        # per team in the serializer, so a degraded Temporal can't hang the response. The span
+        # shows how much of the inbox load this endpoint accounts for.
         return super().list(request, *args, **kwargs)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
