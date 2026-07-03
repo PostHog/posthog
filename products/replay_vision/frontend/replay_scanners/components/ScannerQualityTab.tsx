@@ -104,7 +104,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         )
     } else {
         body = (
-            <div className="space-y-2">
+            <div className="space-y-3">
                 {currentSuggestion.rationale && <p className="text-sm m-0">{currentSuggestion.rationale}</p>}
                 {currentSuggestion.base_prompt ? (
                     <div className="border rounded overflow-hidden">
