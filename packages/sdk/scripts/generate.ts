@@ -33,6 +33,8 @@ const OUT_DIR = path.join(SDK_ROOT, 'src/generated')
 const TOOL_DEFS_PATH = path.join(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const TOOLS_DIR = path.join(MCP_ROOT, 'src/tools/generated')
 const SCHEMAS_SRC = path.join(MCP_ROOT, 'src/api/generated.ts')
+// The app's query node schema — source of the wrapper methods' response types.
+const QUERIES_SCHEMA_PATH = path.resolve(SDK_ROOT, '../../frontend/src/queries/schema.json')
 
 // ---------------------------------------------------------------------------
 // Naming: tool-name (`domain-action`) → resource.method
@@ -411,6 +413,8 @@ interface WrapperTool {
     kind: string
     methodName: string
     schema: z.ZodType
+    /** Response type name from the app query schema — set by emitQueryResponses. */
+    responseType?: string
 }
 
 function parseQueryWrappers(files: string[]): WrapperTool[] {
@@ -579,6 +583,21 @@ interface JsonSchema {
     additionalProperties?: boolean | JsonSchema
     description?: string
     format?: string
+    /** Local definition reference (`#/definitions/X`) — used by the app query schema. */
+    $ref?: string
+}
+
+/** `#/definitions/X` → `X`. Throws on non-local refs so drift fails loudly. */
+function refName(ref: string): string {
+    const m = /^#\/definitions\/(.+)$/.exec(ref)
+    if (!m) {
+        throw new Error(`Unsupported $ref (only #/definitions/* are handled): ${ref}`)
+    }
+    const name = decodeURIComponent(m[1]!)
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
+        throw new Error(`$ref name is not a valid TS identifier: ${name}`)
+    }
+    return name
 }
 
 const DROP_FIELDS = new Set(['project_id', 'organization_id'])
@@ -667,6 +686,11 @@ function buildWrapperInputSchema(schema: z.ZodType): { properties: Record<string
 function tsType(schema: JsonSchema, indent: string): string {
     if ((schema as JsonSchema & { __unknown?: boolean }).__unknown) {
         return 'unknown'
+    }
+    if (schema.$ref) {
+        // References resolve to sibling named types emitted from the same
+        // definitions map (see emitQueryResponses).
+        return refName(schema.$ref)
     }
     if (schema.const !== undefined) {
         return JSON.stringify(schema.const)
@@ -895,6 +919,8 @@ function main(): void {
     fs.mkdirSync(path.join(OUT_DIR, 'resources'), { recursive: true })
     emitSchemas()
     emitInputs(inputBlocks)
+    // Must run before emitResource: resolves each wrapper's response type name.
+    const responseDefCount = emitQueryResponses(wrapperTools)
     const resourceNames = [...resources.keys()].sort()
     for (const resource of resourceNames) {
         emitResource(resource, resources.get(resource)!)
@@ -924,6 +950,7 @@ function main(): void {
     console.log(`Methods:        ${methodCount}`)
     console.log(`Resources:      ${resourceNames.length}`)
     console.log(`Coverage:       ${((emitted.size / totalTools) * 100).toFixed(1)}%`)
+    console.log(`Query response defs: ${responseDefCount} (from frontend/src/queries/schema.json)`)
     console.log(`Skipped tools:  ${genuineSkips.length}`)
     const byReason = new Map<string, number>()
     for (const s of genuineSkips) {
@@ -994,6 +1021,75 @@ function emitSchemas(): void {
     fs.writeFileSync(path.join(OUT_DIR, 'schemas.ts'), out)
 }
 
+/**
+ * Resolve each wrapper kind's response type from the app query schema and emit
+ * the definitions (plus their `$ref` closure) as plain TS named types. Sets
+ * `responseType` on every wrapper. Returns the number of emitted definitions.
+ *
+ * Fidelity note: definitions are rendered as the schema states them — loose
+ * shapes (e.g. trends `results: object[]`) stay loose, we never hand-tighten.
+ */
+function emitQueryResponses(wrappers: WrapperTool[]): number {
+    const schemaDoc = JSON.parse(fs.readFileSync(QUERIES_SCHEMA_PATH, 'utf8')) as {
+        definitions: Record<string, JsonSchema>
+    }
+    const defs = schemaDoc.definitions
+
+    const roots = new Set<string>()
+    for (const w of wrappers) {
+        // Actors kinds POST the wrapped ActorsQuery, so the effective response is
+        // ActorsQuery's. (InsightActorsQuery / FunnelsActorsQuery declare the same
+        // response ref, so either node resolves identically.)
+        const effectiveKind = isActorsKind(w.kind) ? 'ActorsQuery' : w.kind
+        const responseSchema = defs[effectiveKind]?.properties?.response
+        if (!responseSchema?.$ref) {
+            throw new Error(`No response $ref for query kind '${effectiveKind}' in ${QUERIES_SCHEMA_PATH}`)
+        }
+        w.responseType = refName(responseSchema.$ref)
+        roots.add(w.responseType)
+    }
+
+    // Transitive $ref closure over the definitions map.
+    const closure = new Set<string>()
+    const walk = (node: unknown): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (Array.isArray(node)) {
+            node.forEach(walk)
+            return
+        }
+        for (const [key, value] of Object.entries(node)) {
+            if (key === '$ref' && typeof value === 'string') {
+                const name = refName(value)
+                if (!closure.has(name)) {
+                    const def = defs[name]
+                    if (!def) {
+                        throw new Error(`Unresolvable $ref '${value}' in ${QUERIES_SCHEMA_PATH}`)
+                    }
+                    closure.add(name)
+                    walk(def)
+                }
+                continue
+            }
+            walk(value)
+        }
+    }
+    for (const root of roots) {
+        closure.add(root)
+        walk(defs[root])
+    }
+
+    const blocks = [...closure].sort().map((name) => {
+        const def = defs[name]!
+        const jsdoc = def.description ? `/** ${escapeComment(def.description)} */\n` : ''
+        return `${jsdoc}export type ${name} = ${tsType(def, '')}\n`
+    })
+    const out = `${banner('frontend/src/queries/schema.json (query kind → properties.response.$ref, plus its definition closure)')}\n/* eslint-disable */\n\n${blocks.join('\n')}`
+    fs.writeFileSync(path.join(OUT_DIR, 'query-responses.ts'), out)
+    return closure.size
+}
+
 function emitInputs(blocks: string[]): void {
     const out = `${banner('Orval Zod input schemas → JSON Schema → plain TS')}\n/* eslint-disable */\n\n${blocks.join('\n')}`
     fs.writeFileSync(path.join(OUT_DIR, 'inputs.ts'), out)
@@ -1012,18 +1108,28 @@ function emitResource(resource: string, methods: ResolvedMethod[]): void {
     // Resources containing query-wrapper methods extend the handwritten
     // QueryBase (raw `run` escape hatch + wrapper runtime) instead of Resource.
     const hasWrappers = methods.some((m) => m.wrapper)
-    const hasActors = methods.some((m) => m.wrapper && isActorsKind(m.wrapper.kind))
-    const hasNonActors = methods.some((m) => m.wrapper && !isActorsKind(m.wrapper.kind))
-    const queryTypeImports = [...(hasActors ? ['ActorsQueryResponse'] : []), ...(hasNonActors ? ['QueryResponse'] : [])]
     const baseImport = hasWrappers
-        ? `import { QueryBase${queryTypeImports.length ? `, type ${queryTypeImports.join(', type ')}` : ''} } from '../../core/query'`
+        ? `import { QueryBase } from '../../core/query'`
         : `import { Resource } from '../../core/resource'`
     const baseClass = hasWrappers ? 'QueryBase' : 'Resource'
+
+    // Wrapper response types come from the schema.json-derived module. Their
+    // names all end in `QueryResponse`; input names all end in `Params`, so a
+    // collision would signal an upstream naming change — fail loudly.
+    const responseTypes = [...new Set(methods.filter((m) => m.wrapper).map((m) => m.wrapper!.responseType!))].sort()
+    for (const rt of responseTypes) {
+        if (usedInputs.includes(rt)) {
+            throw new Error(`query response type '${rt}' collides with an input type name in resource '${resource}'`)
+        }
+    }
+    const responsesImport = responseTypes.length
+        ? `import type { ${responseTypes.join(', ')} } from '../query-responses'\n`
+        : ''
 
     const methodTexts = methods.map((m) => emitMethod(m))
     const out = `${banner(`MCP tool handlers (resource: ${resource})`)}\n${baseImport}
 import type { RequestOptions } from '../../core/config'
-${schemasImport}${inputImport}
+${responsesImport}${schemasImport}${inputImport}
 export class ${className} extends ${baseClass} {
 ${methodTexts.join('\n\n')}
 }
@@ -1075,7 +1181,7 @@ function emitMethod(m: ResolvedMethod): string {
 function emitWrapperMethod(m: ResolvedMethod, w: WrapperTool): string {
     const jsdoc = m.jsdoc ? `    /** ${escapeComment(m.jsdoc)} */\n` : ''
     const actors = isActorsKind(w.kind)
-    const resp = actors ? 'ActorsQueryResponse' : 'QueryResponse'
+    const resp = w.responseType!
     const runner = actors ? 'runActorsWrapped' : 'runWrapped'
     const paramSig = m.inputTypeName
         ? m.inputRequired

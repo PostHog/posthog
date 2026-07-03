@@ -8,18 +8,14 @@
 import { type RequestOptions } from './config'
 import { Resource } from './resource'
 
-/** Raw response of `POST /api/environments/{projectId}/query/`. */
+/**
+ * Loose fallback response shape, used as the default for the generic
+ * `run()` escape hatch. The generated wrapper methods supply precise response
+ * types derived from `frontend/src/queries/schema.json`
+ * (see `src/generated/query-responses.ts`).
+ */
 export interface QueryResponse {
     results?: unknown
-    [key: string]: unknown
-}
-
-/** Raw response of an ActorsQuery run through `POST /api/environments/{projectId}/query/`. */
-export interface ActorsQueryResponse {
-    results?: unknown[][]
-    columns?: unknown[]
-    hasMore?: boolean
-    offset?: number
     [key: string]: unknown
 }
 
@@ -128,7 +124,7 @@ export class QueryBase extends Resource {
      * ActorsQuery with the per-kind projection and a 100-row page, mirroring the
      * MCP client. Returns the raw endpoint response.
      */
-    protected async runActorsWrapped<T = ActorsQueryResponse>(
+    protected async runActorsWrapped<T = QueryResponse>(
         kind: string,
         params: object,
         opts?: RequestOptions

@@ -28,6 +28,9 @@ export {
     PostHogValidationError,
 } from './core/errors'
 export type { HttpClient } from './core/http'
+export type { QueryNode, QueryResponse } from './core/query'
+// Response types for `client.query.*`, derived from frontend/src/queries/schema.json.
+export type * from './generated/query-responses'
 export type { Schemas } from './generated/schemas'
 
 /**

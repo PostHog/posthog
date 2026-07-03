@@ -84,11 +84,12 @@ Typed errors are thrown for non-2xx responses: `PostHogApiError` (carries `statu
 
 The transport core (`src/core/`) is handwritten. The resource layer (`src/generated/`) is emitted by `scripts/generate.ts` from the **committed** PostHog MCP codegen artifacts:
 
-| Output                                      | Derived from                                                                                            |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `src/generated/resources/*.ts`, `client.ts` | `services/mcp/src/tools/generated/*.ts` (parsed handlers: method, path, body/query, scope, soft-delete) |
-| `src/generated/inputs.ts` (request types)   | `services/mcp/src/generated/<module>/api.ts` (Orval Zod schemas → JSON Schema → plain TS)               |
-| `src/generated/schemas.ts` (response types) | `services/mcp/src/api/generated.ts` (the `Schemas` namespace)                                           |
+| Output                                             | Derived from                                                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `src/generated/resources/*.ts`, `client.ts`        | `services/mcp/src/tools/generated/*.ts` (parsed handlers: method, path, body/query, scope, soft-delete) |
+| `src/generated/inputs.ts` (request types)          | `services/mcp/src/generated/<module>/api.ts` (Orval Zod schemas → JSON Schema → plain TS)               |
+| `src/generated/schemas.ts` (response types)        | `services/mcp/src/api/generated.ts` (the `Schemas` namespace)                                           |
+| `src/generated/query-responses.ts` (query results) | `frontend/src/queries/schema.json` (each query kind's `response.$ref` definition + its closure)         |
 
 Because those artifacts are produced by `hogli build:openapi`, the SDK regenerates downstream of them:
 
@@ -104,7 +105,7 @@ Generated output is committed. Don't edit it by hand — change the Django seria
 
 ### Coverage
 
-Every MCP tool becomes an SDK method, through one of two emitter paths: standard single-request handlers are parsed directly, and the `query-*` insight/actors wrapper tools are emitted onto `client.query.*` backed by the handwritten wrapper runtime in `src/core/query.ts` (kind injection, ActorsQuery wrapping, retention interval projection). `client.query.run({ query })` remains available for query kinds without a dedicated method.
+Every MCP tool becomes an SDK method, through one of two emitter paths: standard single-request handlers are parsed directly, and the `query-*` insight/actors wrapper tools are emitted onto `client.query.*` backed by the handwritten wrapper runtime in `src/core/query.ts` (kind injection, ActorsQuery wrapping, retention interval projection). Wrapper methods return typed responses (`TrendsQueryResponse`, `ActorsQueryResponse`, …) derived from the app's query schema and exported from the package root. `client.query.run({ query })` remains available for query kinds without a dedicated method; it returns the loose `QueryResponse` unless you supply a type argument.
 
 ## Scripts
 
