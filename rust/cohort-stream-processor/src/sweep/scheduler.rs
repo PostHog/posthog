@@ -77,6 +77,31 @@ pub async fn run_sweep_loop<S: Sweeper>(
     }
 }
 
+/// [`run_sweep_loop`] with its first pass held for `first_delay`; the rest of the cadence is
+/// unchanged. `cancel` is honored during the delay. Keeps the eviction sweep's overdue-eviction read
+/// burst from firing into a cold, idle store during backlog catch-up.
+pub async fn run_sweep_loop_delayed<S: Sweeper>(
+    first_delay: Duration,
+    sweeper: S,
+    interval: Duration,
+    loop_name: &'static str,
+    cancel: CancellationToken,
+) {
+    info!(
+        first_delay_ms = first_delay.as_millis(),
+        loop_name, "sweep loop deferring its first pass"
+    );
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            info!(loop_name, "sweep loop stopping during startup delay");
+            return;
+        }
+        _ = tokio::time::sleep(first_delay) => {}
+    }
+    run_sweep_loop(sweeper, interval, loop_name, cancel).await;
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -155,5 +180,73 @@ mod tests {
         tokio::time::advance(interval * 10).await;
         tokio::task::yield_now().await;
         assert_eq!(count.load(Ordering::SeqCst), after_cancel);
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn delayed_loop_holds_the_first_pass_then_resumes_the_cadence() {
+        let sweeper = CountingSweeper::default();
+        let count = sweeper.count.clone();
+        let cancel = CancellationToken::new();
+        let first_delay = Duration::from_secs(120);
+        let interval = Duration::from_secs(30);
+
+        let handle = tokio::spawn(run_sweep_loop_delayed(
+            first_delay,
+            sweeper,
+            interval,
+            "eviction",
+            cancel.clone(),
+        ));
+
+        // Let the task register its startup sleep at t=0 before advancing the clock.
+        tokio::task::yield_now().await;
+
+        tokio::time::advance(first_delay - Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(count.load(Ordering::SeqCst), 0, "no sweep before the delay");
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "first pass after the delay"
+        );
+        for expected in 2..=4 {
+            tokio::time::advance(interval).await;
+            tokio::task::yield_now().await;
+            assert_eq!(count.load(Ordering::SeqCst), expected);
+        }
+
+        cancel.cancel();
+        handle.await.expect("delayed sweep loop exits cleanly");
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn delayed_loop_cancelled_mid_delay_runs_no_pass() {
+        let sweeper = CountingSweeper::default();
+        let count = sweeper.count.clone();
+        let cancel = CancellationToken::new();
+        let first_delay = Duration::from_secs(120);
+
+        let handle = tokio::spawn(run_sweep_loop_delayed(
+            first_delay,
+            sweeper,
+            Duration::from_secs(30),
+            "eviction",
+            cancel.clone(),
+        ));
+
+        tokio::time::advance(first_delay / 2).await;
+        cancel.cancel();
+        handle.await.expect("cancel mid-delay exits cleanly");
+
+        tokio::time::advance(first_delay * 2).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            0,
+            "cancel before the delay elapsed → no pass"
+        );
     }
 }

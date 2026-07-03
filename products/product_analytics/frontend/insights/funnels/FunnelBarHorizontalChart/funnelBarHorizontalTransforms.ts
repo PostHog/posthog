@@ -1,4 +1,4 @@
-import type { Series } from '@posthog/quill-charts'
+import type { Series, TooltipContext } from '@posthog/quill-charts'
 
 import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelUtils'
 
@@ -7,6 +7,7 @@ import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/typ
 
 import {
     buildFunnelBarHorizontalFiller,
+    FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
     RATE_TO_PERCENT,
     type FunnelBarHorizontalSegmentMeta,
@@ -117,6 +118,69 @@ export function buildFunnelBarHorizontalCompareData(
         })
         return { bars }
     })
+}
+
+export interface FunnelBarHorizontalHoverTarget {
+    /** The breakdown variant (or the whole step) the tooltip should describe. */
+    series: FunnelStepWithConversionMetrics
+    /** True when the cursor is over the drop-off filler rather than a converted segment. */
+    isDropOffHover: boolean
+    /** Swatch color for the tooltip header; unset for whole-step drop-off. */
+    color?: string
+}
+
+type FunnelBarHorizontalHoverContext = Pick<
+    TooltipContext<FunnelBarHorizontalSegmentMeta>,
+    'hoveredSeriesKey' | 'seriesData' | 'hoverPosition'
+>
+
+/** Resolves which breakdown variant a hover maps to. `hoveredSeriesKey` identifies the exact
+ *  stacked segment under the cursor (including the tooltip-hidden drop-off filler) — without it,
+ *  `seriesData` lists every breakdown segment in declaration order and index 0 is just the first
+ *  breakdown, not the hovered one. Returns `null` when there is nothing to describe. */
+export function resolveFunnelBarHorizontalHover(
+    context: FunnelBarHorizontalHoverContext,
+    step: FunnelStepWithConversionMetrics,
+    stepIndex: number
+): FunnelBarHorizontalHoverTarget | null {
+    const { hoveredSeriesKey, seriesData } = context
+    const variantAt = (breakdownIndex: number | null | undefined): FunnelStepWithConversionMetrics =>
+        breakdownIndex != null && step.nested_breakdown?.[breakdownIndex] ? step.nested_breakdown[breakdownIndex] : step
+
+    if (hoveredSeriesKey === FUNNEL_BAR_HORIZONTAL_FILLER_KEY) {
+        // Drop-off region. A lone visible segment (compare bar, plain funnel) shares the filler's
+        // variant, so resolve from it; multiple segments (breakdown) means the whole step's drop-off.
+        // The aggregate step inherits `breakdown_value` from its first variant (aggregateBreakdownResult
+        // spreads it), so clear it — the whole step's drop-off is not one breakdown's.
+        const entry = seriesData.length === 1 ? seriesData[0] : undefined
+        return {
+            series: entry
+                ? variantAt(entry.series.meta?.breakdownIndex)
+                : { ...step, breakdown: undefined, breakdown_value: undefined },
+            isDropOffHover: stepIndex > 0,
+            color: entry?.color,
+        }
+    }
+
+    const hoveredEntry =
+        hoveredSeriesKey != null ? seriesData.find((entry) => entry.series.key === hoveredSeriesKey) : undefined
+    if (hoveredEntry) {
+        return {
+            series: variantAt(hoveredEntry.series.meta?.breakdownIndex),
+            isDropOffHover: false,
+            color: hoveredEntry.color,
+        }
+    }
+
+    // No hovered identity (e.g. a pinned rebuild without a cursor): fall back to the first segment,
+    // inferring drop-off from the cursor sitting past the segment's value-axis end pixel.
+    const entry = seriesData[0]
+    if (!entry) {
+        return null
+    }
+    const isDropOffHover =
+        stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.x > entry.yPixel
+    return { series: variantAt(entry.series.meta?.breakdownIndex), isDropOffHover, color: entry.color }
 }
 
 function buildSingleSegment(

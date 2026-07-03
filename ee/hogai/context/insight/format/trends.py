@@ -2,7 +2,9 @@ from typing import Any
 
 from posthog.schema import AssistantTrendsQuery, Compare, TrendsQuery
 
-from .utils import format_matrix, format_number, replace_breakdown_labels, strip_datetime_seconds
+from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+
+from .utils import format_matrix, format_number, strip_datetime_seconds
 
 
 class TrendsResultsFormatter:
@@ -111,7 +113,7 @@ class TrendsResultsFormatter:
                 breakdown_label = str(series["breakdown_value"])
             name += f" breakdown for the value `{breakdown_label}`"
 
-        return replace_breakdown_labels(name)
+        return humanize_breakdown_label(name)
 
     def _format_results(self, results: list[dict]) -> str:
         # Get dates and series labels

@@ -68,6 +68,13 @@ from products.warehouse_sources.backend.facade.models import (
 
 logger = structlog.get_logger(__name__)
 
+# A DataWarehouseSavedQuery's activity log also records materialization syncs and status
+# transitions (activity="sync_triggered", status changes) that advance the log without the query
+# being edited. Optimistic-concurrency ("modified by someone else") must key off the latest activity
+# that actually changed the query — otherwise every background sync of a materialized view looks
+# like a foreign edit and blocks the next save. This filter scopes activity lookups to query edits.
+QUERY_CHANGE_ACTIVITY_FILTER = {"detail__changes__contains": [{"field": "query"}]}
+
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
 # frontend `DataModelingSyncInterval` type. All values are accepted by
@@ -479,7 +486,11 @@ class DataWarehouseSavedQuerySerializer(
             if validated_data.get("query", None) and not soft_update:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .values_list("id", flat=True)
                     .first()
@@ -559,9 +570,13 @@ class DataWarehouseSavedQuerySerializer(
             if activity_log:
                 self.context["activity_log"] = activity_log
             else:
-                # get latest activity log for this model
+                # get latest query-changing activity log for this model (see QUERY_CHANGE_ACTIVITY_FILTER)
                 latest_activity_log = (
-                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    ActivityLog.objects.filter(
+                        item_id=locked_instance.id,
+                        scope="DataWarehouseSavedQuery",
+                        **QUERY_CHANGE_ACTIVITY_FILTER,
+                    )
                     .order_by("-created_at")
                     .first()
                 )
@@ -831,12 +846,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # This avoids the annotation when we're getting a single object for update/create/etc.
         action = self.action if hasattr(self, "action") else None
         if action == "list" or action == "retrieve":
-            # Add latest activity id annotation to avoid N+1 queries
+            # Add latest query-changing activity id annotation to avoid N+1 queries. Scoped to query
+            # edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs don't advance the head.
             latest_activity = (
                 ActivityLog.objects.filter(
                     scope="DataWarehouseSavedQuery",
                     item_id=Cast(OuterRef("id"), output_field=TextField()),
                     team_id=self.team_id,
+                    **QUERY_CHANGE_ACTIVITY_FILTER,
                 )
                 .order_by("-created_at")
                 .values("id")[:1]

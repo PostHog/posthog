@@ -7,8 +7,15 @@ export interface ChartTheme {
     colors: string[]
     backgroundColor?: string
     axisColor?: string
+    /** Stroke color for the L-shaped axis baselines and tick marks. Falls back to `axisColor`,
+     *  then `gridColor` — set it to mute the lines without muting the tick label text. */
+    axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
@@ -156,6 +163,13 @@ export interface TooltipContext<Meta = unknown> {
          *  distance-to-midpoint, giving correct results regardless of segment size differences. */
         yPixelBottom?: number
     }[]
+    /** Key of the series whose bar/segment is under the cursor. Set only by BarChart's
+     *  cursor narrowing (stacked: the visible segment containing the cursor; grouped: the
+     *  band-slot hit) — `undefined` for other chart types and for pinned rebuilds with no
+     *  cursor. May reference a series hidden from `seriesData` via `visibility.tooltip:
+     *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
+     *  `seriesData` entry exists. */
+    hoveredSeriesKey?: string
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -222,6 +236,12 @@ export interface ChartConfig {
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
     showAxisLines?: boolean
+    /** Draw short tick marks on the axes next to each visible tick label. Pairs with
+     *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
+    showTickMarks?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
