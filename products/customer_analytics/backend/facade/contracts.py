@@ -250,6 +250,16 @@ class CustomPropertyReference:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyOption:
+    """One allowed value of a select custom property. ``id`` is server-assigned and stable across
+    renames so option edits can be diffed; ``color`` is a preset data-color token."""
+
+    label: str = ""
+    color: str = ""
+    id: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
@@ -271,6 +281,7 @@ class CustomPropertyDefinitionView:
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
     source: "CustomPropertySourceView | None" = None
+    options: list[CustomPropertyOption] | None = None
 
 
 @stdlib_dataclass(frozen=True)
