@@ -31,12 +31,15 @@ class TableDescriptions:
         warehouse_descriptions: dict[tuple[str, str], str],
         view_descriptions: dict[tuple[str, str], str],
         view_by_backing_table: dict[str, str],
+        source_table_descriptions: dict[str, str],
     ) -> None:
         # Descriptions keyed by ``(uuid, column_name)`` where ``column_name=""`` is the table/view-level
         # row. `view_by_backing_table` maps a materialized view's backing table UUID to its saved-query UUID.
+        # `source_table_descriptions` maps a warehouse table UUID to its source-native table description.
         self._warehouse = warehouse_descriptions
         self._view = view_descriptions
         self._view_by_backing_table = view_by_backing_table
+        self._source_table = source_table_descriptions
 
     @classmethod
     def load(cls, team_id: Optional[int]) -> "TableDescriptions":
@@ -45,8 +48,9 @@ class TableDescriptions:
         warehouse: dict[tuple[str, str], str] = {}
         view: dict[tuple[str, str], str] = {}
         view_by_backing_table: dict[str, str] = {}
+        source_table: dict[str, str] = {}
         if team_id is None:
-            return cls(warehouse, view, view_by_backing_table)
+            return cls(warehouse, view, view_by_backing_table, source_table)
 
         # Inline imports: keep the products dependency off the hogql import path (products import
         # hogql, so a module-level import would cycle) and off every code path that never resolves
@@ -57,7 +61,10 @@ class TableDescriptions:
             DataWarehouseSavedQuery,
             DataWarehouseSavedQueryColumnAnnotation,
         )
-        from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation  # noqa: PLC0415
+        from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
+            ExternalDataSchema,
+            WarehouseColumnAnnotation,
+        )
 
         try:
             with team_scope(team_id):
@@ -77,11 +84,21 @@ class TableDescriptions:
                     .values_list("table_id", "id")
                 ):
                     view_by_backing_table[str(backing_table_id)] = str(sq_id)
+                # Source-native descriptions live on `ExternalDataSchema` when enrichment didn't write a
+                # table-level annotation. `-updated_at` makes the pick deterministic across duplicates.
+                for table_id, description in (
+                    ExternalDataSchema.objects.filter(team_id=team_id, table_id__isnull=False, deleted=False)
+                    .exclude(description__isnull=True)
+                    .exclude(description="")
+                    .order_by("table_id", "-updated_at")
+                    .values_list("table_id", "description")
+                ):
+                    source_table.setdefault(str(table_id), description)
         except Exception:
             logger.exception("table_descriptions: failed to load annotations", team_id=team_id)
-            return cls({}, {}, {})
+            return cls({}, {}, {}, {})
 
-        return cls(warehouse, view, view_by_backing_table)
+        return cls(warehouse, view, view_by_backing_table, source_table)
 
     def for_table(self, table: Table) -> Optional[str]:
         """Table-level description, dispatching on the table object: the static
@@ -108,8 +125,14 @@ class TableDescriptions:
         return None
 
     def _warehouse_or_view(self, table_id: str, column_name: str) -> Optional[str]:
-        # A materialized view's backing table carries view annotations, not warehouse ones.
+        # A materialized view's backing table carries view annotations, not warehouse ones — resolve it
+        # first so the source-native fallback below never leaks onto a view.
         sq_id = self._view_by_backing_table.get(table_id)
         if sq_id is not None:
             return self._view.get((sq_id, column_name))
-        return self._warehouse.get((table_id, column_name))
+        annotation = self._warehouse.get((table_id, column_name))
+        if annotation is not None:
+            return annotation
+        if column_name == "":
+            return self._source_table.get(table_id)
+        return None

@@ -47,7 +47,11 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
@@ -55,6 +59,10 @@ from products.data_warehouse.backend.facade.api import (
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
+)
+from products.data_warehouse.backend.presentation.views.column_annotation_base import (
+    DESCRIPTION_HELP_TEXT,
+    upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -140,6 +148,29 @@ def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.soft_delete()
 
 
+VIEW_DESCRIPTION_HELP_TEXT = (
+    "Semantic description of what this view represents, surfaced to AI agents. Set it to describe the "
+    "view; send an empty string to clear it. Per-column descriptions are read back in `columns` and set "
+    "via the saved-query column annotation endpoints. " + DESCRIPTION_HELP_TEXT
+)
+
+
+def view_annotation_map(view: DataWarehouseSavedQuery) -> dict[str, str]:
+    """`{column_name: description}` from a view's column annotations (``""`` = view-level)."""
+    return {a.column_name: a.description for a in view.column_annotations.all()}
+
+
+class ViewDescriptionField(serializers.CharField):
+    """View-level description, stored as a column annotation with an empty `column_name`.
+
+    Reads the annotation for display; on write the serializer's create/update upserts or clears it. The
+    view model has no `description` column, so the value is resolved here rather than bound to the model.
+    """
+
+    def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
+        return view_annotation_map(instance).get("")
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -181,6 +212,7 @@ class DataWarehouseSavedQuerySerializerMixin:
 
         context = HogQLContext(team_id=team_id, database=database)
 
+        descriptions = view_annotation_map(view)
         fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
@@ -191,6 +223,7 @@ class DataWarehouseSavedQuerySerializerMixin:
                 fields=field.fields,
                 table=field.table,
                 chain=field.chain,
+                description=descriptions.get(field.name),
             )
             for field in fields
         ]
@@ -203,6 +236,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
 
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    description = ViewDescriptionField(read_only=True, help_text=VIEW_DESCRIPTION_HELP_TEXT)
     sync_frequency = serializers.SerializerMethodField()
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
@@ -217,6 +251,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "name",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
             "columns",
             "status",
@@ -293,6 +328,9 @@ class DataWarehouseSavedQuerySerializer(
     dag_id = serializers.UUIDField(
         write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
     )
+    description = ViewDescriptionField(
+        required=False, allow_blank=True, allow_null=True, help_text=VIEW_DESCRIPTION_HELP_TEXT
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -303,6 +341,7 @@ class DataWarehouseSavedQuerySerializer(
             "query",
             "created_by",
             "created_at",
+            "description",
             "sync_frequency",
             "columns",
             "status",
@@ -344,6 +383,22 @@ class DataWarehouseSavedQuerySerializer(
             },
         }
 
+    def _write_view_description(self, view: DataWarehouseSavedQuery, description: str | None) -> None:
+        team_id = self.context["team_id"]
+        if description:
+            upsert_annotation(
+                DataWarehouseSavedQueryColumnAnnotation,
+                team_id,
+                parent_field="saved_query",
+                parent=view,
+                column_name="",
+                description=description,
+            )
+        else:
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
+                saved_query=view, column_name=""
+            ).delete()
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -366,6 +421,8 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
         # Sync cadence is configured via materialization, not on creation — drop it so it
         # isn't passed to the model constructor.
         validated_data.pop("sync_frequency", None)
@@ -394,6 +451,8 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             view.save()
+            if has_description:
+                self._write_view_description(view, description)
             try:
                 view.setup_model_paths()
             except Exception:
@@ -448,6 +507,8 @@ class DataWarehouseSavedQuerySerializer(
 
     def update(self, instance: Any, validated_data: Any) -> Any:
         dag_id = validated_data.pop("dag_id", None)
+        has_description = "description" in validated_data
+        description = validated_data.pop("description", None)
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
@@ -497,6 +558,9 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance.sync_frequency_interval = sync_frequency_interval
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+
+            if has_description:
+                self._write_view_description(view, description)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
@@ -792,6 +856,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             queryset.prefetch_related(
                 "created_by",
                 "managed_viewset",
+                "column_annotations",
                 Prefetch(
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),

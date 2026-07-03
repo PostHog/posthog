@@ -197,6 +197,7 @@ class SerializedField:
     fields: list[str] | None = None
     table: str | None = None
     chain: list[str | int] | None = None
+    description: str | None = None
 
 
 @dataclasses.dataclass
