@@ -889,6 +889,18 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
                 "permission for 'projects/some-project'"
             )
         ),
+        # Storage Read API stream-read denial — the session can be created but the account lacks
+        # `bigquery.readsessions.getData`. `str(PermissionDenied)` is "there was an error operating
+        # on '.../streams/...': the user does not have 'bigquery.readsessions.getData' permission for
+        # '...'", which neither the "Access Denied:" / "403 request failed" nor the readsessions.create
+        # keys cover.
+        str(
+            PermissionDenied(
+                "there was an error operating on 'projects/some-project/locations/us/sessions/sess/"
+                "streams/strm': the user does not have 'bigquery.readsessions.getData' permission for "
+                "'projects/some-project/locations/us/sessions/sess/streams/strm'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
@@ -896,20 +908,38 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
     assert any(key in observed_error for key in non_retryable_errors)
 
 
-def test_temp_table_write_denial_surfaces_write_permission_guidance():
-    # A tables.update denial on a PostHog temp table also contains "Access Denied:", so both keys
-    # match. external_data_job surfaces the first matching key's message, so the write-specific key
-    # must sit above "Access Denied:" — otherwise the customer is told to grant read access to fix a
-    # write failure.
-    observed_error = str(
-        Forbidden(
-            "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
-            "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
-        )
-    )
+@pytest.mark.parametrize(
+    "observed_error,expected_key",
+    [
+        # Writing into a PostHog temp table needs bigquery.tables.update...
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
+                    "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.update",
+        ),
+        # ...and creating it needs bigquery.tables.create.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Dataset prj:ds: Permission bigquery.tables.create denied on dataset "
+                    "prj:ds (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.create",
+        ),
+    ],
+)
+def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key):
+    # These denials also contain "Access Denied:", so both keys match. external_data_job surfaces the
+    # first matching key's message, so each write-specific key must sit above "Access Denied:" —
+    # otherwise the customer is told to grant read access to fix a write failure.
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
-    assert first_key == "bigquery.tables.update"
+    assert first_key == expected_key
     assert friendly is not None
     assert "write access" in friendly
 
