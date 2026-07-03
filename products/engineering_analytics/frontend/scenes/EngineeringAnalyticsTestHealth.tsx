@@ -47,14 +47,14 @@ function LifecycleTag({ lifecycle }: { lifecycle: QuarantineLifecycle }): JSX.El
             return <LemonTag type="warning">Expiring soon</LemonTag>
         case 'in_grace':
             return (
-                <Tooltip title="Expired, but inside the 7-day grace — the quarantine check only warns for now.">
+                <Tooltip title="Expired, but inside the 7-day grace period. The quarantine check only warns for now.">
                     <LemonTag type="warning">In grace</LemonTag>
                 </Tooltip>
             )
         default:
             return (
-                <Tooltip title="Expired beyond the grace period — the quarantine check workflow fails until it is removed or re-triaged.">
-                    <LemonTag type="danger">Overdue — blocks CI</LemonTag>
+                <Tooltip title="Expired beyond the grace period. The quarantine check workflow fails until the entry is removed or re-triaged.">
+                    <LemonTag type="danger">Overdue · blocks CI</LemonTag>
                 </Tooltip>
             )
     }
@@ -219,7 +219,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             {row.selectorKind}
                         </LemonTag>
                         {row.runner !== 'pytest' && (
-                            <Tooltip title="No enforcement adapter yet — entry is informational.">
+                            <Tooltip title="No enforcement adapter yet. This entry is informational.">
                                 <LemonTag type="muted" size="small">
                                     {row.runner}
                                 </LemonTag>
@@ -464,7 +464,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No quarantined tests — nothing is masked right now.'
+                        'No quarantined tests. Nothing is masked right now.'
                     )
                 }
                 nouns={['quarantined test', 'quarantined tests']}
@@ -472,8 +472,8 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
 
             <div className="text-xs text-tertiary">
                 Quarantine is checked into <span className="font-mono">.test_quarantine.json</span> and enforced by CI.
-                Quarantining, extending, or removing opens a pull request — the file stays the source of truth. A merged
-                edit only affects CI runs that start after it lands.
+                Quarantining, extending, or removing opens a pull request, so the file stays the source of truth. A
+                merged edit only affects CI runs that start after it lands.
             </div>
             {modalElement}
         </div>

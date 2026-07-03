@@ -98,7 +98,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                 <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
-                        Couldn't load this workflow run — it may not exist in the connected GitHub source.
+                        Couldn't load this workflow run. It may not exist in the connected GitHub source.
                     </span>
                     <LemonButton type="secondary" size="small" onClick={loadRun} loading={runLoading}>
                         Retry
@@ -217,56 +217,38 @@ export function WorkflowRunDetailScene(): JSX.Element {
                     <div className="flex flex-wrap gap-2.5">
                         <MetricTile
                             label="Duration"
+                            tooltip="Wall-clock time of the run."
                             value={run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
-                            sub={
-                                jobs && jobs.length > 0
-                                    ? `wall-clock — the critical path of ${pluralize(jobs.length, 'job')}`
-                                    : 'wall-clock'
-                            }
                         />
                         <MetricTile
                             label="Queue time"
+                            tooltip="From run started to the first job starting."
                             value={queueSeconds != null ? humanFriendlyDuration(queueSeconds) : '—'}
-                            sub="run started → first job started"
                         />
-                        <MetricTile
-                            label="Jobs"
-                            value={jobs ? `${jobs.length}` : '—'}
-                            sub={jobRollupLabel ?? 'not loaded yet'}
-                        />
+                        <MetricTile label="Jobs" tooltip={jobRollupLabel} value={jobs ? `${jobs.length}` : '—'} />
                         <MetricTile
                             label="Estimated cost"
-                            value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
-                            sub={
+                            tooltip={
                                 runCost
-                                    ? `${formatMinutes(runCost.billableMinutes)} billable × tier rate${
+                                    ? `${formatMinutes(runCost.billableMinutes)} billable × runner-tier rate${
                                           runCost.unsettledJobs > 0
                                               ? ` · ${pluralize(runCost.unsettledJobs, 'unsettled job')} excluded`
                                               : ''
-                                      }`
-                                    : 'needs the job-level source'
+                                      }.`
+                                    : 'Available once the job-level source is synced.'
                             }
+                            value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
                         />
                     </div>
 
                     <div className="flex flex-col gap-2">
-                        <div className="flex items-baseline gap-2">
-                            <h3 className="mb-0">Jobs</h3>
-                            <span className="text-xs text-tertiary">
-                                grouped by matrix — failing groups first, expand a group for its shards
-                            </span>
-                        </div>
+                        <h3 className="mb-0">Jobs</h3>
                         <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
                     </div>
 
                     {isDecisiveFailure(run.conclusion) && (
                         <div className="flex flex-col gap-2">
-                            <div className="flex items-baseline gap-2">
-                                <h3 className="mb-0">Failure logs</h3>
-                                <span className="text-xs text-tertiary">
-                                    thinned to the lines that matter — full logs on GitHub
-                                </span>
-                            </div>
+                            <h3 className="mb-0">Failure logs</h3>
                             <FailureLogGroups
                                 jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
                                 logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}

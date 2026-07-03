@@ -187,8 +187,6 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
 
     // Not necessarily the last node's time: head-SHA runs can outlive the merge.
     const totalTo = summary.mergedAt ?? summary.closedAt ?? nodes[nodes.length - 1].at
-    const endLabel = summary.mergedAt ? 'merged' : summary.closedAt ? 'closed' : 'still open'
-    const subtitle = commitGroups.length ? `opened → latest push → ${endLabel}` : `opened → ${endLabel}`
     const connector = (dashed: boolean | undefined): string =>
         dashed ? 'w-full border-t border-dashed border-border-bold' : 'h-px w-full bg-border-bold'
 
@@ -199,10 +197,6 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
 
     return (
         <LemonCard hoverEffect={false} className="px-5 py-4">
-            <div className="mb-3 flex items-baseline gap-2">
-                <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Lifecycle</span>
-                <span className="text-xs text-tertiary">{subtitle}</span>
-            </div>
             <div className="flex items-center gap-6">
                 <div className="flex min-w-0 flex-1 items-stretch">
                     {nodes.map((node, index) => (
@@ -435,9 +429,8 @@ function PerPushRunsTable({
     )
 }
 
-/** The PR's CI rolled up per workflow: latest state, what failed (by job name), runs / p50 / cost on
- *  this PR. Expands (caret only) to the per-push runs — jobs always need their run as context, so the
- *  run link is the drill-down. */
+/** The PR's CI rolled up per workflow: latest state, what failed (by job name), runs / p50 / cost.
+ *  Expands (caret only) to the per-push runs. */
 function PrWorkflowsTable({
     rows,
     filteredRuns,
@@ -523,14 +516,14 @@ function PrWorkflowsTable({
             },
         },
         {
-            title: 'Runs on this PR',
+            title: 'Runs',
             key: 'runCount',
             align: 'right',
             sorter: (a, b) => a.runCount - b.runCount,
             render: (_, row) => <span className="text-xs tabular-nums">{row.runCount}</span>,
         },
         {
-            title: 'p50 on this PR',
+            title: 'P50',
             key: 'p50',
             align: 'right',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
@@ -543,7 +536,7 @@ function PrWorkflowsTable({
         ...((showCost
             ? [
                   {
-                      title: 'Cost on this PR',
+                      title: 'Cost',
                       key: 'cost',
                       align: 'right',
                       sorter: (a: WorkflowHealthRow, b: WorkflowHealthRow) =>
@@ -634,7 +627,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
-                        Couldn't load this pull request — it may not exist in the connected GitHub source.
+                        Couldn't load this pull request. It may not exist in the connected GitHub source.
                     </span>
                     <LemonButton type="secondary" size="small" onClick={loadLifecycle} loading={lifecycleLoading}>
                         Retry
@@ -720,21 +713,21 @@ export function PullRequestDetailScene(): JSX.Element {
                     />
                     <div className="flex flex-wrap gap-2.5">
                         <MetricTile
-                            label="CI verdict · latest push"
+                            label="Latest push"
+                            tooltip="Workflows green on the newest commit, one verdict per workflow."
                             value={latestPushStats ? `${latestPushStats.green} / ${latestPushStats.total}` : '—'}
-                            valueSuffix="checks green"
+                            valueSuffix={latestPushStats ? 'passing' : undefined}
                             sub={
-                                latestPushStats == null
-                                    ? 'no CI runs attributed yet'
-                                    : latestPushStats.failingWorkflows.length > 0
-                                      ? `${latestPushStats.failingWorkflows.slice(0, 3).join(' + ')} failing`
-                                      : latestPushStats.running > 0
-                                        ? `${latestPushStats.running} still running`
-                                        : 'all workflows settled'
+                                latestPushStats && latestPushStats.failingWorkflows.length > 0
+                                    ? `${latestPushStats.failingWorkflows.slice(0, 3).join(', ')} failing`
+                                    : latestPushStats && latestPushStats.running > 0
+                                      ? `${latestPushStats.running} still running`
+                                      : undefined
                             }
                         />
                         <MetricTile
-                            label="Pushes → CI triggers"
+                            label="Pushes"
+                            tooltip="Commits that triggered CI on this pull request."
                             value={`${pushes}`}
                             delta={
                                 rerunCycles > 0 ? (
@@ -743,22 +736,18 @@ export function PullRequestDetailScene(): JSX.Element {
                                     </span>
                                 ) : undefined
                             }
-                            sub={
-                                rerunCycles > 0
-                                    ? `${pluralize(rerunCycles, 'manual re-run cycle')} on top`
-                                    : 'no manual re-runs'
-                            }
                         />
                         <MetricTile
-                            label="CI cost so far"
-                            value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
-                            sub={
+                            label="CI cost"
+                            tooltip={
                                 prCost?.jobs_available
                                     ? `${compactUsd(
                                           (prCost.estimated_cost_usd ?? 0) / Math.max(1, pushes)
-                                      )} per push${prCost.unsettled_jobs > 0 ? ` · ${pluralize(prCost.unsettled_jobs, 'unsettled job')} excluded` : ''}`
-                                    : 'needs the job-level source'
+                                      )} per push${prCost.unsettled_jobs > 0 ? ` · ${pluralize(prCost.unsettled_jobs, 'unsettled job')} excluded` : ''}.`
+                                    : 'Available once the job-level source is synced.'
                             }
+                            value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
+                            sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
                         />
                         <MetricTile
                             label={
@@ -768,11 +757,6 @@ export function PullRequestDetailScene(): JSX.Element {
                                 summary?.openedAt ?? pullRequest.created_at,
                                 summary?.mergedAt ?? summary?.closedAt ?? dayjs().toISOString()
                             )}
-                            sub={
-                                <>
-                                    opened <TZLabel time={summary?.openedAt ?? pullRequest.created_at} />
-                                </>
-                            }
                         />
                     </div>
                 </>
@@ -782,17 +766,13 @@ export function PullRequestDetailScene(): JSX.Element {
 
             <SectionNav
                 items={[
-                    { id: 'pr-timeline', label: 'Timeline' },
+                    { id: 'pr-timeline', label: 'Lifecycle' },
                     { id: 'pr-runs', label: 'CI runs' },
                     { id: 'pr-failures', label: 'Failures' },
                 ]}
             />
 
-            <Section
-                id="pr-timeline"
-                title="Lifecycle"
-                note="every push triggers CI — red nodes had at least one failing workflow"
-            >
+            <Section id="pr-timeline" title="Lifecycle">
                 {summary && pullRequest ? (
                     <LifecycleStrip
                         summary={summary}
@@ -806,8 +786,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
             <Section
                 id="pr-runs"
-                title="CI runs · by workflow"
-                note="attribution is by PR number, so every push is captured — expand a workflow for its runs per push"
+                title="CI runs"
                 right={
                     runs.length > 0 ? (
                         <span className="text-xs text-secondary">
@@ -861,11 +840,7 @@ export function PullRequestDetailScene(): JSX.Element {
             </Section>
 
             {failed > 0 && (
-                <Section
-                    id="pr-failures"
-                    title="Failures"
-                    note="thinned failure logs across all of this PR's pushes, grouped by job"
-                >
+                <Section id="pr-failures" title="Failures">
                     <FailureLogGroups
                         jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
                         logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
@@ -879,10 +854,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 </Section>
             )}
 
-            <div className="text-xs text-tertiary">
-                CI runs attributed to this pull request across all its commits — review and comment activity isn't
-                tracked yet.
-            </div>
+            <div className="text-xs text-tertiary">Review and comment activity isn't tracked yet.</div>
         </SceneContent>
     )
 }

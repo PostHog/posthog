@@ -26,11 +26,9 @@ import type { repoOverviewLogicType } from './repoOverviewLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-// The triage section is deliberately pinned to the last 24 hours regardless of the shared window — at
-// this repo's volume a week of failures is a firehose; "Now" means now.
+// Pinned to 24h regardless of the shared window — a week of failures is a firehose at monorepo volume.
 const MASTER_FAILURES_WINDOW = '-24h'
 
-// Leaderboard cards stay readable at this depth; the full lists live on the list pages.
 const TOP_COST_WORKFLOWS = 5
 
 export interface CostShareRow {
@@ -39,14 +37,10 @@ export interface CostShareRow {
     share: number
 }
 
-// The master-health cards are real HogQL insights over the physical warehouse table, so "Open as
-// insight" hands the user the exact same query. The SQL mirrors the backend bucket query
-// (repo_overview._BUCKET_SELECT): raw warehouse columns are strings, so every timestamp goes
-// through parseDateTimeBestEffort exactly like the curated builder does.
+// Warehouse timestamps are strings — parse like the curated builders do (repo_overview._BUCKET_SELECT).
 const RUN_STARTED_AT = 'parseDateTimeBestEffort(run_started_at)'
 
-// Warehouse table names are plain identifiers (prefix validated at connect time); refuse to
-// interpolate anything else into SQL.
+// Refuse to interpolate anything but a plain identifier into SQL.
 const TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // Backend granularity ladder (workflow_health._pick_granularity): hour ≤48h, day ≤90d, else week.
@@ -124,7 +118,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     })),
 
     actions({
-        // Fired by the failures table on caret expand; loads that group's latest run's logs once.
         loadLogsForRun: (runId: number) => ({ runId }),
     }),
 
@@ -150,8 +143,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     }),
             },
         ],
-        // Per-run failure-log excerpts, fetched lazily on first expand. 'unavailable' marks a fetch that
-        // failed (e.g. the Logs product has no table locally) so we don't retry on every expand.
+        // 'unavailable' marks a failed fetch so we don't retry on every expand.
         failureLogs: [
             {} as Record<number, RunFailureLogsApi | 'unavailable'>,
             {
@@ -175,8 +167,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     })),
 
     reducers({
-        // Genuine (non-400) failure of the hub's own headline loader; the shared 400 "not connected"
-        // state comes from engineeringAnalyticsLogic, whose loaders this page also renders.
+        // Non-400 failure only; the shared 400 "not connected" state comes from engineeringAnalyticsLogic.
         overviewFailed: [
             false,
             {
@@ -190,14 +181,12 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     selectors({
         jobsAvailable: [(s) => [s.overview], (overview): boolean => overview?.jobs_available ?? false],
         defaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
-        // Distinct workflows currently failing on the default branch — the hub's one-glance verdict.
         failingWorkflowCount: [
             (s) => [s.masterFailures],
             (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
         ],
-        // The physical warehouse table behind the master-health embeds. The backend resolves this
-        // per-team from the source's synced schemas (logic/sources.py); the embeds mirror the
-        // `prefix + github_workflow_runs` naming from the same sources list the picker shows.
+        // The warehouse table behind the master-health embeds, mirroring the backend's per-team
+        // `prefix + github_workflow_runs` resolution (logic/sources.py).
         runsTableName: [
             (s) => [s.githubSources, s.sourceId],
             (githubSources, sourceId): string | null => {
@@ -243,8 +232,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 return sql ? masterHealthNode(sql, ChartDisplayType.ActionsBar, 'failed_runs') : null
             },
         ],
-        // The attention slice of the open backlog: failing CI or stuck (open >7d, non-draft, non-bot).
-        // Never the full open list — that's the PR list page.
+        // Open PRs with failing CI or stuck (open >7d, non-draft, non-bot) — not the full open list.
         attentionPrs: [
             (s) => [s.pullRequests],
             (pullRequests): PullRequestRow[] => {
@@ -299,8 +287,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 actions.loadFailureLogs({ runId })
             }
         },
-        // The shared window scopes the overview; the failures feed is pinned to -24h and only re-reads on
-        // source changes (via engineeringAnalyticsLogic.refresh → its own loaders, mirrored here).
+        // The failures feed is pinned to -24h, so it only re-reads on source change / refresh.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadOverview()
         },

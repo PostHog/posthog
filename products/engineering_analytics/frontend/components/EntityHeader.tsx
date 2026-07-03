@@ -1,6 +1,4 @@
-// The identical entity-header skeleton at every level of the lens stack: icon square · title
-// (+muted suffix) · mono slug line (links, context) · verdict pill on the right. The repo, a
-// workflow, a run, a PR, and an author all open with exactly this shape.
+// Shared entity header: icon square · title (+muted suffix) · mono slug line · verdict pill.
 
 import { ReactNode } from 'react'
 
@@ -48,7 +46,6 @@ export function EntityHeader({
     slug,
     right,
 }: {
-    /** Icon shown in the bordered square; omit for text-only entities (authors). */
     icon?: ReactNode
     title: string
     /** Muted addition after the title (e.g. the run id). */

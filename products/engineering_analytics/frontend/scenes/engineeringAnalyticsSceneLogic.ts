@@ -8,10 +8,9 @@ import type { engineeringAnalyticsSceneLogicType } from './engineeringAnalyticsS
 export type EngineeringAnalyticsView = 'hub' | 'pull-requests' | 'workflows' | 'test-health'
 
 export const VIEW_DESCRIPTIONS: Record<EngineeringAnalyticsView, string> = {
-    hub: 'CI health and cost for the connected repo — failures, pull requests, workflows, and spend in one place.',
+    hub: 'CI health, pull requests, workflows, and cost for the connected repo.',
     'pull-requests': 'Pull requests and their CI status across connected repos.',
-    workflows:
-        'Workflow health across the fleet — pass rate, duration, re-run pressure, and cost for the scoped window and branch.',
+    workflows: 'Run volume, success rate, and duration per workflow over the selected window.',
     'test-health': 'Flaky tests under quarantine: what is masked, who owns it, and when it expires.',
 }
 

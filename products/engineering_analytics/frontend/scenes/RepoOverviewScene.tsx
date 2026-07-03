@@ -1,28 +1,26 @@
-// The repo hub — the landing page of the lens stack. One entity-page skeleton: scope bar → stat tiles
-// with deltas → section jumper → fixed section rhythm (failing on master, master health, PRs needing
-// attention, workflows, cost). Facets are sections here, not tabs.
+// The repo hub landing page: stat tiles with deltas, then master health, failing runs, PRs needing
+// attention, workflows, and cost as sections on one page.
 
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconBox, IconOpenSidebar } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBox } from '@posthog/icons'
+import { LemonCard, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import type { DataVisualizationNode } from '~/queries/schema/schema-general'
-
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { EntityHeader, VerdictPill } from '../components/EntityHeader'
+import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
-import { Section, SectionNav } from '../components/Section'
+import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { GitHubSourceApi, MasterFailureGroupApi } from '../generated/api.schemas'
@@ -30,34 +28,28 @@ import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUs
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
 
-const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', 'var(--purple)', 'var(--danger)']
+const SHARE_COLORS = [
+    'var(--data-color-1)',
+    'var(--data-color-2)',
+    'var(--data-color-3)',
+    'var(--data-color-4)',
+    'var(--data-color-5)',
+]
 
-// The hub is a summary, not the list surface — short pages keep every section above the fold-ish;
-// the dedicated list pages keep the full 50-per-page tables.
+// The hub shows capped tables; the dedicated list pages keep the full 50-per-page tables.
 const HUB_TABLE_PAGE_SIZE = 8
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
 }
 
-function RepoEntityHeader({
-    repoFullName,
-    failingWorkflowCount,
-    failuresLoading,
-    defaultBranch,
-}: {
-    repoFullName: string
-    failingWorkflowCount: number
-    failuresLoading: boolean
-    defaultBranch: string
-}): JSX.Element {
+function RepoEntityHeader({ repoFullName }: { repoFullName: string }): JSX.Element {
     const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
     return (
         <EntityHeader
             icon={<IconBox />}
             title={name}
-            // No slug line when the source hasn't reported a repo name — placeholder text reads worse
-            // than nothing.
+            // No slug line when the source hasn't reported a repo name yet.
             slug={
                 repoFullName ? (
                     <>
@@ -69,50 +61,49 @@ function RepoEntityHeader({
                     </>
                 ) : undefined
             }
-            right={
-                failuresLoading ? undefined : failingWorkflowCount > 0 ? (
-                    <VerdictPill kind="danger">
-                        {failingWorkflowCount === 1
-                            ? `1 workflow failing on ${defaultBranch}`
-                            : `${failingWorkflowCount} workflows failing on ${defaultBranch}`}
-                    </VerdictPill>
-                ) : (
-                    <VerdictPill kind="success">Nothing failing on {defaultBranch}</VerdictPill>
-                )
-            }
         />
     )
 }
 
-/** One master-health insight embed: a real HogQL query the user can lift out into a saved insight. */
-function MasterHealthCard({
-    title,
-    query,
-    uniqueKey,
-    footnote,
+/** Default-branch verdict tile: a calm dot when clean, a red "N failing" that jumps to the triage table. */
+function MasterStatusTile({
+    failingCount,
+    loading,
+    defaultBranch,
 }: {
-    title: string
-    query: DataVisualizationNode
-    uniqueKey: string
-    footnote?: string
+    failingCount: number
+    loading: boolean
+    defaultBranch: string
 }): JSX.Element {
+    const failing = failingCount > 0
+    const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
+    const status = loading ? 'Checking…' : failing ? `${failingCount} failing` : 'Passing'
     return (
-        <LemonCard hoverEffect={false} className="p-4">
-            <div className="mb-2 flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold text-secondary">{title}</h3>
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconOpenSidebar />}
-                    to={urls.insightNew({ query })}
-                    tooltip="Open this query in the SQL editor to tweak it, save it as an insight, or add it to a dashboard"
+        <LemonCard
+            hoverEffect={failing}
+            onClick={failing ? () => scrollToSection('now') : undefined}
+            className="flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4"
+        >
+            <Tooltip title="Workflows failing on the default branch in the last 24 hours.">
+                <span className="self-start cursor-default text-xs text-secondary">
+                    {defaultBranch === 'main' ? 'Main' : 'Master'}
+                </span>
+            </Tooltip>
+            <span className="flex items-center gap-2">
+                <span
+                    className="inline-block size-2.5 shrink-0 rounded-full"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ backgroundColor: dotColor }}
+                />
+                <span
+                    className={cn(
+                        'text-2xl font-semibold leading-none',
+                        loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
+                    )}
                 >
-                    Open as insight
-                </LemonButton>
-            </div>
-            <div className="h-64">
-                <Query uniqueKey={uniqueKey} query={query} readOnly />
-            </div>
-            {footnote && <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">{footnote}</div>}
+                    {status}
+                </span>
+            </span>
         </LemonCard>
     )
 }
@@ -124,11 +115,7 @@ function MasterFailuresSection(): JSX.Element {
     const { sourceId } = useValues(engineeringAnalyticsLogic)
 
     return (
-        <Section
-            id="now"
-            title={`Failing on ${defaultBranch}`}
-            note="last 24 hours, grouped by workflow and failing job — expand a group for its failure logs"
-        >
+        <Section id="now" title={`Failing on ${defaultBranch}`} note="Last 24 hours">
             <LemonCard hoverEffect={false} className="p-0">
                 <LemonTable<MasterFailureGroupApi>
                     dataSource={masterFailures}
@@ -244,8 +231,7 @@ function MasterFailuresSection(): JSX.Element {
                     nouns={['failure group', 'failure groups']}
                 />
                 <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                    PR-branch failures are deliberately not listed here — they surface on each pull request page and in
-                    the attention slice below.
+                    PR-branch failures appear on each pull request's page.
                 </div>
             </LemonCard>
         </Section>
@@ -306,14 +292,17 @@ export function RepoOverviewScene(): JSX.Element {
                         ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
                         : githubSources[0]?.repo) || ''
                 }
-                failingWorkflowCount={failingWorkflowCount}
-                failuresLoading={masterFailuresLoading}
-                defaultBranch={defaultBranch}
             />
 
             <div className="flex flex-wrap gap-2.5">
+                <MasterStatusTile
+                    failingCount={failingWorkflowCount}
+                    loading={masterFailuresLoading}
+                    defaultBranch={defaultBranch}
+                />
                 <MetricTile
                     label="Pass rate"
+                    tooltip="Workflow-level, across all branches."
                     value={percent(overview?.success_rate)}
                     delta={
                         <DeltaBadge
@@ -321,16 +310,19 @@ export function RepoOverviewScene(): JSX.Element {
                             unit="pp"
                         />
                     }
-                    sub="workflow-level, all branches"
                 />
                 <MetricTile
                     label="Runs"
                     value={compactCount(overview?.run_count)}
                     delta={<DeltaBadge value={percentChange(overview?.run_count, overview?.run_count_prev)} />}
-                    sub="all branches and workflows"
                 />
                 <MetricTile
                     label="CI cost"
+                    tooltip={
+                        jobsAvailable
+                            ? `Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate.`
+                            : 'Available once the job-level source is synced.'
+                    }
                     value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
                     delta={
                         jobsAvailable ? (
@@ -340,14 +332,11 @@ export function RepoOverviewScene(): JSX.Element {
                             />
                         ) : undefined
                     }
-                    sub={
-                        jobsAvailable
-                            ? `${compactMinutes(overview?.billable_minutes)} billable × tier rate`
-                            : 'job-level source not synced'
-                    }
+                    sub={jobsAvailable ? undefined : 'Job-level source not synced'}
                 />
                 <MetricTile
                     label="Median PR open→merge"
+                    tooltip="Created to merged, over PRs merged in the window. Bots and drafts excluded."
                     value={compactHours(overview?.median_open_to_merge_seconds)}
                     valueSuffix={compactHoursUnit(overview?.median_open_to_merge_seconds)}
                     delta={
@@ -364,10 +353,10 @@ export function RepoOverviewScene(): JSX.Element {
                             goodWhenDown
                         />
                     }
-                    sub="bots and drafts excluded"
                 />
                 <MetricTile
                     label="Re-run cycles"
+                    tooltip="Runs with attempt > 1 in the window."
                     value={compactCount(overview?.rerun_cycles)}
                     delta={
                         <DeltaBadge
@@ -375,39 +364,32 @@ export function RepoOverviewScene(): JSX.Element {
                             goodWhenDown
                         />
                     }
-                    sub="runs with attempt > 1"
                 />
             </div>
 
             <SectionNav
                 items={[
-                    { id: 'now', label: 'Now' },
                     { id: 'master', label: `${defaultBranch === 'main' ? 'Main' : 'Master'} health` },
+                    { id: 'now', label: `Failing on ${defaultBranch}` },
                     { id: 'prs', label: 'Pull requests' },
                     { id: 'workflows', label: 'Workflows' },
                     { id: 'cost', label: 'Cost' },
                 ]}
             />
 
-            <MasterFailuresSection />
-
-            <Section
-                id="master"
-                title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}
-                note="the default branch gets its own trend — not buried in a filter"
-            >
+            <Section id="master" title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}>
                 {masterSuccessRateQuery && masterFailedRunsQuery ? (
                     <div className="grid gap-2.5 lg:grid-cols-2">
-                        <MasterHealthCard
+                        <QueryCard
                             title={`Success rate on ${defaultBranch}`}
                             query={masterSuccessRateQuery}
                             uniqueKey="engineering-analytics-master-success-rate"
                         />
-                        <MasterHealthCard
+                        <QueryCard
                             title={`Failed runs on ${defaultBranch}`}
+                            description={`Completed runs on ${defaultBranch} whose conclusion wasn't success.`}
                             query={masterFailedRunsQuery}
                             uniqueKey="engineering-analytics-master-failed-runs"
-                            footnote={`Completed runs on ${defaultBranch} whose conclusion wasn't success.`}
                         />
                     </div>
                 ) : (
@@ -417,11 +399,9 @@ export function RepoOverviewScene(): JSX.Element {
                 )}
             </Section>
 
-            <Section
-                id="prs"
-                title="Pull requests needing attention"
-                note="the failing / stuck slice of the open backlog — never the full list"
-            >
+            <MasterFailuresSection />
+
+            <Section id="prs" title="Pull requests needing attention">
                 <div className="mb-2 flex flex-wrap gap-2 text-xs text-secondary">
                     <span>
                         <strong className="text-primary">{cards ? humanFriendlyNumber(cards.openPrs) : '…'}</strong>{' '}
@@ -454,17 +434,13 @@ export function RepoOverviewScene(): JSX.Element {
                     />
                     <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
                         Showing {attentionPrs.length} of {cards ? humanFriendlyNumber(cards.openPrs) : '…'} open pull
-                        requests —{' '}
-                        <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>view all →</Link>
+                        requests ·{' '}
+                        <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>View all</Link>
                     </div>
                 </LemonCard>
             </Section>
 
-            <Section
-                id="workflows"
-                title="Workflows"
-                note="every row opens the workflow page — same skeleton, one level down"
-            >
+            <Section id="workflows" title="Workflows">
                 <LemonCard hoverEffect={false} className="p-0">
                     <WorkflowHealthTable
                         rows={workflowHealth}
@@ -477,7 +453,7 @@ export function RepoOverviewScene(): JSX.Element {
                     />
                     <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
                         Showing top {Math.min(HUB_TABLE_PAGE_SIZE, workflowHealth.length)} of {workflowHealth.length}{' '}
-                        workflows —{' '}
+                        workflows ·{' '}
                         <Link
                             to={
                                 // A bare link would reset the shared window/branch scope (the filters logic
@@ -490,15 +466,15 @@ export function RepoOverviewScene(): JSX.Element {
                                 }).url
                             }
                         >
-                            view all →
+                            View all
                         </Link>
                     </div>
                 </LemonCard>
             </Section>
 
-            <Section id="cost" title="Cost" note="where the window's spend goes">
+            <Section id="cost" title="Cost">
                 {jobsAvailable && costByWorkflow.length > 0 ? (
-                    <LemonCard hoverEffect={false} className="p-4 lg:max-w-xl">
+                    <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
                         {costByWorkflow.map((row, i) => (
                             <ShareRow
@@ -531,7 +507,7 @@ export function RepoOverviewScene(): JSX.Element {
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
                         {jobsAvailable
                             ? 'No costable jobs in the window.'
-                            : 'Cost needs the job-level source (github_workflow_jobs) — not synced for this team yet.'}
+                            : 'Cost data will appear once the job-level source (github_workflow_jobs) is synced.'}
                     </LemonCard>
                 )}
             </Section>

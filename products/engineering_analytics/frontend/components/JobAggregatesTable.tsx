@@ -1,8 +1,5 @@
-// The workflow page's jobs table: one row per de-sharded job name (the backend strips the matrix
-// "(G/N)" suffix with the same rule the frontend's jobGroups uses), with the per-job numbers that
-// explain a workflow's behavior — run share (conditional jobs skip), queue wait, duration spread,
-// failure rate, retry pressure, and billable cost. Jobs never get standalone pages; a job always needs
-// its run as context, so drill-downs happen by expanding a run below.
+// One row per de-sharded job name (the backend strips the matrix "(G/N)" suffix with the same rule as
+// jobGroups). Jobs get no standalone pages — a job always needs its run as context.
 
 import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -12,7 +9,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import type { WorkflowJobAggregateApi } from '../generated/api.schemas'
 import { compactUsd, percent } from '../lib/format'
 import { BillableBadge } from './BillableBadge'
-import { RangeBar } from './RangeBar'
 
 function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
@@ -28,9 +24,6 @@ export function JobAggregatesTable({
     /** The workflow's total window cost — the denominator of each job's cost share. */
     totalCostUsd: number | null
 }): JSX.Element {
-    // One scale across rows so duration compares visually down the column.
-    const maxP95 = Math.max(...aggregates.map((row) => row.p95_seconds ?? 0), 1)
-
     return (
         <LemonTable<WorkflowJobAggregateApi>
             dataSource={aggregates}
@@ -54,7 +47,7 @@ export function JobAggregatesTable({
                     title: 'Runs in',
                     key: 'runShare',
                     align: 'right',
-                    tooltip: 'Share of workflow runs this job actually ran in — conditional jobs skip runs.',
+                    tooltip: 'Share of workflow runs this job ran in. Below 100% means the job is conditional.',
                     sorter: (a, b) => (a.run_share ?? -1) - (b.run_share ?? -1),
                     render: (_, row) => (
                         <span
@@ -72,7 +65,7 @@ export function JobAggregatesTable({
                     title: 'Queue p50',
                     key: 'queue',
                     align: 'right',
-                    tooltip: 'Median created → started wait — where runner-capacity problems hide.',
+                    tooltip: 'Median wait from job created to started. Long waits point to runner capacity problems.',
                     sorter: (a, b) => (a.queue_p50_seconds ?? -1) - (b.queue_p50_seconds ?? -1),
                     render: (_, row) => (
                         <span className="text-xs tabular-nums text-tertiary">
@@ -81,27 +74,26 @@ export function JobAggregatesTable({
                     ),
                 },
                 {
-                    title: 'p50 → p95',
+                    title: 'P50',
                     key: 'duration',
                     align: 'right',
+                    tooltip: 'Median job duration over completed instances.',
                     sorter: (a, b) => (a.p50_seconds ?? -1) - (b.p50_seconds ?? -1),
-                    render: (_, row) =>
-                        row.p50_seconds == null ? (
-                            <span className="text-xs text-secondary">—</span>
-                        ) : (
-                            <span className="inline-block text-right">
-                                <span className="text-xs tabular-nums whitespace-nowrap">
-                                    {formatSeconds(row.p50_seconds)}{' '}
-                                    <span className="text-tertiary">→ {formatSeconds(row.p95_seconds)}</span>
-                                </span>
-                                <RangeBar
-                                    fraction={(row.p50_seconds ?? 0) / maxP95}
-                                    tickFraction={row.p95_seconds != null ? row.p95_seconds / maxP95 : null}
-                                    className="mt-1.5 block w-20"
-                                    tooltip={`p50 ${formatSeconds(row.p50_seconds)} (fill) → p95 ${formatSeconds(row.p95_seconds)} (tick), scaled to the slowest job`}
-                                />
-                            </span>
-                        ),
+                    render: (_, row) => (
+                        <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50_seconds)}</span>
+                    ),
+                },
+                {
+                    title: 'P95',
+                    key: 'p95',
+                    align: 'right',
+                    tooltip: '95th-percentile job duration over completed instances.',
+                    sorter: (a, b) => (a.p95_seconds ?? -1) - (b.p95_seconds ?? -1),
+                    render: (_, row) => (
+                        <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
+                            {formatSeconds(row.p95_seconds)}
+                        </span>
+                    ),
                 },
                 {
                     title: 'Failure rate',
@@ -125,7 +117,8 @@ export function JobAggregatesTable({
                     title: 'Retries',
                     key: 'retries',
                     align: 'right',
-                    tooltip: 'Job instances that ran on a 2nd+ run attempt — retry pressure is a flakiness proxy.',
+                    tooltip:
+                        'Job instances that ran on a second or later attempt. Frequent re-runs usually point to flaky checks.',
                     sorter: (a, b) => a.retry_job_count - b.retry_job_count,
                     render: (_, row) => (
                         <span className="text-xs tabular-nums">{humanFriendlyNumber(row.retry_job_count)}</span>
@@ -160,7 +153,7 @@ export function JobAggregatesTable({
             ]}
             defaultSorting={{ columnKey: 'cost', order: -1 }}
             pagination={{ pageSize: 50 }}
-            emptyState="No jobs in the window — the job-level source may not be synced."
+            emptyState="No jobs in the window. The job-level source may not be synced."
             nouns={['job', 'jobs']}
         />
     )

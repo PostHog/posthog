@@ -32,12 +32,11 @@ import { jobCacheKey } from '../lib/jobs'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
-/** Where this workflow's spend goes, split by runner tier — the mock's leaderboard rows: tier in
- *  mono, jobs count under it, cost (or 'free') on the right, share bar scaled to billable spend. */
+/** Spend by runner tier: tier, job count, cost (or 'free'), share bar scaled to billable spend. */
 function RunnerTierCard({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Element {
     const totalCost = costs.reduce((sum, cost) => sum + (cost.estimated_cost_usd ?? 0), 0)
     return (
-        <LemonCard hoverEffect={false} className="p-4 lg:max-w-xl">
+        <LemonCard hoverEffect={false} className="p-4">
             <div className="mb-1 flex items-baseline gap-2">
                 <h3 className="mb-0 text-xs font-semibold text-secondary">By runner tier</h3>
                 <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
@@ -127,8 +126,7 @@ export function WorkflowRunsScene(): JSX.Element {
             <VerdictPill kind="success">Passing</VerdictPill>
         ) : undefined
 
-    // The mock's runs-table column set, with what the runs snapshot actually carries (no author or
-    // per-run queue/cost yet). Rows expand (caret or row click) to the run's matrix-grouped jobs.
+    // Lead columns for the runs table; rows expand (caret or row click) to the run's matrix-grouped jobs.
     const runColumns: LemonTableColumns<WorkflowRunRow> = [
         {
             title: 'Run',
@@ -260,7 +258,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
-                        Couldn't load this workflow's runs — it may not exist in the connected GitHub source.
+                        Couldn't load this workflow's runs. It may not exist in the connected GitHub source.
                     </span>
                     <LemonButton type="secondary" size="small" onClick={loadRuns} loading={runsLoading}>
                         Retry
@@ -281,9 +279,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* One shared window + branch scope every section below — the same scope as the repo hub, so
-                numbers match after drilling in (a missing branch filter here read as more runs than the
-                hub showed). */}
+            {/* Same window + branch scope as the repo hub, so numbers match after drilling in. */}
             <ScopeBar
                 repoSlot={
                     <RepoScopeChip
@@ -299,10 +295,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 title={workflowName}
                 slug={
                     <>
-                        {repoOwner}/{repoName} ·{' '}
-                        <Link to={githubUrl} target="_blank" targetBlankIcon>
-                            View on GitHub
-                        </Link>
+                        {repoOwner}/{repoName}
                         {runsTruncated && <span> · run stats cover the most recent {runRows.length} runs</span>}
                     </>
                 }
@@ -311,26 +304,23 @@ export function WorkflowRunsScene(): JSX.Element {
             <div className="flex flex-wrap gap-2.5">
                 <MetricTile
                     label="Pass rate"
+                    tooltip={`${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
+                        healthSummary.completedRuns
+                    )} completed runs passed.`}
                     value={percent(healthSummary.passRate)}
-                    sub={
-                        healthSummary.completedRuns > 0
-                            ? `${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
-                                  healthSummary.completedRuns
-                              )} completed runs passed`
-                            : 'no completed runs in the window'
-                    }
                 />
                 <MetricTile
                     label="Runs"
-                    value={compactCount(healthSummary.totalRuns)}
-                    sub={
+                    tooltip={
                         healthSummary.reruns > 0
-                            ? `${humanFriendlyNumber(healthSummary.reruns)} re-run cycles`
-                            : 'no re-runs'
+                            ? `Includes ${humanFriendlyNumber(healthSummary.reruns)} re-run cycles.`
+                            : undefined
                     }
+                    value={compactCount(healthSummary.totalRuns)}
                 />
                 <MetricTile
                     label="Duration p50"
+                    tooltip="Wall-clock, over completed runs."
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }
@@ -339,25 +329,25 @@ export function WorkflowRunsScene(): JSX.Element {
                             ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
                             : undefined
                     }
-                    sub="wall-clock, completed runs"
                 />
                 <MetricTile
                     label="Queue time p50"
+                    tooltip="From job created to started, weighted across the workflow's jobs."
                     value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
-                    sub={queueP50Seconds != null ? 'created → started, across jobs' : 'needs the job-level source'}
                 />
                 <MetricTile
                     label="Cost"
-                    value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
-                    sub={
+                    tooltip={
                         costSummary?.estimatedCostUsd != null
                             ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
                                   healthSummary.totalRuns > 0
                                       ? costSummary.estimatedCostUsd / healthSummary.totalRuns
                                       : null
-                              )} per run`
-                            : 'needs the job-level source'
+                              )} per run.`
+                            : 'Available once the job-level source is synced.'
                     }
+                    value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
+                    sub={costSummary?.estimatedCostUsd != null ? undefined : 'Job-level source not synced'}
                 />
             </div>
             <SectionNav
@@ -368,34 +358,26 @@ export function WorkflowRunsScene(): JSX.Element {
                     { id: 'runs', label: 'Runs' },
                 ]}
             />
-            <Section
-                id="health"
-                title="Health"
-                note="every run in the window — duration, verdict, and in-flight load in one plot"
-            >
+            <Section id="health" title="Health">
                 <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
             </Section>
-            <Section
-                id="jobs"
-                title="Jobs"
-                note="matrix shards roll up into one row; a job always needs its run as context, so expand a run below instead of looking for a job page"
-            >
+            <Section id="jobs" title="Jobs">
                 <JobAggregatesTable
                     aggregates={jobAggregates}
                     loading={jobAggregatesLoading}
                     totalCostUsd={costSummary?.estimatedCostUsd ?? null}
                 />
             </Section>
-            <Section id="cost" title="Cost" note="where this workflow's spend goes">
+            <Section id="cost" title="Cost">
                 {runnerCosts.length > 0 ? (
                     <RunnerTierCard costs={runnerCosts} />
                 ) : (
                     <span className="text-xs text-secondary">
-                        No cost data — the job-level source isn't synced, or nothing ran in the window.
+                        No cost data. The job-level source isn't synced, or nothing ran in the window.
                     </span>
                 )}
             </Section>
-            <Section id="runs" title="Runs" note="latest first — expand a run for its jobs, grouped by matrix">
+            <Section id="runs" title="Runs">
                 <LemonCard hoverEffect={false} className="p-0">
                     <LemonTable<WorkflowRunRow>
                         dataSource={runRows}

@@ -1,9 +1,6 @@
-// The unified scope bar of the lens stack. One rule everywhere:
-//   - place levels (repo › workflow › run) are breadcrumb-style chips on the left — the hierarchy
-//   - the cross-cutting PR lens is a dismissible filter chip on the right — every entity page is
-//     the same runs+jobs view with one filter applied; removing the chip zooms out one level
-//   - branch and date are shared scope (engineeringAnalyticsFiltersLogic), so a window picked on one
-//     page carries to the next instead of snapping back to defaults.
+// Shared scope bar: hierarchy chips (repo › workflow › run) on the left, dismissible filter chips on
+// the right, and the shared branch/date scope (engineeringAnalyticsFiltersLogic) so a window picked on
+// one page carries to the next.
 
 import { useActions, useValues } from 'kea'
 import { Fragment, ReactNode, useState } from 'react'
@@ -19,8 +16,7 @@ import type { GitHubSourceApi } from '../generated/api.schemas'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 
-// The endpoints require a window start (no "all time"); relative windows + Custom only. Covers a CI-health
-// "right now" (24h) through a quarterly spend window.
+// The endpoints require a window start (no "all time") — relative windows + Custom only.
 export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
@@ -47,10 +43,8 @@ export interface LensChip {
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
 
-/** The repo scope on pages that already mount engineeringAnalyticsLogic (hub, list pages): a source
- *  picker when the team connected more than one GitHub source, otherwise the repo name.
- *  `pickerOnly` is for pages that state the repo elsewhere (the hub's entity header) — the picker
- *  still earns its place on multi-source teams, but a static chip would just repeat the header. */
+/** A source picker on multi-source teams, otherwise the repo name. `pickerOnly` skips the static chip
+ *  on pages that already state the repo elsewhere (the hub's entity header). */
 export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
     const { hasMultipleSources, sourceOptions, sourceId, githubSources } = useValues(engineeringAnalyticsLogic)
     const { setSourceId } = useActions(engineeringAnalyticsLogic)
@@ -71,8 +65,7 @@ export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }
             />
         )
     }
-    // No repo name to show (source connected before the repo landed) — a placeholder chip carries
-    // no information, so render nothing rather than a dead "Repository" pill.
+    // No repo name yet — render nothing rather than a dead "Repository" pill.
     if (pickerOnly || !repoLabel) {
         return null
     }
@@ -83,8 +76,7 @@ export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }
     )
 }
 
-/** The repo scope on detail pages (workflow / run / PR / author): a chip linking back to the hub —
- *  the repo is scope picker and hierarchy root in one, without mounting the hub's loaders. */
+/** Repo chip on detail pages: links back to the hub without mounting the hub's loaders. */
 export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX.Element {
     return (
         <Link to={to}>
@@ -99,8 +91,7 @@ export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX
 // both — picking the active one clears back to all branches.
 const DEFAULT_BRANCHES = ['main', 'master']
 
-/** The branch scope as a chip ("branch: master") opening a small picker — server-side head_branch
- *  filter shared across pages via engineeringAnalyticsFiltersLogic, so the scope carries between them. */
+/** Branch chip opening a small picker — a server-side head_branch filter shared across pages. */
 function BranchScopeChip(): JSX.Element {
     const { branchInput, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
     const { setBranchFilter, applyBranchFilter } = useActions(engineeringAnalyticsFiltersLogic)
@@ -206,7 +197,7 @@ export function ScopeBar({
                 {lensFilter && (
                     <span
                         className={cn(CHIP_CLASS, 'border-accent-highlight-secondary bg-fill-highlight-50')}
-                        title="This page is the repo view with one lens filter applied — remove it to zoom out"
+                        title="A filter is applied to this page. Remove it to see the whole repo."
                     >
                         <strong className="font-semibold text-primary">{lensFilter.label}</strong>
                         <Link to={lensFilter.to} className="px-0.5 text-tertiary hover:text-primary">

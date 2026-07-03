@@ -1,7 +1,5 @@
-// Thinned CI failure logs, grouped by failed job — the Logs-product-style excerpt rows used by the
-// repo hub's "failing on master" expansion, the run page, and the PR page's failures section. The
-// lines come pre-thinned from the backend; omission markers (original_line == null) render muted so
-// the elision is visible, never silent.
+// CI failure log excerpts grouped by failed job. Lines come pre-thinned from the backend; omission
+// markers (original_line == null) render muted so the elision is visible, never silent.
 
 import { ReactNode } from 'react'
 
@@ -72,7 +70,7 @@ export function FailureLogGroups({
     if (!logsAvailable || jobs.length === 0) {
         return (
             <div className="px-1 py-2 text-xs text-secondary">
-                {emptyState ?? 'No failure logs — nothing failed, or the logs aged out of the short Logs retention.'}
+                {emptyState ?? 'No failure logs. Nothing failed, or the logs have aged out of retention.'}
             </div>
         )
     }

@@ -1,7 +1,6 @@
-// A run's jobs with matrix shards rolled up: ~80 raw Backend CI jobs become ~12 group rows. Grouping
-// comes from lib/jobGroups (the same rule the backend's SQL de-shard uses); failing groups sort first
-// and name their failed shards, so "what broke" is readable without expanding anything. Matrix groups
-// expand (via the caret only — no row-click, links inside rows must stay clickable) to their shards.
+// A run's jobs with matrix shards rolled up (lib/jobGroups, the same rule as the backend's SQL
+// de-shard); failing groups sort first and name their failed shards. Groups expand via the caret only —
+// links inside rows must stay clickable.
 
 import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
@@ -33,7 +32,7 @@ function GroupConclusionDot({ conclusion }: { conclusion: JobGroupConclusion }):
     )
 }
 
-/** One dot per matrix group — the readable rollup of a run when it carries 50+ jobs. */
+/** One dot per matrix group. */
 export function GroupDots({ groups }: { groups: WorkflowJobGroup[] }): JSX.Element {
     return (
         <span className="inline-flex items-center gap-[3px]">
@@ -46,7 +45,7 @@ export function GroupDots({ groups }: { groups: WorkflowJobGroup[] }): JSX.Eleme
                         backgroundColor: GROUP_DOT_COLOR[group.conclusion],
                         opacity: group.conclusion === 'skipped' ? 0.5 : 0.9,
                     }}
-                    title={`${group.base} — ${group.jobs.length > 1 ? `${group.jobs.length} jobs, ` : ''}${group.conclusion}`}
+                    title={`${group.base} · ${group.jobs.length > 1 ? `${group.jobs.length} jobs, ` : ''}${group.conclusion}`}
                 />
             ))}
         </span>
@@ -69,8 +68,7 @@ function groupSpan(group: WorkflowJobGroup): GroupSpan {
     }
 }
 
-/** Earliest-start → latest-finish envelope of the group's shards on the run's shared time axis —
- *  a thin strip, not a fat gantt, so 12 group rows still read as one timeline. */
+/** Earliest-start → latest-finish envelope of the group's shards on the run's shared time axis. */
 function TimingEnvelope({
     span,
     conclusion,
@@ -184,7 +182,7 @@ export function GroupedJobsTable({
     if (jobs.length === 0) {
         return (
             <div className="px-3 py-2 text-xs text-secondary">
-                No job data yet — the job-level source isn't synced for this team.
+                No job data yet. The job-level source isn't synced for this team.
             </div>
         )
     }

@@ -1,6 +1,5 @@
-// The one headline-metric tile of the lens stack: label · value (+suffix) · delta vs the previous
-// window · muted caption · optional sparkline. Every entity page (repo, workflow, PR, author) builds
-// its stat strip from exactly this tile so the levels read identically.
+// Headline-metric tile: label · value (+suffix) · delta vs the previous window · caption · sparkline.
+// Every entity page builds its stat strip from this tile.
 
 import { ReactNode } from 'react'
 
@@ -68,6 +67,7 @@ export function DeltaBadge({
 
 export function MetricTile({
     label,
+    tooltip,
     value,
     valueSuffix,
     delta,
@@ -76,24 +76,37 @@ export function MetricTile({
     className,
 }: {
     label: string
+    /** Definition or methodology, shown on label hover. */
+    tooltip?: ReactNode
     /** Pre-formatted headline value; '—' for no data. */
     value: string
     valueSuffix?: string
     delta?: ReactNode
+    /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
     /** Small in-flow trend line at the tile's bottom edge. */
     sparkline?: { values: number[]; labels?: string[]; name?: string }
     className?: string
 }): JSX.Element {
+    const labelSpan = <span className="text-xs text-secondary">{label}</span>
     return (
-        <LemonCard hoverEffect={false} className={cn('flex min-w-44 flex-1 flex-col gap-1 px-5 py-4', className)}>
-            <span className="text-xs text-secondary">{label}</span>
+        <LemonCard
+            hoverEffect={false}
+            className={cn('flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4', className)}
+        >
+            {tooltip ? (
+                <Tooltip title={tooltip}>
+                    <span className="self-start cursor-default">{labelSpan}</span>
+                </Tooltip>
+            ) : (
+                labelSpan
+            )}
             <span className="flex items-baseline gap-2">
                 <span className="text-2xl font-semibold leading-none tabular-nums">{value}</span>
                 {valueSuffix && <span className="text-xs font-medium text-tertiary">{valueSuffix}</span>}
                 {delta}
             </span>
-            <span className="min-h-4 text-xs text-tertiary">{sub}</span>
+            {sub && <span className="text-xs text-tertiary">{sub}</span>}
             {sparkline && sparkline.values.length > 1 && (
                 <Sparkline
                     type="line"

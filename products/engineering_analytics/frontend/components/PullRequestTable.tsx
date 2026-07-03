@@ -1,8 +1,5 @@
-// The one PR table of the lens stack, shared by the repo hub's attention slice and the PR list.
-// Mock-locked column set: title (+repo#id, labels) · author · state (auto-hides when every row
-// agrees) · CI with the failing workflow names under the tag · pushes (+re-runs) · CI cost ·
-// open time. Only the default sort differs per caller. Author is attribution, not a lens — it
-// renders as plain metadata and links nowhere in-product.
+// Shared by the repo hub and the PR list; only the default sort differs per caller. Author renders as
+// plain metadata and links nowhere in-product (attribution, never a unit of analysis — see SPEC §2).
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -60,8 +57,6 @@ export function PullRequestTable({
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
 }: PullRequestTableProps): JSX.Element {
-    // A State column where every row says "Open" is noise — only show it when states are mixed.
-    const mixedStates = new Set(rows.map((row) => `${row.state}:${row.isDraft}`)).size > 1
     const columns: LemonTableColumns<PullRequestRow> = [
         {
             title: 'Pull request',
@@ -90,6 +85,12 @@ export function PullRequestTable({
             ),
         },
         {
+            title: 'State',
+            key: 'state',
+            width: 104,
+            render: (_, row) => <PullRequestStateTag state={row.state} isDraft={row.isDraft} />,
+        },
+        {
             title: 'Author',
             key: 'author',
             width: 170,
@@ -103,16 +104,6 @@ export function PullRequestTable({
                 </div>
             ),
         },
-        ...(mixedStates
-            ? ([
-                  {
-                      title: 'State',
-                      key: 'state',
-                      width: 90,
-                      render: (_, row) => <PullRequestStateTag state={row.state} isDraft={row.isDraft} />,
-                  },
-              ] as LemonTableColumns<PullRequestRow>)
-            : []),
         {
             title: 'CI',
             key: 'ci',
@@ -169,7 +160,7 @@ export function PullRequestTable({
             key: 'age',
             width: 100,
             align: 'right',
-            tooltip: 'How long the PR has been open — or was, until it merged.',
+            tooltip: 'How long the pull request has been open (or was, until it merged).',
             sorter: (a, b) => openTimeOf(a).seconds - openTimeOf(b).seconds,
             render: (_, row) => (
                 <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
@@ -213,7 +204,7 @@ export function PullRequestTable({
             }}
             useURLForSorting={false}
             pagination={{ pageSize }}
-            emptyState={emptyState ?? 'No pull requests yet — they show up as soon as CI events arrive.'}
+            emptyState={emptyState ?? "No pull requests yet. They'll appear once the GitHub source syncs."}
             nouns={['pull request', 'pull requests']}
         />
     )

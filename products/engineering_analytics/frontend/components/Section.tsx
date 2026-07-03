@@ -1,6 +1,4 @@
-// The section rhythm every entity page shares: an anchored <section> with a compact title row, and a
-// sticky jumper that scrolls between them. Facets (failures / cost / activity / …) are sections on
-// one page, never separate places.
+// Anchored page sections with a compact title row, plus a sticky jumper that scrolls between them.
 
 import { ReactNode } from 'react'
 
@@ -8,6 +6,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 function sectionDomId(id: string): string {
     return `ea-section-${id}`
+}
+
+export function scrollToSection(id: string): void {
+    document.getElementById(sectionDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 export function Section({
@@ -19,7 +21,8 @@ export function Section({
 }: {
     id: string
     title: string
-    /** Muted one-liner after the title — what this section is and its caveat. */
+    /** Muted caveat after the title. Only for load-bearing context the data can't show (scope, inclusion
+     *  criteria, a legend) — never a restatement of the title or an interaction hint. */
     note?: ReactNode
     right?: ReactNode
     children: ReactNode
@@ -36,21 +39,12 @@ export function Section({
     )
 }
 
-/** Quiet in-page jump links — deliberately not a tab bar: sections stack on one page, nothing switches. */
 export function SectionNav({ items }: { items: { id: string; label: string }[] }): JSX.Element {
     return (
         <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-0.5 bg-primary px-1 py-1.5">
             <span className="mr-1.5 text-xs text-tertiary">Jump to</span>
             {items.map((item) => (
-                <LemonButton
-                    key={item.id}
-                    size="xsmall"
-                    onClick={() =>
-                        document
-                            .getElementById(sectionDomId(item.id))
-                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                >
+                <LemonButton key={item.id} size="xsmall" onClick={() => scrollToSection(item.id)}>
                     {item.label}
                 </LemonButton>
             ))}

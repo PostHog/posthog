@@ -1,6 +1,4 @@
-// The fleet-level workflow list page — the full surface behind the hub's capped workflows section,
-// the CI sibling of the Pull requests tab. Skeleton: scope bar → fleet verdict header → controls →
-// table → caveats. Every row opens the workflow page, one level down.
+// The full workflow list behind the hub's capped workflows section. Every row opens the workflow page.
 
 import { useActions, useValues } from 'kea'
 
@@ -82,14 +80,14 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No workflow runs in this window — widen the date range or branch scope.'
+                        'No workflow runs in this window. Try widening the date range or branch scope.'
                     )
                 }
             />
 
             <div className="text-xs text-tertiary">
-                Pass rate and durations are over completed runs only — a run that hasn't settled is excluded, never
-                counted as a failure. Health is workflow-level, not per-job.
+                Pass rate and durations cover completed runs only. A run that hasn't settled is excluded, never counted
+                as a failure. Health is workflow-level, not per-job.
                 {fleetTruncated && ` Showing the top ${WORKFLOW_HEALTH_LIMIT} workflows by run count.`}
             </div>
         </div>

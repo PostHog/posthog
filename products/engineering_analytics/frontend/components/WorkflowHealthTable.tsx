@@ -7,7 +7,6 @@ import { ReactNode } from 'react'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { getSeriesColorPalette } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { ExpandableConfig } from 'lib/lemon-ui/LemonTable/types'
 import { cn } from 'lib/utils/css-classes'
@@ -20,7 +19,6 @@ import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringA
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
 import { DeltaBadge, pointChange } from './MetricTile'
-import { RangeBar } from './RangeBar'
 
 // Floor on bar slots for push-bucketed sparklines (PR view) so a single push stays narrow, but low
 // enough that 2-3 pushes read as separate bars. Time-bucketed sparklines (Workflows tab) fill.
@@ -34,10 +32,14 @@ function formatRate(rate: number | null): string {
     return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
 }
 
-/** Color only what needs attention — red rare, amber occasional, everything else plain. */
-function successRateClass(rate: number | null): string {
+/** Color only what needs attention — red rare, amber occasional, everything else plain. A low rate
+ *  without any decisive failure (skip/cancel-heavy workflows) stays plain: nothing is broken. */
+function successRateClass(rate: number | null, hasFailures: boolean): string {
     if (rate == null) {
         return 'text-secondary'
+    }
+    if (!hasFailures) {
+        return ''
     }
     if (rate < 0.8) {
         return 'font-semibold text-danger'
@@ -46,17 +48,6 @@ function successRateClass(rate: number | null): string {
         return 'font-medium text-warning'
     }
     return ''
-}
-
-/** Stable per-name color so each workflow keeps the same dot across renders and sorts. */
-function WorkflowDot({ name }: { name: string }): JSX.Element {
-    const palette = getSeriesColorPalette()
-    let hash = 0
-    for (let i = 0; i < name.length; i++) {
-        hash = (hash * 31 + name.charCodeAt(i)) | 0
-    }
-    const color = palette[Math.abs(hash) % palette.length]
-    return <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
 }
 
 /** Sort key so a Status sort surfaces failing workflows first. */
@@ -112,16 +103,13 @@ export function WorkflowHealthTable({
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Carry the active CI-analytics window and branch scope into the drill-down so opening a workflow from a
-    // non-default window/branch keeps it instead of snapping back to defaults (the tab links preserve them
-    // the same way). Without the branch (`q`), the detail page would widen to all branches and show more runs.
+    // Carry the active window/branch scope into the drill-down; without `q` the detail page would
+    // silently widen to all branches.
     const windowParams: Record<string, string> = {
         ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
         ...(searchParams.q ? { q: searchParams.q } : {}),
     }
-    // One scale across rows so p50→p95 bars compare visually down the column.
-    const maxP95 = Math.max(...rows.map((row) => row.p95Seconds ?? 0), 1)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -129,7 +117,6 @@ export function WorkflowHealthTable({
             sorter: (a, b) => a.workflowName.localeCompare(b.workflowName),
             render: (_, row) => (
                 <div className="flex items-center gap-2">
-                    <WorkflowDot name={row.workflowName} />
                     <Link
                         to={
                             combineUrl(
@@ -168,7 +155,15 @@ export function WorkflowHealthTable({
             align: 'right',
             sorter: (a, b) => (a.successRate ?? -1) - (b.successRate ?? -1),
             render: (_, row) => (
-                <span className={cn('text-xs tabular-nums', successRateClass(row.successRate))}>
+                <span
+                    className={cn(
+                        'text-xs tabular-nums',
+                        successRateClass(
+                            row.successRate,
+                            row.buckets.some((bucket) => bucket.failures > 0)
+                        )
+                    )}
+                >
                     {formatRate(row.successRate)}
                 </span>
             ),
@@ -178,7 +173,7 @@ export function WorkflowHealthTable({
                   {
                       title: 'Cost',
                       tooltip:
-                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time. Excludes still-running jobs, so it can rise as they settle.",
+                          "CI minutes spent (each job's time summed, so parallel jobs add up) and the estimated cost at the reference rate. This is compute time, not wall-clock run time. Still-running jobs are excluded, so the figure can rise as they settle.",
                       key: 'cost',
                       width: 130,
                       align: 'right',
@@ -208,37 +203,35 @@ export function WorkflowHealthTable({
             },
         },
         {
-            title: 'p50 → p95',
+            title: 'P50',
             key: 'p50Seconds',
-            width: 150,
+            width: 88,
             align: 'right',
-            tooltip:
-                'Median and 95th-percentile run duration (wall-clock) over completed runs; the bar is scaled to the slowest workflow so durations compare down the column.',
+            tooltip: 'Median run duration (wall-clock) over completed runs.',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
-            render: (_, row) =>
-                row.p50Seconds == null ? (
-                    <span className="text-xs text-secondary">—</span>
-                ) : (
-                    <span className="inline-block text-right">
-                        <span className="text-xs tabular-nums whitespace-nowrap">
-                            {formatSeconds(row.p50Seconds)}{' '}
-                            <span className="text-tertiary">→ {formatSeconds(row.p95Seconds)}</span>
-                        </span>
-                        <RangeBar
-                            fraction={(row.p50Seconds ?? 0) / maxP95}
-                            tickFraction={row.p95Seconds != null ? row.p95Seconds / maxP95 : null}
-                            className="mt-1.5 block w-20"
-                            tooltip={`p50 ${formatSeconds(row.p50Seconds)} (fill) → p95 ${formatSeconds(row.p95Seconds)} (tick), scaled to the slowest workflow`}
-                        />
-                    </span>
-                ),
+            render: (_, row) => (
+                <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50Seconds)}</span>
+            ),
+        },
+        {
+            title: 'P95',
+            key: 'p95Seconds',
+            width: 88,
+            align: 'right',
+            tooltip: '95th-percentile run duration (wall-clock) over completed runs.',
+            sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
+            render: (_, row) => (
+                <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
+                    {formatSeconds(row.p95Seconds)}
+                </span>
+            ),
         },
         {
             title: 'Re-runs',
             key: 'rerunCycles',
             width: 76,
             align: 'right',
-            tooltip: 'Runs with attempt > 1 in the window — retry pressure is a flakiness proxy.',
+            tooltip: 'Runs with attempt > 1 in the window. Frequent re-runs usually point to flaky checks.',
             sorter: (a, b) => (a.rerunCycles ?? 0) - (b.rerunCycles ?? 0),
             render: (_, row) => (
                 <span

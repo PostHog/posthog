@@ -614,10 +614,9 @@ class WorkflowHealthItem:
     # the job-level source isn't synced (run-level health alone carries no runner tier).
     billable_minutes: float | None = None
     estimated_cost_usd: float | None = None
-    # Runs in the window that were a 2nd+ attempt — retry pressure, a flakiness proxy.
+    # Runs in the window that were a 2nd+ attempt.
     rerun_cycles: int = 0
-    # Success rate over the equal-length window before date_from — the Δ baseline. None when that
-    # window had no completed runs.
+    # Success rate over the equal-length window before date_from; None when it had no completed runs.
     success_rate_prev: float | None = None
 
 
@@ -711,7 +710,7 @@ class WorkflowJobAggregate:
     p50_seconds: float | None
     p95_seconds: float | None
     failure_rate: float | None
-    # Job instances that ran on a 2nd+ run attempt — retry pressure.
+    # Job instances that ran on a 2nd+ run attempt.
     retry_job_count: int
     billable_minutes: float | None
     estimated_cost_usd: float | None

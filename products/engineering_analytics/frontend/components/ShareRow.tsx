@@ -46,7 +46,7 @@ export function ShareRow({
                 {sub && <span className="block truncate text-[11px] text-tertiary">{sub}</span>}
             </span>
             {share !== undefined && (
-                <span className="relative h-1.5 w-40 max-w-[30%] shrink-0 overflow-hidden rounded-full bg-fill-secondary">
+                <span className="relative h-1.5 w-40 max-w-[30%] shrink-0 overflow-hidden rounded-full bg-fill-tertiary">
                     <span
                         className="absolute inset-y-0 left-0 rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
