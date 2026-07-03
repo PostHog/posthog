@@ -42,7 +42,6 @@ export enum PluginServerMode {
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
     ingestion_metrics = 'ingestion-metrics',
-    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
@@ -67,6 +66,11 @@ export type CommonConfig = BaseServerConfig & {
     OTEL_TRACES_SAMPLER_ARG: number
     OTEL_MAX_SPANS_PER_GROUP: number
     OTEL_MIN_SPAN_DURATION_MS: number
+    /** OTLP metrics push target (e.g. capture-logs /v1/metrics); empty disables the meter provider. */
+    OTEL_METRICS_EXPORT_URL: string
+    /** Capture token identifying the team that receives the pushed metrics. */
+    OTEL_METRICS_EXPORT_TOKEN: string
+    OTEL_METRICS_EXPORT_INTERVAL_MS: number
     DISABLE_OPENTELEMETRY_TRACING: boolean
 
     // Tasks
@@ -215,6 +219,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         OTEL_TRACES_SAMPLER_ARG: 1,
         OTEL_MAX_SPANS_PER_GROUP: 2,
         OTEL_MIN_SPAN_DURATION_MS: 50,
+        OTEL_METRICS_EXPORT_URL: '',
+        OTEL_METRICS_EXPORT_TOKEN: '',
+        OTEL_METRICS_EXPORT_INTERVAL_MS: 15000,
         DISABLE_OPENTELEMETRY_TRACING: false,
 
         // Tasks

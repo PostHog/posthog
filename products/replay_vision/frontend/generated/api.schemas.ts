@@ -277,7 +277,66 @@ export const VisionActionRunStatusEnumApi = {
 } as const
 
 /**
- * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+ * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
+ */
+export interface VisionActionRunListApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /**
+     * Short human-readable reason a run skipped or failed; null on success.
+     * @nullable
+     */
+    readonly error_reason: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionRunListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionRunListApi[]
+}
+
+/**
+ * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+ */
+export interface RunObservationApi {
+    /** Observation id; links to the observation detail view. */
+    readonly id: string
+    /** Session recording id this observation was made on. */
+    readonly session_id: string
+    /**
+     * Email of the person in the recorded session, captured at scan time; null if unidentified.
+     * @nullable
+     */
+    readonly recording_subject_email: string | null
+    /**
+     * Short title from the observation's summary; null if the observation had none.
+     * @nullable
+     */
+    readonly title: string | null
+    /** When the observation was produced. */
+    readonly created_at: string
+}
+
+/**
+ * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
  */
 export interface VisionActionRunApi {
     readonly id: string
@@ -295,8 +354,6 @@ export interface VisionActionRunApi {
     readonly scheduled_at: string | null
     /** Number of observations that fed this run's summary. */
     readonly observation_count: number
-    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-    readonly synthesized_markdown: string
     /**
      * Short human-readable reason a run skipped or failed; null on success.
      * @nullable
@@ -304,15 +361,10 @@ export interface VisionActionRunApi {
     readonly error_reason: string | null
     readonly created_at: string
     readonly updated_at: string
-}
-
-export interface PaginatedVisionActionRunListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionRunApi[]
+    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+    readonly synthesized_markdown: string
+    /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+    readonly observations: readonly RunObservationApi[]
 }
 
 /**
@@ -348,26 +400,6 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-} as const
-
-/**
- * * `google` - Google
- */
-export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
-
-export const ScannerProviderEnumApi = {
-    Google: 'google',
-} as const
-
-/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -382,15 +414,10 @@ export interface ScannerSnapshotApi {
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
-    /** Concrete model that ran the observation.
-     *
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-    model: ScannerModelEnumApi
-    /** Concrete provider that ran the observation.
-     *
-     * * `google` - Google */
-    provider: ScannerProviderEnumApi
+    /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+    model: string
+    /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+    provider: string
     /** Whether the observation was run with Signal emission enabled. */
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
@@ -435,7 +462,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -503,6 +530,26 @@ export interface VisionQuotaApi {
     readonly projected_monthly_observations: number
 }
 
+/**
+ * * `google` - Google
+ */
+export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
+
+export const ScannerProviderEnumApi = {
+    Google: 'google',
+} as const
+
+/**
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+} as const
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -510,7 +557,10 @@ export interface ReplayScannerApi {
      * @maxLength 255
      */
     name: string
-    /** Free-form description shown in the scanner management UI. */
+    /**
+     * Free-form description shown in the scanner management UI.
+     * @maxLength 1000
+     */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
@@ -524,7 +574,7 @@ export interface ReplayScannerApi {
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
     /**
-     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
      * @minimum 0
      * @maximum 1
      */
@@ -573,7 +623,10 @@ export interface PatchedReplayScannerApi {
      * @maxLength 255
      */
     name?: string
-    /** Free-form description shown in the scanner management UI. */
+    /**
+     * Free-form description shown in the scanner management UI.
+     * @maxLength 1000
+     */
     description?: string
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
@@ -587,7 +640,7 @@ export interface PatchedReplayScannerApi {
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
     /**
-     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+     * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
      * @minimum 0
      * @maximum 1
      */
@@ -911,7 +964,7 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**
@@ -965,7 +1018,7 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
     /**

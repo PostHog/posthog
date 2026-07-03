@@ -44,6 +44,7 @@ export function ReplayScannersScene(): JSX.Element {
         scannersTotal,
         scannersSort,
         togglingIds,
+        deletingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -83,7 +84,7 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonSwitch
                             checked={scanner.enabled}
                             onChange={() => toggleScannerEnabled(scanner.id)}
-                            disabled={togglingIds.includes(scanner.id)}
+                            disabledReason={togglingIds.includes(scanner.id) ? 'Updating…' : undefined}
                             size="small"
                             data-attr="vision-scanner-toggle-enabled"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
@@ -102,15 +103,6 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
-        },
-        {
-            title: 'Description',
-            key: 'description',
-            render: (_, scanner) => (
-                <div className="text-sm text-muted truncate max-w-md">
-                    {scanner.description || <span className="italic">No description</span>}
-                </div>
-            ),
         },
         {
             title: 'Sampling',
@@ -146,7 +138,7 @@ export function ReplayScannersScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.replayVision(scanner.id))}
+                            to={urls.replayVision(scanner.id)}
                             tooltip="Edit"
                             data-attr="vision-scanner-edit-row"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
@@ -161,6 +153,8 @@ export function ReplayScannersScene(): JSX.Element {
                             type="secondary"
                             status="danger"
                             icon={<IconTrash />}
+                            loading={deletingIds.includes(scanner.id)}
+                            disabledReason={deletingIds.includes(scanner.id) ? 'Deleting…' : undefined}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: `Delete "${scanner.name || 'Untitled scanner'}"?`,

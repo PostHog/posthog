@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import Any, NoReturn, cast
 
 from django.conf import settings
@@ -52,13 +51,16 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
+    MIN_SAMPLING_RATE,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
     build_apply_scanner_workflow_id,
@@ -68,6 +70,12 @@ from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+_MAX_PROMPT_LENGTH = 20_000
+_MAX_TAGS = 100
+_MAX_TAG_LENGTH = 100
+_MAX_DESCRIPTION_LENGTH = 1_000
 
 logger = structlog.get_logger(__name__)
 
@@ -86,15 +94,27 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     prompt = scanner_config.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
+    if len(prompt) > _MAX_PROMPT_LENGTH:
+        return f"Prompt can be at most {_MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
         if len(tags) == 0:
             return "Tag vocabulary must have at least one tag."
+        if len(tags) > _MAX_TAGS:
+            return f"Tag vocabulary can have at most {_MAX_TAGS} tags."
         if any(not isinstance(t, str) or not t.strip() for t in tags):
             return "Tags can't be blank."
-        normalized = {t.strip().lower() for t in tags}
-        if len(normalized) != len(tags):
-            return "Tags must be unique."
+        if any(len(t) > _MAX_TAG_LENGTH for t in tags):
+            return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
+        # Uniqueness on the slug, since filtering/stripping/search all compare slugified tags downstream.
+        slugged: dict[str, str] = {}
+        for t in tags:
+            slug = slugify_tag(t)
+            if not slug:
+                return "Tags must contain letters or numbers."
+            if slug in slugged:
+                return f"Tags must be unique: '{slugged[slug]}' and '{t}' are the same tag."
+            slugged[slug] = t
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):
@@ -105,9 +125,13 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
         if min_v >= max_v:
             return "Scale max must be greater than min."
     try:
-        validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
+        scanner = validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
     except (ValueError, PydanticValidationError):
         return "Scanner configuration is invalid."
+    # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
+    unknown = set(scanner_config) - set(type(scanner).model_fields)
+    if unknown:
+        return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
 
 
@@ -119,6 +143,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=_MAX_DESCRIPTION_LENGTH,
         help_text="Free-form description shown in the scanner management UI.",
     )
     scanner_type = serializers.ChoiceField(
@@ -144,7 +169,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         required=False,
         min_value=0.0,
         max_value=1.0,
-        help_text="0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).",
+        help_text=(
+            "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). "
+            "Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below "
+            "the sampling precision."
+        ),
     )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
@@ -228,6 +257,14 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         return attrs
+
+    def validate_sampling_rate(self, value: float) -> float:
+        # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
+        if 0 < value < MIN_SAMPLING_RATE:
+            raise serializers.ValidationError(
+                f"Sampling rate must be 0 (paused) or at least {MIN_SAMPLING_RATE} (0.01%)."
+            )
+        return value
 
     def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
         if self.instance is None or "scanner_type" not in attrs:
@@ -711,7 +748,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
                 id=workflow_id,
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                execution_timeout=dt.timedelta(hours=1),
+                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
                 # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[

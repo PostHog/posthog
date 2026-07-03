@@ -160,8 +160,8 @@ function FleetStatsHeader(): JSX.Element {
 }
 
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, hideDisabled } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled, deletingScoutIds } = useValues(scoutFleetLogic)
+    const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -184,6 +184,8 @@ function ScoutsFleetList(): JSX.Element {
                         config={config}
                         rollup={rollups.get(config.skill_name)}
                         onUpdate={updateScoutConfig}
+                        onDelete={deleteScout}
+                        deleting={deletingScoutIds.includes(config.id)}
                     />
                 ))}
             </div>

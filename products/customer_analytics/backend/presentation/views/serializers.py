@@ -30,11 +30,13 @@ from posthog.models import OrganizationMembership
 from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
 from products.customer_analytics.backend.facade.contracts import (
     AccountNotebookView,
+    AccountNoteView,
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
     CustomPropertyReference,
+    CustomPropertySourceView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -266,6 +268,22 @@ class AccountNotebookSerializer(DataclassSerializer):
         ]
 
 
+class AccountNoteSerializer(DataclassSerializer):
+    """A team-wide account note — an internal notebook linked to a Customer analytics account."""
+
+    short_id = serializers.CharField(read_only=True, help_text="URL-safe short ID of the notebook.")
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="Title of the note.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the note was created.")
+    last_modified_at = serializers.DateTimeField(read_only=True, help_text="When the note was last modified.")
+    account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
+    account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
+
+    class Meta:
+        dataclass = AccountNoteView
+        ref_name = "AccountNote"
+        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name"]
+
+
 class CustomPropertyReferenceSerializer(DataclassSerializer):
     """A place that uses a custom property definition (read-only)."""
 
@@ -280,12 +298,68 @@ class CustomPropertyReferenceSerializer(DataclassSerializer):
         fields = ["id", "name", "status", "type"]
 
 
+class CustomPropertySourceSerializer(DataclassSerializer):
+    """Binds a materialized data-warehouse view column to a custom property definition; the view's
+    values are synced onto matching accounts on each materialization."""
+
+    id = serializers.UUIDField(read_only=True)
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition this source feeds. One source per definition."
+    )
+    saved_query = serializers.UUIDField(
+        help_text="UUID of the data-warehouse saved query (materialized view) to read values from."
+    )
+    source_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the source syncs. Auto-disabled after repeated failures or a missing view; "
+            "re-enabling resets the failure count."
+        ),
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True, help_text="Consecutive failed sync runs; the source auto-disables at the cap."
+    )
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent sync run finished."
+    )
+    last_sync_error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary from the last run, or null if it succeeded."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertySourceView
+        ref_name = "CustomPropertySource"
+        fields = [
+            "id",
+            "definition",
+            "saved_query",
+            "source_column",
+            "key_column",
+            "is_enabled",
+            "consecutive_failures",
+            "last_synced_at",
+            "last_sync_error",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
 class CustomPropertyDefinitionSerializer(DataclassSerializer):
     """A team-scoped definition of a custom account property — the attribute side of the model.
 
     Holds only the property's shape (name, display type, big-number flag). Per-account values are
-    stored separately, so this serializer never reads or writes account values. The numeric-only
-    big-number rule and the unique-name conflict are enforced behind the facade.
+    stored separately, so this serializer never reads or writes account values.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -311,6 +385,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         default=False,
         help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
     )
+    source = CustomPropertySourceSerializer(  # type: ignore[assignment]
+        read_only=True,
+        allow_null=True,
+        help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -322,8 +401,6 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = CustomPropertyDefinitionView
-        # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
-        # otherwise name it after the wrapped dataclass, ``CustomPropertyDefinitionView``).
         ref_name = "CustomPropertyDefinition"
         fields = [
             "id",
@@ -331,11 +408,27 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "description",
             "display_type",
             "is_big_number",
+            "source",
             "created_at",
             "created_by",
             "updated_at",
             "references",
         ]
+
+
+class CustomPropertySourceUpdateSerializer(serializers.Serializer):
+    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+    they are intentionally absent — only these reach the facade's update."""
+
+    source_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."
+    )
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})

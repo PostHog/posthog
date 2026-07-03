@@ -65,6 +65,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            # Cancellations (worker drain, activity timeout, workflow cancellation) are expected
+            # control flow, not defects — re-raise without reporting them to error tracking.
+            if temporalio.exceptions.is_cancelled_exception(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +101,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if temporalio.exceptions.is_cancelled_exception(e):
+                raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

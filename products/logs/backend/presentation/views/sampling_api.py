@@ -69,6 +69,25 @@ def _filter_group_node_count(node: Any) -> int:
     return total
 
 
+def _filter_group_has_empty_group(node: Any) -> bool:
+    """True when any group node in the tree has an empty `values` list. The worker's
+    matchFilterGroup treats empty groups as no-match (dropping is irreversible, so
+    vacuous filters fail closed), which makes a rule carrying one silently inert —
+    worst on rate_limit, where `{"type": "AND", "values": []}` reads like "cap
+    everything" but caps nothing.
+
+    Recurses without a depth short-circuit of its own — callers must run the
+    MAX_FILTER_GROUP_DEPTH check first so the tree is already bounded."""
+    if not isinstance(node, dict):
+        return False
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return False
+    if len(values) == 0:
+        return True
+    return any(_filter_group_has_empty_group(child) for child in values)
+
+
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this sampling rule.")
     name = serializers.CharField(max_length=255, help_text="User-visible label for this rule.")
@@ -112,7 +131,9 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) "
             "+ `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. "
             'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
-            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
+            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in '
+            "`filter_group` must contain at least one filter — empty groups never match, so the "
+            "rule would never apply. "
             "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
             "For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` "
             "integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, "
@@ -151,6 +172,10 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         if rule_type is None and self.instance is not None:
             rule_type = self.instance.rule_type
         config = attrs.get("config")
+        # Only reject vacuous groups on requests that actually write config: rows that
+        # predate this validator can carry an empty group, and a PATCH of unrelated
+        # fields (e.g. disabling the rule) must not be blocked by the stored config.
+        reject_vacuous = config is not None
         if config is None and self.instance is not None:
             config = self.instance.config
 
@@ -167,11 +192,11 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             mak = config.get("match_attribute_key")
             if mak is not None and mak != "" and not isinstance(mak, str):
                 raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
-            self._validate_filter_group(config.get("filter_group"))
+            self._validate_filter_group(config.get("filter_group"), reject_vacuous=reject_vacuous)
         if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
             if not isinstance(config, dict):
                 raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})
-            self._validate_filter_group(config.get("filter_group"))
+            self._validate_filter_group(config.get("filter_group"), reject_vacuous=reject_vacuous)
             self._validate_rate_limit_config(config)
         return attrs
 
@@ -227,7 +252,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             if burst > 10_000_000:
                 raise ValidationError({"config": {"burst_kb": "Must be at most 10000000 KB."}})
 
-    def _validate_filter_group(self, filter_group: Any) -> None:
+    def _validate_filter_group(self, filter_group: Any, *, reject_vacuous: bool = False) -> None:
         if filter_group is None:
             return
         # Validate shape against PropertyGroupFilter so malformed payloads
@@ -257,6 +282,22 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 {
                     "config": {
                         "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+                    }
+                }
+            )
+        # Well-formed but empty groups pass Pydantic, yet the worker treats them as
+        # no-match — the rule would be silently inert (see _filter_group_has_empty_group).
+        # Ordering constraint: this walk recurses without its own depth short-circuit,
+        # so it must run only after the depth check above has bounded the tree.
+        if reject_vacuous and _filter_group_has_empty_group(filter_group):
+            raise ValidationError(
+                {
+                    "config": {
+                        "filter_group": (
+                            "Every group in filter_group must contain at least one filter — an empty group "
+                            "never matches, so the rule would never apply. For rate_limit rules, omit "
+                            "filter_group entirely to cap all matching logs."
+                        )
                     }
                 }
             )
