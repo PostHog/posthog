@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 import requests
 import dns.resolver
@@ -156,27 +156,36 @@ class TestCheckCaa(TestCase):
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_no_caa_records(self, ResolverMock):
         ResolverMock.return_value.resolve.side_effect = dns.resolver.NoAnswer()
-        result = diagnostics._check_caa(_record(), _hostname_info())
+        result = diagnostics._check_caa(_record(), _hostname_info(), is_cloudflare=True)
         self.assertEqual(result.status, "passed")
         self.assertIn("unrestricted", result.detail.lower())
 
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_pass_when_caa_authorizes_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "pki.goog")]
-        result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
+        result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"), is_cloudflare=True)
         self.assertEqual(result.status, "passed")
         self.assertIn("pki.goog", result.detail)
 
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_fail_when_caa_blocks_required_issuer(self, ResolverMock):
         ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "digicert.com")]
-        result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"))
+        result = diagnostics._check_caa(_record(), _hostname_info(certificate_authority="google"), is_cloudflare=True)
         self.assertEqual(result.status, "failed")
         self.assertIn("digicert.com", result.detail)
         self.assertIn("pki.goog", result.detail)
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "dns")
         self.assertGreater(len(result.remediation.records), 0)
+
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_legacy_proxy_requires_letsencrypt_issuer(self, ResolverMock):
+        # Legacy proxies have no Cloudflare hostname info; their cert is Let's Encrypt, so a
+        # CAA record authorizing only Google must fail against letsencrypt.org (not pki.goog).
+        ResolverMock.return_value.resolve.return_value = [_caa_rdata(b"issue", "pki.goog")]
+        result = diagnostics._check_caa(_record(), None, is_cloudflare=False)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("letsencrypt.org", result.detail)
 
 
 class TestCheckHttpChallenge(TestCase):
@@ -242,37 +251,98 @@ class TestCheckLiveEvent(TestCase):
         self.assertEqual(result.status, "passed")
 
 
-class TestDiagnoseOrchestrator(TestCase):
-    """End-to-end orchestrator with all external deps mocked."""
+CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."
+LEGACY_TARGET = "abc.proxy-us.posthog.com."
 
+
+@override_settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-eu-proxy.europehog.com")
+class TestDiagnoseOrchestrator(TestCase):
+    """End-to-end orchestrator with all external deps mocked.
+
+    Path is detected from `target_cname` vs `CLOUDFLARE_PROXY_BASE_CNAME` (overridden above):
+    `CF_TARGET` reads as a Cloudflare proxy, `LEGACY_TARGET` as a legacy one.
+    """
+
+    @parameterized.expand([("cloudflare_path", CF_TARGET), ("legacy_path", LEGACY_TARGET)])
     @patch("posthog.api.proxy_record_diagnostics._check_cert_expiry")
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
-    def test_healthy_when_ssl_active_and_live_passes(self, ResolverMock, get_mock, post_mock, cert_mock):
+    def test_live_pass_short_circuits_to_healthy(self, _name, target, ResolverMock, get_mock, post_mock, cert_mock):
+        # A working endpoint means the cert is live and deployed, so no provider API is
+        # consulted — on either path. This is the regression that made a healthy legacy
+        # proxy report as broken because its Cloudflare lookup came back empty.
         cname = MagicMock()
-        cname.target.to_text.return_value = "abc.cf-prod-eu-proxy.europehog.com."
+        cname.target.to_text.return_value = target
         ResolverMock.return_value.resolve.return_value = [cname]
-        get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
         post_mock.return_value = MagicMock(status_code=200)
         cert_mock.return_value = diagnostics.CheckResult(
             id="cert_expiry", name="Certificate expiry", status="passed", detail="ok"
         )
 
-        report = diagnostics.diagnose(_record())
+        report = diagnostics.diagnose(_record(target=target))
 
         self.assertEqual(report.summary.status, "healthy")
-        self.assertIsNone(report.summary.primary_issue)
-        ids = [c.id for c in report.checks]
-        self.assertEqual(ids, ["cname", "cloudflare", "caa", "http_challenge", "live_event", "cert_expiry"])
+        self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "cert_expiry"])
+        get_mock.assert_not_called()
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.get")
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
-    def test_caa_failure_surfaces_as_primary_issue(self, ResolverMock, get_mock, http_get_mock):
+    def test_legacy_not_serving_skips_cloudflare_and_offers_no_retry(self, ResolverMock, get_mock, post_mock):
+        # A broken legacy proxy must skip the Cloudflare check (not fail it), never call the
+        # Cloudflare API, and never suggest retry — retry would migrate it onto Cloudflare.
+        cname = MagicMock()
+        cname.target.to_text.return_value = LEGACY_TARGET
+
+        def resolve_side_effect(name, rdtype):
+            if rdtype == "CNAME":
+                return [cname]
+            raise dns.resolver.NoAnswer()
+
+        ResolverMock.return_value.resolve.side_effect = resolve_side_effect
+        post_mock.side_effect = requests.exceptions.ConnectionError("refused")
+
+        report = diagnostics.diagnose(_record(target=LEGACY_TARGET))
+
+        get_mock.assert_not_called()
+        cf_check = next(c for c in report.checks if c.id == "cloudflare")
+        self.assertEqual(cf_check.status, "skipped")
+        self.assertFalse(any(c.remediation and c.remediation.type == "retry" for c in report.checks))
+        self.assertEqual(report.summary.primary_issue, "live_event")
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_cloudflare_missing_hostname_still_offers_retry(self, ResolverMock, get_mock, post_mock):
+        # A genuine Cloudflare-path proxy whose custom hostname is missing: retry is correct.
+        cname = MagicMock()
+        cname.target.to_text.return_value = CF_TARGET
+
+        def resolve_side_effect(name, rdtype):
+            if rdtype == "CNAME":
+                return [cname]
+            raise dns.resolver.NoAnswer()
+
+        ResolverMock.return_value.resolve.side_effect = resolve_side_effect
+        post_mock.side_effect = requests.exceptions.ConnectionError("refused")
+        get_mock.return_value = None
+
+        report = diagnostics.diagnose(_record(target=CF_TARGET))
+
+        cf_check = next(c for c in report.checks if c.id == "cloudflare")
+        self.assertEqual(cf_check.status, "failed")
+        assert cf_check.remediation is not None
+        self.assertEqual(cf_check.remediation.type, "retry")
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.get")
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_cloudflare_not_serving_caa_blocking_is_primary(self, ResolverMock, get_mock, post_mock, http_get_mock):
         # CNAME query returns the right target; CAA query returns a blocking record.
         cname = MagicMock()
-        cname.target.to_text.return_value = "abc.cf-prod-eu-proxy.europehog.com."
+        cname.target.to_text.return_value = CF_TARGET
 
         def resolve_side_effect(name, rdtype):
             if rdtype == "CNAME":
@@ -282,15 +352,13 @@ class TestDiagnoseOrchestrator(TestCase):
             raise dns.resolver.NoAnswer()
 
         ResolverMock.return_value.resolve.side_effect = resolve_side_effect
+        post_mock.side_effect = requests.exceptions.ConnectionError("refused")
         get_mock.return_value = _hostname_info(ssl_status=CustomHostnameSSLStatus.PENDING_VALIDATION)
         http_get_mock.return_value = MagicMock(status_code=200, text="tok.body")
 
-        report = diagnostics.diagnose(_record())
+        report = diagnostics.diagnose(_record(target=CF_TARGET))
 
         self.assertEqual(report.summary.status, "fail")
         self.assertEqual(report.summary.primary_issue, "caa")
         # next_action is the fix (authorize pki.goog), not the cause
         self.assertIn("pki.goog", report.summary.next_action or "")
-        # the underlying cause is in the check's detail
-        caa_check = next(c for c in report.checks if c.id == "caa")
-        self.assertIn("digicert.com", caa_check.detail)
