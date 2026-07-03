@@ -4573,13 +4573,13 @@ snapshots:
     replay-scenes-group--group-events-tab-with-modal-not-found--light:
         hash: v1.k794b7964.5f0d3637bb88545b108cb0a9b4d0756170ac227e93195ad571d46b53fbaeaea8.zuDIrma83LynXxvWHyFbQUXbrjWayRdiqZoebEB0TlY
     replay-scenes-group--group-recording-tab-empty--dark:
-        hash: v1.k794b7964.f1deb627bf6848abf50a0eef0cce1413643a4f1260bab1e0f92a192465b9a95d.7JFpW5ZWtSmFu182l64fE9YypIkJ_bYttM8LWIbWe-Y
+        hash: v1.k794b7964.d0642838acc78c42c685bc62c70961c499a82f8f4fb06f0a69273d9b4510a6b4.WJsbrKbxcsY8wnqQbGH5Aizdxf67uH3Zm5oo8tVkYKI
     replay-scenes-group--group-recording-tab-empty--light:
-        hash: v1.k794b7964.9277ae174a62b01665c4e77d032d04ae93b73b8fd15447e47e7ca1915397d11f.kJffVl3sofs8zSMyHH78rt5FFhCOBeAKh1Z7MfnTvwc
+        hash: v1.k794b7964.8f52b909618c4841561ad095b6d41d50185d101c9474b9ff045726af2699f9b9.BALgt1AYKPyXcsHZk8QU1iXDxSLoJzIbHJjrvFWEDYU
     replay-scenes-group--group-recording-tab-multiple-and-not-found--dark:
-        hash: v1.k794b7964.2a78cbbe5769ee76bff2695f22fda47e249bd070c94a40cff1b3020496022911.d5Wj-TfFawHiOLkliwUw40GOsUOGdg-CJAH5fknbLKI
+        hash: v1.k794b7964.968db5d7df21d676937b7899eb1ee83d70b09d7b89db8bd7c14ff1a3ed7a4830.RcxhXMimDQGP08GIXNgMedBGbjzTW6Sq8bFzdNawM0M
     replay-scenes-group--group-recording-tab-multiple-and-not-found--light:
-        hash: v1.k794b7964.d8056449450e1b9fca8334a799cc94c07c1f822da9f89286d0e87c5ffb7347f7.2Mj0yI-YAk501nE-4iQlOTqLRw6h8NBK8D_3gJRjQVA
+        hash: v1.k794b7964.9fcb4e53f68df62e347f8295388a814023512aef111d39a2bbe5e6ea02ad7f0c.yD8COhsvFt3Z_mzyPDRQk-CZLEaEAeFF4vlcmtxoaWM
     replay-scenes-person--person-recording-tab-empty--dark:
         hash: v1.k794b7964.43e828f5b46ddc1083a260cd4be8de2850990821fc36977fcd851ba68198ed25.FzBCtfzt5Kfgr1E63iZCpq3wjR5ecj6uOOkE7HkEVEk
     replay-scenes-person--person-recording-tab-empty--light:
@@ -5308,6 +5308,10 @@ snapshots:
         hash: v1.k794b7964.83c385733deb4cb77095126aa6a3f07575be1ade3a8c264f8ab5535a8e388e46.1kLb3ug8AjcFymdwya_lMsMdDCY_TMjXZoSsNGmeIKw
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
         hash: v1.k794b7964.0ac75ee5ad6cce1b73e6e462c3afc25be5fa8b185803b2841ba592e3cd213447.dJOxWbbi2m7WmG9JPR4C2pvmDkUAQciRrcIRbZyHhQk
+    scenes-app-data-warehouse-sql-editor--top-tools-per-server--dark:
+        hash: v1.k794b7964.1c077ddef3f35475809250e6f5ca5bf28ff4e76118f9cc324f3111c640dc734e.SAFT2NixbMVO1CefVzYzDcOznVq2iZLGzXmhYnim2-0
+    scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:
+        hash: v1.k794b7964.a1f22f0abe647e51d75603df28448d9dd09d5d1193838d0d18e592c73d24ab7b.Vuc8iYlKwzsbg3TJr_6vltAZplqU3xwvnkQC2leev5I
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.0574501d1036cac7563c61590dfb8b3d64192e239cbad126d754b9905b4f3ee1._MDyv82QyHN-dApRaQoppTvESKRRZP_p6MB5PKLrjeg
     scenes-app-error-project-unavailable--access-revoked--light:
@@ -5328,6 +5332,10 @@ snapshots:
         hash: v1.k794b7964.255bb3a04f42d5dc5922480078098194199f9ab2654ef6923d7e725ff7968ba1.NqAiq7rAZkXlnjCi3_nZCTo3qi16OjXPDyE7wa8epHY
     scenes-app-events--event-explorer--light:
         hash: v1.k794b7964.9c5112b445a6384ad2d6a0d26338b7336485f3144bff122a1e54ea3a1138ae02.ufrUX3DKNQ97Zuadfm6U6QGXqbdaMxwYa5R7uPnlGz0
+    scenes-app-events-mcp-tool-calls--mcp-tool-calls--dark:
+        hash: v1.k794b7964.8f89948ee00f8e8c0e0305f4b9238676d8eec08b6d84de93789921b56a8ed715.dfVd-_XajcLQB6QK2iwZTCRdkbf1JKplgF8Fp0Wnfag
+    scenes-app-events-mcp-tool-calls--mcp-tool-calls--light:
+        hash: v1.k794b7964.5f73a07c7d72524d9a2a70079c4229cba30d85f9c97c34c633d8eb7852f41707.qtaSYaBb0rIk54Hlb0by95rpE95zIdFs1MSd1bqyl7A
     scenes-app-experiments--draft-experiment--dark:
         hash: v1.k794b7964.6d82f7386471ee5e75c8bb75a5e71bb84a033e1e6fafb0a6d86e2751d267b5de.hj4hBxL8bTZ89RrQrnpF2Iikqhvmxuc1UUxBvq7DqE0
     scenes-app-experiments--draft-experiment--light:
@@ -5812,6 +5820,10 @@ snapshots:
         hash: v1.k794b7964.9226faee502bdeca6720a84e746489d9eac5dc4d102176fa3ec6622a2eb849be.NEGj0oYEiYNFJ4bowd9Z1FJpRJvKL538swXf33_kVj0
     scenes-app-insights-loading-messages--loading-messages--light:
         hash: v1.k794b7964.6e7f58555ec0ab4517c718a4062f7ec433c2f849c5870fbdf7f4a1c86c7d7462.ic0QxTM26TV5twnRajAcxcCfwKuZJbvilyt80dyUN5k
+    scenes-app-insights-mcp-missing-capability--mcp-missing-capability--dark:
+        hash: v1.k794b7964.b2867c1b3182e8e51696f338e626ab052764cdf7601a8a92f219ac5da6c3638d.Dx3NXLRLC1rhGxa5T7qyW63abreOxt78C5aik2e999o
+    scenes-app-insights-mcp-missing-capability--mcp-missing-capability--light:
+        hash: v1.k794b7964.e0d9eecd9f646fe4f7bf5fcd32f6654fd1df0b7f542a8bf6db8dd8acd4fa1b58.IrWNY-Wa_gH7_7zLJkYAxxpFS9SWygMtABDe7rgkrfo
     scenes-app-insights-regionmap--default--dark:
         hash: v1.k794b7964.1da35c2684f9c0b6ab0043c27cfa880693ad3a31bba2aaeffa101dca5427c4d7.AV2LBdDhvM_G28U2qGXNMKF8hEbKcexDdk3I7Lz4X5M
     scenes-app-insights-regionmap--default--light:

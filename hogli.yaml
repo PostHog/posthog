@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: devex
+          title: Developer experience feedback
         - key: utilities
           title: Git worktrees and admin
         - key: devbox
@@ -991,6 +993,10 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+devex:
+    devex:feedback:
+        click: hogli_commands.feedback:devex_feedback
+        description: Send feedback about the dev experience to the devex team (humans and agents)
 utilities:
     nuke:
         steps:

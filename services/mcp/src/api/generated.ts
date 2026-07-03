@@ -18321,6 +18321,23 @@ export namespace Schemas {
     } as const;
 
     /**
+     * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+     */
+    export interface EmitEligibility {
+      /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
+      ai_processing_approved: boolean;
+      /** Whether the `signals_scout` signal source is enabled for this team. */
+      source_enabled: boolean;
+      /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+      can_emit: boolean;
+      /**
+         * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+         * @nullable
+         */
+      remediation: string | null;
+    }
+
+    /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
      */
     export interface EvidenceEntry {
@@ -18408,6 +18425,11 @@ export namespace Schemas {
          * @nullable
          */
       skipped_reason: string | null;
+      /**
+         * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when emitted normally or the skip isn't something the scout can act on.
+         * @nullable
+         */
+      remediation: string | null;
     }
 
     /**
@@ -18499,6 +18521,11 @@ export namespace Schemas {
          * @nullable
          */
       safety_explanation: string | null;
+      /**
+         * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
+         * @nullable
+         */
+      remediation: string | null;
     }
 
     export interface EnableWarehouseBackfillRequest {
@@ -44292,6 +44319,8 @@ export namespace Schemas {
       external_data_sources: ExternalDataSourceEntry[];
       /** Signal source configs split into enabled / disabled buckets. */
       signal_source_configs: SignalSourceConfigsBuckets;
+      /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
+      emit_eligibility: EmitEligibility;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */

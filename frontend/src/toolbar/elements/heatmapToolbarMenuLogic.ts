@@ -29,6 +29,10 @@ import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
 const ELEMENT_STATS_PAGE_LIMIT = 5000
+// the follow-up fetch re-reads from offset 0 with a bigger limit rather than paginating:
+// the server re-runs the full aggregation for any offset, so one big scan costs the same as
+// a page and can't miss rows that shifted across page boundaries between scans
+const ELEMENT_STATS_AUTO_LOAD_LIMIT = 50000
 
 function yieldToMain(): Promise<void> {
     return new Promise((resolve) => {
@@ -42,12 +46,15 @@ function yieldToMain(): Promise<void> {
     })
 }
 
-export type ClickmapProcessingTrigger = 'initial' | 'pagination' | 'refresh' | 'toggle'
+export type ClickmapProcessingTrigger = 'initial' | 'auto-load' | 'pagination' | 'refresh' | 'toggle'
 
 interface ElementProcessingCache {
     pageElements?: HTMLElement[]
     domIndex?: DOMIndex
     selectorToElements: Map<string, HTMLElement[] | null>
+    // matched DOM element (or a definitive miss) per type:chain_hash row identity, so the
+    // auto-load refetch and pagination reprocess only rows they haven't matched before
+    matchedElementByIdentity: Map<string, HTMLElement | null>
     lastHref?: string
     intersectionObserver?: IntersectionObserver
     visibilityCache: WeakMap<HTMLElement, boolean>
@@ -59,6 +66,7 @@ function invalidatePageElementsCache(cache: ElementProcessingCache): void {
     cache.cacheInvalidated = true
     cache.visibilityCache = new WeakMap()
     cache.domIndex = undefined
+    cache.matchedElementByIdentity = new Map()
 }
 
 function getCachedPageElements(
@@ -86,6 +94,7 @@ function getCachedPageElements(
     cache.domIndex = buildDOMIndex(cache.pageElements)
     cache.lastHref = href
     cache.selectorToElements = new Map()
+    cache.matchedElementByIdentity = new Map()
     cache.cacheInvalidated = false
     return {
         pageElements: cache.pageElements,
@@ -141,8 +150,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
     })),
     actions({
-        getElementStats: (url?: string | null) => ({
+        getElementStats: (url?: string | null, limit?: number) => ({
             url,
+            limit,
         }),
         enableHeatmap: true,
         disableHeatmap: true,
@@ -169,6 +179,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
+        lastElementStatsRequest: [
+            null as { url: string | null; limit: number } | null,
+            {
+                getElementStats: (_, { url, limit }) => ({
+                    url: url ?? null,
+                    limit: limit ?? ELEMENT_STATS_PAGE_LIMIT,
+                }),
+            },
+        ],
         canLoadMoreElementStats: [
             true,
             {
@@ -181,11 +200,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
-                getElementStatsFailure: () => false,
             },
         ],
         clickmapsEnabled: [
-            false,
+            true,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
             },
@@ -252,8 +270,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             null as PaginatedResponse<ElementsEventType> | null,
             {
                 resetElementStats: () => emptyElementsStatsPages,
-                getElementStats: async ({ url }, breakpoint) => {
+                getElementStats: async ({ url, limit }, breakpoint) => {
                     await breakpoint(150)
+
+                    // the gates can flip while we sit in the breakpoint (the embedded app sends
+                    // toggleClickmapsEnabled(false) just after mount), so re-check before fetching
+                    if (!values.heatmapEnabled || !values.clickmapsEnabled) {
+                        return values.elementStats ?? emptyElementsStatsPages
+                    }
 
                     const { href, wildcardHref } = values
                     // We re-raise below to drive getElementStatsFailure; let the global
@@ -290,7 +314,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   date_to: values.commonFilters.date_to,
                                   paginate_response: true,
                                   sampling_factor: values.samplingFactor,
-                                  limit: ELEMENT_STATS_PAGE_LIMIT,
+                                  limit: limit ?? ELEMENT_STATS_PAGE_LIMIT,
                                   // the matchers only read the configured data attributes from each
                                   // element's attributes map, so let the server drop the rest
                                   data_attributes: values.wantedDataAttributes.join(','),
@@ -416,29 +440,54 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
 
+            const matchedElementByIdentity = (cache as ElementProcessingCache).matchedElementByIdentity
             const allTrimmedElements: CountedHTMLElement[] = []
             let indexMatchedCount = 0
             let fallbackMatchedCount = 0
+            let matchCacheHitCount = 0
             let completed = false
             let sliceStart = performance.now()
 
             try {
                 for (let i = 0; i < totalEvents; i++) {
                     const event = eventsToProcess[i]
-                    let matched = matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex)
-                    if (matched) {
-                        indexMatchedCount += 1
+                    const identity = event.hash ? `${event.type}:${event.hash}` : null
+                    const cachedElement = identity ? matchedElementByIdentity.get(identity) : undefined
+
+                    let matched: CountedHTMLElement | null = null
+                    if (cachedElement !== undefined) {
+                        matchCacheHitCount += 1
+                        matched = cachedElement
+                            ? {
+                                  element: cachedElement,
+                                  count: event.count,
+                                  selector: '',
+                                  hash: event.hash,
+                                  type: event.type,
+                                  clickCount: 0,
+                                  rageclickCount: 0,
+                                  deadclickCount: 0,
+                              }
+                            : null
                     } else {
-                        matched = matchEventToElementUsingSelectors(
-                            event,
-                            dataAttributes,
-                            matchLinksByHref,
-                            pageElements,
-                            (cache as ElementProcessingCache).selectorToElements,
-                            hasShadowRoots
-                        )
+                        matched = matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex)
                         if (matched) {
-                            fallbackMatchedCount += 1
+                            indexMatchedCount += 1
+                        } else {
+                            matched = matchEventToElementUsingSelectors(
+                                event,
+                                dataAttributes,
+                                matchLinksByHref,
+                                pageElements,
+                                (cache as ElementProcessingCache).selectorToElements,
+                                hasShadowRoots
+                            )
+                            if (matched) {
+                                fallbackMatchedCount += 1
+                            }
+                        }
+                        if (identity) {
+                            matchedElementByIdentity.set(identity, matched?.element ?? null)
                         }
                     }
 
@@ -473,6 +522,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     matched_element_count: allTrimmedElements.length,
                     index_matched_count: indexMatchedCount,
                     fallback_matched_count: fallbackMatchedCount,
+                    match_cache_hit_count: matchCacheHitCount,
                     page_element_count: pageElements.length,
                     has_shadow_roots: hasShadowRoots,
                     duration_ms: Math.round(performance.now() - startedAt),
@@ -518,7 +568,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadClickmap: async () => {
-            if (values.clickmapsEnabled) {
+            // this logic stays mounted while the heatmap menu is closed, so navigation
+            // must not fetch stats until the user is actually looking
+            if (values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats()
             }
         },
@@ -553,12 +605,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
-                actions.getElementStats()
+                actions.maybeLoadClickmap()
             } else {
                 actions.stopElementObservation()
                 actions.resetElementStats()
                 cache.pageElements = undefined
                 cache.selectorToElements = new Map()
+                cache.matchedElementByIdentity = new Map()
                 cache.lastHref = undefined
                 cache.visibilityCache = new WeakMap()
             }
@@ -567,14 +620,31 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
+            } else if (!values.elementStats) {
+                // the initial load failed, so the button doubles as the retry affordance
+                actions.maybeLoadClickmap()
             }
         },
 
         getElementStatsSuccess: ({ elementStats }) => {
-            actions.processElements(elementStats?.previous ? 'pagination' : 'initial')
+            const request = values.lastElementStatsRequest
+            const trigger: ClickmapProcessingTrigger = request?.url
+                ? 'pagination'
+                : request?.limit === ELEMENT_STATS_AUTO_LOAD_LIMIT
+                  ? 'auto-load'
+                  : 'initial'
+            actions.processElements(trigger)
+
+            // the first page painted; fetch the rest in one background request. Only the initial
+            // trigger refetches, so an auto-load result can never re-trigger itself.
+            if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
+                actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
+            }
         },
 
         setMatchLinksByHref: () => {
+            // href matching changes what a row matches, so cached matches are stale
+            ;(cache as ElementProcessingCache).matchedElementByIdentity = new Map()
             actions.processElements('toggle')
         },
 
@@ -596,6 +666,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.selectorToElements = new Map()
+        cache.matchedElementByIdentity = new Map()
         cache.visibilityCache = new WeakMap()
 
         cache.disposables.add(() => {
@@ -660,6 +731,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     beforeUnmount(({ cache }) => {
         cache.pageElements = undefined
         cache.selectorToElements = new Map()
+        cache.matchedElementByIdentity = new Map()
         cache.visibilityCache = new WeakMap()
         cache.lastHref = undefined
         cache.cacheInvalidated = false

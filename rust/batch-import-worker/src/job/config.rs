@@ -195,6 +195,7 @@ impl SourceConfig {
         is_restarting: bool,
     ) -> Result<Box<dyn DataSource>, Error> {
         let staging_dir = context.config.staging_dir();
+        let staging_max_bytes = context.config.staging_dir_max_bytes;
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
             SourceConfig::UrlList(config) => Ok(Box::new(
@@ -204,11 +205,15 @@ impl SourceConfig {
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
             SourceConfig::S3Gzip(config) => Ok(Box::new(
-                config.create_gzip_source(secrets, staging_dir).await?,
+                config
+                    .create_gzip_source(secrets, staging_dir, staging_max_bytes)
+                    .await?,
             )),
-            SourceConfig::DateRangeExport(config) => {
-                Ok(Box::new(config.create_source(secrets, staging_dir).await?))
-            }
+            SourceConfig::DateRangeExport(config) => Ok(Box::new(
+                config
+                    .create_source(secrets, staging_dir, staging_max_bytes)
+                    .await?,
+            )),
         }
     }
 }
@@ -423,6 +428,7 @@ impl S3SourceConfig {
         &self,
         secrets: &JobSecrets,
         staging_dir: PathBuf,
+        staging_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
         let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
@@ -433,6 +439,7 @@ impl S3SourceConfig {
             self.prefix.clone(),
             ExtractorType::PlainGzip.create_extractor(),
             staging_dir,
+            staging_max_bytes,
         ))
     }
 }
@@ -441,6 +448,7 @@ impl DateRangeExportSourceConfig {
         &self,
         secrets: &JobSecrets,
         staging_dir: PathBuf,
+        staging_max_bytes: u64,
     ) -> Result<DateRangeExportSource, Error> {
         let auth_config = match &self.auth {
             AuthSourceConfig::None => AuthConfig::None,
@@ -540,6 +548,7 @@ impl DateRangeExportSourceConfig {
         .with_auth(auth_config)
         .with_date_format(self.date_format.clone())
         .with_headers(self.headers.clone())
+        .with_staging_max_bytes(staging_max_bytes)
         .build()
     }
 

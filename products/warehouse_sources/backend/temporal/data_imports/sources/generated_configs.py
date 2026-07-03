@@ -362,7 +362,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1295,7 +1295,13 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
@@ -1548,7 +1554,7 @@ class HoorayHRSourceConfig(config.Config):
 
 @config.config
 class HubplannerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1632,7 +1638,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1647,7 +1653,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1657,7 +1663,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1702,7 +1709,8 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2095,7 +2103,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2136,12 +2145,14 @@ class NewYorkTimesSourceConfig(config.Config):
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2238,7 +2249,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2248,12 +2259,14 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
