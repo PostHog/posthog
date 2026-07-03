@@ -1,4 +1,4 @@
-import { computeBarAtIndex, computeBarTrackRect } from '../../../core/bar-layout'
+import { applyOuterStackCaps, computeBarAtIndex, computeBarTrackRect } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
@@ -88,11 +88,14 @@ export interface BarAtCursor<S> {
 
 /** Yields the renderable `{ series, bar }` for every visible series at `(label, dataIndex)`.
  *  Single source of truth shared by drawHover, tooltip narrowing, and click routing —
- *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. */
+ *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. Eager despite
+ *  the generator shape: every bar is computed up front so stacked cap corners can be
+ *  re-resolved across the whole band before the first yield. */
 export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
     const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const results: BarAtCursor<S>[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -111,9 +114,17 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
             isTopOfStack,
         })
         if (bar) {
-            yield { series: s, bar }
+            results.push({ series: s, bar })
         }
     }
+    // Match the static layer's per-band cap resolution so hover highlights round the same corners.
+    applyOuterStackCaps(
+        results.map((r) => ({ bar: r.bar, yAxisId: r.series.yAxisId })),
+        scales,
+        isHorizontal,
+        layout
+    )
+    yield* results
 }
 
 /** True when the cursor sits in a bar's inert volume gap — lined up on the band axis with a bar

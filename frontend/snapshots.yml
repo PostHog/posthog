@@ -565,15 +565,15 @@ snapshots:
     components-hogcharts-barchart--stacked-mixed-sign--light:
         hash: v1.k794b7964.54ea51777cd1be48ada08afc6d9652348e58c55b4578259834125c1586df772a.puvvq3HL5w9hHEpev9dP2fRTzvd42bW7BZ-F7WiOIks
     components-hogcharts-barchart--stacked-with-track-ceiling--dark:
-        hash: v1.k794b7964.1f85d679741bd81ee3e7ab488ce82596c1e9f29f396295d863ed51a53f5a3a55.Q0JUJARVeJV8GdQs-EpptVEuOCgB0zYkwCApvNmEc7A
+        hash: v1.k794b7964.1ea8d87a1726a9a532850eb97fe6d93137d5dbb1aa960392741c9242778248b7.b88PGR3XtCLRXIoJ6hnH5yS7esXRS5Q2Ej3S6W7PO5g
     components-hogcharts-barchart--stacked-with-track-ceiling--light:
-        hash: v1.k794b7964.eb413728e33e4274883d8126d1634e408b221e6c9b3d880f6feaae458b891e09.55R7ZeVRnWxZjkWcMuLk_k8ZLPvrFXLxRqC8xOzYtAo
+        hash: v1.k794b7964.0d490f49e93f7af73d125716612fe4cb232d5476b6d8f29bd967dbe38fe5071c.ZPyhSX_pPV9Rg8G1VgMII5VYCH7ewyRl6ks4C0AGElg
     components-hogcharts-barchart--with-bar-track--dark:
         hash: v1.k794b7964.459993a07b1a8d239b43e5700fda3de963173c7c62792c3ca73ca7d26d3e967e.3i1wOTz8MkiBSViwUvFmF0H-bkd_5Yeu3YpGa4l5jP4
     components-hogcharts-barchart--with-bar-track--light:
         hash: v1.k794b7964.ba635da9134368b50adcd9ef7f0918d3c586f9282554e5395db438f04c1b9828.4CvwEAEAL4UT_K-Fs7S-laUq9wf3MMmOG2jnRIkffo4
     components-hogcharts-barchart--with-bar-track-ceiling--dark:
-        hash: v1.k794b7964.3326668de4a2d7d75de261b264de264a7a60113b703e67f687a8ef8a42f36109.2lqjmeix3iZwdrVjXi8ZpxMk9tuHmyV0LWVEIdaPJJ4
+        hash: v1.k794b7964.a59a7344c9cf9f18f144db6101af8e1484ba9fbf25d2e534ef7374b6ddc6349f.G1zekxfY0rzlPR7qvxJYOoNov8Oo6AQd-NSJ_3jCjUI
     components-hogcharts-barchart--with-bar-track-ceiling--light:
         hash: v1.k794b7964.e9accba1ecd78df7cf201f4eccdb1879ff90a450c7052c10940b1406892dcd65.fu8AiHQlPz_QXbMIH-RxgXyBXyhX9x365WS4pFWbKA4
     components-hogcharts-barchart--with-reference-line--dark:
@@ -829,7 +829,7 @@ snapshots:
     components-hogcharts-piechart--with-breakdown-labels--light:
         hash: v1.k794b7964.0d2c1e4814a1414b2408dca7bcf8caab2c8ae39e313df9756d210e5dca04fba6.xQ4aCFRK6tR7nYCZNS7TKRDTD7qYqoZaUuY__-vfLBY
     components-hogcharts-referenceline--fill-sides--dark:
-        hash: v1.k794b7964.1de607eafc06356aced4ea0c94af0de2f0ce7e5568096ea9de1212946b19c1a6.EpByD_GpgernGyEPR5BsGG8sdXa3BxHXcjqgVwWbNS0
+        hash: v1.k794b7964.41d688d69cc669299398feee2e4f7986720e7d4aca69b3f6fa8c8e393b8b0c52.ykaqMNcqN3CyZHWIl_dxBhROh0rhUQ2tS2raPG1SgIs
     components-hogcharts-referenceline--fill-sides--light:
         hash: v1.k794b7964.e270bf77bc5b762f7a3ba24687202642ae8c33397dabbc4e76dd298acb92eba0.9P3ASMFV0Zbrb21E8Tux-2Cd7rGIWvgHAL7CDwwLpGI
     components-hogcharts-referenceline--horizontal-goal--dark:
@@ -2489,7 +2489,7 @@ snapshots:
     insights-funnelcorrelationtable--default--light:
         hash: v1.k794b7964.3d6cf3fd19bf7fd2b7f9d822fcd66b7d10557a26bf4bd03b01f32fcc794f880f.jKBKmAVKsMdV2WrUXJtct3l-1dyvr6mOQP_ztF84bk0
     insights-funnelhistogramchart--compare--dark:
-        hash: v1.k794b7964.243c25013f1c49bd32748e1942907e66a5167645e28f2e4c0cc5afced3c5bba9.A3DQuQNSU2omhbPK9xJY5JUW-d6pbpWCul3DebkL_Ow
+        hash: v1.k794b7964.aa2dd12d7815abfdb02c975e4ba83d3d800ae0348cd2788fd915dd8a88526bd5.2qnsQFp61uQ5a8q50Qqh_IRszXwwfbfRWbY3HxOe1GM
     insights-funnelhistogramchart--compare--light:
         hash: v1.k794b7964.283dab157709f3a7857d3385fd5cbdb5c603a84adc73672c0f2d403793b10193.TkzfWpRiJQlFpynFeQM1CjcO1TBqsDQa1N1V6u5QJxQ
     insights-funnelhistogramchart--default--dark:
@@ -6065,7 +6065,7 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
         hash: v1.k794b7964.4ebf2f848b10c8b2859630215a9be1ff91fb825fc334005207556310261d3a5c.UcqJY3dqyJNbi3x7oYaZ2rEu95LAEdbGmMyEpI-Wlgc
     scenes-app-mcp-analytics--dashboard--dark:
-        hash: v1.k794b7964.0ea60752a844fdeb315a7097c3dbec54b88c65e83e0754a0493a3e298caa8798.l4Fy_Gv11GiegC6l-OJGVfUoSpP__Xhx41X5GRc8uWA
+        hash: v1.k794b7964.aa8074db9f16841b8436c40fc9124a0615a56a08edb0772bb88cf5377e4bf42d.1LP_nshkiTFuoA99D-QwEE4lc_56NFQZ9g3x-XQf9pc
     scenes-app-mcp-analytics--dashboard--light:
         hash: v1.k794b7964.9acc446340c5debc0fcc6de75280f0867883d1b14ddc2c18615998185de5965e.Vkvw6DwC5LolW8drPPax0uEP1K4LTvV-nQXzWbWmriU
     scenes-app-mcp-analytics--intent-clustering--dark:
