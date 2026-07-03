@@ -443,6 +443,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 exception_code_filter = int(request.query_params["exception_code"])
             except (TypeError, ValueError):
                 raise exceptions.ValidationError("exception_code must be an integer.")
+            if exception_code_filter <= 0:
+                raise exceptions.ValidationError("exception_code must be a positive integer.")
 
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
