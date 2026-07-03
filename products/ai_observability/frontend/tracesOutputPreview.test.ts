@@ -70,4 +70,8 @@ describe('pickLastOutputMessage', () => {
         }
         expect(pickLastOutputMessage(state)).toMatchObject({ role: 'assistant', content: 'final answer' })
     })
+
+    it('rejects unknown state-wrapper shapes in strict mode', () => {
+        expect(pickLastOutputMessage({ current_step: 3 }, { strict: true })).toBeNull()
+    })
 })
