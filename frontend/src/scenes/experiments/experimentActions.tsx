@@ -34,15 +34,15 @@ export function confirmFreezeExposure(onConfirm: () => void): void {
         content: (
             <div className="text-sm text-secondary max-w-md">
                 <p>
-                    <b>New</b> users can no longer enroll. Everyone already enrolled keeps their variant, and metrics
+                    New users can <b>no longer enroll</b>. Everyone already enrolled keeps their variant, and metrics
                     keep updating — useful for measuring long-term impact (revenue, retention, renewals) after you stop
                     adding new users.
                 </p>
                 <p>
                     This snapshots the currently-exposed users into a static cohort and narrows the feature flag to it.
-                    The experiment <b>keeps running</b> (it is not ended), so results keep flowing. End the experiment
-                    when you're done measuring.
+                    The experiment <b>keeps running</b>, so results keep updating.
                 </p>
+                <p>From a frozen state you can end an experiment or ship a variant at any time.</p>
             </div>
         ),
         primaryButton: {
