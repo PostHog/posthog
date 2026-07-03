@@ -26,7 +26,7 @@ MANIFEST="$HCL/nodes"
 #   - events_main / events_recent are Distributed proxies to the main events cluster
 #   - query_log_archive / writable_query_log_archive are Distributed over the OPS-only
 #     sharded_query_log_archive, which is absent from non-OPS (shared-only) compositions
-SKIP='custom_metrics,custom_metrics_backups,custom_metrics_dictionaries,custom_metrics_part_counts,custom_metrics_replication_queue,custom_metrics_server_crash,custom_metrics_table_sizes,custom_metrics_test,ops_query_log_archive_mv,events_main,events_recent,query_log_archive,writable_query_log_archive,person,person_distinct_id2'
+SKIP='custom_metrics,custom_metrics_backups,custom_metrics_dictionaries,custom_metrics_part_counts,custom_metrics_replication_queue,custom_metrics_server_crash,custom_metrics_table_sizes,custom_metrics_test,ops_query_log_archive_mv,events,events_main,events_recent,writable_events_recent,query_log_archive,query_log_archive_old_ops,writable_query_log_archive,person,person_distinct_id2'
 
 rc=0
 while read -r env role layers; do

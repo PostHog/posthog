@@ -1203,6 +1203,54 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('Feature Flags group keeps recently-used flags selectable', () => {
+        let flagLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            flagLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'featureFlagDependencyTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+            })
+            flagLogic.mount()
+        })
+
+        afterEach(() => {
+            flagLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'an active flag is selectable',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: true },
+                expectedDisabled: false,
+                expectedName: 'my-flag',
+            },
+            {
+                description: 'an explicitly inactive flag is disabled',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: false },
+                expectedDisabled: true,
+                expectedName: 'my-flag (disabled)',
+            },
+            {
+                // Recents/pinned entries are persisted stripped to { name, id }, so they carry no
+                // `active` field; a missing `active` must not read as disabled or recently-used
+                // flags can no longer be picked as flag-dependency match criteria. The same guard
+                // applies to getName, which would otherwise render "732889 (disabled)".
+                description: 'a recently-used flag missing the active field stays selectable',
+                flag: { name: '732889', id: 732889 },
+                expectedDisabled: false,
+                expectedName: '732889',
+            },
+        ])('getIsDisabled/getName: $description', ({ flag, expectedDisabled, expectedName }) => {
+            const flagGroup = flagLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.FeatureFlags
+            )
+            expect(flagGroup?.getIsDisabled).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(flagGroup?.getIsDisabled?.(flag as any)).toBe(expectedDisabled)
+            expect(flagGroup?.getName?.(flag as any)).toBe(expectedName)
+        })
+    })
+
     describe('SQL expression (HogQLExpression) group commits its value', () => {
         let hogqlLogic: ReturnType<typeof taxonomicFilterLogic.build>
         const onChange = jest.fn()

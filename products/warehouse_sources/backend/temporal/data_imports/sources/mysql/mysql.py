@@ -398,6 +398,27 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
+# out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
+# it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
+# from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
+# `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
+# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
+# the first query after connect (see `_is_transient_tablet_unavailable`).
+_VITESS_DIAL_TOKEN = "dial tcp"
+_VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
+
+
+def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate timed out dialing its backend tablet — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    args_text = " ".join(str(arg) for arg in e.args)
+    return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -416,6 +437,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
                 or _is_transient_packet_sequence_error(e)
+                or _is_transient_vitess_dial_timeout(e)
             ):
                 raise
             structlog.get_logger().warning(

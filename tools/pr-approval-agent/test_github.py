@@ -11,7 +11,7 @@ from github import _normalize_reviews_for_prompt, _reaction_emoji, _trusted_reac
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
     head_sha = "072cdd75592bfd0bf0c016209385f20f85a45201"
     current_review = {
-        "user": {"login": "stamphog", "type": "Bot"},
+        "user": {"login": "copilot-pull-request-reviewer", "type": "Bot"},
         "state": "COMMENTED",
         "body": "Current head concern",
         "commit_id": head_sha,
@@ -31,7 +31,7 @@ def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> N
 
     assert normalized == [
         {
-            "user": "stamphog",
+            "user": "copilot-pull-request-reviewer",
             "state": "COMMENTED",
             "body": "Current head concern",
             "commit_id": head_sha,
@@ -72,6 +72,35 @@ def test_normalize_reviews_filters_by_trust_source(
                 "commit_id": "abc123",
                 "submitted_at": "2026-04-07T20:14:03Z",
                 "author_association": author_association,
+            }
+        ],
+        "abc123",
+    )
+
+    assert len(normalized) == expected_count
+
+
+@pytest.mark.parametrize(
+    "login,expected_count",
+    [
+        pytest.param("stamphog[bot]", 0, id="own-refuse-comment-review"),
+        pytest.param("github-actions[bot]", 0, id="own-approve-review"),
+        pytest.param("greptile-apps[bot]", 1, id="other-bot-kept"),
+    ],
+)
+def test_normalize_reviews_excludes_stamphogs_own_prior_reviews(login: str, expected_count: int) -> None:
+    # Feeding stamphog's own stale reviews back into the prompt makes the next
+    # run read them as third-party claims about state that no longer matches —
+    # it then suspects tampering and refuses forever.
+    normalized = _normalize_reviews_for_prompt(
+        [
+            {
+                "user": {"login": login, "type": "Bot"},
+                "state": "COMMENTED",
+                "body": "Refusing: reviews in flight",
+                "commit_id": "abc123",
+                "submitted_at": "2026-04-07T20:14:03Z",
+                "author_association": "NONE",
             }
         ],
         "abc123",
@@ -152,3 +181,65 @@ def test_review_threads_query_stays_under_github_node_limit() -> None:
     # GitHub rejects any GraphQL query whose worst-case node count exceeds
     # 500,000 before executing it, which hard-fails the review on every PR.
     assert _worst_case_node_count(github._REVIEW_THREADS_QUERY) < 500_000
+
+
+@pytest.mark.parametrize(
+    "login,expected_users",
+    [
+        pytest.param("stamphog[bot]", ["greptile-apps[bot]"], id="own-inline-comment-excluded"),
+        pytest.param("github-actions[bot]", ["greptile-apps[bot]"], id="own-approve-identity-excluded"),
+        pytest.param(
+            "copilot-pull-request-reviewer[bot]",
+            ["copilot-pull-request-reviewer[bot]", "greptile-apps[bot]"],
+            id="other-bot-kept",
+        ),
+    ],
+)
+def test_fetch_threads_excludes_stamphogs_own_inline_comments(
+    monkeypatch: pytest.MonkeyPatch, login: str, expected_users: list[str]
+) -> None:
+    # Stamphog's earlier verdicts fed back through inline comments read as
+    # third-party claims about a stale snapshot — later runs then suspect
+    # impersonation and refuse forever, exactly like stale top-level reviews.
+    def fake_graphql(query: str, variables: dict | None = None) -> dict:
+        def comment(user: str) -> dict:
+            return {
+                "author": {"login": user, "__typename": "Bot"},
+                "authorAssociation": "NONE",
+                "body": f"comment from {user}",
+                "databaseId": 1,
+                "replyTo": None,
+                "reactions": {"nodes": []},
+            }
+
+        return {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reactions": {"nodes": []},
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "path": "posthog/api/insight.py",
+                                    "line": 42,
+                                    "comments": {
+                                        "pageInfo": {"hasNextPage": False},
+                                        "nodes": [comment(login), comment("greptile-apps[bot]")],
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                }
+            }
+        }
+
+    monkeypatch.setattr(github, "_gh_graphql", fake_graphql)
+    monkeypatch.setattr(github, "_is_org_member", lambda org, member: False)
+
+    comments, _ = github._fetch_threads_and_reactions("PostHog/posthog", 1, author="alice")
+
+    assert [c["user"] for c in comments] == expected_users

@@ -12,6 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
+        METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
         ExperimentMetricToRecalculate,
         RecalculationProgressUpdate,
@@ -23,10 +24,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
-# Offline recalc shares the org's ClickHouse query budget (app:query:per-org, default 20,
-# halved/quartered under cluster load) with the org's live queries. Cap at 4 so a single run
-# stays under the budget even when it drops to 5, avoiding ClickHouseAtCapacity throttling.
-MAX_CONCURRENT_METRICS = 4
+# Per-run metric fan-out: how many metric activities one run keeps in flight, sized so a typical experiment
+# recalculates in a single concurrent wave. Cross-run ClickHouse load is bounded separately by the dedicated
+# recalc worker's activity-slot cap (MAX_CONCURRENT_ACTIVITIES), not by this constant.
+MAX_CONCURRENT_METRICS = 14
 
 
 @temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
@@ -175,7 +176,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         ],
                         # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
                         # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
-                        start_to_close_timeout=timedelta(minutes=5),
+                        # The query's ClickHouse max_execution_time is capped below this (see models.py) so
+                        # slow queries fail typed inside the activity instead of being killed from outside.
+                        start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                         # One attempt per invocation; the workflow owns requeue + backoff (see block comment).
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )

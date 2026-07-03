@@ -120,6 +120,9 @@ class TestScoutReportAPI(APIBaseTest):
         body = response.json()
         assert body["skipped_reason"] == "ai_processing_not_approved"
         assert body["report_id"] is None
+        # A gate-skipped report must hand back an actionable next step, not a bare reason code —
+        # otherwise the scout is blocked with a dead end and loses the whole run's work.
+        assert body["remediation"] and "AI data processing" in body["remediation"]
         # Gate stops before judging or persisting.
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()

@@ -133,6 +133,12 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
 
+def sandbox_repo_path(repository: str) -> str:
+    """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
+    org, repo = repository.lower().split("/")
+    return f"{WORKING_DIR}/repos/{org}/{repo}"
+
+
 def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
@@ -209,7 +215,7 @@ class SandboxBase(ABC):
             else f"https://github.com/{org}/{repo}.git"
         )
 
-        target_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+        target_path = sandbox_repo_path(repository)
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
@@ -460,6 +466,7 @@ __all__ = [
     "SandboxBase",
     "WORKING_DIR",
     "parse_sandbox_repo_mount_map",
+    "sandbox_repo_path",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

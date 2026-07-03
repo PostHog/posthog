@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { SlopeChart, createXAxisTickCallback } from '@posthog/quill-charts'
 import type { Series, SlopeChartConfig, SlopeSeriesMeta } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,7 +13,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -26,8 +25,7 @@ interface TrendsSlopeChartProps {
 const handleChartError = makeChartErrorHandler('trends-slope-chart')
 
 export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
 
     const { indexedResults, currentPeriodResult, getTrendsColor, getTrendsHidden, trendsFilter, interval, showLegend } =

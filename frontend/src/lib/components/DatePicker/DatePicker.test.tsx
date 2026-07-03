@@ -116,6 +116,20 @@ describe('DatePicker', () => {
         expect(onChange).toHaveBeenCalledWith(null)
     })
 
+    it.each<[string, Partial<DatePickerProps>, string]>([
+        // No explicit type must keep LemonCalendarSelectInput's `secondary` trigger default rather than
+        // clobbering it with `type: undefined` (which would fall back to LemonButton's tertiary default).
+        ['no type keeps the secondary default', {}, 'LemonButton--secondary'],
+        ['type primary maps through', { type: 'primary' }, 'LemonButton--primary'],
+        ['type tertiary maps through', { type: 'tertiary' }, 'LemonButton--tertiary'],
+        ['size small maps through', { size: 'small' }, 'LemonButton--small'],
+        ['custom className forwards through', { className: 'bg-bg-light' }, 'bg-bg-light'],
+    ])('maps trigger %s onto the LemonUI button', (_name, props, expectedClass) => {
+        const { container } = renderDatePicker(dayjs('2023-01-15'), props)
+
+        expect(container.querySelector('.LemonButton')?.className).toContain(expectedClass)
+    })
+
     describe('when the QUILL_DATE_PICKER flag is enabled', () => {
         beforeEach(() => {
             mockQuillDatePickerFlag = true
@@ -126,6 +140,23 @@ describe('DatePicker', () => {
 
             expect(container.querySelector('[data-quill]')).toBeTruthy()
             expect(within(container).getByText('January 15, 2023')).toBeTruthy()
+        })
+
+        it.each<[string, Partial<DatePickerProps>, string]>([
+            ['size xsmall -> xs', { size: 'xsmall' }, 'quill-button--size-xs'],
+            ['size small -> sm', { size: 'small' }, 'quill-button--size-sm'],
+            ['size medium -> default', { size: 'medium' }, 'quill-button--size-default'],
+            ['size large -> lg', { size: 'large' }, 'quill-button--size-lg'],
+            ['type primary -> primary variant', { type: 'primary' }, 'quill-button--variant-primary'],
+            ['type secondary -> outline variant', { type: 'secondary' }, 'quill-button--variant-outline'],
+            ['type tertiary -> default variant', { type: 'tertiary' }, 'quill-button--variant-default'],
+            ['no type -> outline variant', {}, 'quill-button--variant-outline'],
+            ['no size -> default size', {}, 'quill-button--size-default'],
+            ['custom className', { className: 'bg-bg-light' }, 'bg-bg-light'],
+        ])('maps trigger %s onto the Quill button', (_name, props, expectedClass) => {
+            const { container } = renderDatePicker(dayjs('2023-01-15'), props)
+
+            expect(container.querySelector('[data-quill]')?.className).toContain(expectedClass)
         })
 
         it.each<[string, Partial<DatePickerProps>]>([

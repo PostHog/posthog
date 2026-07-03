@@ -57,6 +57,18 @@ class NotebookActivitySummary:
 
 
 @dataclass(frozen=True)
+class TeamAccountNote:
+    """A row of a team-wide account-notes list: an internal notebook plus the account it's linked to."""
+
+    short_id: str
+    title: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    account_id: UUID
+    account_name: str
+
+
+@dataclass(frozen=True)
 class MarkdownNotebookMigrationStats:
     """Markdown migration status for notebooks in an optional team scope."""
 

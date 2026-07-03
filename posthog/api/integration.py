@@ -14,7 +14,7 @@ import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -37,6 +37,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -818,6 +819,21 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
+def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
+    """The 429 + Retry-After response for a GitHub rate limit.
+
+    Shared by every GitHub-backed endpoint (integration and user-integration viewsets, signals)
+    so the egress ``GitHubRateLimitError`` maps the same way everywhere instead of surfacing a 500.
+    """
+    response = Response(
+        {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    if exc.retry_after:
+        response["Retry-After"] = str(exc.retry_after)
+    return response
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -862,6 +878,13 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
+        # map them to 429 + Retry-After once here instead of per action.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
         if self.action == "refresh_github_repos":

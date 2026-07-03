@@ -148,7 +148,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -205,7 +205,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint, variables={"$browser": "Chrome"})
@@ -360,7 +360,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -430,7 +430,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -494,7 +494,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -549,7 +549,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)
@@ -650,7 +650,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.process_query_model",
+            "products.endpoints.backend.logic.execution.process_query_model",
             return_value=flat_response,
         ):
             mat_resp = self._run_endpoint(endpoint)

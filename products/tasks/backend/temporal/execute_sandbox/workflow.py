@@ -17,7 +17,6 @@ from enum import StrEnum
 from typing import Any, Optional
 
 import temporalio
-import temporalio.exceptions
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -79,6 +78,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -288,29 +288,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             slack_thread_context=loaded.get("slack_thread_context"),
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
-
-    @staticmethod
-    def _activity_error_properties(error: Exception) -> dict[str, Any]:
-        if not isinstance(error, temporalio.exceptions.ActivityError):
-            return {}
-
-        retry_state = error.retry_state
-        properties: dict[str, Any] = {
-            "temporal_activity_id": error.activity_id,
-            "temporal_activity_type": error.activity_type,
-            "temporal_activity_identity": error.identity,
-            "temporal_activity_retry_state": retry_state.name if retry_state else None,
-            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
-            "temporal_activity_started_event_id": error.started_event_id,
-        }
-        if error.cause:
-            properties.update(
-                {
-                    "cause_error_type": type(error.cause).__name__,
-                    "cause_error_message": str(error.cause)[:500],
-                }
-            )
-        return properties
 
     @staticmethod
     def _should_skip_followup(message: str | None, artifact_ids: list[str]) -> bool:
@@ -727,19 +704,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
                 # task-completion path so it can react immediately.
+                error_properties = self._activity_error_properties(e)
+                cause_message = error_properties.get("cause_error_message")
                 workflow.logger.warning(
                     "execute_sandbox_send_followup_failed",
                     run_id=self.context.run_id,
                     error=str(e),
+                    **error_properties,
                 )
                 self._completion_status = "failed"
-                self._completion_error = f"Follow-up delivery failed: {e}"
+                self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
                 self._task_completed = True
                 self._enqueue_ack(
                     signal_name=SEND_FOLLOWUP_SIGNAL,
                     ack_id=followup.ack_id,
                     accepted=False,
-                    detail=str(e)[:200],
+                    detail=(cause_message or str(e))[:200],
                 )
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
@@ -1137,8 +1117,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_id,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # A worker restart (deploy, eviction) kills the in-flight attempt while
+            # the sandbox agent keeps working — without retries the event stream is
+            # orphaned for good and the run looks dead to the user. Retrying is safe:
+            # the agent server buffers events while no relay is attached and replays
+            # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+            # exhausted) return cleanly, and application-level failures that write an
+            # error sentinel to the stream raise non-retryable ApplicationError, so
+            # retries only cover attempt-level deaths where no sentinel was written;
+            # schedule_to_close bounds the total.
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_interval=timedelta(minutes=1),
+                maximum_attempts=0,
+                non_retryable_error_types=["ValueError"],
+            ),
             cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
         )
 
@@ -1162,7 +1157,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
             ),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if result.external_id:
             workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1183,7 +1178,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
+                message_id=str(workflow.uuid4()),
             ),
             start_to_close_timeout=timedelta(minutes=35),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # See process_task: heartbeat detects worker restarts, message_id
+            # makes redelivery idempotent, sentinel failures are non-retryable.
+            heartbeat_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
         )

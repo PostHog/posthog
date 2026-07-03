@@ -411,6 +411,7 @@ function isClientAbortError(err: unknown): boolean {
         return true
     }
     const code = (err as NodeJS.ErrnoException).code
+    // 'aborted' is undici's body-read abort message; it carries no error code, unlike the others.
     return code === 'ECONNRESET' || code === 'ERR_STREAM_PREMATURE_CLOSE' || err.message === 'aborted'
 }
 

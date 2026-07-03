@@ -140,9 +140,9 @@ rust/cymbal-resolution/** @PostHog/team-error-tracking
 rust/cymbal-proto/** @PostHog/team-error-tracking
 rust/common/symbol_data/** @PostHog/team-error-tracking
 
-# Notebooks - owned by @PostHog/team-platform-features
-frontend/src/scenes/notebooks/ @PostHog/team-platform-features
-frontend/src/lib/components/RichContentEditor/ @PostHog/team-platform-features
+# Notebooks - owned by @PostHog/team-data-tools
+frontend/src/scenes/notebooks/ @PostHog/team-data-tools
+frontend/src/lib/components/RichContentEditor/ @PostHog/team-data-tools
 
 # Comments - owned by @PostHog/team-platform-features
 frontend/src/scenes/comments/ @PostHog/team-platform-features
@@ -220,6 +220,11 @@ services/mcp/src/tools/generated/ai_observability.ts @PostHog/team-ai-observabil
 services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
+# Prompt management - owned by @PostHog/team-ai-observability plus @jurajmajerik as individual owner
+products/ai_observability/frontend/prompts/ @PostHog/team-ai-observability @jurajmajerik
+products/ai_observability/backend/models/llm_prompt.py @PostHog/team-ai-observability @jurajmajerik
+posthog/**/*llm_prompt*.py @PostHog/team-ai-observability @jurajmajerik
+
 # LLM Gateway - owned by @PostHog/team-ai-gateway
 nodejs/src/ingestion/pipelines/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
 nodejs/src/ingestion/pipelines/ai/costs/scripts/ @PostHog/team-ai-gateway
@@ -290,9 +295,11 @@ posthog/hogql_queries/property_values_query_runner.py @PostHog/team-product-anal
 ee/clickhouse/views/groups.py @PostHog/team-product-analytics
 ee/clickhouse/queries/related_actors_query.py @PostHog/team-product-analytics
 posthog/temporal/product_analytics/ @PostHog/team-product-analytics
-posthog/temporal/mcp_analytics/ @PostHog/team-product-analytics
 frontend/src/scenes/themes/ @PostHog/team-product-analytics
 posthog/taxonomy/ @PostHog/team-product-analytics
+
+# MCP Analytics - owned by @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/ @PostHog/team-mcp-analytics
 
 # Experiments - owned by @PostHog/team-experiments
 frontend/src/scenes/experiments/ @PostHog/team-experiments
@@ -364,3 +371,18 @@ products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 posthog/api/documentation.py @PostHog/team-devex
 posthog/api/mixins.py @PostHog/team-devex
 posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Managed reverse proxy - owned by @PostHog/team-platform-features
+# Placed last so these paths win over the broad frontend/src/scenes/settings/ rule (last-match-wins).
+posthog/models/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/temporal/proxy_service/ @PostHog/team-platform-features
+posthog/templates/email/proxy_provisioned.html @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ManagedReverseProxy.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ProxySDKSetup.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.ts @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.test.ts @PostHog/team-platform-features
+frontend/src/lib/components/ReverseProxyChecker/ @PostHog/team-platform-features
