@@ -10,8 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team, User
-from posthog.models.utils import uuid7
+from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.models.replay_observation import (
@@ -1584,6 +1584,33 @@ class TestRetryActions(_VisionAPITestCase):
         # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
         self.assertIn("can be scanned again", resp.json()["detail"])
         self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="retry-test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def test_retry_scope_enforcement_for_personal_api_keys(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The write scope comes from the @action decorator; losing it would let read-scoped keys retry.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        observation = self._create_failed("sess-scopes")
+        read_key = self._personal_api_key(["replay_scanner:read", "session_recording:read"])
+        write_key = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
+
+        denied = self.client.post(self.retry_url(str(observation.id)), HTTP_AUTHORIZATION=f"Bearer {read_key}")
+        self.assertEqual(denied.status_code, 403, denied.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+
+        allowed = self.client.post(self.retry_url(str(observation.id)), HTTP_AUTHORIZATION=f"Bearer {write_key}")
+        self.assertEqual(allowed.status_code, 202, allowed.json())
 
     def test_retry_denied_without_scanner_editor_access(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
