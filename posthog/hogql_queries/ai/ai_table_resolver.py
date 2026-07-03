@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 from posthog.ph_client import feature_enabled_or_false
@@ -39,14 +40,21 @@ class AIEventsUnavailableError(Exception):
     and the caller opted out of the events fallback (``fall_back_to_events=False``)."""
 
 
-def is_ai_events_enabled(team: Team) -> bool:
+def is_ai_events_disabled(team: Team) -> bool:
     """Kill switch for ai_events table reads.
 
-    When disabled, all single-trace runners skip the ai_events attempt
-    and query the events table directly.
+    When the ``ai-events-table-killswitch`` flag is enabled, read-path callers
+    (``fall_back_to_events=True``) skip the ai_events attempt entirely and serve directly
+    from the shared events table. Consulted by :func:`query_ai_events` so a degraded or
+    unprovisioned ai_events cluster can be routed around without hitting it first.
+
+    Deliberately a kill switch (default off) rather than a rollout gate: an unset flag — or
+    a flag-service hiccup that resolves to False — leaves ai_events in use, so operators must
+    explicitly flip it to disable the dedicated table. The missing-table fallback in
+    :func:`query_ai_events` still auto-recovers a cluster where the shard is simply absent.
     """
     return feature_enabled_or_false(
-        "ai-events-table-rollout",
+        "ai-events-table-killswitch",
         str(team.id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -92,6 +100,12 @@ def query_ai_events(
       so events is probed only to classify the miss — raising :class:`AIEventsExpiredError`
       (the data aged past the TTL) or :class:`AIEventsNotFoundError` (it never existed).
 
+    The same events path is taken, without hitting ai_events at all, when a read-path caller
+    (``fall_back_to_events=True``) has the :func:`is_ai_events_disabled` kill switch flipped —
+    and, for any caller, when the ai_events shard is unprovisioned on the cluster (ClickHouse
+    raises ``UNKNOWN_TABLE``). The missing-table fallback keeps a degraded satellite cluster
+    from surfacing a raw ClickHouse error instead of the events-table result.
+
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
     the thread default, but outside Celery (Django shell, pytest, management commands)
@@ -111,34 +125,55 @@ def query_ai_events(
         kwargs["workload"] = workload
 
     with tags_context(product=Product.LLM_ANALYTICS):
-        tag_queries(ai_query_source="dedicated_table")
         ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
-        with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
-            result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+        events_query = rewrite_query_for_events_table(query)
+        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+
+        def run_events_path() -> Any:
+            if fall_back_to_events:
+                tag_queries(ai_query_source="shared_table_fallback")
+                AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
+                with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
+                    return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+
+            # The caller can't use heavy-column-stripped events rows, so probe events solely to
+            # tell "aged past the TTL" apart from "never existed" and raise the matching error.
+            with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="retention_probe").time():
+                probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+            if probe.results:
+                tag_queries(ai_query_source="expired")
+                AI_EVENTS_QUERY_TOTAL.labels(source="expired").inc()
+                raise AIEventsExpiredError(f"AI events for {query_type} have aged past the ai_events retention window")
+            tag_queries(ai_query_source="not_found")
+            AI_EVENTS_QUERY_TOTAL.labels(source="not_found").inc()
+            raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
+
+        # Kill switch: read-path callers skip the ai_events attempt entirely when the kill
+        # switch is flipped, serving straight from the shared events table. Guarded by
+        # fall_back_to_events so this only affects paths that stay useful without the heavy
+        # columns, and never trips for callers that require the dedicated table.
+        if fall_back_to_events and is_ai_events_disabled(team):
+            tag_queries(ai_query_source="kill_switch")
+            AI_EVENTS_QUERY_TOTAL.labels(source="kill_switch").inc()
+            return run_events_path()
+
+        tag_queries(ai_query_source="dedicated_table")
+        try:
+            with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="dedicated_table").time():
+                result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+        except CHQueryErrorUnknownTable:
+            # The dedicated ai_events shard isn't provisioned on this cluster, so ClickHouse
+            # raised UNKNOWN_TABLE. Fall back to the events table instead of surfacing the
+            # raw error — the events fallback only triggers on empty results otherwise.
+            tag_queries(ai_query_source="table_unavailable")
+            AI_EVENTS_QUERY_TOTAL.labels(source="table_unavailable").inc()
+            return run_events_path()
+
         if result.results:
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
-        events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
-
-        if fall_back_to_events:
-            tag_queries(ai_query_source="shared_table_fallback")
-            AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
-            with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
-                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
-
-        # The caller can't use heavy-column-stripped events rows, so probe events solely to
-        # tell "aged past the TTL" apart from "never existed" and raise the matching error.
-        with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="retention_probe").time():
-            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
-        if probe.results:
-            tag_queries(ai_query_source="expired")
-            AI_EVENTS_QUERY_TOTAL.labels(source="expired").inc()
-            raise AIEventsExpiredError(f"AI events for {query_type} have aged past the ai_events retention window")
-        tag_queries(ai_query_source="not_found")
-        AI_EVENTS_QUERY_TOTAL.labels(source="not_found").inc()
-        raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
+        return run_events_path()
 
 
 # Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts
