@@ -25,12 +25,13 @@ def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
 @patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
 @patch("products.conversations.backend.mailgun.requests.post")
 class TestAddDomain:
+    @patch("products.conversations.backend.mailgun.requests.get")
     @patch("products.conversations.backend.mailgun.requests.delete")
-    def test_already_exists_reclaims_by_delete_and_recreate(
-        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+    def test_already_exists_unverified_reclaims_by_delete_and_recreate(
+        self, mock_delete: MagicMock, mock_get: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
     ):
-        # Orphan re-add: domain still in our Mailgun account (prior delete failed/skipped).
-        # add_domain must delete then recreate it so it comes back fresh/unverified.
+        # Orphan re-add: domain still in our Mailgun account (prior delete failed/skipped)
+        # and unverified. add_domain deletes then recreates it so it comes back fresh.
         mock_post.side_effect = [
             _mailgun_response(400, {"message": "domain example.com already exists"}),
             _mailgun_response(
@@ -43,6 +44,7 @@ class TestAddDomain:
                 },
             ),
         ]
+        mock_get.return_value = _mailgun_response(200, {"domain": {"state": "unverified"}})
         mock_delete.return_value = _mailgun_response(200)
 
         result = add_domain("example.com")
@@ -51,12 +53,30 @@ class TestAddDomain:
         mock_delete.assert_called_once()
         assert mock_post.call_count == 2
 
+    @patch("products.conversations.backend.mailgun.requests.get")
+    @patch("products.conversations.backend.mailgun.requests.delete")
+    def test_already_exists_verified_refuses_to_reclaim(
+        self, mock_delete: MagicMock, mock_get: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+    ):
+        # A verified/active domain means someone proved DNS control. Absence of a local
+        # row is not proof the requester owns it, so we must not delete it.
+        mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
+        mock_get.return_value = _mailgun_response(200, {"domain": {"state": "active"}})
+
+        with pytest.raises(MailgunDomainConflict, match="verified in Mailgun"):
+            add_domain("example.com")
+
+        mock_delete.assert_not_called()
+        assert mock_post.call_count == 1
+
+    @patch("products.conversations.backend.mailgun.requests.get")
     @patch("products.conversations.backend.mailgun.requests.delete")
     def test_already_exists_still_present_after_delete_raises(
-        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+        self, mock_delete: MagicMock, mock_get: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
     ):
         # If the recreate still reports "already exists" we must not loop forever.
         mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
+        mock_get.return_value = _mailgun_response(200, {"domain": {"state": "unverified"}})
         mock_delete.return_value = _mailgun_response(200)
 
         with pytest.raises(MailgunDomainConflict, match="could not be reclaimed"):
@@ -87,14 +107,16 @@ class TestAddDomain:
 
         assert [r["record_type"] for r in result["sending_dns_records"]] == ["TXT"]
 
+    @patch("products.conversations.backend.mailgun.requests.get")
     @patch("products.conversations.backend.mailgun.requests.delete")
     def test_case_insensitive_already_exists_match(
-        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+        self, mock_delete: MagicMock, mock_get: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
     ):
         mock_post.side_effect = [
             _mailgun_response(400, {"message": "Domain Already EXISTS"}),
             _mailgun_response(201, {"sending_dns_records": []}),
         ]
+        mock_get.return_value = _mailgun_response(200, {"domain": {"state": "unverified"}})
         mock_delete.return_value = _mailgun_response(200)
 
         result = add_domain("example.com")

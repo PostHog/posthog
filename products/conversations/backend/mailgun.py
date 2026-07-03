@@ -98,12 +98,16 @@ def add_domain(domain: str, *, _reclaim_orphan: bool = True) -> dict[str, Any]:
     """Register a sending domain with Mailgun. Returns DNS records to configure.
 
     Our Mailgun account is shared across all tenants, so a domain can already exist
-    in the account as an *orphan* — a prior disconnect removed the PostHog row but
-    the Mailgun delete failed or was skipped. In that case we reclaim it by deleting
-    and recreating so it comes back **unverified**, forcing fresh DNS proof. We never
-    adopt a pre-existing (possibly still-active) domain as-is: that would let a
-    different tenant inherit another org's verified sending domain without ever
-    controlling its DNS. Cross-org ownership is guarded in PostHog before we get here.
+    in the account with no PostHog owner — an *orphan* left when a prior disconnect
+    removed the EmailChannel row but the Mailgun delete failed or was skipped.
+
+    We reclaim such a domain (delete + recreate, so it comes back unverified and forces
+    fresh DNS proof) ONLY when it is not verified in Mailgun. We never touch a verified
+    domain: an active domain means someone proved DNS control over it, and "no local row"
+    is not proof that the current requester owns it. Deleting it would break that party's
+    sending, and recreating it and letting the requester through would hand them a domain
+    they don't control. Verified conflicts fail loud for manual reconciliation instead.
+    Cross-org and same-org sibling ownership is guarded in PostHog before we get here.
     """
     resp = requests.post(
         f"{MAILGUN_API_BASE}/domains",
@@ -123,21 +127,43 @@ def add_domain(domain: str, *, _reclaim_orphan: bool = True) -> dict[str, Any]:
             error_msg = resp.json().get("message", "").lower()
         except Exception:
             error_msg = ""
-        # Orphan in our own account — delete and recreate once so re-add works but the
-        # domain starts unverified. _reclaim_orphan guards against an infinite loop if
-        # the delete didn't actually clear it.
         if "already exists" in error_msg:
-            if _reclaim_orphan:
-                logger.info("mailgun_domain_already_exists_reclaiming", domain=domain)
-                delete_domain(domain)
-                return add_domain(domain, _reclaim_orphan=False)
-            raise MailgunDomainConflict(f"Domain {domain} already exists and could not be reclaimed")
+            # _reclaim_orphan is False only on the post-delete recreate; if the domain
+            # still reports "already exists" then the delete didn't clear it — stop
+            # instead of looping.
+            if not _reclaim_orphan:
+                raise MailgunDomainConflict(f"Domain {domain} already exists and could not be reclaimed")
+            state = _get_domain_state(domain)
+            if state == "active":
+                raise MailgunDomainConflict(
+                    f"Domain {domain} already exists and is verified in Mailgun; refusing to reclaim"
+                )
+            logger.info("mailgun_domain_orphan_reclaiming", domain=domain, state=state)
+            delete_domain(domain)
+            return add_domain(domain, _reclaim_orphan=False)
         # Registered under a *different* Mailgun account — we genuinely can't use it.
         if "already taken" in error_msg:
             raise MailgunDomainConflict(f"Domain {domain} is already registered by another Mailgun account")
 
     resp.raise_for_status()
     return {}
+
+
+def _get_domain_state(domain: str) -> str:
+    """Return Mailgun's verification state for a domain (e.g. "active", "unverified").
+
+    Returns "unknown" if the domain can't be fetched (e.g. it vanished between calls),
+    which callers treat as not-active — i.e. safe to recreate.
+    """
+    resp = requests.get(
+        f"{MAILGUN_API_BASE}/domains/{domain}",
+        auth=("api", _get_api_key()),
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        return "unknown"
+    resp.raise_for_status()
+    return resp.json().get("domain", {}).get("state", "unknown")
 
 
 def get_domain_dns_records(domain: str) -> dict[str, Any]:
