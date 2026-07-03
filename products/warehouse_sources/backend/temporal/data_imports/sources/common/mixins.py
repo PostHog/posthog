@@ -120,10 +120,20 @@ def log_connection_open(
     logger.info("data_imports.connection_open", **event_fields)
 
 
+def _enabled_ssh_tunnel(config) -> Any | None:
+    """Return the config's SSH tunnel settings when enabled, else None.
+
+    The single predicate for both the connection log and the tunnel/direct branch,
+    so the logged `via` can never disagree with the path actually taken.
+    """
+    ssh = getattr(config, "ssh_tunnel", None)
+    return ssh if ssh and ssh.enabled else None
+
+
 @contextmanager
 def _logged_connection(config, team_id: int | None) -> Generator[None]:
-    ssh = getattr(config, "ssh_tunnel", None)
-    if ssh is not None and ssh.enabled:
+    ssh = _enabled_ssh_tunnel(config)
+    if ssh is not None:
         via, ssh_host, ssh_port = "ssh_tunnel", ssh.host, ssh.port
     else:
         via, ssh_host, ssh_port = "direct", None, None
@@ -147,6 +157,7 @@ def _logged_connection(config, team_id: int | None) -> Generator[None]:
             via=via,
             error_type=type(e).__name__,
             error=str(e)[:200],
+            **({"db_port": config.port} if config.port is not None else {}),
             **({"team_id": team_id} if team_id is not None else {}),
         )
         raise
@@ -156,8 +167,9 @@ def _logged_connection(config, team_id: int | None) -> Generator[None]:
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     with _logged_connection(config, team_id):
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-            ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+        ssh_config = _enabled_ssh_tunnel(config)
+        if ssh_config is not None:
+            ssh_tunnel = SSHTunnel.from_config(ssh_config)
 
             with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
                 if tunnel is None:
@@ -176,8 +188,9 @@ def make_ssh_tunnel_factory(
     The dlt pipeline factories accept a tunnel-factory callable so the tunnel can be
     (re)opened inside the pipeline process.
     """
-    if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+    ssh_config = _enabled_ssh_tunnel(config)
+    if ssh_config is not None:
+        ssh_tunnel = SSHTunnel.from_config(ssh_config)
 
         @contextmanager
         def with_ssh_func():

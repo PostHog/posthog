@@ -288,6 +288,7 @@ class TestConnectionOpenLogging(SimpleTestCase):
         args, kwargs = mock_logger.warning.call_args
         assert args[0] == "data_imports.connection_error"
         assert kwargs["error_type"] == "ConnectionRefusedError"
+        assert kwargs["db_port"] == 5432
         assert kwargs["team_id"] == 42
 
     def test_factory_logs_once_per_reopen(self):
