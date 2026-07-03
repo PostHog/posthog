@@ -9,21 +9,21 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.notebooks.backend.data_v2 import (
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.sql_v2 import (
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
     verify_command_token,
 )
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.notebooks.backend.temporal.data_v2 import (
-    DataV2RunInput,
-    dispatch_data_v2_run_activity,
-    mark_data_v2_run_failed_activity,
+from products.notebooks.backend.temporal.sql_v2 import (
+    SQLV2RunInput,
+    dispatch_sql_v2_run_activity,
+    mark_sql_v2_run_failed_activity,
 )
 
 
-class TestDataV2Callback(APIBaseTest):
+class TestSQLV2Callback(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbcb123")
@@ -105,14 +105,14 @@ class TestDataV2Callback(APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
 
-class TestDataV2Run(APIBaseTest):
+class TestSQLV2Run(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbrun01")
-        self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/run/"
+        self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
 
-    @patch("products.notebooks.backend.presentation.views.notebook.start_data_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_creates_row_and_starts_workflow(self, _mock_enabled, mock_start):
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(response.status_code, 200)
@@ -123,10 +123,10 @@ class TestDataV2Run(APIBaseTest):
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.start_data_v2_run_workflow",
+        "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
         side_effect=RuntimeError("temporal unavailable"),
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_marks_failed_when_workflow_start_fails(self, _mock_enabled, _mock_start):
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
         self.assertEqual(response.status_code, 503)
@@ -135,13 +135,13 @@ class TestDataV2Run(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
 
-class TestDataV2RunResult(APIBaseTest):
+class TestSQLV2RunResult(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbres01")
 
     def _url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/runs/{run_id}/"
+        return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
 
     def _create_run(self, status, envelope=None, error="") -> NotebookNodeRun:
         with team_scope(self.team.id):
@@ -156,7 +156,7 @@ class TestDataV2RunResult(APIBaseTest):
             (NotebookNodeRun.Status.FAILED, None, "boom", None, "boom"),
         ]
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_result_shape_by_status(self, status, envelope, error, expected_result, expected_error, _mock_enabled):
         run = self._create_run(status, envelope=envelope, error=error)
         response = self.client.get(self._url(str(run.id)))
@@ -168,12 +168,12 @@ class TestDataV2RunResult(APIBaseTest):
         self.assertEqual(body["error"], expected_error)
 
     @parameterized.expand([("00000000-0000-0000-0000-000000000000",), ("not-a-uuid",)])
-    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_missing_or_malformed_run_returns_404(self, run_id, _mock_enabled):
         self.assertEqual(self.client.get(self._url(run_id)).status_code, 404)
 
 
-class TestDataV2Activities(APIBaseTest):
+class TestSQLV2Activities(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbact01")
@@ -184,8 +184,8 @@ class TestDataV2Activities(APIBaseTest):
                 team=self.team, notebook=self.notebook, node_id="n1", status=NotebookNodeRun.Status.RUNNING
             )
 
-    def _run_input(self, run: NotebookNodeRun) -> DataV2RunInput:
-        return DataV2RunInput(
+    def _run_input(self, run: NotebookNodeRun) -> SQLV2RunInput:
+        return SQLV2RunInput(
             run_id=str(run.id),
             notebook_short_id=self.notebook.short_id,
             team_id=self.team.id,
@@ -198,10 +198,10 @@ class TestDataV2Activities(APIBaseTest):
 
     def test_dispatch_activity_marks_failed_without_kernel(self):
         run = self._create_run()
-        dispatch_data_v2_run_activity(self._run_input(run))
+        dispatch_sql_v2_run_activity(self._run_input(run))
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.FAILED)
 
-    @patch("products.notebooks.backend.data_v2.requests.post")
+    @patch("products.notebooks.backend.sql_v2.requests.post")
     def test_dispatch_activity_posts_to_ready_server(self, mock_post):
         run = self._create_run()
         KernelRuntime.objects.create(
@@ -214,18 +214,18 @@ class TestDataV2Activities(APIBaseTest):
             sandbox_id="sbx-1",
             server_url="http://localhost:12345",
         )
-        dispatch_data_v2_run_activity(self._run_input(run))
+        dispatch_sql_v2_run_activity(self._run_input(run))
         mock_post.assert_called_once()
         self.assertIn("/run", mock_post.call_args.args[0])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
     def test_mark_failed_activity(self):
         run = self._create_run()
-        mark_data_v2_run_failed_activity(self._run_input(run))
+        mark_sql_v2_run_failed_activity(self._run_input(run))
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.FAILED)
 
 
-class TestDataV2CommandToken(SimpleTestCase):
+class TestSQLV2CommandToken(SimpleTestCase):
     def test_valid_token_verifies(self):
         secret = kernel_server_secret("rt-1")
         self.assertTrue(verify_command_token(secret, "run-1", mint_command_token(secret, "run-1")))

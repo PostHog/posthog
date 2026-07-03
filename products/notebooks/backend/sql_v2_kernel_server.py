@@ -1,4 +1,4 @@
-"""Source of the in-sandbox DataV2 kernel-server.
+"""Source of the in-sandbox SQLV2 kernel-server.
 
 This is NOT imported by Django — the string below is written into the notebook
 sandbox and launched there (stdlib-only, no third-party deps). It mirrors PostHog
@@ -12,7 +12,7 @@ thread. For the Journey 1 slice it fabricates the result (42); a later version
 runs `code` against the resident kernel / DuckDB.
 
 The `_verify_command_token` check below must stay in sync with
-`data_v2.verify_command_token` (same HMAC scheme); the round-trip is unit-tested.
+`sql_v2.verify_command_token` (same HMAC scheme); the round-trip is unit-tested.
 """
 
 KERNEL_SERVER_SOURCE = r"""
@@ -63,7 +63,7 @@ def _run_and_callback(payload):
     try:
         urllib.request.urlopen(request, timeout=15)
     except Exception as exc:  # noqa: BLE001 — best-effort callback; log and move on
-        print("data_v2 kernel-server callback failed", exc, flush=True)
+        print("sql_v2 kernel-server callback failed", exc, flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):

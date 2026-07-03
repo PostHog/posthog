@@ -1,14 +1,14 @@
-from products.notebooks.backend.temporal.data_v2 import (
-    NotebookDataV2RunWorkflow,
-    dispatch_data_v2_run_activity,
-    mark_data_v2_run_failed_activity,
+from products.notebooks.backend.temporal.sql_v2 import (
+    NotebookSQLV2RunWorkflow,
+    dispatch_sql_v2_run_activity,
+    mark_sql_v2_run_failed_activity,
 )
 
 WORKFLOWS = [
-    NotebookDataV2RunWorkflow,
+    NotebookSQLV2RunWorkflow,
 ]
 
 ACTIVITIES = [
-    dispatch_data_v2_run_activity,
-    mark_data_v2_run_failed_activity,
+    dispatch_sql_v2_run_activity,
+    mark_sql_v2_run_failed_activity,
 ]

@@ -1,4 +1,4 @@
-"""Helpers for the revamped-notebooks DataV2 run flow (Journey 1 slice).
+"""Helpers for the revamped-notebooks SQLV2 run flow (Journey 1 slice).
 
 The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
 POST (mirroring PostHog Code's agent-server), which fabricates a result and POSTs
@@ -22,15 +22,15 @@ import posthoganalytics
 
 from posthog.models.user import User
 
-from products.notebooks.backend.data_v2_kernel_server import KERNEL_SERVER_SOURCE
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.sql_v2_kernel_server import KERNEL_SERVER_SOURCE
 from products.tasks.backend.facade.sandbox import get_sandbox_class_for_backend
 
 logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
 
-_CALLBACK_TOKEN_SALT = "notebooks.data_v2.callback"
+_CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
 
 # The container port the sandbox already exposes (mapped to a host port at create
@@ -40,18 +40,18 @@ _CONTAINER_PORT_BY_BACKEND = {
     KernelRuntime.Backend.DOCKER: 47821,
     KernelRuntime.Backend.MODAL: 8080,
 }
-_KERNEL_SERVER_PATH = "/tmp/nb_data_v2_kernel_server.py"
-_SECRET_PATH = "/tmp/nb_data_v2_secret"
+_KERNEL_SERVER_PATH = "/tmp/nb_sql_v2_kernel_server.py"
+_SECRET_PATH = "/tmp/nb_sql_v2_secret"
 _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 _COMMAND_TOKEN_TTL_SECONDS = 300
 
 
-class DataV2KernelNotRunning(Exception):
+class SQLV2KernelNotRunning(Exception):
     """Raised when a run is dispatched but the notebook has no running sandbox."""
 
 
-def is_data_v2_enabled(user: User | None) -> bool:
+def is_sql_v2_enabled(user: User | None) -> bool:
     if user is None or not getattr(user, "distinct_id", None):
         return False
     kwargs: dict = {"only_evaluate_locally": False, "send_feature_flag_events": False}
@@ -83,7 +83,7 @@ def kernel_server_secret(runtime_id: str) -> str:
     """
     return hmac.new(
         settings.SECRET_KEY.encode(),
-        f"nb-data-v2-kernel:{runtime_id}".encode(),
+        f"nb-sql-v2-kernel:{runtime_id}".encode(),
         hashlib.sha256,
     ).hexdigest()
 
@@ -150,10 +150,10 @@ def _wait_for_server_ready(server_url: str, connect_token: str | None) -> None:
         except requests.RequestException:
             pass
         time.sleep(0.3)
-    raise RuntimeError("DataV2 kernel-server did not become ready")
+    raise RuntimeError("SQLV2 kernel-server did not become ready")
 
 
-def ensure_data_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime:
+def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime:
     """Start the in-sandbox kernel-server once; return the runtime it runs in.
 
     Idempotent — reuses the URL persisted on the runtime after the first start.
@@ -163,7 +163,7 @@ def ensure_data_v2_server(notebook: Notebook, user: User | None) -> KernelRuntim
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
-        raise DataV2KernelNotRunning()
+        raise SQLV2KernelNotRunning()
 
     if runtime.server_url:
         return runtime
@@ -175,7 +175,7 @@ def ensure_data_v2_server(notebook: Notebook, user: User | None) -> KernelRuntim
     sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
     sandbox.write_file(_KERNEL_SERVER_PATH, KERNEL_SERVER_SOURCE.encode())
     sandbox.execute(
-        f"nohup python3 {_KERNEL_SERVER_PATH} {port} {_SECRET_PATH} > /tmp/nb_data_v2_kernel_server.log 2>&1 &",
+        f"nohup python3 {_KERNEL_SERVER_PATH} {port} {_SECRET_PATH} > /tmp/nb_sql_v2_kernel_server.log 2>&1 &",
         timeout_seconds=15,
     )
 
@@ -188,12 +188,12 @@ def ensure_data_v2_server(notebook: Notebook, user: User | None) -> KernelRuntim
     return runtime
 
 
-def dispatch_data_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
+def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback.
     """
-    runtime = ensure_data_v2_server(notebook, user)
+    runtime = ensure_sql_v2_server(notebook, user)
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     callback_token = mint_callback_token(str(run.id), notebook.team_id)
     response = requests.post(

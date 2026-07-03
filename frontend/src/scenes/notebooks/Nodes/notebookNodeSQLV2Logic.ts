@@ -2,24 +2,24 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 
 import api from 'lib/api'
 
-import { NotebookNodeDataV2Result } from './NotebookNodeDataV2'
-import type { notebookNodeDataV2LogicType } from './notebookNodeDataV2LogicType'
+import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
+import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
 const POLL_INTERVAL_MS = 1000
 const MAX_POLL_ATTEMPTS = 150 // ~2.5 minutes at 1s
 
-export interface NotebookNodeDataV2LogicProps {
+export interface NotebookNodeSQLV2LogicProps {
     nodeId: string
     notebookShortId: string
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
-    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeDataV2Result | null }) => void
+    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeSQLV2Result | null }) => void
 }
 
-export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
-    path((key) => ['scenes', 'notebooks', 'Nodes', 'notebookNodeDataV2Logic', key]),
-    props({} as NotebookNodeDataV2LogicProps),
+export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
+    path((key) => ['scenes', 'notebooks', 'Nodes', 'notebookNodeSQLV2Logic', key]),
+    props({} as NotebookNodeSQLV2LogicProps),
     key((props) => props.nodeId),
     actions({
         runQuery: (code: string) => ({ code }),
@@ -51,7 +51,7 @@ export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
     listeners(({ props, actions, cache }) => ({
         runQuery: async ({ code }) => {
             try {
-                const { run_id } = await api.notebooks.dataV2Run(props.notebookShortId, {
+                const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                     node_id: props.nodeId,
                     code,
                 })
@@ -83,7 +83,7 @@ export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
             }
             cache.pollInFlight = true
             try {
-                const { status, result, error } = await api.notebooks.dataV2RunResult(props.notebookShortId, runId)
+                const { status, result, error } = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
                 if (status === 'done') {
                     props.updateAttributes({
                         result: result

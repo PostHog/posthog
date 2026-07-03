@@ -1,15 +1,15 @@
 from rest_framework import serializers
 
 
-class NotebookDataV2RunRequestSerializer(serializers.Serializer):
-    node_id = serializers.CharField(help_text="ProseMirror node id of the DataV2 node being run.")
+class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
+    node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     code = serializers.CharField(
         allow_blank=True,
         help_text="The HogQL the node contains. Ignored in the current slice — the sandbox fabricates the result.",
     )
 
 
-class NotebookDataV2EnvelopeSerializer(serializers.Serializer):
+class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
     columns = serializers.ListField(
         child=serializers.CharField(),
@@ -37,5 +37,5 @@ class NotebookDataV2EnvelopeSerializer(serializers.Serializer):
     )
 
 
-class NotebookDataV2CallbackRequestSerializer(serializers.Serializer):
-    envelope = NotebookDataV2EnvelopeSerializer(help_text="The result envelope produced by the sandbox run.")
+class NotebookSQLV2CallbackRequestSerializer(serializers.Serializer):
+    envelope = NotebookSQLV2EnvelopeSerializer(help_text="The result envelope produced by the sandbox run.")

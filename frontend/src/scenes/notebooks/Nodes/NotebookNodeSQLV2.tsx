@@ -6,23 +6,23 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
-import { notebookNodeDataV2Logic } from './notebookNodeDataV2Logic'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
-export type NotebookNodeDataV2Result = {
+export type NotebookNodeSQLV2Result = {
     columns: string[]
     row_count: number
     first_page: (string | number | null)[][]
 }
 
-export type NotebookNodeDataV2Attributes = {
+export type NotebookNodeSQLV2Attributes = {
     code: string
     runId?: string | null
-    result?: NotebookNodeDataV2Result | null
+    result?: NotebookNodeSQLV2Result | null
 }
 
-const toDataframeResult = (result: NotebookNodeDataV2Result): NotebookDataframeResult => {
+const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
     const firstPage = result.first_page ?? []
     return {
@@ -36,12 +36,12 @@ const toDataframeResult = (result: NotebookNodeDataV2Result): NotebookDataframeR
 const Component = ({
     attributes,
     updateAttributes,
-}: NotebookNodeProps<NotebookNodeDataV2Attributes>): JSX.Element | null => {
+}: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeDataV2Logic({
+    const dataLogic = notebookNodeSQLV2Logic({
         nodeId,
         notebookShortId,
         updateAttributes,
@@ -58,7 +58,7 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-data-v2" className="flex h-full flex-col">
+        <div data-attr="notebook-node-sql-v2" className="flex h-full flex-col">
             <div
                 className="space-y-3"
                 onMouseDown={(event) => event.stopPropagation()}
@@ -92,12 +92,12 @@ const Component = ({
 const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeAttributeProperties<NotebookNodeDataV2Attributes>): JSX.Element => {
+}: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeDataV2Logic({
+    const dataLogic = notebookNodeSQLV2Logic({
         nodeId,
         notebookShortId,
         updateAttributes,
@@ -114,14 +114,14 @@ const Settings = ({
             tabIdSuffix="datav2"
             onRunQuery={() => runQuery(attributes.code ?? '')}
             runQueryLoading={isRunning}
-            runQueryTooltip="Run Data (v2) query"
+            runQueryTooltip="Run SQL (v2) query"
         />
     )
 }
 
-export const NotebookNodeDataV2 = createPostHogWidgetNode<NotebookNodeDataV2Attributes>({
-    nodeType: NotebookNodeType.DataV2,
-    titlePlaceholder: 'Data (v2)',
+export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attributes>({
+    nodeType: NotebookNodeType.SQLV2,
+    titlePlaceholder: 'SQL (v2)',
     Component,
     heightEstimate: 120,
     minHeight: 80,

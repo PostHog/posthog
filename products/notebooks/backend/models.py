@@ -171,8 +171,6 @@ class KernelRuntime(UUIDTModel):
     connection_file = models.TextField(null=True, blank=True)
     sandbox_id = models.CharField(max_length=128, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
-    # Reachable URL of the in-sandbox DataV2 kernel-server, plus its connect token
-    # (Modal tunnel auth; null for Docker). Set once the kernel-server is started.
     server_url = models.TextField(null=True, blank=True)
     server_connect_token = models.TextField(null=True, blank=True)
 
@@ -184,7 +182,7 @@ class KernelRuntime(UUIDTModel):
 
 
 class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
-    """A single execution of a revamped-notebooks (DataV2) node.
+    """A single execution of a revamped-notebooks (SQLV2) node.
 
     The callback endpoint upserts this row with the result envelope; the SSE
     endpoint polls it until terminal. Also serves as the node's last-result store.

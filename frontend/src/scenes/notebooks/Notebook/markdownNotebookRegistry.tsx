@@ -1,7 +1,7 @@
 import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
-import '../Nodes/NotebookNodeDataV2'
+import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -107,7 +107,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Python: NotebookNodeType.Python,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
-    DataV2: NotebookNodeType.DataV2,
+    SQLV2: NotebookNodeType.SQLV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -151,7 +151,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
-    { tagName: 'DataV2', category: 'SQL', label: 'Data (v2)', insertCommand: { aliases: ['data', 'sql'] } },
+    { tagName: 'SQLV2', category: 'SQL', label: 'SQL (v2)', insertCommand: { aliases: ['data', 'sql'] } },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -234,7 +234,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('DataV2')
+        hiddenTags.push('SQLV2')
     }
 
     if (hiddenTags.length === 0) {

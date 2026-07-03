@@ -1,4 +1,4 @@
-"""Token-authed sandbox -> backend callback for DataV2 runs (Journey 1 slice).
+"""Token-authed sandbox -> backend callback for SQLV2 runs (Journey 1 slice).
 
 Mirrors PostHog Code's agent-proxy callback: a plain function view (no team
 scoping, no session), authed by a Bearer token the run endpoint minted. Wired in
@@ -13,30 +13,30 @@ from django.http import JsonResponse
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from products.notebooks.backend.data_v2 import verify_callback_token
-from products.notebooks.backend.data_v2_serializers import NotebookDataV2CallbackRequestSerializer
 from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.sql_v2 import verify_callback_token
+from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
 logger = structlog.get_logger(__name__)
 
 
 @extend_schema(
     tags=["notebooks"],
-    request=NotebookDataV2CallbackRequestSerializer,
+    request=NotebookSQLV2CallbackRequestSerializer,
     responses={
         200: OpenApiResponse(description="Result stored"),
         401: OpenApiResponse(description="Missing or invalid callback token"),
         403: OpenApiResponse(description="Token does not match the run"),
         404: OpenApiResponse(description="Run not found"),
     },
-    summary="DataV2 run result callback",
+    summary="SQLV2 run result callback",
     description=(
-        "Internal endpoint the notebook sandbox POSTs its result envelope to after a DataV2 run. "
+        "Internal endpoint the notebook sandbox POSTs its result envelope to after a SQLV2 run. "
         "Authenticated with the signed callback token minted by the run endpoint (no session). "
         "Idempotent: re-delivery of the same run_id upserts the same row."
     ),
 )
-def notebook_data_v2_callback(request, run_id: str) -> JsonResponse:
+def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
@@ -60,7 +60,7 @@ def notebook_data_v2_callback(request, run_id: str) -> JsonResponse:
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid JSON body"}, status=400)
 
-    serializer = NotebookDataV2CallbackRequestSerializer(data=body)
+    serializer = NotebookSQLV2CallbackRequestSerializer(data=body)
     if not serializer.is_valid():
         return JsonResponse({"error": "Invalid request body", "detail": serializer.errors}, status=400)
 

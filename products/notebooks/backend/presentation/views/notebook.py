@@ -47,14 +47,14 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.data_v2 import is_data_v2_enabled
-from products.notebooks.backend.data_v2_serializers import NotebookDataV2RunRequestSerializer
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
-from products.notebooks.backend.temporal.client import start_data_v2_run_workflow
-from products.notebooks.backend.temporal.data_v2 import DataV2RunInput
+from products.notebooks.backend.sql_v2 import is_sql_v2_enabled
+from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2RunRequestSerializer
+from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -869,14 +869,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
     @extend_schema(exclude=True)
-    @action(methods=["POST"], url_path="data_v2/run", detail=True)
-    def data_v2_run(self, request: Request, **kwargs):
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True)
+    def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
-        if not (settings.DEBUG or is_data_v2_enabled(user)):
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
             raise Http404()
 
-        serializer = NotebookDataV2RunRequestSerializer(data=request.data)
+        serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
 
@@ -888,8 +888,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         try:
-            start_data_v2_run_workflow(
-                DataV2RunInput(
+            start_sql_v2_run_workflow(
+                SQLV2RunInput(
                     run_id=str(run.id),
                     notebook_short_id=notebook.short_id,
                     team_id=self.team_id,
@@ -898,7 +898,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
             )
         except Exception:
-            logger.exception("notebook_data_v2_run_start_failed", notebook_short_id=notebook.short_id)
+            logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
             run.status = NotebookNodeRun.Status.FAILED
             run.error = "Failed to start run."
             run.save(update_fields=["status", "error", "updated_at"])
@@ -907,12 +907,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response({"run_id": str(run.id)})
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], url_path="data_v2/runs/(?P<run_id>[^/.]+)", detail=True)
-    def data_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
+    @action(methods=["GET"], url_path="sql_v2/runs/(?P<run_id>[^/.]+)", detail=True)
+    def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
-        # query, no held connection — resilient to reloads/remounts (see data_v2_result_delivery.md).
+        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
         user = self._current_user()
-        if not (settings.DEBUG or is_data_v2_enabled(user)):
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
             raise Http404()
 
         try:

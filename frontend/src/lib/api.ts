@@ -4919,13 +4919,13 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
-        async dataV2Run(
+        async sqlV2Run(
             notebookId: NotebookType['short_id'],
             data: { node_id: string; code: string }
         ): Promise<{ run_id: string }> {
-            return await new ApiRequest().notebook(notebookId).withAction('data_v2/run').create({ data })
+            return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
-        async dataV2RunResult(
+        async sqlV2RunResult(
             notebookId: NotebookType['short_id'],
             runId: string
         ): Promise<{
@@ -4933,7 +4933,7 @@ const api = {
             result: { columns?: string[]; row_count?: number; first_page?: (string | number | null)[][] } | null
             error: string | null
         }> {
-            return await new ApiRequest().notebook(notebookId).withAction(`data_v2/runs/${runId}`).get()
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
         },
         async markdownSave(
             notebookId: NotebookType['short_id'],

@@ -52,7 +52,7 @@ from products.data_warehouse.backend.presentation.views.public_source_configs im
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.notebooks.backend.data_v2_callback import notebook_data_v2_callback
+from products.notebooks.backend.sql_v2_callback import notebook_sql_v2_callback
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -375,10 +375,10 @@ urlpatterns = [
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
         csrf_exempt(agent_proxy_callback),
     ),
-    # Internal DataV2 run result callback (auth: signed callback token)
+    # Internal SQLV2 run result callback (auth: signed callback token)
     path(
         "internal/notebooks/runs/<str:run_id>/result/",
-        csrf_exempt(notebook_data_v2_callback),
+        csrf_exempt(notebook_sql_v2_callback),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(

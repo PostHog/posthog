@@ -1,4 +1,4 @@
-"""Fire-and-forget starter for the DataV2 run workflow, callable from sync DRF views."""
+"""Fire-and-forget starter for the SQLV2 run workflow, callable from sync DRF views."""
 
 from django.conf import settings
 
@@ -7,7 +7,7 @@ from temporalio.client import Client
 
 from posthog.temporal.common.client import sync_connect
 
-from products.notebooks.backend.temporal.data_v2 import DataV2RunInput
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 
 
 @async_to_sync
@@ -20,10 +20,10 @@ async def _start_workflow(temporal: Client, name: str, workflow_id: str, inputs:
     )
 
 
-def start_data_v2_run_workflow(inputs: DataV2RunInput) -> None:
+def start_sql_v2_run_workflow(inputs: SQLV2RunInput) -> None:
     _start_workflow(
         sync_connect(),
-        "notebook-data-v2-run",
-        f"notebook-data-v2-run-{inputs.run_id}",
+        "notebook-sandbox-cmd-run",
+        f"notebook-sandbox-cmd-run-{inputs.run_id}",
         inputs,
     )
