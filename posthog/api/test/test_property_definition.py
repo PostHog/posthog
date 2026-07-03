@@ -518,9 +518,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert any(prop["name"] == expected_name for prop in response.json()["results"])
 
     def test_viewset_runs_query_serializer_validation(self) -> None:
-        # Wiring guard: the endpoint must actually invoke PropertyDefinitionQuerySerializer.
-        # The exhaustive valid/invalid matrix is unit-tested in TestPropertyDefinitionQuerySerializer
-        # with no DB; this proves the viewset rejects what that serializer rejects.
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "group_type_index" in response.json()["detail"]
@@ -1023,7 +1020,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
 
 class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
-    # Pure in-memory validation (Serializer.validate has no context and no DB), so no APIBaseTest/BaseTest needed.
     @parameterized.expand(
         [
             ["defaults", {}],
@@ -1032,17 +1028,17 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
             ["group with valid index", {"type": "group", "group_type_index": 3}],
         ]
     )
-    def test_valid_query(self, _name: str, data: dict) -> None:
+    def test_valid_query(self, _name: str, data: dict[str, Any]) -> None:
         assert PropertyDefinitionQuerySerializer(data=data).is_valid()
 
     @parameterized.expand(
         [
             ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
             ["group type without index", {"type": "group"}],
-            ["group_type_index at or above limit", {"type": "group", "group_type_index": 77}],
+            ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
             ["negative group_type_index", {"type": "group", "group_type_index": -1}],
             ["group_type_index set for non-group type", {"type": "event", "group_type_index": 3}],
         ]
     )
-    def test_invalid_query(self, _name: str, data: dict) -> None:
+    def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
         assert not PropertyDefinitionQuerySerializer(data=data).is_valid()
