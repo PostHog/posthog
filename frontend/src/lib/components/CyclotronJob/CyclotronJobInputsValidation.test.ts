@@ -228,14 +228,18 @@ describe('CyclotronJobInputsValidation', () => {
             })
             const schema: CyclotronJobInputSchemaType[] = [{ key: 'email', type: 'native_email', label: 'Email' }]
 
-            it('errors on a malformed Liquid template in to.email', () => {
-                // Dot notation on a $-prefixed, hyphenated survey key is invalid Liquid — the natural first attempt.
-                const result = CyclotronJobInputsValidation.validate(
-                    nativeEmailInput({ name: '', email: '{{ event.properties.$survey_response_1c0454ff-1138 }}' }),
-                    schema
-                )
+            // Dot notation on a $-prefixed, hyphenated survey key is invalid Liquid — the natural first attempt.
+            it.each([
+                [
+                    'a malformed Liquid template',
+                    '{{ event.properties.$survey_response_1c0454ff-1138 }}',
+                    'Liquid template error',
+                ],
+                ['an empty address', '', 'To is required'],
+            ])('errors when to.email is %s', (_desc, email, expectedError) => {
+                const result = CyclotronJobInputsValidation.validate(nativeEmailInput({ name: '', email }), schema)
                 expect(result.valid).toBe(false)
-                expect(result.errors.email).toContain('Liquid template error')
+                expect(result.errors.email).toContain(expectedError)
             })
 
             it('passes a valid bracket-notation Liquid template in to.email', () => {
@@ -245,12 +249,6 @@ describe('CyclotronJobInputsValidation', () => {
                 )
                 expect(result.valid).toBe(true)
                 expect(result.errors).toEqual({})
-            })
-
-            it('requires the To address when to.email is empty', () => {
-                const result = CyclotronJobInputsValidation.validate(nativeEmailInput({ name: '', email: '' }), schema)
-                expect(result.valid).toBe(false)
-                expect(result.errors.email).toContain('To is required')
             })
         })
 
