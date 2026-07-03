@@ -14,6 +14,7 @@
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 use crate::json::reject_if_too_deep;
+use crate::mlhog::schema;
 use crate::mlhog::v2::V2Worker;
 use crate::scan::{self, Span};
 use crate::snapshot::{
@@ -148,17 +149,25 @@ fn anonymize_snapshot_data(
             continue; // invalid/missing timestamp: filtered out
         };
 
+        let ty = ev.ty.and_then(|s| small_uint(inner, s));
+        let source = ev.source.and_then(|s| small_uint(inner, s));
+        // Hand the walker the scan this loop already did (span discovery + meta) instead of letting
+        // scrub_line re-derive it: v2's routing scan is redundant work in this contract.
+        let scan = schema::EventScan {
+            ty,
+            source,
+            compressed: ev.cv.map(|s| !scan::is_null(inner, s)).unwrap_or(false),
+            data_range: ev.data.map(|d| (d.0 - start, d.1 - start)),
+        };
         lines.extend_from_slice(&prefix);
         let mark = lines.len();
-        worker.scrub_line(&ctx, &inner[start..ev.end], &mut lines);
+        worker.scrub_line_scanned(&ctx, &inner[start..ev.end], scan, &mut lines);
         if lines.len() == mark {
             // v2 dropped the line (its internal fail mode); drop the framing prefix too.
             lines.truncate(mark - prefix.len());
             continue;
         }
         let emitted = (mark, lines.len());
-        let ty = ev.ty.and_then(|s| small_uint(inner, s));
-        let source = ev.source.and_then(|s| small_uint(inner, s));
         let interaction = ev.interaction.and_then(|s| small_uint(inner, s));
         // href must be post-scrub (meta/plugin scrubs rewrite it); scrubs never add one, so the
         // emitted-bytes lookup only runs when the original had href/payload at all.
@@ -285,6 +294,7 @@ struct Ev {
     end: usize,
     ty: Option<Span>,
     ts: Option<Span>,
+    cv: Option<Span>,
     data: Option<Span>,
     // Depth-1 of data:
     source: Option<Span>,
@@ -332,6 +342,7 @@ fn scan_event(inner: &[u8], start: usize) -> Option<Ev> {
         match key {
             b"type" => ev.ty = Some(vspan),
             b"timestamp" => ev.ts = Some(vspan),
+            b"cv" => ev.cv = Some(vspan),
             b"data" => ev.data = Some(vspan),
             _ => {}
         }

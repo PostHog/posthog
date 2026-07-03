@@ -29,14 +29,32 @@ pub struct V2Worker {
 
 impl V2Worker {
     pub fn scrub_line(&mut self, ctx: &Ctx<'_>, line: &[u8], out: &mut Vec<u8>) {
+        self.scrub_line_scanned(ctx, line, schema::scan_event(line), out)
+    }
+
+    /// [`Self::scrub_line`] with the routing scan supplied by the caller — an integration that has
+    /// already scanned the event (for span discovery or metadata) hands its results over instead of
+    /// paying `schema::scan_event` a second time.
+    pub fn scrub_line_scanned(
+        &mut self,
+        ctx: &Ctx<'_>,
+        line: &[u8],
+        scan: schema::EventScan,
+        out: &mut Vec<u8>,
+    ) {
         let mark = out.len();
-        if self.dispatch(ctx, line, out).is_none() {
+        if self.dispatch(ctx, line, scan, out).is_none() {
             out.truncate(mark);
         }
     }
 
-    fn dispatch(&mut self, ctx: &Ctx<'_>, line: &[u8], out: &mut Vec<u8>) -> Option<()> {
-        let scan = schema::scan_event(line);
+    fn dispatch(
+        &mut self,
+        ctx: &Ctx<'_>,
+        line: &[u8],
+        scan: schema::EventScan,
+        out: &mut Vec<u8>,
+    ) -> Option<()> {
         let ty = scan.ty.and_then(E::from_u8);
         let source = scan.source.and_then(S::from_u8);
 

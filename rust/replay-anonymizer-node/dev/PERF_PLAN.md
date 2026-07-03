@@ -70,8 +70,9 @@ walker must pre-check `data`'s shape for snapshots — a string could be a cv bl
 fail-closed test caught; that check is inherent to any future re-attempt.)
 
 With the scrub-leaf work (bulk `write_json_string`, chunked redaction marks, allow-list length-mask
-rejects), the full-contract numbers are: large 26.1 ms (vs the MLHog-v2 engine's 34.8 on the same
-contract, and the tree's ~23 with outer work), medium 8.8 ms. The remaining profile is dominated by
+rejects), the full-contract numbers are: large 26.1 ms (vs the MLHog-v2 engine's 30.0 on the same contract
+after its redundant routing re-scan was removed via `scrub_line_scanned`, and the tree's ~23 with
+outer work), medium 8.8 ms. The remaining profile is dominated by
 `scrub_text` + `skip_string` + emission — i.e. genuine scrub work; we are near the floor for this
 contract on M4.
 
