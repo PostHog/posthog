@@ -33,6 +33,23 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Depth 2 so pull request scans can diff against the base tip (HEAD^).
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+            # On pull requests, scan only files changed since the base branch — the
+            # checkout is GitHub's PR merge commit, so HEAD^ is the base tip. Full
+            # scans still run on every push to master as the backstop.
+            - name: Determine scan mode
+              id: scan-mode
+              run: |
+                  if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && baseline=$(git rev-parse --verify --quiet HEAD^); then
+                      echo "Diff-aware scan against baseline $baseline"
+                      echo "baseline_args=--baseline-commit $baseline" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Full scan"
+                      echo "baseline_args=" >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Run Semgrep
               run: |
@@ -40,6 +57,7 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
+                      ${{ steps.scan-mode.outputs.baseline_args }} \
                       --config "p/python" \
                       --config "p/owasp-top-ten" \
                       --config "p/security-audit" \
@@ -149,6 +167,23 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Depth 2 so pull request scans can diff against the base tip (HEAD^).
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+            # On pull requests, scan only files changed since the base branch — the
+            # checkout is GitHub's PR merge commit, so HEAD^ is the base tip. Full
+            # scans still run on every push to master as the backstop.
+            - name: Determine scan mode
+              id: scan-mode
+              run: |
+                  if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && baseline=$(git rev-parse --verify --quiet HEAD^); then
+                      echo "Diff-aware scan against baseline $baseline"
+                      echo "baseline_args=--baseline-commit $baseline" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Full scan"
+                      echo "baseline_args=" >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Run Semgrep
               run: |
@@ -156,6 +191,7 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
+                      ${{ steps.scan-mode.outputs.baseline_args }} \
                       --config ".semgrep/rules/" \
                       --config "p/javascript" \
                       --config "p/owasp-top-ten" \
@@ -222,6 +258,23 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Depth 2 so pull request scans can diff against the base tip (HEAD^).
+                  fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+            # On pull requests, scan only files changed since the base branch — the
+            # checkout is GitHub's PR merge commit, so HEAD^ is the base tip. Full
+            # scans still run on every push to master as the backstop.
+            - name: Determine scan mode
+              id: scan-mode
+              run: |
+                  if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && baseline=$(git rev-parse --verify --quiet HEAD^); then
+                      echo "Diff-aware scan against baseline $baseline"
+                      echo "baseline_args=--baseline-commit $baseline" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Full scan"
+                      echo "baseline_args=" >> "$GITHUB_OUTPUT"
+                  fi
 
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
@@ -230,6 +283,7 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
+                      ${{ steps.scan-mode.outputs.baseline_args }} \
                       --config "p/owasp-top-ten" \
                       --config "p/security-audit" \
                       --config "p/trailofbits" \
