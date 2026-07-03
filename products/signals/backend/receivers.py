@@ -25,7 +25,7 @@ def capture_prior_status_for_pr_close(
 ) -> None:
     """Stash the row's prior status so post_save can tell a real transition from a no-op edit."""
     if instance.pk is None:
-        instance._prior_status_for_pr_close = None  # type: ignore[attr-defined]
+        instance._prior_status_for_pr_close = None
         return
 
     update_fields = kwargs.get("update_fields")

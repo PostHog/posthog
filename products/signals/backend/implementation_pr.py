@@ -1,6 +1,6 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
-from typing import Literal
+from typing import Literal, cast
 
 import structlog
 
@@ -56,7 +56,8 @@ _PR_CLOSE_COMMENT_TEMPLATE = (
     "If that wasn't intended, restore the report in PostHog and reopen this PR."
 )
 _PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
-    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason) for reason in ("suppressed", "snoozed")
+    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
+    for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
 }
 
 
