@@ -390,11 +390,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeBanner: ({ banner }) => {
             // the load-failure timer also runs on scenes that never mount an iframe
             // (screenshot detail, the new-heatmap form), so only capture when one exists
-            if (banner && document.getElementById('heatmap-iframe')) {
-                posthog.capture('in-app iFrame banner set', {
-                    level: banner.level,
-                    message: typeof banner.message === 'string' ? banner.message : undefined,
-                })
+            if (banner?.level === 'error' && document.getElementById('heatmap-iframe')) {
+                posthog.capture('in-app heatmap load failed')
             }
         },
 
