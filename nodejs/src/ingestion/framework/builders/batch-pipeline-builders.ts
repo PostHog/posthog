@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { BatchRetryOptions, withBatchRetry } from '~/ingestion/framework/batch-retry'
@@ -18,7 +19,6 @@ import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 

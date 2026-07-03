@@ -115,6 +115,9 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             if filters is not None
             else parsed_query.query.source
         )
+        variables = await self._abuild_query_variables(source_query.query)
+        if variables:
+            source_query = source_query.model_copy(update={"variables": variables})
         artifact_query = parsed_query.query.model_copy(update={"source": source_query})
         if display or chart_settings:
             if isinstance(chart_settings, AssistantDataVisualizationChartSettings):

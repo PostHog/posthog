@@ -7,8 +7,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 pytestmark = pytest.mark.django_db
 

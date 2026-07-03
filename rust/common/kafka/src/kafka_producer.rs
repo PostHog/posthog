@@ -121,6 +121,9 @@ where
     if let Some(v) = config.kafka_producer_sticky_partitioning_linger_ms {
         client_config.set("sticky.partitioning.linger.ms", v.to_string());
     }
+    if let Some(ref v) = config.kafka_producer_partitioner {
+        client_config.set("partitioner", v);
+    }
 
     if config.kafka_tls {
         client_config

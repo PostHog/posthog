@@ -7,6 +7,10 @@ on:
 permissions:
     contents: read
 
+concurrency:
+    group: resolve-bot-comments-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
 jobs:
     resolve-outdated:
         name: Resolve outdated bot review comments
@@ -22,62 +26,93 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
+            - name: Checkout scripts from the trusted default branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # NEVER the default merge ref: the step below runs this script with the
+                  # privileged app token, and the merge ref contains PR-controlled code — a
+                  # same-repo PR could edit the script to exfiltrate the token. The default
+                  # branch is protected (not just any base branch — a stacked PR's base is
+                  # unreviewed), so script changes only take effect once merged there. The
+                  # script is self-contained; it never needs to match the PR's base.
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts
+
             - name: Resolve outdated bot threads
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
+                  BOTS: copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review
               run: |
-                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review"
+                  set -euo pipefail
 
                   OWNER="${REPO%/*}"
                   REPO_NAME="${REPO#*/}"
 
-                  THREADS=$(gh api graphql -f query='
-                    query($owner: String!, $repo: String!, $pr: Int!) {
-                      repository(owner: $owner, name: $repo) {
-                        pullRequest(number: $pr) {
-                          reviewThreads(first: 100) {
-                            pageInfo { hasNextPage }
-                            nodes {
-                              id
-                              isOutdated
-                              isResolved
-                              comments(first: 2) {
-                                totalCount
+                  # Collect every outdated, unresolved, single-comment thread authored by a known bot.
+                  # gh --paginate follows the GraphQL cursor (needs the $endCursor variable + pageInfo),
+                  # so PRs with more than 100 review threads are fully covered. Best-effort: a fetch or
+                  # parse error logs a warning and exits cleanly (pipefail surfaces it; the check stays green).
+                  ids=$(gh api graphql --paginate \
+                      -f query='
+                        query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+                          repository(owner: $owner, name: $repo) {
+                            pullRequest(number: $pr) {
+                              reviewThreads(first: 100, after: $endCursor) {
+                                pageInfo { hasNextPage endCursor }
                                 nodes {
-                                  author { login }
+                                  id
+                                  isOutdated
+                                  isResolved
+                                  comments(first: 1) {
+                                    totalCount
+                                    nodes { author { login } }
+                                  }
                                 }
                               }
                             }
                           }
-                        }
-                      }
-                    }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER")
+                        }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER" \
+                      | jq -r --arg bots "$BOTS" '
+                          .data.repository.pullRequest.reviewThreads.nodes[]
+                          | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
+                          | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
+                          | .id') || {
+                    echo "::warning::failed to fetch or parse review threads; skipping"
+                    exit 0
+                  }
 
-                  HAS_NEXT=$(echo "$THREADS" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
-                  if [ "$HAS_NEXT" = "true" ]; then
-                    echo "WARNING: more than 100 review threads found; some outdated bot threads may not be resolved"
-                  fi
-
-                  THREAD_IDS=$(echo "$THREADS" | jq -r --arg bots "$BOTS" '
-                    .data.repository.pullRequest.reviewThreads.nodes[]
-                    | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
-                    | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
-                    | .id
-                  ')
-
-                  if [ -z "$THREAD_IDS" ]; then
+                  if [ -z "$ids" ]; then
                     echo "No outdated bot threads to resolve"
                     exit 0
                   fi
 
-                  echo "$THREAD_IDS" | while read -r thread_id; do
+                  mapfile -t thread_ids <<< "$ids"
+                  echo "Resolving ${#thread_ids[@]} outdated bot thread(s)"
+
+                  # Resolve best-effort: a single failed mutation must not skip the remaining threads.
+                  for thread_id in "${thread_ids[@]}"; do
                     echo "Resolving thread $thread_id"
                     gh api graphql -f query='
                       mutation($id: ID!) {
                         resolveReviewThread(input: { threadId: $id }) {
                           thread { isResolved }
                         }
-                      }' -f id="$thread_id"
+                      }' -f id="$thread_id" || echo "::warning::failed to resolve thread $thread_id"
                   done
+
+            # Sibling concern to the thread resolver above: bots that post a NEW top-level
+            # comment or review per push (instead of updating in place) bury the human
+            # conversation. Collapse all but the newest of each kind as outdated.
+            - name: Minimize superseded bot comments
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if [ -f .github/scripts/minimize-superseded-comments.mjs ]; then
+                      node .github/scripts/minimize-superseded-comments.mjs
+                  else
+                      echo "Skipping — script not present on this checkout"
+                  fi

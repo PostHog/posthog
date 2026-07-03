@@ -37,7 +37,7 @@ function genEvent(teamId: number, overrides: Partial<AnalyticsEvent> = {}): Anal
         turn: 1,
         span_id: 'sess_1:gen:1',
         distinct_id: 'pat:user-1',
-        model: 'claude-haiku-4-5',
+        model: 'anthropic/claude-haiku-4-5',
         provider: 'anthropic',
         input: [{ role: 'user', content: 'hi' }],
         output: [{ type: 'text', text: 'hello' }],

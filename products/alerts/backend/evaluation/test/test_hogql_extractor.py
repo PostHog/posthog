@@ -11,6 +11,8 @@ from posthog.schema import (
     InsightThresholdType,
 )
 
+from posthog.api.services.query import ExecutionMode
+
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import (
@@ -21,6 +23,7 @@ from products.alerts.backend.evaluation.hogql import (
 )
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
+_IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 ABSOLUTE = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE)
 
@@ -41,7 +44,7 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
 def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
-        return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock())
+        return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock(), _IF_STALE)
 
 
 @pytest.mark.parametrize(
@@ -107,7 +110,7 @@ def test_evaluation_uses_saved_variable_values_not_session_overrides():
     # possibly-overridden cached result) can disagree with what the alert actually evaluates.
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=[[5]], columns=["count"])
-        HogQLExtractor().extract(_alert(), MagicMock(), MagicMock())
+        HogQLExtractor().extract(_alert(), MagicMock(), MagicMock(), _IF_STALE)
     assert "variables_override" not in calc.call_args.kwargs
 
 

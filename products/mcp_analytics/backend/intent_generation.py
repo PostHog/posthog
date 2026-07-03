@@ -5,7 +5,7 @@ and condense them into a short natural-language summary via an LLM. Pure
 generation only — caching and persistence live in ``logic.generate_session_intent``.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -26,10 +26,9 @@ from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnav
 
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
-# Session-detail queries look up one $session_id; without a timestamp bound
-# the events sort key (team_id, toDate(timestamp), event, ...) can't prune and
-# the scan covers the team's full history. Sessions reachable in the UI are at
-# most MCP_SESSIONS_LOOKBACK (24h) old, so 7 days is a generous safety margin.
+# Fallback scan bound for the session-detail queries (tool calls + intents) — a single $session_id
+# isn't in the events sort key, so without a timestamp bound the scan covers the team's full
+# history. Callers normally pass the session's start; this covers ones that don't.
 SESSION_EVENTS_LOOKBACK = timedelta(days=7)
 # Persisted (and returned) when a session has no recorded intents, so callers
 # get a definitive answer and we don't re-query ClickHouse on the next request.
@@ -59,13 +58,18 @@ LIMIT {limit}
 """
 
 
-def fetch_session_intents(team: Team, session_id: str) -> list[str]:
-    """Return the session's recorded ``$mcp_intent``s in chronological order."""
+def fetch_session_intents(team: Team, session_id: str, date_from: datetime | None = None) -> list[str]:
+    """Return the session's recorded ``$mcp_intent``s in chronological order.
+
+    ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan,
+    mirroring ``logic.list_mcp_tool_calls``: callers pass the session's start so the whole session
+    resolves, and it falls back to ``SESSION_EVENTS_LOOKBACK`` for callers that don't.
+    """
     query = parse_select(
         _SESSION_INTENTS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
-            "date_from": ast.Constant(value=timezone.now() - SESSION_EVENTS_LOOKBACK),
+            "date_from": ast.Constant(value=date_from or (timezone.now() - SESSION_EVENTS_LOOKBACK)),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=MAX_INTENTS),
         },

@@ -65,26 +65,23 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 },
 
                 updateRemoteConfig: async ({ config }) => {
+                    const endpoint = '/api/users/@me/hedgehog_config'
+                    const payload = {
+                        ...values.hedgehogConfig,
+                        ...config,
+                    }
+
+                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                    if (mountedToolbarConfigLogic) {
+                        // Inside the Toolbar the OAuth token is scoped to `user:read` only
+                        // (TOOLBAR_OAUTH_SCOPES grants no `user:write`), so persisting the hedgehog
+                        // config would 403 — and toolbarFetch turns any 403 into a session reset,
+                        // kicking the user out of the Toolbar. Keep the config local to this session.
+                        return mountedToolbarConfigLogic.values.isAuthenticated ? payload : null
+                    }
+
                     try {
-                        const endpoint = '/api/users/@me/hedgehog_config'
-                        let newConfig: Partial<HedgehogConfig>
-
-                        const payload = {
-                            ...values.hedgehogConfig,
-                            ...config,
-                        }
-
-                        const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                        if (mountedToolbarConfigLogic) {
-                            // If toolbarConfigLogic is mounted, we're inside the Toolbar
-                            if (!mountedToolbarConfigLogic.values.isAuthenticated) {
-                                return null
-                            }
-                            newConfig = await (await toolbarFetch(endpoint, 'PATCH', payload)).json()
-                        } else {
-                            newConfig = await api.update(endpoint, payload)
-                        }
-
+                        const newConfig: Partial<HedgehogConfig> = await api.update(endpoint, payload)
                         return newConfig ?? null
                     } catch (e) {
                         console.error('Failed to update hedgehog remote config', e)

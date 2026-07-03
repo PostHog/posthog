@@ -31,11 +31,16 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, MetricQueryRunner, _pick_interval
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
 MAX_TOP_MOVERS = 8
+
+# Bucket budget for the single combined baseline+anomaly query — the
+# resolution follows the anomaly window, but a faraway baseline must not
+# blow the runner's row limit.
+_MAX_COMBINED_BUCKETS = 2000
 
 # Onset = first anomaly-window bucket beyond this many baseline stddevs
 # (with a relative-change floor for near-constant baselines).
@@ -65,8 +70,33 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _ensure_aware(value: dt.datetime) -> dt.datetime:
+    """Naive datetimes are taken as UTC so window comparisons always have a
+    timezone to compare on."""
+    return value.replace(tzinfo=dt.UTC) if value.tzinfo is None else value
+
+
+def _parse_point_time(value: str) -> dt.datetime:
+    """Bucket times come back from HogQL rendered in the *project* timezone,
+    so they must be compared as datetimes — ISO strings with different UTC
+    offsets do not sort chronologically."""
+    return _ensure_aware(dt.datetime.fromisoformat(value))
+
+
+def _pick_combined_interval(baseline_from: dt.datetime, anomaly_from: dt.datetime, anomaly_to: dt.datetime) -> str:
+    """Resolution follows the anomaly window (so a short window keeps fine
+    buckets even with a faraway baseline); the combined span only coarsens
+    it when it would exceed the bucket budget."""
+    interval = _pick_interval(anomaly_from, anomaly_to)
+    combined_span = anomaly_to - baseline_from
+    index = next(i for i, (name, _, _) in enumerate(_INTERVAL_LADDER) if name == interval)
+    while index < len(_INTERVAL_LADDER) - 1 and combined_span / _INTERVAL_LADDER[index][1] > _MAX_COMBINED_BUCKETS:
+        index += 1
+    return _INTERVAL_LADDER[index][0]
+
+
 def _find_onset(
-    points: list[MetricPoint], anomaly_from_iso: str, baseline_mean: float, baseline_stddev: float, direction: str
+    points: list[MetricPoint], anomaly_from: dt.datetime, baseline_mean: float, baseline_stddev: float, direction: str
 ) -> str | None:
     threshold = max(
         ONSET_STDDEV_THRESHOLD * baseline_stddev,
@@ -74,7 +104,7 @@ def _find_onset(
         1e-9,
     )
     for point in points:
-        if point.time < anomaly_from_iso:
+        if _parse_point_time(point.time) < anomaly_from:
             continue
         deviation = point.value - baseline_mean
         if direction == "down":
@@ -97,14 +127,20 @@ def characterize_anomaly(
     filters: tuple[MetricFilter, ...] = (),
     candidate_keys: tuple[str, ...] | None = None,
 ) -> MetricAnomalyReport:
+    anomaly_from = _ensure_aware(anomaly_from)
+    anomaly_to = _ensure_aware(anomaly_to)
     if anomaly_to <= anomaly_from:
         raise ValueError("anomaly_to must be after anomaly_from")
     if baseline_to is None:
         baseline_to = anomaly_from
     if baseline_from is None:
         baseline_from = baseline_to - (anomaly_to - anomaly_from)
+    baseline_from = _ensure_aware(baseline_from)
+    baseline_to = _ensure_aware(baseline_to)
     if baseline_to > anomaly_from:
         raise ValueError("the baseline window must end at or before anomaly_from")
+    if baseline_to <= baseline_from:
+        raise ValueError("baseline_to must be after baseline_from")
 
     if aggregation is None:
         aggregation, default_quantile = _default_aggregation(team, metric_name)
@@ -113,9 +149,9 @@ def characterize_anomaly(
         quantile = 0.95
 
     # One query over the combined window keeps baseline and anomaly on a
-    # single grid; the interval comes from the combined span.
-    interval = _pick_interval(baseline_from, anomaly_to)
-    anomaly_from_iso = anomaly_from.isoformat()
+    # single grid. Buckets between baseline_to and anomaly_from (the gap, for
+    # an explicit faraway baseline) are plotted but excluded from the stats.
+    interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
 
     def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
         return MetricQueryRunner(
@@ -132,8 +168,9 @@ def characterize_anomaly(
 
     rows = _run()
     points = [MetricPoint(time=row["time"], value=row["value"]) for row in rows]
-    baseline_values = [p.value for p in points if p.time < anomaly_from_iso]
-    anomaly_values = [p.value for p in points if p.time >= anomaly_from_iso]
+    point_times = [_parse_point_time(p.time) for p in points]
+    baseline_values = [p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to]
+    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from]
 
     baseline_mean = _mean(baseline_values)
     baseline_stddev = statistics.pstdev(baseline_values) if len(baseline_values) > 1 else 0.0
@@ -147,16 +184,15 @@ def characterize_anomaly(
         direction = "up" if anomaly_mean > baseline_mean else "down"
 
     onset_time = (
-        None
-        if direction == "flat"
-        else _find_onset(points, anomaly_from_iso, baseline_mean, baseline_stddev, direction)
+        None if direction == "flat" else _find_onset(points, anomaly_from, baseline_mean, baseline_stddev, direction)
     )
 
     movers = _find_top_movers(
         run=_run,
         team=team,
         metric_name=metric_name,
-        anomaly_from_iso=anomaly_from_iso,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
         anomaly_from=anomaly_from,
         anomaly_to=anomaly_to,
         filters=filters,
@@ -169,7 +205,7 @@ def characterize_anomaly(
         interval=interval,
         baseline_from=baseline_from.isoformat(),
         baseline_to=baseline_to.isoformat(),
-        anomaly_from=anomaly_from_iso,
+        anomaly_from=anomaly_from.isoformat(),
         anomaly_to=anomaly_to.isoformat(),
         baseline_mean=baseline_mean,
         baseline_stddev=baseline_stddev,
@@ -187,8 +223,9 @@ def _discover_candidate_keys(
     team: Team, metric_name: str, date_from: dt.datetime, date_to: dt.datetime
 ) -> tuple[str, ...]:
     """Most common attribute keys on the metric's rows in the window, with
-    service_name always considered (it's a first-class column duplicated
-    into the labels)."""
+    service_name always considered (`attribute_field` resolves it to the
+    first-class column). The dotted `service.name` resource attribute is
+    normalized to `service_name` so the same key isn't drilled twice."""
     query = parse_select(
         """
             SELECT key, count() AS occurrences
@@ -211,10 +248,26 @@ def _discover_candidate_keys(
         },
     )
     response = execute_hogql_query(query_type="MetricQuery", query=query, team=team, workload=Workload.LOGS)
-    keys = [row[0] for row in response.results]
+    keys: list[str] = []
+    for row in response.results:
+        key = "service_name" if row[0] == "service.name" else row[0]
+        if key not in keys:
+            keys.append(key)
     if "service_name" not in keys:
-        keys = ["service_name", *keys][:MAX_CANDIDATE_KEYS]
-    return tuple(keys)
+        keys = ["service_name", *keys]
+    return tuple(keys[:MAX_CANDIDATE_KEYS])
+
+
+def dimension_magnitude(mover: MetricAnomalyDimension) -> float:
+    """How much a label value actually moved, blending relative change with
+    scale: a tiny series that tripled and a large series that barely budged
+    should not rank — nor be judged the dominant cause — on ratio alone. The
+    blast-radius classifier must compare movers on this same measure they were
+    ranked by, or the top mover by magnitude can lose a raw-ratio comparison.
+    """
+    if mover.baseline_value == 0 or mover.change_ratio <= 0:
+        return abs(mover.anomaly_value - mover.baseline_value)
+    return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
 
 
 def _find_top_movers(
@@ -222,7 +275,8 @@ def _find_top_movers(
     run: Callable[..., list[dict[str, Any]]],
     team: Team,
     metric_name: str,
-    anomaly_from_iso: str,
+    baseline_from: dt.datetime,
+    baseline_to: dt.datetime,
     anomaly_from: dt.datetime,
     anomaly_to: dt.datetime,
     filters: tuple[MetricFilter, ...],
@@ -235,8 +289,14 @@ def _find_top_movers(
         rows = run(group_by=(MetricGroupBy(key=key),))
         per_label: dict[str, dict[str, list[float]]] = {}
         for row in rows:
+            time = _parse_point_time(row["time"])
+            if time >= anomaly_from:
+                bucket = "anomaly"
+            elif baseline_from <= time < baseline_to:
+                bucket = "baseline"
+            else:
+                continue  # gap between an explicit baseline and the anomaly
             label = row["labels"].get(key, "")
-            bucket = "anomaly" if row["time"] >= anomaly_from_iso else "baseline"
             per_label.setdefault(label, {"baseline": [], "anomaly": []})[bucket].append(row["value"])
         for label, windows in per_label.items():
             baseline_value = _mean(windows["baseline"])
@@ -254,10 +314,5 @@ def _find_top_movers(
                 )
             )
 
-    def _magnitude(mover: MetricAnomalyDimension) -> float:
-        if mover.baseline_value == 0 or mover.change_ratio <= 0:
-            return abs(mover.anomaly_value - mover.baseline_value)
-        return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
-
-    movers.sort(key=lambda m: (-_magnitude(m), m.key, m.label))
+    movers.sort(key=lambda m: (-dimension_magnitude(m), m.key, m.label))
     return tuple(movers[:MAX_TOP_MOVERS])

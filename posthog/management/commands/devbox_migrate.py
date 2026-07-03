@@ -10,7 +10,7 @@ class Command(BaseCommand):
         call_command("migrate", "--noinput")
 
         self.stdout.write("Running persons migrations...")
-        call_command("apply_persons_migrations", "--database=persons_db_writer", "--ensure-database")
+        call_command("apply_persons_migrations", "--ensure-database")
 
         self.stdout.write("Running ClickHouse migrations...")
         call_command("migrate_clickhouse")

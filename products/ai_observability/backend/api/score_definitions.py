@@ -11,6 +11,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,12 +20,35 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, StaleScoreDefinitionVersion
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
+
+HUMAN_REVIEWS_FEATURE_FLAG = "llma-trace-review"
+
+
+def is_human_reviews_feature_enabled(user: User, team: Team) -> bool:
+    distinct_id = user.distinct_id or str(user.uuid)
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
+
+    return feature_enabled_or_false(
+        HUMAN_REVIEWS_FEATURE_FLAG,
+        distinct_id,
+        groups={"organization": organization_id, "project": project_id},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+class HumanReviewsFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        return is_human_reviews_feature_enabled(cast(User, request.user), view.team)
 
 
 class ScoreDefinitionSerializer(serializers.ModelSerializer):
@@ -177,7 +201,7 @@ class ScoreDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "llm_analytics"
-    permission_classes = [AccessControlPermission]
+    permission_classes = [HumanReviewsFeatureFlagPermission, AccessControlPermission]
     serializer_class = ScoreDefinitionSerializer
     queryset = ScoreDefinition.objects.all()
     filter_backends = [DjangoFilterBackend]

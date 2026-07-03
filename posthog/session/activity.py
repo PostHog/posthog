@@ -109,6 +109,15 @@ def revoke_other_sessions(user: User, keep_session_key: Optional[str]) -> int:
     return count
 
 
+def revoke_other_sessions_for_request(request: HttpRequest, user: User) -> int:
+    """Revoke the user's other login sessions on a credential change, keeping the request's own
+    session. No-op while impersonating so staff support never mass-logs-out a customer. Returns the
+    count revoked."""
+    if is_impersonated_session(request):
+        return 0
+    return revoke_other_sessions(user, request.session.session_key)
+
+
 def revoke_user_auth_session(user: User, public_id: str) -> bool:
     """Revoke a single login session owned by `user`, identified by its public id. Self-only.
 

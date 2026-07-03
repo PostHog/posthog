@@ -19,7 +19,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Experiment } from '@/schema/experiments'
-import { buildMetricEntries, ExperimentSchema, transformExperimentResults } from '@/schema/experiments'
+import {
+    buildMetricEntries,
+    ExperimentExposureQuerySchema,
+    ExperimentSchema,
+    transformExperimentResults,
+} from '@/schema/experiments'
 
 const baseExposures = {
     kind: 'ExperimentExposureQuery' as const,
@@ -397,5 +402,58 @@ describe('transformExperimentResults', () => {
         expect(bdVariants[0]?.step_sessions).toBeUndefined()
         expect(bdVariants[0]?.sum).toBe(55)
         expect(bdVariants[0]?.step_counts).toEqual([55, 27])
+    })
+})
+
+describe('exposure_criteria parsing — action-based exposure', () => {
+    // Regression: experiment-results-get threw a ZodError ("expected
+    // ExperimentEventExposureConfig") whenever the experiment's exposure was gated
+    // on an action (kind 'ActionsNode') instead of a custom event, because the
+    // shared exposure schema only modeled the event variant. The experiment GET and
+    // the ExperimentExposureQuery built from it (client.ts) both run through this
+    // schema, so a narrow union broke results for every action-exposure experiment.
+    const actionExposureCriteria = {
+        filterTestAccounts: true,
+        exposure_config: { kind: 'ActionsNode' as const, id: 3, properties: [] },
+    }
+
+    it('parses an experiment whose exposure_config is an ActionsNode and preserves kind + id', () => {
+        const experiment = makeExperiment({ exposure_criteria: actionExposureCriteria })
+        expect(experiment.exposure_criteria?.exposure_config).toEqual({
+            kind: 'ActionsNode',
+            id: 3,
+            properties: [],
+        })
+    })
+
+    it('still parses the event-based exposure_config variant', () => {
+        const experiment = makeExperiment({
+            exposure_criteria: {
+                filterTestAccounts: true,
+                exposure_config: {
+                    kind: 'ExperimentEventExposureConfig' as const,
+                    event: '$pageview',
+                    properties: [],
+                },
+            },
+        })
+        expect(experiment.exposure_criteria?.exposure_config).toEqual({
+            kind: 'ExperimentEventExposureConfig',
+            event: '$pageview',
+            properties: [],
+        })
+    })
+
+    it('accepts an ExperimentExposureQuery carrying action-based exposure criteria (the client.ts throw site)', () => {
+        // client.ts builds this query from experiment.exposure_criteria and parses it
+        // before POSTing to /query/. This is the exact call that surfaced the bug.
+        const parsed = ExperimentExposureQuerySchema.parse({
+            kind: 'ExperimentExposureQuery',
+            experiment_id: 9,
+            experiment_name: 'New upload button',
+            exposure_criteria: actionExposureCriteria,
+            start_date: '2026-01-01T00:00:00Z',
+        })
+        expect(parsed.exposure_criteria?.exposure_config).toEqual({ kind: 'ActionsNode', id: 3, properties: [] })
     })
 })

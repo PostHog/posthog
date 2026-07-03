@@ -39,6 +39,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "deleted",
             "scope",
             "emoji",
+            "hidden_in_user_interface",
         ]
         read_only_fields = [
             "id",
@@ -80,6 +81,15 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 "required": False,
                 "allow_null": True,
                 "allow_blank": True,
+            },
+            "hidden_in_user_interface": {
+                "help_text": (
+                    "When true, the annotation is hidden from the PostHog UI (charts and the annotations list) "
+                    "but still readable over the API and MCP. Use for high-frequency markers like deployments "
+                    "that would otherwise crowd the UI. Null (the default) means the annotation is shown."
+                ),
+                "required": False,
+                "allow_null": True,
             },
         }
 
@@ -190,6 +200,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             # Convert string to boolean (true, 1, yes -> True; false, 0, no -> False)
             is_emoji_bool = is_emoji.lower() in ("true", "1", "yes")
             queryset = queryset.filter(is_emoji=is_emoji_bool)
+
+        hidden_in_user_interface = self.request.query_params.get("hidden_in_user_interface")
+        if hidden_in_user_interface is not None:
+            if hidden_in_user_interface.lower() in ("true", "1", "yes"):
+                queryset = queryset.filter(hidden_in_user_interface=True)
+            else:
+                queryset = queryset.filter(Q(hidden_in_user_interface=False) | Q(hidden_in_user_interface__isnull=True))
 
         return queryset
 

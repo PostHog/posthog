@@ -1,8 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { IconAI } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { IconAI, IconPlus, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -11,7 +19,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SummarizerScannerConfig, scannerTypeLabel } from '../types'
+import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
 const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
@@ -82,6 +90,112 @@ function ScannerPromptField({
     )
 }
 
+const SUGGESTION_SOURCE_META: Record<string, { label: string; type: 'success' | 'primary' | 'default' }> = {
+    observed: { label: 'Seen in recordings', type: 'success' },
+    product: { label: 'From your product', type: 'primary' },
+    prompt: { label: 'From the goal', type: 'default' },
+}
+
+/** Grounded tag suggestions, each shown with the evidence it came from and a one-click add. */
+function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { tagSuggestions } = useValues(logic)
+    const { acceptTagSuggestion, acceptAllTagSuggestions, dismissTagSuggestions } = useActions(logic)
+
+    if (tagSuggestions.length === 0) {
+        return null
+    }
+    return (
+        <LemonCard className="space-y-2">
+            <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Suggested tags</span>
+                <div className="flex items-center gap-1">
+                    <LemonButton size="xsmall" type="secondary" onClick={() => acceptAllTagSuggestions()}>
+                        Add all
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        tooltip="Dismiss"
+                        onClick={() => dismissTagSuggestions()}
+                    />
+                </div>
+            </div>
+            <div className="space-y-2">
+                {tagSuggestions.map((suggestion) => {
+                    const meta = SUGGESTION_SOURCE_META[suggestion.source] ?? SUGGESTION_SOURCE_META.prompt
+                    return (
+                        <div key={suggestion.tag} className="flex items-start gap-2">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconPlus />}
+                                tooltip="Add to vocabulary"
+                                onClick={() => acceptTagSuggestion(suggestion.tag)}
+                            />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-xs">{suggestion.tag}</span>
+                                    <LemonTag size="small" type={meta.type}>
+                                        {meta.label}
+                                    </LemonTag>
+                                </div>
+                                <div className="text-xs text-muted">{suggestion.rationale}</div>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </LemonCard>
+    )
+}
+
+/** Tag-vocabulary field with an AI entry point that suggests grounded tags to add. */
+function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { scanner, tagSuggestionsLoading } = useValues(logic)
+    const { loadTagSuggestions } = useActions(logic)
+
+    const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
+    const hasPrompt = !!config?.prompt?.trim()
+
+    return (
+        <div className="space-y-2">
+            <LemonField
+                name="scanner_config.tags"
+                label={
+                    <span className="flex w-full items-center justify-between gap-2">
+                        Tag vocabulary
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconAI />}
+                            loading={tagSuggestionsLoading}
+                            disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
+                            onClick={() => loadTagSuggestions()}
+                            data-attr="replay-vision-suggest-tags-with-ai"
+                        >
+                            Suggest tags with PostHog AI
+                        </LemonButton>
+                    </span>
+                }
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        placeholder="Type a tag and press enter..."
+                        value={(value as string[]) ?? []}
+                        onChange={onChange}
+                        options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
+                    />
+                )}
+            </LemonField>
+            <ClassifierTagSuggestions scannerId={scannerId} />
+        </div>
+    )
+}
+
 export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
@@ -137,18 +251,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     scannerId={scannerId}
                     placeholder="Categorize this session by its primary user intent."
                 />
-                <LemonField name="scanner_config.tags" label="Tag vocabulary">
-                    {({ value, onChange }) => (
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
-                            placeholder="Type a tag and press enter..."
-                            value={(value as string[]) ?? []}
-                            onChange={onChange}
-                            options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
-                        />
-                    )}
-                </LemonField>
+                <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">

@@ -343,9 +343,23 @@ tools:
         enabled: false
     logs-facet-values-create:
         operation: logs_facet_values_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Facet log counts
+        description_file: ./prompts/logs-facet-values.md
+        response:
+            include:
+                - results
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
+        enabled: false
+    logs-patterns-create:
+        operation: logs_patterns_create
         enabled: false
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create

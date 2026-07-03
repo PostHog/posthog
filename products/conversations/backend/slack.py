@@ -20,6 +20,7 @@ from django.db.models import F
 import structlog
 from slack_sdk import WebClient
 
+from posthog.event_usage import report_team_action
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -37,12 +38,13 @@ from .cache import (
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .services.attachments import is_valid_image, save_file_to_uploaded_media
-from .support_slack import (
-    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
-    SUPPORT_SLACK_MAX_IMAGE_BYTES,
-    get_support_slack_bot_token,
+from .services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    build_content_with_images,
+    is_valid_image,
+    save_file_to_uploaded_media,
 )
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -59,28 +61,6 @@ def _get_team_id(team: Team) -> int:
     if not isinstance(team_id, int):
         raise ValueError("Invalid team id")
     return team_id
-
-
-def _build_content_with_images(
-    cleaned_text: str, rich_content: dict[str, Any] | None, images: list[dict[str, Any]]
-) -> tuple[str, dict[str, Any] | None]:
-    content = cleaned_text
-    if not images:
-        return content, rich_content
-
-    image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
-    content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
-    if not isinstance(rich_content, dict):
-        rich_content = {"type": "doc", "content": []}
-    rich_nodes = rich_content.setdefault("content", [])
-    for img in images:
-        rich_nodes.append(
-            {
-                "type": "image",
-                "attrs": {"src": img["url"], "alt": img.get("name", "image")},
-            }
-        )
-    return content, rich_content
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -251,12 +231,12 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
             content_length_header = response.headers.get("Content-Length")
             if content_length_header:
                 try:
-                    if int(content_length_header) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+                    if int(content_length_header) > CONVERSATIONS_MAX_IMAGE_BYTES:
                         logger.warning(
                             "🖼️ slack_file_download_too_large_from_header",
                             url=next_url,
                             content_length=int(content_length_header),
-                            max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                            max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                         )
                         return None
                 except ValueError:
@@ -264,13 +244,13 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
                         "🖼️ slack_file_download_invalid_content_length", url=next_url, value=content_length_header
                     )
                     return None
-            payload = response.read(SUPPORT_SLACK_MAX_IMAGE_BYTES + 1)
-            if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+            payload = response.read(CONVERSATIONS_MAX_IMAGE_BYTES + 1)
+            if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
                 logger.warning(
                     "🖼️ slack_file_download_too_large_from_body",
                     url=next_url,
                     bytes_read=len(payload),
-                    max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                    max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                 )
                 return None
             logger.debug("🖼️ slack_file_download_succeeded", url=next_url, bytes_read=len(payload))
@@ -428,7 +408,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         Comment.objects.create(
             team=team,
@@ -468,7 +448,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -507,6 +487,8 @@ def create_or_update_slack_ticket(
             slack_thread_ts=thread_ts,
             slack_team_id=slack_team_id,
             unread_team_count=0 if is_team_member else 1,
+            # Created from a signature-validated Slack webhook — platform-attested identity.
+            identity_verified=True,
         )
 
     Comment.objects.create(
@@ -851,7 +833,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         comments_to_create.append(
             Comment(
@@ -1014,12 +996,56 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         _backfill_thread_replies(client, team, ticket, channel, root_ts, after_ts=message_ts)
 
 
-def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
+def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str, *, own_bot_user_id: str | None) -> None:
+    """Fire an internal PostHog event when our own bot is added to a channel.
+
+    Unlike the human join/leave alerts, this isn't gated on any team setting — it's usage
+    analytics for PostHog, not a customer-facing Slack message. Only the bot's own join is
+    tracked; every other user's join is ignored here.
+
+    There's deliberately no matching "bot left channel" event: Slack delivers
+    ``member_left_channel`` only to remaining channel members, so the bot doesn't reliably
+    receive its own removal.
+    """
+    user = event.get("user")
+    channel = event.get("channel")
+    if not user or not channel:
+        return
+    if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
+        return
+    if not own_bot_user_id or user != own_bot_user_id:
+        return
+
+    settings_dict = team.conversations_settings or {}
+    report_team_action(
+        team,
+        "support slack bot joined channel",
+        {
+            "slack_team_id": slack_team_id,
+            "slack_channel_id": channel,
+            "is_configured_channel": channel in _configured_support_channels(settings_dict),
+        },
+    )
+
+
+def _handle_member_event(
+    event: dict,
+    team: Team,
+    *,
+    joined: bool,
+    client: WebClient | None = None,
+    own_bot_user_id: str | None = None,
+) -> None:
     """Post a join/leave alert to the configured alert channel.
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
-    team's settings.
+    team's settings. Members of the team's own organization are skipped — the alert is
+    meant to surface external participants, not internal teammates.
+
+    ``client``/``own_bot_user_id`` may be supplied by the caller so the join path resolves
+    the bot identity once for both tracking and alerting; when omitted (leave path) they're
+    resolved lazily here, after the gates, so a leave with alerts off does no Slack API work.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1039,18 +1065,25 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
         logger.warning("slack_member_event_malformed_ids", user=user, channel=channel)
         return
 
-    client = get_slack_client(team)
+    if client is None:
+        client = get_slack_client(team)
+        own_bot_user_id = get_bot_user_id_cached(team, client)
 
     # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
     # the bot's own join apart from a real user's, and posting a self-referential alert is worse
     # than skipping one alert during a transient auth outage.
-    own_bot_user_id = get_bot_user_id_cached(team, client)
     if not own_bot_user_id:
         logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
         return
 
     # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
     if user == own_bot_user_id:
+        return
+
+    # Members of the team's own organization are internal teammates, not the external
+    # participants these alerts surface — skip them.
+    slack_user = resolve_slack_user(client, user)
+    if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
     verb = "joined" if joined else "left"
@@ -1078,7 +1111,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
 def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=True)
+    # Resolve the bot identity once and share it with both the analytics event and the alert,
+    # since a bot join always needs it for tracking regardless of the alert toggle.
+    client = get_slack_client(team)
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:

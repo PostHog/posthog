@@ -1,11 +1,10 @@
 import { register } from 'prom-client'
 
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
-import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
 
@@ -15,7 +14,6 @@ describe('PerIssueGuardedRateLimiterService', () => {
     jest.retryTimes(3)
 
     let now: number
-    let hub: Hub
     let redis: RedisV2
 
     const advanceTime = (ms: number) => {
@@ -23,25 +21,23 @@ describe('PerIssueGuardedRateLimiterService', () => {
         mockNow.mockReturnValue(now)
     }
 
-    beforeEach(async () => {
-        hub = await createHub()
+    beforeEach(() => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
 
         redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
+            connection: defaultConfig.CDP_REDIS_HOST
                 ? {
-                      url: hub.CDP_REDIS_HOST,
-                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      url: defaultConfig.CDP_REDIS_HOST,
+                      options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
                   }
-                : { url: hub.REDIS_URL },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                : { url: defaultConfig.REDIS_URL },
+            poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
         })
     })
 
-    afterEach(async () => {
-        await closeHub(hub)
+    afterEach(() => {
         jest.clearAllMocks()
     })
 

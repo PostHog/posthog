@@ -8,8 +8,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, hasBreakdownFilter, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import {
+    containsHogQLQuery,
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
@@ -27,7 +33,7 @@ export interface InsightAlertsLogicProps {
 
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean } = {}
+    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
 ): boolean => {
     if (!query) {
         return false
@@ -35,7 +41,36 @@ export const areAlertsSupportedForInsight = (
     if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
         return true
     }
+    if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
+        // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
+    }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+}
+
+// List only the insight types this account can actually alert on — naming a flag-gated type the
+// user doesn't have would disclose an unreleased feature.
+const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
+    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+
+export const alertsUnsupportedReason = (
+    options: {
+        hogqlAlertsEnabled?: boolean
+        funnelAlertsEnabled?: boolean
+    },
+    query?: Record<string, any> | null
+): string => {
+    // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
+    // "funnel insights are supported" while standing on a blocked funnel. Name the real reason instead.
+    if (options.funnelAlertsEnabled && query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        if (vizType === FunnelVizType.TimeToConvert || vizType === FunnelVizType.Flow) {
+            return "Alerts track a conversion rate, which time-to-convert and flow funnels don't have. Switch to the steps or trends view to add an alert."
+        }
+    }
+    return `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
 }
 
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
@@ -220,7 +255,11 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
             const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })) {
+            const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
+            if (
+                values.alerts.length === 0 ||
+                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+            ) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

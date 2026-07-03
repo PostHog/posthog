@@ -18,6 +18,7 @@ const TICKET: Ticket = {
     status: 'open',
     channel_source: 'email',
     anonymous_traits: {},
+    identity_verified: false,
     ai_resolved: false,
     created_at: '2026-06-12T00:00:00Z',
     updated_at: '2026-06-12T00:00:00Z',

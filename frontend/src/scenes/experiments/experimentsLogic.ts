@@ -470,7 +470,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return (
+                    !experimentsLoading &&
+                    (experiments.results?.length ?? 0) === 0 &&
+                    objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         pagination: [

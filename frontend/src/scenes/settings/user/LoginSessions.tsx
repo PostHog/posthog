@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconLaptop, IconLeave } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { UserAuthSessionApi } from '~/generated/core/api.schemas'
@@ -85,9 +85,21 @@ export function LoginSessions(): JSX.Element {
                         render: (_, session) => session.login_method || <span className="text-muted">—</span>,
                     },
                     {
+                        title: 'Started at',
+                        dataIndex: 'created_at',
+                        render: (_, session) =>
+                            session.created_at ? (
+                                humanFriendlyDetailedTime(session.created_at, 'MMMM DD, YYYY', 'h:mm A')
+                            ) : (
+                                <span className="text-muted">Unknown</span>
+                            ),
+                    },
+                    {
                         title: 'Last active',
                         dataIndex: 'last_activity',
-                        render: (_, session) => humanFriendlyDetailedTime(session.last_activity),
+                        // Minute precision: last_activity is throttled to ~5-min updates, so seconds would be false precision.
+                        render: (_, session) =>
+                            humanFriendlyDetailedTime(session.last_activity, 'MMMM DD, YYYY', 'h:mm A'),
                     },
                     {
                         title: '',
@@ -107,7 +119,7 @@ export function LoginSessions(): JSX.Element {
                 ]}
                 emptyState={
                     <div className="flex items-center gap-4 py-4">
-                        <DetectiveHog className="w-16 h-16" />
+                        <HedgehogMagnifyingGlass className="w-16 h-16" />
                         <div>
                             <div className="flex items-center gap-2 font-semibold">
                                 <IconLaptop className="text-xl text-secondary" />

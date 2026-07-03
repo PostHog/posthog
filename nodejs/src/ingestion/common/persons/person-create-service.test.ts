@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
+import { UUIDT } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { UUIDT } from '~/utils/utils'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'

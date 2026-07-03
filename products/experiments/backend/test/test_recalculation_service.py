@@ -228,7 +228,7 @@ class TestRecalculationService(BaseTest):
             exp.exposure_criteria,
             only_count_matured_users=exp.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        recalc_fp = compute_recalc_fingerprint(config_fp)
 
         # The row from THIS run (recalc-fingerprinted) — must be returned.
         ExperimentMetricResult.objects.create(
@@ -279,7 +279,7 @@ class TestRecalculationService(BaseTest):
             exp.exposure_criteria,
             only_count_matured_users=exp.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        recalc_fp = compute_recalc_fingerprint(config_fp)
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",

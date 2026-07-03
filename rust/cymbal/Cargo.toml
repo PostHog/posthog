@@ -62,6 +62,7 @@ insta = { version = "1.46.0", features = ["json", "redactions"] }
 tower.workspace = true
 # For decompressing the committed native ELF test fixture
 zstd = "0.13"
+testcontainers = { workspace = true }
 
 [lints]
 workspace = true

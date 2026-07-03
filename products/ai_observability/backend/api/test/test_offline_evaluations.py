@@ -64,7 +64,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
             first_seen_at,
         ]
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_missing_experiment_id_returns_400(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         response = self.client.post(self.URL, {}, content_type="application/json")
@@ -72,7 +72,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert mock_preflight.call_count == 0
         assert mock_heavy.call_count == 0
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_empty_experiment_id_returns_400(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         response = self.client.post(self.URL, {"experiment_id": ""}, content_type="application/json")
@@ -80,7 +80,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert mock_preflight.call_count == 0
         assert mock_heavy.call_count == 0
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_returns_rows_in_20_column_tuple_order(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.return_value = self._make_response(
@@ -133,7 +133,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert mock_preflight.call_args.kwargs["query_type"] == "LLMOfflineEvaluationItemsResolve"
         assert mock_heavy.call_args.kwargs["query_type"] == "LLMOfflineEvaluationItems"
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_empty_preflight_skips_heavy_query(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.return_value = self._make_response([])
@@ -153,7 +153,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
             ("none", None),
         ]
     )
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_blank_only_trace_ids_short_circuit_heavy(
         self, _name: str, blank_value: Any, mock_preflight: MagicMock, mock_heavy: MagicMock
@@ -172,7 +172,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert body["results"][0][15] is None
         assert mock_heavy.call_count == 0
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_preflight_failure_returns_500(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.side_effect = RuntimeError("clickhouse boom")
@@ -185,7 +185,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert mock_heavy.call_count == 0
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_heavy_failure_returns_500(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.return_value = self._make_response([self._preflight_row()])
@@ -198,7 +198,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         )
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_preflight_targets_events_and_heavy_targets_ai_events(
         self, mock_preflight: MagicMock, mock_heavy: MagicMock
@@ -251,7 +251,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert heavy_placeholders["ts_start"].value == datetime(2026, 4, 27, 6, 0, tzinfo=UTC)
         assert heavy_placeholders["ts_end"].value == datetime(2026, 4, 27, 7, 0, tzinfo=UTC)
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_traces_without_heavy_match_get_null_input_output(
         self, mock_preflight: MagicMock, mock_heavy: MagicMock
@@ -279,7 +279,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         assert body["results"][1][14] is None
         assert body["results"][1][15] is None
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_omitted_dates_inline_as_null_guards(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         from posthog.hogql import ast
@@ -307,7 +307,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         _BoolCounter().visit(query)
         assert len(true_constants) >= 2
 
-    @patch("products.ai_observability.backend.api.offline_evaluations.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")
     def test_provided_dates_are_inlined_into_query(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         from posthog.hogql import ast

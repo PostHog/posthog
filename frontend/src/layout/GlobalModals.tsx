@@ -21,15 +21,12 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
-
 import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
-import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
 // recording is opened keeps that graph out of the chunk every logged-in page downloads.
@@ -59,8 +56,6 @@ export function GlobalModals(): JSX.Element {
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { isConfigureHomeModalOpen } = useValues(navigationLogic)
     const { hideConfigureHomeModal } = useActions(navigationLogic)
-    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
-    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
@@ -89,10 +84,6 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
-            <ConfigurePromotedProductModal
-                isOpen={isConfigurePromotedProductModalOpen}
-                onClose={hideConfigurePromotedProductModal}
-            />
             <MaybeWelcomeDialog />
             <ComposeTicketModal />
         </>

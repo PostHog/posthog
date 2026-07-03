@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isValidRegexp } from 'lib/utils/regexp'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     CompareFilter,
@@ -22,9 +24,12 @@ import {
     ChartDisplayType,
     InsightLogicProps,
     IntervalType,
+    PathCleaningFilter,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
 import {
@@ -40,15 +45,12 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
+    eventPropertiesToPathClean,
     parseWebAnalyticsURL,
 } from './common'
 import { PROPERTY_PATHNAME } from './constants'
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
-
-export interface PageURLSearchResult {
-    url: string
-}
 
 /**
  * Creates property filters for URL matching that handles query parameters consistently
@@ -57,8 +59,11 @@ export interface PageURLSearchResult {
  * @param stripQueryParams Whether to strip query parameters (used as fallback for regex)
  * @returns An array of property filters for the URL
  */
+export interface PageURLSearchResult {
+    url: string
+}
+
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
-    // Always try to parse as full URL first - this enables pre-aggregated table optimizations on backend
     const parsed = parseWebAnalyticsURL(url)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
@@ -89,11 +94,121 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     ]
 }
 
+function safeDecode(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
+export function applyPathCleaningToFilters(
+    filters: WebAnalyticsPropertyFilters,
+    isPathCleaningEnabled: boolean
+): WebAnalyticsPropertyFilters {
+    if (!isPathCleaningEnabled) {
+        return filters
+    }
+    return filters.map((filter) => {
+        if (
+            filter.type === PropertyFilterType.Event &&
+            filter.operator === PropertyOperator.Exact &&
+            typeof filter.key === 'string' &&
+            eventPropertiesToPathClean.has(filter.key)
+        ) {
+            return {
+                ...filter,
+                operator: PropertyOperator.IsCleanedPathExact,
+                // decode because `new URL()` percent-encodes cleaning aliases (`<id>` → `%3Cid%3E`), which never match
+                value: typeof filter.value === 'string' ? safeDecode(filter.value) : filter.value,
+            }
+        }
+        return filter
+    })
+}
+
+export function cleanPathnameForDisplay(pathname: string, filters: PathCleaningFilter[]): string {
+    return filters.reduce((cleaned, filter) => {
+        if (!filter.regex || !isValidRegexp(filter.regex)) {
+            return cleaned
+        }
+        return cleaned.replace(new RegExp(filter.regex, 'gi'), filter.alias ?? '')
+    }, pathname)
+}
+
+export function cleanPageURLForDisplay(url: string, filters: PathCleaningFilter[]): string {
+    if (filters.length === 0) {
+        return url
+    }
+    const parsed = parseWebAnalyticsURL(url)
+    if (parsed.isValid && parsed.pathname) {
+        const cleanedPathname = cleanPathnameForDisplay(parsed.pathname, filters)
+        return parsed.host ? `${parsed.host}${cleanedPathname}` : cleanedPathname
+    }
+    return cleanPathnameForDisplay(url, filters)
+}
+
+export interface PageURLOption {
+    key: string
+    label: string
+}
+
+export function buildPageUrlOptions(
+    pagesUrls: PageURLSearchResult[],
+    pageUrl: string | null,
+    filters: PathCleaningFilter[],
+    isPathCleaningEnabled: boolean
+): PageURLOption[] {
+    if (!isPathCleaningEnabled || filters.length === 0) {
+        return pagesUrls.map(({ url }) => ({ key: url, label: url }))
+    }
+
+    const representativeByCleaned = new Map<string, string>()
+    if (pageUrl) {
+        representativeByCleaned.set(cleanPageURLForDisplay(pageUrl, filters), pageUrl)
+    }
+    for (const { url } of pagesUrls) {
+        const cleaned = cleanPageURLForDisplay(url, filters)
+        if (!representativeByCleaned.has(cleaned)) {
+            representativeByCleaned.set(cleaned, url)
+        }
+    }
+
+    return [...representativeByCleaned.entries()].map(([label, key]) => ({ key, label }))
+}
+
+function createHostFilter(host: string | null): WebAnalyticsPropertyFilters {
+    return host ? [{ type: PropertyFilterType.Event, key: '$host', operator: PropertyOperator.Exact, value: host }] : []
+}
+
+/**
+ * Builds the property filters for a page report: the page URL filter, with the selected host (when
+ * set) taking precedence over the host embedded in the URL. This lets the host dropdown re-scope every
+ * report tile — e.g. comparing the same pathname across different domains — instead of leaving the
+ * tiles pinned to the host baked into the picked URL.
+ */
+export function createPageReportsFilters(
+    url: string,
+    stripQueryParams: boolean,
+    selectedHost: string | null,
+    isPathCleaningEnabled: boolean = false
+): WebAnalyticsPropertyFilters {
+    const filters = createUrlPropertyFilter(url, stripQueryParams)
+
+    // Drop the URL's own host so the explicitly selected host wins, then apply it.
+    const withSelectedHost = selectedHost
+        ? [...filters.filter((filter) => filter.key !== '$host'), ...createHostFilter(selectedHost)]
+        : filters
+
+    return applyPathCleaningToFilters(withSelectedHost, isPathCleaningEnabled)
+}
+
 const createTimeOnPageTrendsQuery = (
     pathname: string,
     filterTestAccounts: boolean,
     interval: IntervalType,
-    dateRange: { date_from: string | null; date_to: string | null }
+    dateRange: { date_from: string | null; date_to: string | null },
+    isPathCleaningEnabled: boolean
 ): InsightVizNode<TrendsQuery> => {
     return {
         kind: NodeKind.InsightVizNode,
@@ -114,8 +229,10 @@ const createTimeOnPageTrendsQuery = (
                         {
                             type: PropertyFilterType.Event,
                             key: '$prev_pageview_pathname',
-                            operator: PropertyOperator.Exact,
-                            value: pathname,
+                            operator: isPathCleaningEnabled
+                                ? PropertyOperator.IsCleanedPathExact
+                                : PropertyOperator.Exact,
+                            value: isPathCleaningEnabled ? safeDecode(pathname) : pathname,
                         },
                         {
                             type: PropertyFilterType.Event,
@@ -151,11 +268,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'compareFilter',
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
+                'selectedHost',
+                'controls',
             ],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
         ],
-        actions: [webAnalyticsLogic, ['setDates']],
+        actions: [webAnalyticsLogic, ['setDates', 'setDomainFilter', 'setIsPathCleaningEnabled']],
     },
 
     actions: () => ({
@@ -217,24 +338,37 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         date_to: values.dateFilter.dateTo,
                     }
 
+                    const hostFilter = createHostFilter(values.selectedHost)
+
                     if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                        const properties: WebAnalyticsPropertyFilters = [...hostFilter]
+                        if (searchTerm) {
+                            properties.push({
+                                type: PropertyFilterType.Event,
+                                key: PROPERTY_PATHNAME,
+                                operator: PropertyOperator.IContains,
+                                value: searchTerm,
+                            })
+                        }
+
                         const response = await api.query<WebStatsTableQuery>(
                             setLatestVersionsOnQuery({
                                 kind: NodeKind.WebStatsTableQuery,
                                 breakdownBy: WebStatsBreakdown.Page,
                                 includeHost: true,
+                                // Serve the unfiltered URL list from the paths lazy-precompute
+                                // instead of a multi-second live scan. The precompute eligibility
+                                // gate requires includeBounceRate, so request it even though the
+                                // picker only reads the path column (the URL set/order is unchanged).
+                                // A search term adds a pathname filter, which the gate rejects, so
+                                // those queries stay on the live path. Reuse the dashboard's resolved
+                                // tri-state so an explicit user opt-out in the menu is honored here too.
+                                includeBounceRate: true,
+                                useWebAnalyticsPrecompute: values.controls.useWebAnalyticsPrecompute,
                                 dateRange,
-                                properties: searchTerm
-                                    ? [
-                                          {
-                                              type: PropertyFilterType.Event,
-                                              key: PROPERTY_PATHNAME,
-                                              operator: PropertyOperator.IContains,
-                                              value: searchTerm,
-                                          },
-                                      ]
-                                    : [],
+                                properties,
                                 limit: 100,
+                                doPathCleaning: values.isPathCleaningEnabled,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             })
                         )
@@ -251,7 +385,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             searchTerm: searchTerm,
                             stripQueryParams: true,
                             dateRange,
-                            properties: [],
+                            properties: hostFilter,
                             tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                         })
                     )
@@ -268,6 +402,21 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
+        pathCleaningFilters: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | TeamPublicType | null): PathCleaningFilter[] =>
+                (currentTeam && 'path_cleaning_filters' in currentTeam ? currentTeam.path_cleaning_filters : null) ??
+                [],
+        ],
+        pageUrlOptions: [
+            (s) => [s.pagesUrls, s.pageUrl, s.pathCleaningFilters, s.isPathCleaningEnabled],
+            (
+                pagesUrls: PageURLSearchResult[],
+                pageUrl: string | null,
+                pathCleaningFilters: PathCleaningFilter[],
+                isPathCleaningEnabled: boolean
+            ): PageURLOption[] => buildPageUrlOptions(pagesUrls, pageUrl, pathCleaningFilters, isPathCleaningEnabled),
+        ],
         stripQueryParams: [() => [], () => true],
         queries: [
             (s) => [
@@ -278,6 +427,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.shouldFilterTestAccounts,
                 s.compareFilter,
                 s.isPathCleaningEnabled,
+                s.selectedHost,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -286,7 +436,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
-                isPathCleaningEnabled: boolean
+                isPathCleaningEnabled: boolean,
+                selectedHost: string | null
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -314,9 +465,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                 }
 
-                const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
-                    ...createUrlPropertyFilter(pageUrl, stripQueryParams),
-                ]
+                const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = createPageReportsFilters(
+                    pageUrl,
+                    stripQueryParams,
+                    selectedHost,
+                    isPathCleaningEnabled
+                )
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
                 // Helper function to get query from a tile by tab ID
@@ -361,7 +515,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ],
                         },
                         properties: [
-                            ...(pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : []),
+                            ...pageReportsPropertyFilters,
                             {
                                 key: 'event',
                                 value: ['$pageview', '$pageleave'],
@@ -402,7 +556,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                               parsedUrl.pathname,
                               shouldFilterTestAccounts,
                               dateFilter.interval,
-                              dateRange
+                              dateRange,
+                              isPathCleaningEnabled
                           )
                         : undefined
 
@@ -449,8 +604,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
-            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.selectedHost, s.isPathCleaningEnabled],
+            (
+                pageUrl: string | null,
+                stripQueryParams: boolean,
+                shouldFilterTestAccounts: boolean,
+                selectedHost: string | null,
+                isPathCleaningEnabled: boolean
+            ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -485,7 +646,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : [],
+                        properties: pageUrl
+                            ? createPageReportsFilters(pageUrl, stripQueryParams, selectedHost, isPathCleaningEnabled)
+                            : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
@@ -779,6 +942,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
                 actions.loadPages(values.pageUrlSearchTerm)
             }
+        },
+        setDomainFilter: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
+        },
+        setIsPathCleaningEnabled: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
         },
     }),
 

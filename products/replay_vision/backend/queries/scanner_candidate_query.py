@@ -17,6 +17,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.temporal.constants import (
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MAX_SESSION_ID_LENGTH,
+    MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
+)
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -27,11 +34,36 @@ SETTLE_INTERVAL = dt.timedelta(minutes=35)
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
 SAMPLE_RATE_PRECISION = 10_000
+# Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
+MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
-# Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
-_MAX_SESSION_ID_LENGTH = 128
+
+def eligibility_predicates() -> list[ast.Expr]:
+    # Mirror the scan-time eligibility gate (fetch_session_events) on the same ClickHouse aggregates the scan reads, so
+    # too-short/idle/long recordings never become candidates and the volume estimate counts the same eligible set. The
+    # scan still re-checks these authoritatively; this only spares the wasted observation + metadata fetch each rejected
+    # recording would otherwise cost.
+    duration = ast.Field(chain=["duration"])
+    active_seconds = ast.Field(chain=["active_seconds"])
+    return [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=duration,
+            right=ast.Constant(value=MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=active_seconds,
+            right=ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=active_seconds,
+            right=ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+        ),
+    ]
 
 
 @dataclass(frozen=True)
@@ -48,6 +80,8 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
+        # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
+        sampling_salt: str,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -65,6 +99,7 @@ class ScannerCandidateQuery:
         self._last_swept_at = last_swept_at
         self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
+        self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
@@ -76,8 +111,9 @@ class ScannerCandidateQuery:
         inner_query.offset = None
         inner_query.after = None
 
-        # Sampling in the inner HAVING drops un-sampled sessions before outer aggregation.
-        extra_having: list[ast.Expr] = []
+        # Drop recordings the scan would reject anyway (too short / too idle / too long) before they become candidates,
+        # then sample the rest — all in the inner HAVING, before outer aggregation.
+        extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
 
@@ -106,10 +142,11 @@ class ScannerCandidateQuery:
                 left=ast.Field(chain=["sessions", "end_time"]),
                 right=ast.Constant(value=dt.datetime.now(dt.UTC) - SETTLE_INTERVAL),
             ),
+            # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Call(name="length", args=[ast.Field(chain=["sessions", "session_id"])]),
-                right=ast.Constant(value=_MAX_SESSION_ID_LENGTH),
+                right=ast.Constant(value=MAX_SESSION_ID_LENGTH),
             ),
         ]
 
@@ -143,7 +180,8 @@ class ScannerCandidateQuery:
     def _sampling_predicate(self) -> ast.Expr | None:
         if self._sampling_rate >= 1.0:
             return None
-        threshold = max(0, int(self._sampling_rate * SAMPLE_RATE_PRECISION))
+        # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
+        threshold = max(0, round(self._sampling_rate * SAMPLE_RATE_PRECISION))
         if threshold <= 0:
             return ast.Constant(value=False)
         return ast.CompareOperation(
@@ -151,7 +189,16 @@ class ScannerCandidateQuery:
             left=ast.Call(
                 name="modulo",
                 args=[
-                    ast.Call(name="cityHash64", args=[ast.Field(chain=["s", "session_id"])]),
+                    # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
+                    ast.Call(
+                        name="cityHash64",
+                        args=[
+                            ast.Call(
+                                name="concat",
+                                args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=self._sampling_salt)],
+                            )
+                        ],
+                    ),
                     ast.Constant(value=SAMPLE_RATE_PRECISION),
                 ],
             ),

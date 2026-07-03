@@ -115,16 +115,6 @@ class TraceClusterMetadata:
 
 
 @dataclass
-class ClusterSentiment:
-    """Aggregate sentiment for a cluster."""
-
-    label: str  # "positive", "neutral", "negative"
-    score: float  # 0-1
-    counts: dict[str, int]  # {"positive": N, "neutral": N, "negative": N}
-    total: int  # number of items with sentiment data
-
-
-@dataclass
 class ClusterAggregateMetrics:
     """Pre-computed aggregate metrics for a cluster, baked into the event.
 
@@ -146,7 +136,6 @@ class ClusterAggregateMetrics:
     error_rate: float | None = None
     error_count: int = 0
     item_count: int = 0
-    sentiment: ClusterSentiment | None = None
     # Evaluation-only fields (None for trace/generation levels)
     pass_rate: float | None = None
     na_rate: float | None = None

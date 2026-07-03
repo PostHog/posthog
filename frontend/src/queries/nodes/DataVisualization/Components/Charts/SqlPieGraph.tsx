@@ -1,14 +1,11 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 import { PieChart, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 import type { PieChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { useChartTheme } from 'lib/charts/hooks'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
@@ -30,10 +27,7 @@ export const SqlPieGraph = ({
     presetChartHeight,
     className,
 }: LineGraphProps): JSX.Element => {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings
@@ -41,16 +35,32 @@ export const SqlPieGraph = ({
     const total = useMemo(() => slices.reduce((sum, slice) => sum + slice.value, 0), [slices])
 
     const showLegend = chartSettings.showLegend ?? false
-    const showPieTotal = chartSettings.showPieTotal ?? true
+    // Unset means an existing chart from before the labels option — keep showing values. New pies
+    // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
+    const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
+    // The total is a sum-of-values readout, so default it on only when slices show values.
+    // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
+    const showPieTotal = chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? sliceContent === 'values'
+    const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
-    const valueFormatter = useCallback(
+    const absoluteFormatter = useCallback(
         (value: number) => String(formatDataWithSettings(value, formattingSettings) ?? value),
         [formattingSettings]
     )
 
+    // `isPercent` makes the chart render on-slice values and tooltips as a share of the total; the
+    // total below the chart and the absolute legend line keep using the raw value formatter.
+    // Labels sit toward the rim (on the wider part of each wedge) and skip slices under 10% so a
+    // long tail of thin slices doesn't pile labels up at the center.
     const pieConfig: PieChartConfig = useMemo(
-        () => ({ showValueOnSlice: chartSettings.showValuesOnSeries ?? true }),
-        [chartSettings.showValuesOnSeries]
+        () => ({
+            showLabelOnSlice: sliceContent === 'labels',
+            showValueOnSlice: sliceContent === 'values',
+            isPercent: asPercent,
+            labelRadiusRatio: 0.72,
+            minSlicePercentForLabel: 0.1,
+        }),
+        [sliceContent, asPercent]
     )
 
     const renderTooltip = useCallback(
@@ -65,13 +75,13 @@ export const SqlPieGraph = ({
                         <TooltipSwatch color={entry.color} />
                         <span className="font-semibold">{entry.series.label}</span>
                         <strong className="ml-auto">
-                            {formatPieSliceCount(entry.value, total, formattingSettings)}
+                            {formatPieSliceCount(entry.value, total, formattingSettings, asPercent)}
                         </strong>
                     </div>
                 </TooltipSurface>
             )
         },
-        [total, formattingSettings]
+        [total, formattingSettings, asPercent]
     )
 
     if (!slices.length) {
@@ -88,7 +98,7 @@ export const SqlPieGraph = ({
             theme={theme}
             config={pieConfig}
             tooltip={renderTooltip}
-            valueFormatter={valueFormatter}
+            valueFormatter={absoluteFormatter}
             dataAttr="sql-pie-chart"
             onError={handleChartError}
         />
@@ -96,7 +106,7 @@ export const SqlPieGraph = ({
 
     const totalDisplay = showPieTotal ? (
         <div className="pt-4 text-center shrink-0">
-            <div className="text-5xl font-bold">{valueFormatter(total)}</div>
+            <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
         </div>
     ) : null
 
@@ -113,8 +123,12 @@ export const SqlPieGraph = ({
                                 <span className="truncate">{slice.label}</span>
                             </div>
                             <div className="text-right shrink-0">
-                                <div className="font-semibold">{valueFormatter(slice.value)}</div>
-                                <div className="text-xs text-secondary">{percent}%</div>
+                                <div className="font-semibold">
+                                    {asPercent ? `${percent}%` : absoluteFormatter(slice.value)}
+                                </div>
+                                <div className="text-xs text-secondary">
+                                    {asPercent ? absoluteFormatter(slice.value) : `${percent}%`}
+                                </div>
                             </div>
                         </div>
                     )
