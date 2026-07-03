@@ -121,12 +121,22 @@ def _credentials_from_job(job: ZendeskImportJob) -> ZendeskCredentials:
     return ZendeskCredentials(subdomain=subdomain, email_address=email_address, api_token=api_token)
 
 
+def _strip_nul(value: str) -> str:
+    """Remove NUL (0x00) bytes, which Postgres text/jsonb columns reject outright.
+
+    Zendesk ticket bodies occasionally carry stray NULs (bad email encodings, copy-paste
+    artifacts). One such byte anywhere in a batch aborts the entire bulk_create with a
+    DataError and exhausts the activity's retries, so scrub it from every stored string.
+    """
+    return value.replace("\x00", "") if "\x00" in value else value
+
+
 def _comment_body(comment: dict[str, Any]) -> str:
     body = (comment.get("body") or "").strip()
     if body:
-        return body
+        return _strip_nul(body)
     html_body = comment.get("html_body") or ""
-    return strip_tags(html_body).strip()
+    return _strip_nul(strip_tags(html_body).strip())
 
 
 def _comment_is_private(comment: Comment) -> bool:
@@ -251,7 +261,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
         if requester_id is None:
             continue
         user = users_by_id.get(int(requester_id), {})
-        email = (user.get("email") or "").strip()
+        email = _strip_nul((user.get("email") or "").strip())
         if email:
             emails.add(email)
 
@@ -323,8 +333,10 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
         zendesk_id = int(zendesk_ticket["id"])
         try:
             requester = users_by_id.get(int(zendesk_ticket.get("requester_id") or 0), {})
-            requester_email = (requester.get("email") or f"zendesk-user-{zendesk_ticket.get('requester_id')}").strip()
-            requester_name = (requester.get("name") or "").strip()
+            requester_email = _strip_nul(
+                (requester.get("email") or f"zendesk-user-{zendesk_ticket.get('requester_id')}").strip()
+            )
+            requester_name = _strip_nul((requester.get("name") or "").strip())
             distinct_id = cache.get(requester_email.lower(), requester_email)
 
             # Populate anonymous_traits so the customer renders as their name/email instead of
@@ -349,7 +361,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 distinct_id=distinct_id,
                 status=map_zendesk_status(zendesk_ticket.get("status")),
                 priority=map_zendesk_priority(zendesk_ticket.get("priority")),
-                email_subject=(zendesk_ticket.get("subject") or "")[:500] or None,
+                email_subject=_strip_nul(zendesk_ticket.get("subject") or "")[:500] or None,
                 email_from=requester_email if "@" in requester_email else None,
                 email_config=email_config,
                 anonymous_traits=anonymous_traits,
@@ -402,15 +414,15 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 # Persist each comment's own author identity so the thread shows the actual
                 # commenter (a second requester, an agent, etc.) instead of every message
                 # inheriting the ticket-level requester from anonymous_traits.
-                author_name = (author.get("name") or "").strip()
-                author_email = (author.get("email") or "").strip()
+                author_name = _strip_nul((author.get("name") or "").strip())
+                author_email = _strip_nul((author.get("email") or "").strip())
                 # A staff author whose Zendesk user no longer resolves (deleted ex-agent) has no
                 # name/email — recover it from the comment's own sender (`via.source.from`), which
                 # survives user deletion, so the reply doesn't render as "Anonymous user".
                 if author_type == "support" and not author_name and not author_email:
                     via_from = ((zd_comment.get("via") or {}).get("source") or {}).get("from") or {}
-                    author_name = (via_from.get("name") or "").strip()
-                    author_email = (via_from.get("address") or "").strip()
+                    author_name = _strip_nul((via_from.get("name") or "").strip())
+                    author_email = _strip_nul((via_from.get("address") or "").strip())
                 item_context: dict[str, Any] = {
                     "author_type": author_type,
                     "is_private": is_private,
@@ -427,7 +439,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                     team=team,
                     scope="conversations_ticket",
                     item_id="",  # placeholder — set after ticket gets an ID
-                    content=body,
+                    content=_strip_nul(body),
                     rich_content=rich_content,
                     item_context=item_context,
                 )

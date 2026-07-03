@@ -319,6 +319,27 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(staff.item_context["author_name"], "Marcus")
         self.assertEqual(staff.item_context["author_email"], "marcus@posthog.com")
 
+    def test_nul_bytes_are_stripped_from_persisted_fields(self) -> None:
+        # A single NUL byte anywhere in the batch aborts the whole bulk_create with a Postgres
+        # DataError (which then exhausts the activity's retries), so every Zendesk-sourced string
+        # must be scrubbed. Cover the subject, requester name/email, comment body, and per-comment
+        # author identity in one go.
+        result, _ = self._run_batch(
+            [209],
+            tickets=[_zd_ticket(209, 10, subject="sub\x00ject")],
+            users={10: _zd_user(10, "person\x00@example.com", name="Per\x00son")},
+            comments_by_ticket={209: [_zd_comment(1, 10, public=True, body="hell\x00o")]},
+        )
+
+        self.assertEqual(result.imported, 1)
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=209)
+        self.assertEqual(ticket.email_subject, "subject")
+        self.assertEqual(ticket.anonymous_traits, {"name": "Person", "email": "person@example.com"})
+        comment = Comment.objects.get(team=self.team, item_id=str(ticket.id))
+        self.assertEqual(comment.content, "hello")
+        assert comment.item_context is not None
+        self.assertEqual(comment.item_context["author_email"], "person@example.com")
+
     @parameterized.expand(
         [
             ("matched_person", ["person-distinct-1"], "person-distinct-1"),
