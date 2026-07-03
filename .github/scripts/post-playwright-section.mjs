@@ -75,6 +75,9 @@ if (failed.length > 0) {
 if (flaky.length > 0) {
     summaryParts.push(`${flaky.length} flaky`)
 }
+if (flakeVerificationLines) {
+    summaryParts.push('flake verification failed')
+}
 const summary = summaryParts.length ? summaryParts.join(', ') : 'all passed'
 
 await postSection({
