@@ -222,9 +222,8 @@ tools:
         description: >
             Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
             updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
-            by name in other HogQL queries. Set `description` to record what the view represents (a semantic
-            description surfaced to agents); per-column descriptions are set via the saved-query column annotation
-            tools.
+            by name in other HogQL queries. Set `description` to record what the view represents (a semantic description
+            surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.
         exclude_params:
             - deleted
             - edited_history_id
