@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-import temporalio.client
 from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
@@ -18,9 +17,15 @@ from products.tasks.backend.models import TaskRun as TaskRunModel
 
 from ee.hogai.sandbox import is_turn_complete
 
-# The ACP event helpers live in relay_sandbox_events; import them so the SSE relay and this
-# stream-tailing relay derive signals from identical logic. Only the event source differs.
-from .relay_sandbox_events import _extract_agent_message_text, _extract_tool_call_step, _is_session_update
+# Reuse the ACP event helpers and signal dispatcher from relay_sandbox_events so the SSE relay
+# and this stream-tailing relay derive and emit signals from identical logic. Only the event
+# source differs.
+from .relay_sandbox_events import (
+    _extract_agent_message_text,
+    _extract_tool_call_step,
+    _is_session_update,
+    _signal_safely,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -32,8 +37,9 @@ class SlackAgentDesignSignalEmitter:
     ``SlackAgentDesignRelayWorkflow`` on the parent ``ProcessTaskWorkflow``.
 
     Stateful per run: a turn is bracketed from the first ``session/update`` until the
-    turn-complete notification, and tool-call ids are de-duplicated across the turn. This
-    mirrors the inline fan-out in ``relay_sandbox_events._relay_loop`` — keep the two in sync.
+    turn-complete notification, and tool-call ids are de-duplicated for the lifetime of the
+    run (the set is not cleared between turns). This mirrors the inline fan-out in
+    ``relay_sandbox_events._relay_loop`` — keep the two in sync.
     """
 
     def __init__(self, slack_thread_context: dict[str, Any] | None) -> None:
@@ -71,21 +77,6 @@ class RelayAgentDesignSignalsInput:
     run_id: str
     task_id: str
     slack_thread_context: dict[str, Any] | None = None
-
-
-async def _signal_safely(
-    workflow_handle: temporalio.client.WorkflowHandle,
-    signal_name: str,
-    arg: Any = None,
-) -> None:
-    """Fire a signal — a failure must never break the relay loop."""
-    try:
-        if arg is None:
-            await workflow_handle.signal(signal_name)
-        else:
-            await workflow_handle.signal(signal_name, arg=arg)
-    except Exception as e:
-        logger.warning("slack_app_agent_design_signal_failed", signal=signal_name, error=str(e))
 
 
 @activity.defn
