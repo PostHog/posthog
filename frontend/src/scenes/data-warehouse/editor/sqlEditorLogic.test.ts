@@ -822,6 +822,26 @@ describe('sqlEditorLogic', () => {
                     sourceQuery: partial({ display: ChartDisplayType.Auto }),
                 })
         })
+
+        it('does not crash and falls back to an empty query for a malformed node with no source', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // A hand-crafted open_query URL carrying a node shape without a HogQL source must not throw
+            router.actions.push(urls.sqlEditor(), { open_query: { kind: NodeKind.DataVisualizationNode } })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab'])
+                .toNotHaveDispatchedActions(['setSourceQuery', 'runQuery'])
+                .toMatchValues({
+                    queryInput: null,
+                    sourceQuery: partial({ display: ChartDisplayType.Auto }),
+                })
+        })
     })
 
     describe('Update view', () => {

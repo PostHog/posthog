@@ -296,7 +296,9 @@ export function toDataVisualizationNode(
         return undefined
     }
     if (query.kind === NodeKind.DataVisualizationNode) {
-        return query as DataVisualizationNode
+        // A hand-crafted open_query URL can carry a node with no source; only adopt it when the HogQL source is present
+        const source = (query as DataVisualizationNode).source
+        return source?.kind === NodeKind.HogQLQuery ? (query as DataVisualizationNode) : undefined
     }
     // Insights created from the old DataTableNode path store the HogQLQuery under `.source`.
     // Wrap it so the SQL editor can render and save it through the visualization pipeline.
@@ -2520,8 +2522,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                         actions.runQuery()
                     } else {
-                        // kea-router also decodes numeric values; coerce so queryInput stays a string
-                        actions.createTab(String(searchParams.open_query))
+                        // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
+                        // malformed URL, so fall back to an empty query rather than "[object Object]"
+                        actions.createTab(
+                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
+                        )
                     }
                     tabAdded = true
                 } else if (
