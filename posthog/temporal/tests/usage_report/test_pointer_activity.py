@@ -25,6 +25,7 @@ def _ctx() -> WorkflowContext:
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str="2026-05-04",
+        day_offset=1,
     )
 
 
@@ -82,6 +83,7 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
         "date": "2026-05-04",
         "period_start": "2026-05-04T00:00:00+00:00",
         "period_end": "2026-05-04T23:59:59.999999+00:00",
+        "day_offset": 1,
         "region": "US",
         "site_url": "https://us.posthog.com",
         "bucket": "posthog-billing-usage-reports",

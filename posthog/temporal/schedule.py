@@ -577,19 +577,21 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Temporal-based usage report run every 3 hours at minute 45 (8 times a day).
+    """Intraday usage report run every 3 hours at minute 45 (8 times a day).
 
-    The 04:45 UTC slot runs an hour after the existing Celery beat for
-    `send_all_org_usage_reports` (03:45 UTC) so ClickHouse has breathing room
-    while both flows run side by side. The workflow writes per-org usage data
-    to S3 and sends a single SQS pointer to the billing service.
+    Reports *today's* usage so far (`day_offset=0`) so billing gets fresh
+    numbers throughout the day. A failed slot is superseded by the next one
+    3 hours later, so no retries. The complete-day capture is handled by the
+    daily finalizer schedule (`create_finalize_usage_reports_schedule`). The
+    workflow writes per-org usage data to S3 and sends a single SQS pointer
+    to the billing service.
     """
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-usage-reports",
             # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
             # `dataclasses.asdict` would TypeError on registration.
-            RunUsageReportsInputs().model_dump(mode="json"),
+            RunUsageReportsInputs(day_offset=0).model_dump(mode="json"),
             id="run-usage-reports-schedule",
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
@@ -613,6 +615,53 @@ async def create_run_usage_reports_schedule(client: Client):
             client,
             "run-usage-reports-schedule",
             run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_finalize_usage_reports_schedule(client: Client):
+    """Daily finalizer for the usage reports v2 flow, 03:00 UTC.
+
+    Reports *yesterday* (`day_offset=1`) once the day is complete — billing
+    treats a `day_offset >= 1` pointer as the final numbers for that date.
+    03:00 leaves 3 hours for ingestion lag after midnight while staying clear
+    of the legacy Celery run at 03:45 UTC. Unlike the intraday schedule this
+    run has no later slot to supersede it, so the retry policy keeps
+    re-running it across the day (5m, 10m, ... capped at 2h) until it
+    succeeds. Anything longer than that is a manual backfill: trigger the
+    workflow with `day_offset=N` for the missed day.
+    """
+    finalize_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            RunUsageReportsInputs(day_offset=1).model_dump(mode="json"),
+            id="finalize-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=8,
+                initial_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(hours=2),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 03:00 UTC",
+                    hour=[ScheduleRange(start=3, end=3)],
+                    minute=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "finalize-usage-reports-schedule"):
+        await a_update_schedule(client, "finalize-usage-reports-schedule", finalize_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "finalize-usage-reports-schedule",
+            finalize_usage_reports_schedule,
             trigger_immediately=False,
         )
 
@@ -744,6 +793,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
+    schedules.append(create_finalize_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

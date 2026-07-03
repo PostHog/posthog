@@ -6,10 +6,12 @@ can be verified without standing up real ClickHouse / Postgres / S3.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
 import temporalio.worker
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
@@ -24,7 +26,28 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     RunUsageReportsInputs,
 )
-from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
+from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow, build_context
+
+
+@parameterized.expand(
+    [
+        # (day_offset, now, expected_date) — intraday run mid-day reports today
+        (0, datetime(2026, 5, 4, 13, 45, tzinfo=UTC), "2026-05-04"),
+        # intraday run just after midnight still reports the new day, not yesterday
+        (0, datetime(2026, 5, 4, 1, 45, tzinfo=UTC), "2026-05-04"),
+        # finalizer run early morning reports the completed previous day
+        (1, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-03"),
+        # manual backfill of an older day
+        (3, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-01"),
+    ]
+)
+def test_build_context_reports_full_day_at_offset(day_offset: int, now: datetime, expected_date: str) -> None:
+    ctx = build_context(RunUsageReportsInputs(day_offset=day_offset), run_id="run-1", now=now)
+
+    assert ctx.date_str == expected_date
+    assert ctx.day_offset == day_offset
+    assert ctx.period_start.isoformat() == f"{expected_date}T00:00:00+00:00"
+    assert ctx.period_end.isoformat() == f"{expected_date}T23:59:59.999999+00:00"
 
 
 @pytest.mark.asyncio
@@ -71,7 +94,7 @@ async def test_workflow_runs_query_then_aggregate() -> None:
         ):
             result = await env.client.execute_workflow(
                 RunUsageReportsWorkflow.run,
-                RunUsageReportsInputs(at="2026-05-04T12:00:00+00:00"),
+                RunUsageReportsInputs(day_offset=1),
                 id=workflow_id,
                 task_queue=task_queue,
             )

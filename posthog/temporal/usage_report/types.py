@@ -12,9 +12,15 @@ from pydantic import BaseModel
 
 
 class RunUsageReportsInputs(BaseModel):
-    """Top-level workflow input."""
+    """Top-level workflow input.
 
-    at: Optional[str] = None
+    `day_offset` selects which UTC day to report on, relative to the workflow's
+    start time: 0 = today (intraday, data so far), 1 = yesterday (complete),
+    N = N days ago (manual backfills). Billing treats `day_offset >= 1` as
+    "this day is complete".
+    """
+
+    day_offset: int = 0
     organization_ids: Optional[list[str]] = None
 
 
@@ -25,6 +31,7 @@ class WorkflowContext(BaseModel):
     period_start: datetime
     period_end: datetime
     date_str: str
+    day_offset: int = 0
     organization_ids: Optional[list[str]] = None
 
 
@@ -54,6 +61,7 @@ class Manifest(BaseModel):
     date: str
     period_start: datetime
     period_end: datetime
+    day_offset: int = 0
     region: str
     site_url: str
     bucket: str
