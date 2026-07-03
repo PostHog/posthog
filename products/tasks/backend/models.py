@@ -1084,12 +1084,25 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+    # Organizations granted extended agent log/artifact retention (e.g. compliance requirements),
+    # keyed by organization UUID → retention in days. Orgs not listed here fall back to the caller's
+    # default. NB: the S3 lifecycle rule honoring the `ttl_days` tag must define a matching tier for
+    # the value to take effect — see the app-assets bucket lifecycle config in cloud-infra.
+    EXTENDED_RETENTION_ORG_IDS: dict[str, int] = {
+        "019bc0eb-5005-0000-e43c-e03292a94627": 365,
+    }
+
+    def resolve_ttl_days(self, default_ttl_days: int) -> int:
+        """Retention (in days) for this run's stored objects, extended for allowlisted organizations."""
+        return self.EXTENDED_RETENTION_ORG_IDS.get(str(self.team.organization_id), default_ttl_days)
+
+    def append_log(self, entries: list[dict], *, ttl_days: int | None | Literal["auto"] = "auto"):
         """Append log entries to S3 storage.
 
-        `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
-        never auto-expired. The tag is only applied on
-        first write — re-tagging an existing log would not change a TTL already in flight.
+        `ttl_days` tags a newly-created log file for expiry. The default `"auto"` resolves the TTL
+        from the run's organization (see `resolve_ttl_days`); pass an explicit int to override,
+        or `None` to write a log that is never auto-expired. The tag is only applied on first
+        write — re-tagging an existing log would not change a TTL already in flight.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
@@ -1103,12 +1116,13 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
-        if is_new_file and ttl_days is not None:
+        effective_ttl_days = self.resolve_ttl_days(self.DEFAULT_LOG_TTL_DAYS) if ttl_days == "auto" else ttl_days
+        if is_new_file and effective_ttl_days is not None:
             try:
                 object_storage.tag(
                     self.log_url,
                     {
-                        "ttl_days": str(ttl_days),
+                        "ttl_days": str(effective_ttl_days),
                         "team_id": str(self.team_id),
                     },
                 )

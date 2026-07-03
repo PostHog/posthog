@@ -714,6 +714,26 @@ class TestTaskRun(TestCase):
             # Tagging might not be available in test environment
             pass
 
+    def test_ttl_default_for_regular_org(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        self.assertEqual(run.resolve_ttl_days(30), 30)
+        self.assertEqual(run.resolve_ttl_days(1), 1)
+
+    def test_ttl_extended_for_allowlisted_org(self):
+        # Explicit UUID + 365 rather than reading the allowlist back, so removing/changing the
+        # compliance entry fails this test instead of silently reverting the org to 30-day retention.
+        org = Organization.objects.create(id="019bc0eb-5005-0000-e43c-e03292a94627", name="Compliance Org")
+        team = Team.objects.create(organization=org, name="Compliance Team")
+        task = Task.objects.create(
+            team=team,
+            title="Compliance Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        # Both the log default (30) and the run-artifact default (30) are lifted to the extended value.
+        self.assertEqual(run.resolve_ttl_days(30), 365)
+
     def test_mark_completed(self):
         run = TaskRun.objects.create(
             task=self.task,
