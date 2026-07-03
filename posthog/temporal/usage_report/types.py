@@ -6,15 +6,25 @@ ISO-string round-tripping that plain dataclasses would force.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+# What billing reads off the pointer/manifest: "partial" = intraday snapshot
+# of a day still in progress, "complete" = the day was already over when
+# queried (finalizer or backfill run), so the numbers are final for that date.
+ReportCompleteness = Literal["partial", "complete"]
+
 
 class RunUsageReportsInputs(BaseModel):
-    """Top-level workflow input."""
+    """Top-level workflow input.
 
-    at: Optional[str] = None
+    `day_offset` selects which UTC day to report on, relative to the workflow's
+    start time: 0 = today (intraday, data so far), 1 = yesterday (complete),
+    N = N days ago (manual backfills).
+    """
+
+    day_offset: int = 0
     organization_ids: Optional[list[str]] = None
 
 
@@ -25,6 +35,7 @@ class WorkflowContext(BaseModel):
     period_start: datetime
     period_end: datetime
     date_str: str
+    report_completeness: ReportCompleteness = "partial"
     organization_ids: Optional[list[str]] = None
 
 
@@ -54,6 +65,7 @@ class Manifest(BaseModel):
     date: str
     period_start: datetime
     period_end: datetime
+    report_completeness: ReportCompleteness = "partial"
     region: str
     site_url: str
     bucket: str

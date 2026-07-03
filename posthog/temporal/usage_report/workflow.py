@@ -16,11 +16,10 @@ remains in production until billing migrates to consume the S3 layout.
 
 import json
 import asyncio
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import UTC, datetime, time, timedelta
 
-from dateutil import parser
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -40,26 +39,30 @@ from posthog.temporal.usage_report.types import (
     RunUsageReportsInputs,
     WorkflowContext,
 )
-from posthog.utils import get_previous_day
 
 # Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
 
 
-def build_context(inputs: RunUsageReportsInputs, run_id: str, now: Optional[datetime] = None) -> WorkflowContext:
+def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
     """Compute the period and S3 layout context. Pure function so it's safe
     to call from the workflow body (no real-time access).
+
+    The period is always the full UTC day `inputs.day_offset` days before
+    `now`. For `day_offset=0` (today) the tail of the window is in the
+    future and simply matches no events, so intraday and finalizer runs
+    share one code path.
     """
-    at_date = parser.parse(inputs.at) if inputs.at else None
-    if at_date is None and now is not None:
-        at_date = now
-    period_start, period_end = get_previous_day(at=at_date)
+    report_day = (now.astimezone(UTC) - timedelta(days=inputs.day_offset)).date()
+    period_start = datetime.combine(report_day, time.min, tzinfo=UTC)
+    period_end = datetime.combine(report_day, time.max, tzinfo=UTC)
     return WorkflowContext(
         run_id=run_id,
         period_start=period_start,
         period_end=period_end,
         date_str=period_start.strftime("%Y-%m-%d"),
+        report_completeness="partial" if inputs.day_offset == 0 else "complete",
         organization_ids=inputs.organization_ids,
     )
 
@@ -73,6 +76,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RunUsageReportsInputs) -> dict:
+        if inputs.day_offset < 0:
+            # A negative offset (manual-trigger typo) would report a future,
+            # empty day and mark it "complete" for billing. Fail fast;
+            # non_retryable so the schedule's retry policy doesn't re-run a
+            # validation error.
+            raise ApplicationError(f"day_offset must be >= 0, got {inputs.day_offset}", non_retryable=True)
         started_at = workflow.now()
         status = "FAILED"
         try:
@@ -82,6 +91,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 extra={
                     "run_id": ctx.run_id,
                     "date_str": ctx.date_str,
+                    "report_completeness": ctx.report_completeness,
                     "period_start": ctx.period_start.isoformat(),
                     "period_end": ctx.period_end.isoformat(),
                     "spec_count": len(QUERIES),

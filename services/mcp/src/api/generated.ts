@@ -11365,6 +11365,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -34767,6 +34768,11 @@ export namespace Schemas {
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
+      /**
+         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+         * @nullable
+         */
+      readonly identity_verified: boolean | null;
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
@@ -36196,6 +36202,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -42114,6 +42121,11 @@ export namespace Schemas {
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
+      /**
+         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+         * @nullable
+         */
+      readonly identity_verified?: boolean | null;
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
@@ -58688,15 +58700,18 @@ export namespace Schemas {
 
     export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
     /**
-     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string;
     /**
-     * Number of results to return per page.
+     * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     };
@@ -65418,15 +65433,18 @@ export namespace Schemas {
 
     export type McpAnalyticsSessionsToolCallsParams = {
     /**
-     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string;
     /**
-     * Number of results to return per page.
+     * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     };

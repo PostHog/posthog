@@ -1104,7 +1104,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1306,7 +1306,8 @@ class GNewsSourceConfig(config.Config):
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
@@ -1820,7 +1821,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1862,7 +1863,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

@@ -93,6 +93,10 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // UI, so they benefit from the same single-exec mode and formatted-text
     // rendering as the other coding agents.
     'grok',
+    // Ando is an LLM-driven assistant (Slack, chat, calls) whose MCP client
+    // self-reports `clientInfo.name` as `ando-mcp-gateway`; it renders text and
+    // benefits from the same single-exec mode as the coding agents.
+    'ando-mcp-gateway',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
