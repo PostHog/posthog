@@ -23,6 +23,9 @@ from products.notebooks.backend.sandbox.kernel import (
 )
 from products.notebooks.backend.sandbox.kernel.data_plane import DataPlaneError, decode_arrow_stream
 from products.notebooks.backend.sql_v2 import (
+    SQLV2KernelNotRunning,
+    SQLV2PageError,
+    fetch_sql_v2_page,
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
@@ -133,6 +136,8 @@ class TestSQLV2Run(APIBaseTest):
         run_id = response.json()["run_id"]
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=run_id)
         self.assertEqual(run.status, NotebookNodeRun.Status.RUNNING)
+        # Paging re-queries the run's stored code, so losing it here breaks every page fetch.
+        self.assertEqual(run.code, "select 1")
         mock_start.assert_called_once()
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
 
@@ -156,6 +161,120 @@ class TestSQLV2Run(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).first()
         assert run is not None
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
+
+
+class TestSQLV2RunPage(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbpage1")
+
+    def _create_run(self, status=NotebookNodeRun.Status.DONE, node_id="n1", code="select 1") -> NotebookNodeRun:
+        with team_scope(self.team.id):
+            return NotebookNodeRun.objects.create(
+                team=self.team, notebook=self.notebook, node_id=node_id, status=status, code=code
+            )
+
+    def _get(self, run_id: str, offset=50, limit=50):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/page/",
+            {"offset": offset, "limit": limit},
+        )
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_returns_page_from_kernel(self, _mock_enabled, mock_fetch):
+        mock_fetch.return_value = {"columns": ["a"], "types": [["a", "Int64"]], "rows": [[51]], "has_more": False}
+        run = self._create_run()
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rows"], [[51]])
+        self.assertEqual(mock_fetch.call_args.kwargs["offset"], 50)
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 50)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_stale_run_is_rejected(self, _mock_enabled, mock_fetch):
+        # A newer completed run supersedes this result — paging it would mix two executions.
+        old_run = self._create_run()
+        self._create_run()  # newer DONE run for the same node
+        response = self._get(str(old_run.id))
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "stale")
+        mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_kernel_not_running_returns_503(self, _mock_enabled):
+        # No KernelRuntime exists, so the real fetch path raises SQLV2KernelNotRunning.
+        run = self._create_run()
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 503)
+
+    @parameterized.expand(
+        [
+            ("running_run", NotebookNodeRun.Status.RUNNING, 400),
+            ("failed_run", NotebookNodeRun.Status.FAILED, 400),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_non_done_run_is_rejected(self, _name, status, expected, _mock_enabled):
+        run = self._create_run(status=status)
+        self.assertEqual(self._get(str(run.id)).status_code, expected)
+
+
+class TestSQLV2PageDispatch(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbpgd01")
+        with team_scope(self.team.id):
+            self.run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=NotebookNodeRun.Status.DONE,
+                code="select event from events",
+            )
+
+    def _create_runtime(self) -> None:
+        KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:12345",
+        )
+
+    def test_raises_without_running_kernel(self):
+        with self.assertRaises(SQLV2KernelNotRunning):
+            fetch_sql_v2_page(self.notebook, self.user, self.run, offset=50, limit=50)
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_posts_run_code_and_paging_to_kernel(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        self._create_runtime()
+        fetch_sql_v2_page(self.notebook, self.user, self.run, offset=100, limit=25)
+        self.assertIn("/page", mock_post.call_args.args[0])
+        payload = mock_post.call_args.kwargs["json"]
+        # The kernel must page the code that produced the result, not whatever the editor holds now.
+        self.assertEqual(payload["code"], "select event from events")
+        self.assertEqual((payload["offset"], payload["limit"]), (100, 25))
+
+    @parameterized.expand(
+        [
+            ("outdated_kernel_404", 404, None, SQLV2KernelNotRunning),
+            ("query_error_400", 400, {"error": "no such column"}, SQLV2PageError),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_kernel_error_statuses_map_to_exceptions(self, _name, status_code, body, expected_exception, mock_post):
+        mock_post.return_value.status_code = status_code
+        mock_post.return_value.json.return_value = body
+        self._create_runtime()
+        with self.assertRaises(expected_exception):
+            fetch_sql_v2_page(self.notebook, self.user, self.run, offset=0, limit=50)
 
 
 class TestSQLV2RunResult(APIBaseTest):
@@ -406,6 +525,25 @@ class TestSQLV2KernelPackage(SimpleTestCase):
             kernel_runner.execute_run(payload)
         self.assertEqual(delivered["status"], "error")
         self.assertEqual(delivered["error"], "no such table")
+
+    @parameterized.expand(
+        [
+            ("more_rows_exist", 6, True, 5),  # limit+1 rows came back → has_more, trimmed to limit
+            ("exact_page", 5, False, 5),
+            ("short_page", 2, False, 2),
+        ]
+    )
+    def test_fetch_page_has_more_via_limit_plus_one(self, _name, rows_returned, expected_has_more, expected_rows):
+        payload = {"code": "select 1", "data_plane_url": "u", "data_plane_token": "t", "offset": 10, "limit": 5}
+        with patch(
+            "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
+        ) as mock_fetch:
+            page = kernel_runner.fetch_page(payload)
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 6)  # fetches limit+1
+        self.assertEqual(mock_fetch.call_args.kwargs["offset"], 10)
+        self.assertEqual(page["has_more"], expected_has_more)
+        self.assertEqual(len(page["rows"]), expected_rows)
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()

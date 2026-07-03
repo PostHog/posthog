@@ -55,11 +55,17 @@ _SERVER_LOG_PATH = "/tmp/nb_kernel_server.log"
 _SERVER_PID_PATH = "/tmp/nb_kernel_server.pid"
 _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
+# A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
+_PAGE_POST_TIMEOUT_SECONDS = 60
 _COMMAND_TOKEN_TTL_SECONDS = 300
 
 
 class SQLV2KernelNotRunning(Exception):
     """Raised when a run is dispatched but the notebook has no running sandbox."""
+
+
+class SQLV2PageError(Exception):
+    """A page fetch the kernel rejected or failed; message is user-facing."""
 
 
 def is_sql_v2_enabled(user: User | None) -> bool:
@@ -191,13 +197,16 @@ def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package:
     # The pkill lines only clear pre-package servers (distinct names, safe to
     # match) from sandboxes that predate the PID file; drop them once those age out.
     # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    # The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
+    # no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
+    # would record the wrapper's PID and the next redeploy would kill nothing.
     # Prefer the notebook venv python (has pyarrow).
     launch = (
         f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
         "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
         f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
         'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
-        f"cd {_PACKAGE_ROOT} && nohup $PY -m {SANDBOX_PACKAGE_NAME}.server "
+        f'PYTHONPATH={_PACKAGE_ROOT} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
         f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
         f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
     )
@@ -257,3 +266,52 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
+
+
+def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRun, offset: int, limit: int) -> dict:
+    """Fetch one result page through the kernel — a bounded synchronous re-query.
+
+    Unlike a run this never bootstraps the server (no control plane from a web
+    worker); a missing or unreachable server means the user has to re-run.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        raise SQLV2KernelNotRunning()
+
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
+    user_id = user.id if isinstance(user, User) else None
+    try:
+        response = requests.post(
+            _with_connect_token(f"{runtime.server_url.rstrip('/')}/page", runtime.server_connect_token),
+            json={
+                "run_id": str(run.id),
+                "code": run.code,
+                "offset": offset,
+                "limit": limit,
+                "data_plane_url": build_data_plane_url(),
+                "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+            },
+            headers={"Authorization": f"Bearer {command_token}"},
+            timeout=_PAGE_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise SQLV2KernelNotRunning() from exc
+
+    if response.status_code == 404:
+        # A kernel-server from before the /page route; the next run redeploys it.
+        raise SQLV2KernelNotRunning()
+    if response.status_code == 400:
+        raise SQLV2PageError(_kernel_error_detail(response))
+    if response.status_code != 200:
+        raise SQLV2PageError("Page fetch failed in the sandbox.")
+    return response.json()
+
+
+def _kernel_error_detail(response: requests.Response) -> str:
+    try:
+        detail = response.json().get("error")
+        if isinstance(detail, str) and detail:
+            return detail
+    except ValueError:
+        pass
+    return "Page fetch failed in the sandbox."

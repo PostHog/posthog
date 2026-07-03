@@ -25,23 +25,51 @@ def execute_run(payload: dict[str, Any]) -> None:
     _post_callback(payload["callback_url"], payload["callback_token"], result)
 
 
-def _build_envelope(payload: dict[str, Any]) -> dict[str, Any]:
+def _fetch_capped_page(payload: dict[str, Any], limit: int, offset: int) -> dict[str, Any]:
+    """Fetch limit+1 rows through the data plane; the extra row only signals has_more."""
     # Deferred so a broken pyarrow install degrades to a per-run error envelope
     # instead of preventing the server from starting.
     from . import data_plane  # noqa: PLC0415
 
+    columns, rows, types = data_plane.fetch_query_page(
+        payload["data_plane_url"],
+        payload["data_plane_token"],
+        payload["code"],
+        limit=limit + 1,
+        offset=offset,
+    )
+    has_more = len(rows) > limit
+    return {"columns": columns, "rows": rows[:limit], "types": types, "has_more": has_more}
+
+
+def _build_envelope(payload: dict[str, Any]) -> dict[str, Any]:
+    from . import data_plane  # noqa: PLC0415 — see _fetch_capped_page
+
     try:
-        columns, rows, types = data_plane.fetch_query_page(
-            payload["data_plane_url"],
-            payload["data_plane_token"],
-            payload["code"],
-            limit=int(payload.get("page_limit") or _DEFAULT_PAGE_LIMIT),
-        )
-        return envelope.from_columns_and_rows(columns, rows, types)
+        page = _fetch_capped_page(payload, limit=int(payload.get("page_limit") or _DEFAULT_PAGE_LIMIT), offset=0)
+        return envelope.from_columns_and_rows(page["columns"], page["rows"], page["types"], page["has_more"])
     except data_plane.DataPlaneError as exc:
         return envelope.from_error(str(exc))
     except Exception as exc:  # noqa: BLE001 — any failure must still produce a callback
         return envelope.from_error(f"Run failed in the sandbox: {exc}")
+
+
+def fetch_page(payload: dict[str, Any]) -> dict[str, Any]:
+    """Serve a /page request: a bounded synchronous re-query, not a run (no callback).
+
+    Raises DataPlaneError for user-facing query errors; the server maps it to a 400.
+    """
+    page = _fetch_capped_page(
+        payload,
+        limit=int(payload.get("limit") or _DEFAULT_PAGE_LIMIT),
+        offset=int(payload.get("offset") or 0),
+    )
+    return {
+        "columns": page["columns"],
+        "types": page["types"],
+        "rows": envelope.json_safe_rows(page["rows"]),
+        "has_more": page["has_more"],
+    }
 
 
 def _post_callback(callback_url: str, callback_token: str, result: dict[str, Any]) -> None:
