@@ -23,9 +23,10 @@ database "posthog" {
       default = "0"
     }
     engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.adhoc_events_deletion"
-      replica_name   = "{replica}-{shard}"
-      version_column = "deleted_at"
+      zoo_path          = "/clickhouse/tables/noshard/posthog.adhoc_events_deletion"
+      replica_name      = "{replica}-{shard}"
+      version_column    = "deleted_at"
+      is_deleted_column = "is_deleted"
     }
   }
   table "ai_events" {
@@ -2817,9 +2818,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.pg_embeddings"
-      replica_name   = "{replica}-{shard}"
-      version_column = "timestamp"
+      zoo_path          = "/clickhouse/tables/noshard/posthog.pg_embeddings"
+      replica_name      = "{replica}-{shard}"
+      version_column    = "timestamp"
+      is_deleted_column = "is_deleted"
     }
   }
   table "plugin_log_entries" {

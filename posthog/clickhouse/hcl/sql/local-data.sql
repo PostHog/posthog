@@ -7,7 +7,7 @@ CREATE TABLE posthog.adhoc_events_deletion (
   created_at DateTime64(6, 'UTC') DEFAULT now64(),
   deleted_at DateTime,
   is_deleted UInt8 DEFAULT 0
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.adhoc_events_deletion', '{replica}-{shard}', deleted_at, is_deleted) ORDER BY (team_id, uuid) TTL deleted_at + toIntervalMonth(3) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.ai_events (
   uuid UUID,
   event LowCardinality(String),
@@ -555,7 +555,7 @@ CREATE TABLE posthog.pg_embeddings (
   properties String CODEC(ZSTD(3)),
   timestamp DateTime64(6, 'UTC') DEFAULT now('UTC'),
   is_deleted UInt8
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp) ORDER BY (team_id, domain, id) SETTINGS index_granularity = 512;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted) ORDER BY (team_id, domain, id) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.plugin_log_entries (
   id UUID,
   team_id Int64,
