@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -353,17 +354,21 @@ class TestSubscriptionTemporal(APILicensedTest):
         # A schedule edit must not fire a delivery but MUST still reschedule — the model
         # save() recomputes next_delivery_date; this guards that the no-fire short-circuit
         # doesn't accidentally skip the reschedule.
-        sub_id = self._create_subscription(invite_message=None, frequency="weekly").json()["id"]
-        before = Subscription.objects.get(id=sub_id).next_delivery_date
-        self.mock_temporal_client.start_workflow.reset_mock()
+        # Freeze to a Monday so the weekly cadence (which recurs on the start_date's Saturday)
+        # lands strictly later than the daily one — otherwise on a Friday "tomorrow" and "next
+        # Saturday" coincide and the strict-inequality assertion flakes.
+        with freeze_time("2024-01-01T12:00:00Z"):
+            sub_id = self._create_subscription(invite_message=None, frequency="weekly").json()["id"]
+            before = Subscription.objects.get(id=sub_id).next_delivery_date
+            self.mock_temporal_client.start_workflow.reset_mock()
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"frequency": "daily"},
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content
-        self.mock_temporal_client.start_workflow.assert_not_called()
-        after = Subscription.objects.get(id=sub_id).next_delivery_date
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"frequency": "daily"},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+            self.mock_temporal_client.start_workflow.assert_not_called()
+            after = Subscription.objects.get(id=sub_id).next_delivery_date
         # Daily cadence brings the next delivery strictly earlier than the weekly one.
         assert before is not None
         assert after is not None
