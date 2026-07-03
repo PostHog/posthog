@@ -947,6 +947,24 @@ def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_err
     assert expected_word in friendly
 
 
+def test_job_create_denial_surfaces_job_permission_guidance():
+    # A bigquery.jobs.create denial also contains "Access Denied:", so both keys match.
+    # external_data_job surfaces the first matching key's message, so the job-creation key must sit
+    # above "Access Denied:" — otherwise the customer is told to grant read access to fix a failure
+    # that read access can't resolve.
+    observed_error = str(
+        Forbidden(
+            "POST https://bigquery.googleapis.com/bigquery/v2/projects/p/jobs?prettyPrint=false: "
+            "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.jobs.create"
+    assert friendly is not None
+    assert "run query jobs" in friendly
+
+
 @pytest.mark.parametrize(
     "observed_error",
     [
