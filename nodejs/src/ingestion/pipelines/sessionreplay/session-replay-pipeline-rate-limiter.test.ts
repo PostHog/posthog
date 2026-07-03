@@ -57,6 +57,11 @@ class FakeRedis {
         this.failOnce = { op, keyPrefix }
     }
 
+    /** True while an armed fault hasn't fired yet — lets tests assert the injected failure was exercised. */
+    hasPendingFailure(): boolean {
+        return this.failOnce !== null
+    }
+
     private maybeFail(op: FakeRedisOp, keys: string[]): void {
         if (this.failOnce && this.failOnce.op === op && keys.some((k) => k.startsWith(this.failOnce!.keyPrefix))) {
             this.failOnce = null
@@ -226,6 +231,10 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             redis.failNext(redisOpOf(fail), keyPrefixOf(fail))
         }
         await runSessionReplayPipeline(buildPipeline(), [createMessage(sessionId, offset)])
+        if (fail) {
+            // Guard against a silently-inert fault: the injected op must actually have been called.
+            expect(redis.hasPendingFailure()).toBe(false)
+        }
     }
 
     function setUpSessionType(type: SessionType, sessionId: string): void {
