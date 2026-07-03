@@ -119,6 +119,33 @@ def _wait_katana(retry_state: RetryCallState) -> float:
     return min(2.0**retry_state.attempt_number, MAX_BACKOFF_SECONDS)
 
 
+def _request_page(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    throttle: _Throttle,
+) -> dict:
+    """Single throttled request. Raises the retryable/terminal errors `_fetch_page` retries on."""
+    throttle.wait()
+    response = session.get(url, params=params, headers=headers, timeout=60)
+
+    if response.status_code == 429:
+        retry_after_header = response.headers.get("Retry-After")
+        retry_after = float(retry_after_header) if retry_after_header else None
+        raise KatanaRateLimitError(retry_after)
+
+    if response.status_code >= 500:
+        raise KatanaRetryableError(f"Katana API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        logger.error(f"Katana API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    return response.json()
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -141,22 +168,7 @@ def _fetch_page(
     logger: FilteringBoundLogger,
     throttle: _Throttle,
 ) -> dict:
-    throttle.wait()
-    response = session.get(url, params=params, headers=headers, timeout=60)
-
-    if response.status_code == 429:
-        retry_after_header = response.headers.get("Retry-After")
-        retry_after = float(retry_after_header) if retry_after_header else None
-        raise KatanaRateLimitError(retry_after)
-
-    if response.status_code >= 500:
-        raise KatanaRetryableError(f"Katana API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Katana API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    return _request_page(session, url, params, headers, logger, throttle)
 
 
 def validate_credentials(api_key: str) -> bool:

@@ -15,8 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.katana.kat
     KatanaRetryableError,
     _build_base_params,
     _clamp_future_value_to_now,
-    _fetch_page,
     _format_incremental_value,
+    _request_page,
     _wait_katana,
     get_rows,
     katana_source,
@@ -127,32 +127,32 @@ class TestBuildBaseParams:
         assert params == {"updated_at_min": "2026-06-15T12:00:00.000Z"}
 
 
-class TestFetchPage:
+class TestRequestPage:
     def test_429_raises_rate_limit_with_retry_after(self) -> None:
         session = MagicMock()
         session.get.return_value = _fake_response(429, headers={"Retry-After": "12"})
         with pytest.raises(KatanaRateLimitError) as exc:
-            _fetch_page.__wrapped__(session, "url", {}, {}, MagicMock(), MagicMock())
+            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
         assert exc.value.retry_after == 12.0
 
     def test_5xx_raises_retryable(self) -> None:
         session = MagicMock()
         session.get.return_value = _fake_response(503)
         with pytest.raises(KatanaRetryableError):
-            _fetch_page.__wrapped__(session, "url", {}, {}, MagicMock(), MagicMock())
+            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
 
     def test_401_raises_http_error(self) -> None:
         response = _fake_response(401)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, "url", {}, {}, MagicMock(), MagicMock())
+            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
 
     def test_200_returns_body(self) -> None:
         session = MagicMock()
         session.get.return_value = _fake_response(200, {"data": [{"id": 1}]})
-        result = _fetch_page.__wrapped__(session, "url", {}, {}, MagicMock(), MagicMock())
+        result = _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
         assert result == {"data": [{"id": 1}]}
 
 
