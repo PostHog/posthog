@@ -288,7 +288,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'signals',
         'data-attr': `support-form-target-area-signals`,
-        label: 'Signals',
+        label: 'Inbox',
     },
     {
         value: 'slack',
@@ -388,6 +388,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    inbox: 'signals',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
