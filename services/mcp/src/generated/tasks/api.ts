@@ -165,3 +165,169 @@ export const TasksRunsSessionLogsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
         .describe('Zero-based offset into the filtered log entries'),
 })
+
+/**
+ * List task automations for the current project.
+ * @summary List task automations
+ */
+export const TaskAutomationsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const TaskAutomationsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Create a task automation.
+ * @summary Create task automation
+ */
+export const TaskAutomationsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const taskAutomationsCreateBodyNameMax = 255
+
+export const taskAutomationsCreateBodyRepositoryMax = 255
+
+export const taskAutomationsCreateBodyCronExpressionMax = 100
+
+export const taskAutomationsCreateBodyTimezoneMax = 128
+
+export const taskAutomationsCreateBodyTemplateIdMax = 255
+
+export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(taskAutomationsCreateBodyNameMax)
+        .describe("Display name (stored as the backing task's title)."),
+    prompt: zod.string().describe("The automation prompt (stored as the backing task's description)."),
+    repository: zod
+        .string()
+        .max(taskAutomationsCreateBodyRepositoryMax)
+        .describe('Target repository in the format organization/repository.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+    cron_expression: zod
+        .string()
+        .max(taskAutomationsCreateBodyCronExpressionMax)
+        .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+    timezone: zod
+        .string()
+        .max(taskAutomationsCreateBodyTimezoneMax)
+        .optional()
+        .describe('IANA timezone the schedule runs in.'),
+    template_id: zod
+        .string()
+        .max(taskAutomationsCreateBodyTemplateIdMax)
+        .nullish()
+        .describe('Optional template identifier this automation was created from.'),
+    enabled: zod.boolean().optional().describe('Whether the schedule is active; paused when false.'),
+})
+
+/**
+ * Retrieve a single task automation by ID.
+ * @summary Get task automation
+ */
+export const TaskAutomationsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Update a task automation.
+ * @summary Update task automation
+ */
+export const TaskAutomationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const taskAutomationsPartialUpdateBodyNameMax = 255
+
+export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
+
+export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
+
+export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
+
+export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
+
+export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(taskAutomationsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("Display name (stored as the backing task's title)."),
+    prompt: zod.string().optional().describe("The automation prompt (stored as the backing task's description)."),
+    repository: zod
+        .string()
+        .max(taskAutomationsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Target repository in the format organization/repository.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+    cron_expression: zod
+        .string()
+        .max(taskAutomationsPartialUpdateBodyCronExpressionMax)
+        .optional()
+        .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+    timezone: zod
+        .string()
+        .max(taskAutomationsPartialUpdateBodyTimezoneMax)
+        .optional()
+        .describe('IANA timezone the schedule runs in.'),
+    template_id: zod
+        .string()
+        .max(taskAutomationsPartialUpdateBodyTemplateIdMax)
+        .nullish()
+        .describe('Optional template identifier this automation was created from.'),
+    enabled: zod.boolean().optional().describe('Whether the schedule is active; paused when false.'),
+})
+
+/**
+ * Delete a task automation.
+ * @summary Delete task automation
+ */
+export const TaskAutomationsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Trigger a task automation to run immediately.
+ * @summary Run task automation
+ */
+export const TaskAutomationsRunCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})

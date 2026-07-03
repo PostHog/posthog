@@ -32,22 +32,93 @@ tools:
         enabled: false
     task-automations-create:
         operation: task_automations_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create task automation
+        description: >
+            Create a task automation — a cron-scheduled prompt that runs against a GitHub repository. Requires `name`,
+            `prompt`, `repository` (in `organization/repository` format), and a valid 5-field `cron_expression`. Optionally
+            set `timezone` (IANA, defaults to UTC), `github_integration`, `template_id`, and `enabled`. Requires the
+            calling token's organization to have Tasks access enabled.
+        feature_flag: tasks
     task-automations-destroy:
         operation: task_automations_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete task automation
+        description: >
+            Permanently delete a task automation by ID. This stops it from running on its schedule. This cannot be
+            undone.
+        feature_flag: tasks
     task-automations-list:
         operation: task_automations_list
-        enabled: false
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List task automations
+        description: >
+            List task automations in the current project. Each automation is a cron-scheduled prompt that runs against a
+            GitHub repository. Returns the schedule, target repository, enabled state, and the status of the last run.
+            Requires the calling token's organization to have Tasks access enabled.
+        feature_flag: tasks
     task-automations-partial-update:
         operation: task_automations_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update task automation
+        description: >
+            Update a task automation by ID. Any field can be changed — `name`, `prompt`, `repository`, `cron_expression`,
+            `timezone`, `github_integration`, `template_id`, or `enabled`. Pass `enabled: false` to pause the schedule
+            without deleting the automation.
+        feature_flag: tasks
     task-automations-retrieve:
         operation: task_automations_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task automation
+        description: >
+            Get a single task automation by ID, including its schedule, prompt, target repository, timezone, enabled
+            state, and the status, timestamp, and any error from its most recent run.
+        feature_flag: tasks
     task-automations-run-create:
         operation: task_automations_run_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run task automation
+        description: >
+            Trigger a task automation to run immediately, outside of its normal cron schedule. Returns the automation
+            with its updated last-run status.
+        feature_flag: tasks
     tasks-create:
         operation: tasks_create
         enabled: false

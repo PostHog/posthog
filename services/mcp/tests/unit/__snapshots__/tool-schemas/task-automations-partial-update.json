@@ -1,0 +1,61 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cron_expression": {
+            "description": "Standard 5-field cron expression (minute hour day month weekday).",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Whether the schedule is active; paused when false.",
+            "type": "boolean"
+        },
+        "github_integration": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "GitHub integration to run as. Defaults to the team's GitHub integration when omitted."
+        },
+        "id": {
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name (stored as the backing task's title).",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "prompt": {
+            "description": "The automation prompt (stored as the backing task's description).",
+            "type": "string"
+        },
+        "repository": {
+            "description": "Target repository in the format organization/repository.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "template_id": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional template identifier this automation was created from."
+        },
+        "timezone": {
+            "description": "IANA timezone the schedule runs in.",
+            "maxLength": 128,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

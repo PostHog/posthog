@@ -8841,5 +8841,95 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "task-automations-list": {
+        "description": "List task automations in the current project. Each automation is a cron-scheduled prompt that runs against a GitHub repository. Returns the schedule, target repository, enabled state, and the status of the last run. Requires the calling token's organization to have Tasks access enabled.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List task automations",
+        "title": "List task automations",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "task-automations-retrieve": {
+        "description": "Get a single task automation by ID, including its schedule, prompt, target repository, timezone, enabled state, and the status, timestamp, and any error from its most recent run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task automation",
+        "title": "Get task automation",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "task-automations-create": {
+        "description": "Create a task automation — a cron-scheduled prompt that runs against a GitHub repository. Requires `name`, `prompt`, `repository` (in `organization/repository` format), and a valid 5-field `cron_expression`. Optionally set `timezone` (IANA, defaults to UTC), `github_integration`, `template_id`, and `enabled`. Requires the calling token's organization to have Tasks access enabled.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task automation",
+        "title": "Create task automation",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "task-automations-partial-update": {
+        "description": "Update a task automation by ID. Any field can be changed — `name`, `prompt`, `repository`, `cron_expression`, `timezone`, `github_integration`, `template_id`, or `enabled`. Pass `enabled: false` to pause the schedule without deleting the automation.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update task automation",
+        "title": "Update task automation",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "task-automations-destroy": {
+        "description": "Permanently delete a task automation by ID. This stops it from running on its schedule. This cannot be undone.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Delete task automation",
+        "title": "Delete task automation",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "task-automations-run-create": {
+        "description": "Trigger a task automation to run immediately, outside of its normal cron schedule. Returns the automation with its updated last-run status.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Run task automation",
+        "title": "Run task automation",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
     }
 }
