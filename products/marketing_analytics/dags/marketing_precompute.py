@@ -118,6 +118,11 @@ MARKETING_PRECOMPUTE_CHUNK_FAILED = Counter(
     "Marketing precompute chunks that failed, by table and error type.",
     ["table", "error_type"],
 )
+MARKETING_PRECOMPUTE_TEAM_FAILED = Counter(
+    "marketing_analytics_precompute_team_failed_total",
+    "Per-team warming aborted by an unexpected setup/orchestration error, by stage.",
+    ["stage"],
+)
 
 
 def get_selected_team_ids() -> list[int]:
@@ -291,6 +296,8 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
 
     Per team, gated on the same flags the read path checks: touchpoints + conversions when the
     conversion precompute flag is on and the team has goals; costs when the costs precompute flag is on.
+    Each team's setup and each warming block is isolated: an unexpected error (e.g. a broken warehouse
+    source failing Database.create_for) is logged and counted, never aborting the rest of the allowlist.
     """
     end = datetime.now(UTC)
     team_ids = get_selected_team_ids()
@@ -317,35 +324,53 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
             continue
         processed += 1
 
-        # from_team evaluates both precompute flags once (cached on the team instance) — the same
-        # evaluation the runners use, so the warmer and read path always agree on what to precompute.
-        config = MarketingAnalyticsConfig.from_team(team)
-        ma_config = team.marketing_analytics_config
+        try:
+            # from_team evaluates both precompute flags once (cached on the team instance) — the same
+            # evaluation the runners use, so the warmer and read path always agree on what to precompute.
+            config = MarketingAnalyticsConfig.from_team(team)
+            ma_config = team.marketing_analytics_config
+        except Exception:
+            MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
+            context.log.exception(f"marketing_precompute_setup_failed team={team_id}")
+            failures += 1
+            continue
 
+        # Conversions and costs are independent products behind independent flags — isolate each so a
+        # failure in one (e.g. Database.create_for on a broken warehouse source) still lets the other run.
         if config.conversion_goal_precomputation_enabled and ma_config.conversion_goals:
-            conversion_teams += 1
-            attribution_window_days = ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS
-            # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
-            # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
-            tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + attribution_window_days)
-            failures += _ensure_touchpoints_for_team(context, team, tp_start, end, PRECOMPUTE_CHUNK_DAYS)
-            # Conversions need no attribution backfill — the conversion event must fall in the query range.
-            # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
-            # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
-            conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
-            _goals_warmed, conv_failures = _ensure_conversions_for_team(
-                context, team, config, conv_start, end, PRECOMPUTE_CHUNK_DAYS
-            )
-            failures += conv_failures
+            try:
+                attribution_window_days = ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS
+                # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
+                # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
+                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + attribution_window_days)
+                failures += _ensure_touchpoints_for_team(context, team, tp_start, end, PRECOMPUTE_CHUNK_DAYS)
+                # Conversions need no attribution backfill — the conversion event must fall in the query range.
+                # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
+                # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
+                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                _goals_warmed, conv_failures = _ensure_conversions_for_team(
+                    context, team, config, conv_start, end, PRECOMPUTE_CHUNK_DAYS
+                )
+                failures += conv_failures
+                conversion_teams += 1
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="conversions").inc()
+                context.log.exception(f"marketing_precompute_conversions_failed team={team_id}")
+                failures += 1
 
         if config.costs_precomputation_enabled:
-            costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
-            sources_warmed, costs_failures = _ensure_costs_for_team(
-                context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
-            )
-            failures += costs_failures
-            if sources_warmed:
-                costs_teams += 1
+            try:
+                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                sources_warmed, costs_failures = _ensure_costs_for_team(
+                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS
+                )
+                failures += costs_failures
+                if sources_warmed:
+                    costs_teams += 1
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
+                context.log.exception(f"marketing_precompute_costs_failed team={team_id}")
+                failures += 1
 
     context.log.info(
         f"marketing_precompute_complete teams={processed} conversion_teams={conversion_teams} "

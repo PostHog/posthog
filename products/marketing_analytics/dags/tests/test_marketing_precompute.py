@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import dagster
 from parameterized import parameterized
 
+from posthog.schema import MarketingAnalyticsDrillDownLevel
+
 from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
@@ -340,3 +342,66 @@ class TestCostsWarming(APIBaseTest):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
         assert result["costs_teams"] == 0
         ensure_mock.assert_not_called()
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_costs_database_built_userless_with_access_control_bypassed(self, db_mock, ensure_mock):
+        # The safety property: warmer materializes with the same userless, access-bypassed database the
+        # read path's INSERT is printed with — so a warmed cost job is identical to the one a read creates.
+        team = self._make_team("A")
+        with (
+            patch(_FF, _flag_fn(costs=True)),
+            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+        _, kwargs = db_mock.create_for.call_args
+        assert kwargs["bypass_warehouse_access_control"] is True
+        assert "user" not in kwargs  # no requesting user
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_costs_filters_sources_by_supported_grain(self, _db, ensure_mock):
+        # src_all materializes at every grain; src_campaign only at campaign → 3 + 1 = 4 ensure calls.
+        team = self._make_team("A")
+        src_all = self._fake_adapter()
+        src_all.get_source_id.return_value = "src_all"
+        src_campaign = self._fake_adapter()
+        src_campaign.get_source_id.return_value = "src_campaign"
+        src_campaign.supports_level.side_effect = lambda g: g == MarketingAnalyticsDrillDownLevel.CAMPAIGN
+        with (
+            patch(_FF, _flag_fn(costs=True)),
+            patch(_FACTORY, return_value=self._fake_factory([src_all, src_campaign])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+        assert ensure_mock.call_count == 4
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_setup_failure_on_one_team_does_not_halt_the_rest(self, db_mock, ensure_mock):
+        # A broken warehouse source failing Database.create_for for one team must not abort the op or
+        # skip later teams in the allowlist — the failure is counted, the rest still warm.
+        broken = self._make_team("A")
+        healthy = self._make_team("B")
+
+        def create_for(*, team, **kwargs):
+            if team.pk == broken.pk:
+                raise RuntimeError("broken warehouse source")
+            return MagicMock()
+
+        db_mock.create_for.side_effect = create_for
+        with (
+            patch(_FF, _flag_fn(costs=True)),
+            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{broken.pk},{healthy.pk}"}),
+        ):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["teams"] == 2
+        assert result["failures"] == 1  # broken team's costs stage
+        assert result["costs_teams"] == 1  # healthy team still warmed
+        warmed_teams = {c.kwargs["team"].pk for c in ensure_mock.call_args_list}
+        assert warmed_teams == {healthy.pk}
