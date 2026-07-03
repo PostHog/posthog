@@ -977,6 +977,8 @@ export interface DateRangeApi {
     date_from?: string | null
     /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
+    /** Restrict the query to events occurring on these ISO days of week (1=Monday … 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+    daysOfWeek?: number[] | null
     /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
     explicitDate?: boolean | null
 }
