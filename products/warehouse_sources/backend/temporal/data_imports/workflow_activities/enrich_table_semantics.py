@@ -32,7 +32,8 @@ from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
-    MAX_PROMPT_CHARS,
+    MAX_PROMPT_TOKENS,
+    EnrichmentResponseNotJSONError,
     bound_prompt_over_columns,
     capture_enrichment_event,
     collapse_untrusted,
@@ -209,7 +210,7 @@ def build_bounded_enrichment_prompt(
             business_context=business_context,
         )
 
-    return bound_prompt_over_columns(builder, columns, columns_needing_description, MAX_PROMPT_CHARS)
+    return bound_prompt_over_columns(builder, columns, columns_needing_description, MAX_PROMPT_TOKENS)
 
 
 # Back-compat alias; the implementation lives in the shared core.
@@ -432,17 +433,25 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             business_context=business_context,
         )
     except Exception as e:
-        capture_exception(e)
-        log.error(
+        # An unparseable model reply — even after the strict-JSON reprompt — is expected and self-healing:
+        # the pipeline degrades to "partial" and a later idempotent sync re-enriches the skipped columns,
+        # so it shouldn't open an error-tracking issue. Genuine failures (gateway misconfig, context-window
+        # overflow, DB errors) are still captured and logged as errors.
+        self_healing = isinstance(e, EnrichmentResponseNotJSONError)
+        if not self_healing:
+            capture_exception(e)
+        log_llm_failure = log.warning if self_healing else log.error
+        log_llm_failure(
             "warehouse_enrichment.llm_failed",
             error=str(e),
+            self_healing=self_healing,
             columns_requested=len(columns_needing_description),
-            exc_info=True,
+            exc_info=not self_healing,
         )
         capture_enrichment_event(
             team,
             EVENT_ERROR,
-            {**event_props, "error": str(e), "stage": "llm_call"},
+            {**event_props, "error": str(e), "stage": "llm_call", "self_healing": self_healing},
         )
         capture_enrichment_event(
             team,

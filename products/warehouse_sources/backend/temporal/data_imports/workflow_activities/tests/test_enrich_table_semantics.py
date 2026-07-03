@@ -7,6 +7,12 @@ from unittest.mock import MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
+from posthog.llm import semantic_enrichment as se
+from posthog.llm.semantic_enrichment import (
+    MAX_JSON_COMPLETION_ATTEMPTS,
+    EnrichmentResponseNotJSONError,
+    estimate_prompt_tokens,
+)
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -21,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     _MAX_COLUMN_NAME_LENGTH,
     MAX_BUSINESS_CONTEXT_CHARS,
-    MAX_PROMPT_CHARS,
+    MAX_PROMPT_TOKENS,
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
     _columns_for_enrichment,
@@ -229,7 +235,7 @@ class TestBuildBoundedEnrichmentPrompt:
             columns_needing_description=[c["name"] for c in columns],
             business_context="short context",
         )
-        assert len(prompt) <= MAX_PROMPT_CHARS
+        assert estimate_prompt_tokens(prompt) <= MAX_PROMPT_TOKENS
         for column in columns:
             assert column["name"] in prompt
         assert "short context" in prompt
@@ -248,55 +254,58 @@ class TestBuildBoundedEnrichmentPrompt:
             columns_needing_description=["col_0", "col_1"],
             business_context=huge_context,
         )
-        assert len(prompt) <= MAX_PROMPT_CHARS
+        assert estimate_prompt_tokens(prompt) <= MAX_PROMPT_TOKENS
         # The 100k-char context is truncated to the cap (a few stray "x" elsewhere in the template are fine).
         assert MAX_BUSINESS_CONTEXT_CHARS <= prompt.count("x") < MAX_BUSINESS_CONTEXT_CHARS + 100
 
     def test_drops_columns_until_prompt_fits(self):
         # Even after capping the context, a pathologically wide table must be trimmed to fit the window.
-        long_name = "n" * 5_000
+        # estimate_prompt_tokens is stubbed to count characters so the token budget is deterministic
+        # without invoking the tokenizer; the trimming loop under test behaves identically either way.
+        long_name = "n" * 200
         columns: list[dict[str, Any]] = [
-            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
+            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(100)
         ]
-        prompt = build_bounded_enrichment_prompt(
-            source_name="Postgres",
-            table_name="t",
-            endpoint_name="",
-            docs_url=None,
-            columns=columns,
-            foreign_keys=[],
-            known_descriptions={},
-            columns_needing_description=[c["name"] for c in columns],
-            business_context="",
-        )
-        assert len(prompt) <= MAX_PROMPT_CHARS
+        with patch.object(se, "estimate_prompt_tokens", len), patch.object(enrich, "MAX_PROMPT_TOKENS", 5_000):
+            prompt = build_bounded_enrichment_prompt(
+                source_name="Postgres",
+                table_name="t",
+                endpoint_name="",
+                docs_url=None,
+                columns=columns,
+                foreign_keys=[],
+                known_descriptions={},
+                columns_needing_description=[c["name"] for c in columns],
+                business_context="",
+            )
+        assert len(prompt) <= 5_000
         # The first column survives; some tail columns are dropped to stay under budget.
         assert columns[0]["name"] in prompt
         assert columns[-1]["name"] not in prompt
 
     def test_prunes_foreign_keys_for_dropped_columns(self):
         # FKs for trimmed columns must be pruned too, so the prompt never references a column it no
-        # longer lists.
-        long_name = "n" * 5_000
+        # longer lists. estimate_prompt_tokens is stubbed to count characters for a deterministic budget.
+        long_name = "n" * 200
         columns: list[dict[str, Any]] = [
-            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
+            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(100)
         ]
         foreign_keys = [
             {"column": columns[0]["name"], "target_table": "kept_target", "target_column": "id"},
             {"column": columns[-1]["name"], "target_table": "dropped_target", "target_column": "id"},
         ]
-        prompt = build_bounded_enrichment_prompt(
-            source_name="Postgres",
-            table_name="t",
-            endpoint_name="",
-            docs_url=None,
-            columns=columns,
-            foreign_keys=foreign_keys,
-            known_descriptions={},
-            columns_needing_description=[str(c["name"]) for c in columns],
-            business_context="",
-        )
-        assert len(prompt) <= MAX_PROMPT_CHARS
+        with patch.object(se, "estimate_prompt_tokens", len), patch.object(enrich, "MAX_PROMPT_TOKENS", 5_000):
+            prompt = build_bounded_enrichment_prompt(
+                source_name="Postgres",
+                table_name="t",
+                endpoint_name="",
+                docs_url=None,
+                columns=columns,
+                foreign_keys=foreign_keys,
+                known_descriptions={},
+                columns_needing_description=[str(c["name"]) for c in columns],
+                business_context="",
+            )
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
         assert "dropped_target" not in prompt
@@ -373,13 +382,28 @@ class TestGenerateDescriptions:
         )
 
     @pytest.mark.parametrize("content", [None, "", "   ", "not json", "```\nnope\n```"])
-    def test_raises_on_unparseable_response(self, content):
-        # An empty or non-JSON reply must surface as an error (→ "partial"), not silently persist nothing.
+    def test_raises_after_exhausting_reprompts_on_unparseable_response(self, content):
+        # A reply that never parses (even after the strict-JSON reprompt) surfaces the dedicated
+        # self-healing error (→ "partial"), and only after all attempts are spent.
         client = MagicMock()
         client.chat.completions.create.return_value = self._response(content)
         with patch.object(enrich, "get_llm_client", return_value=client):
-            with pytest.raises(ValueError):
+            with pytest.raises(EnrichmentResponseNotJSONError):
                 self._call()
+        assert client.chat.completions.create.call_count == MAX_JSON_COMPLETION_ATTEMPTS
+
+    def test_reprompts_and_recovers_when_first_reply_is_not_json(self):
+        # The gateway's Anthropic route doesn't reliably honour json_object mode, so the first reply can
+        # arrive as prose; a strict-JSON reprompt recovers it without failing the sync.
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [
+            self._response("Sure — here are the column descriptions you asked for."),
+            self._response('{"columns": {"a": "desc"}}'),
+        ]
+        with patch.object(enrich, "get_llm_client", return_value=client):
+            parsed, _usage = self._call()
+        assert parsed == {"columns": {"a": "desc"}}
+        assert client.chat.completions.create.call_count == 2
 
     def test_parses_fenced_response(self):
         client = MagicMock()
@@ -387,6 +411,8 @@ class TestGenerateDescriptions:
         with patch.object(enrich, "get_llm_client", return_value=client):
             parsed, _usage = self._call()
         assert parsed == {"columns": {"a": "desc"}}
+        # Parsed on the first attempt — no reprompt needed.
+        assert client.chat.completions.create.call_count == 1
 
 
 class TestCanonicalDescriptionsResolver:
@@ -709,6 +735,8 @@ class TestEnrichTableSemanticsSync:
         assert annotations["currency"].description == "ISO currency code"
 
     def test_partial_status_when_llm_fails(self):
+        # A genuine LLM failure (not the self-healing non-JSON case) degrades to "partial" and is still
+        # reported to error tracking.
         team = _team()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
@@ -716,12 +744,36 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
+            patch.object(enrich, "capture_exception") as mock_capture,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}
+        mock_capture.assert_called_once()
+
+    def test_non_json_reply_degrades_to_partial_without_error_tracking(self):
+        # A reply that won't parse as JSON even after the reprompt is expected and self-healing: it must
+        # degrade to "partial" without opening an error-tracking issue (the noise this whole change fixes).
+        team = _team()
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(
+                enrich,
+                "_generate_descriptions",
+                side_effect=EnrichmentResponseNotJSONError("model response was not valid JSON"),
+            ),
+            patch.object(enrich, "capture_exception") as mock_capture,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        assert result["status"] == "partial"
+        assert _annotations(team, table) == {}
+        mock_capture.assert_not_called()
 
     def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
         team = _team()
