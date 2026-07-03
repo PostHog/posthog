@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from django.conf import settings
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 
 from posthog.models.team.team import Team
@@ -187,6 +188,8 @@ def _verify_and_fix_batch(
     # Batch-read cached values using MGET (single Redis round trip)
     try:
         cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
         cache_batch_data = {}
@@ -200,6 +203,8 @@ def _verify_and_fix_batch(
     if config.get_team_ids_to_skip_fix_fn:
         try:
             team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.warning("Batch skip-fix check failed, proceeding without skips", error=str(e))
 
@@ -215,6 +220,8 @@ def _verify_and_fix_batch(
                 team_count=len(teams),
                 duration_seconds=time.time() - batch_load_start,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 
@@ -223,6 +230,11 @@ def _verify_and_fix_batch(
 
         try:
             verification = verify_team_fn(team, db_batch_data, cache_batch_data)
+        except SoftTimeLimitExceeded:
+            # The task ran out of time, not the verify call. Let it propagate so the
+            # run winds down instead of looping through the remaining teams; this
+            # team is re-verified on the next cycle.
+            raise
         except Exception as e:
             result.errors += 1
             logger.exception("Error verifying team", team_id=team.id, error=str(e))
@@ -323,6 +335,11 @@ def _fix_and_record(
             success = True
         else:
             success = config.update_fn(team)
+    except SoftTimeLimitExceeded:
+        # The task ran out of time mid-write, not a cache/storage failure. Let it
+        # propagate so the run winds down instead of logging a misleading error and
+        # continuing; this team is re-fixed on the next cycle.
+        raise
     except Exception as e:
         success = False
         logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))

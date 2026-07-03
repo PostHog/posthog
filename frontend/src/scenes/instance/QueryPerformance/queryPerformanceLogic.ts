@@ -60,6 +60,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
+        setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
     }),
     reducers({
         search: [
@@ -90,6 +91,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             '',
             {
                 setMetricTypeFilter: (_, { metricType }) => metricType,
+            },
+        ],
+        exceptionCodeFilter: [
+            '',
+            {
+                setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
             },
         ],
     }),
@@ -138,6 +145,9 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                             params.append('funnel_order_type', funnelOrderType)
                         }
                     }
+                    if (values.exceptionCodeFilter) {
+                        params.append('exception_code', values.exceptionCodeFilter)
+                    }
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
@@ -160,6 +170,9 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             actions.loadSlowestQueries()
         },
         setMetricTypeFilter: () => {
+            actions.loadSlowestQueries()
+        },
+        setExceptionCodeFilter: () => {
             actions.loadSlowestQueries()
         },
     })),

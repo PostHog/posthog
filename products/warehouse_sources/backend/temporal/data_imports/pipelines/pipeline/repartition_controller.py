@@ -124,18 +124,25 @@ async def maybe_flag_for_repartition(
     job: ExternalDataJob,
     delta_table: deltalake.DeltaTable,
     logger: FilteringBoundLogger,
+    *,
+    enabled: bool | None = None,
 ) -> None:
     """Measure partition sizes and, if over budget, record a `repartition_pending` target.
 
     Always records `max_partition_bytes` for observability (even when the controller is disabled or in
     cooldown). Setting the pending target is gated by the feature flag; the rewrite itself happens on
     the next run. Never raises — detection must not break post-load.
+
+    Pass `enabled` when the caller has already evaluated the rollout flag for this schema (each
+    evaluation is a `Team.objects.get()` plus a PostHog API call) to avoid re-evaluating it here; when
+    omitted it is evaluated lazily, only once the table is confirmed over budget.
     """
     try:
         partition_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
         if not partition_bytes:
             await logger.adebug(
-                "repartition: skipped, no partition measurements in the delta log", schema_id=str(schema.id)
+                f"repartition: skipped, no partition measurements in the delta log schema_id={schema.id}",
+                schema_id=str(schema.id),
             )
             return
 
@@ -145,7 +152,8 @@ async def maybe_flag_for_repartition(
         budget = target_partition_bytes()
         if max_bytes <= budget:
             await logger.adebug(
-                "repartition: not needed, largest partition within budget",
+                f"repartition: not needed, largest partition within budget schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={budget} partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
@@ -153,9 +161,12 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        if not await asyncio.to_thread(is_auto_repartition_enabled, schema):
+        if enabled is None:
+            enabled = await asyncio.to_thread(is_auto_repartition_enabled, schema)
+        if not enabled:
             await logger.adebug(
-                "repartition: over budget but skipped, controller disabled by feature flag",
+                f"repartition: over budget but skipped, controller disabled by feature flag "
+                f"schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
@@ -164,7 +175,8 @@ async def maybe_flag_for_repartition(
 
         if schema.repartition_pending is not None:
             await logger.adebug(
-                "repartition: over budget but already queued for the next run",
+                f"repartition: over budget but already queued for the next run schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={budget} repartition_pending={schema.repartition_pending}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
@@ -175,7 +187,9 @@ async def maybe_flag_for_repartition(
         cooldown_remaining = _cooldown_seconds_remaining(schema)
         if cooldown_remaining > 0:
             await logger.adebug(
-                "repartition: over budget but skipped, in post-repartition cooldown",
+                f"repartition: over budget but skipped, in post-repartition cooldown schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={budget} last_repartition_at={schema.last_repartition_at} "
+                f"cooldown_seconds_remaining={int(cooldown_remaining)}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
@@ -193,7 +207,10 @@ async def maybe_flag_for_repartition(
             props.update({"max_partition_bytes_before": max_bytes, "reason": reason})
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
             await logger.adebug(
-                "repartition: over budget but skipped, no finer partitioning target available",
+                f"repartition: over budget but skipped, no finer partitioning target available "
+                f"schema_id={schema.id} reason={reason} max_partition_bytes={max_bytes} budget_bytes={budget} "
+                f"partition_mode={schema.partition_mode} partition_format={schema.partition_format} "
+                f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
                 reason=reason,
                 max_partition_bytes=max_bytes,
@@ -221,7 +238,9 @@ async def maybe_flag_for_repartition(
         )
         await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_flagged", props)
         await logger.adebug(
-            "repartition: flagged for next run",
+            f"repartition: flagged for next run schema_id={schema.id} max_partition_bytes={max_bytes} "
+            f"budget_bytes={budget} target_mode={target.partition_mode} target_format={target.partition_format} "
+            f"target_count={target.partition_count} target_size={target.partition_size}",
             schema_id=str(schema.id),
             max_partition_bytes=max_bytes,
             budget_bytes=budget,
@@ -232,5 +251,5 @@ async def maybe_flag_for_repartition(
         )
     except Exception as e:
         # Detection is best-effort; never fail post-load over it.
-        await logger.aexception("repartition: detection failed", schema_id=str(schema.id))
+        await logger.aexception(f"repartition: detection failed schema_id={schema.id}", schema_id=str(schema.id))
         capture_exception(e)

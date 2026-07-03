@@ -249,7 +249,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
                 loading={isLoading || manualLinkIsLoading}
-                disabledReason={disabledReason || (!canGoNext && 'You cant click next yet')}
+                disabledReason={disabledReason || (!canGoNext && 'Finish this step to continue')}
                 type="primary"
                 center
                 onClick={() => onSubmit()}
@@ -267,7 +267,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         center
                         data-attr="source-modal-back-button"
                         onClick={onBack}
-                        disabledReason={!canGoBack && 'You cant go back from here'}
+                        disabledReason={!canGoBack && "You can't go back from here"}
                     >
                         Back
                     </LemonButton>

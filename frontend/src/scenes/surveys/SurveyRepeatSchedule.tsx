@@ -10,6 +10,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
+import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -199,13 +200,11 @@ function SurveyIterationOptions(): JSX.Element {
 export function SurveyRepeatSchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
 
-    const canSurveyBeRepeated = Boolean(
-        survey.conditions?.events?.repeatedActivation && survey.conditions?.events?.values?.length > 0
-    )
+    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
 
     return (
         <div className="mt-4">
-            {canSurveyBeRepeated ? (
+            {repeatsOnEveryEvent ? (
                 <span className="font-medium">
                     <h3 className="mb-0">How often should we show this survey to a person?</h3>
                     <IconInfo className="mr-0.5" /> This survey is displayed whenever the&nbsp;

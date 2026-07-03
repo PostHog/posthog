@@ -47,6 +47,14 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'retention', label: 'Retention' },
 ]
 
+const EXCEPTION_CODE_OPTIONS = [
+    { value: '', label: 'All exit codes' },
+    { value: '307', label: '307 (bytes)' },
+    { value: '159', label: '159 (timeout)' },
+    { value: '241', label: '241 (memory)' },
+    { value: '202', label: '202 (cluster busy)' },
+]
+
 // Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
 // mirroring how the Duration column sums total_duration_ms over the group.
 const groupBytes = (item: SlowestQuery): number =>
@@ -142,6 +150,7 @@ export function QueryPerformance(): JSX.Element {
         teamIdFilter,
         experimentIdFilter,
         metricTypeFilter,
+        exceptionCodeFilter,
     } = useValues(queryPerformanceLogic)
     const {
         setSearch,
@@ -151,6 +160,7 @@ export function QueryPerformance(): JSX.Element {
         setTeamIdFilter,
         setExperimentIdFilter,
         setMetricTypeFilter,
+        setExceptionCodeFilter,
     } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
@@ -522,6 +532,13 @@ export function QueryPerformance(): JSX.Element {
                                         value={metricTypeFilter}
                                         onChange={(value) => setMetricTypeFilter(value ?? '')}
                                         options={METRIC_TYPE_OPTIONS}
+                                        className="w-44"
+                                    />
+                                    <LemonSelect
+                                        size="small"
+                                        value={exceptionCodeFilter}
+                                        onChange={(value) => setExceptionCodeFilter(value ?? '')}
+                                        options={EXCEPTION_CODE_OPTIONS}
                                         className="w-44"
                                     />
                                     <LemonButton
