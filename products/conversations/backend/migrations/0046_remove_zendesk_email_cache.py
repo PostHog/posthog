@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0043_zendesk_ticket_uniq"),
+        ("conversations", "0045_zendesk_ticket_uniq"),
     ]
 
     operations = [

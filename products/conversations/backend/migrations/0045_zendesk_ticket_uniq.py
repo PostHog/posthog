@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("conversations", "0042_zendesk_import"),
+        ("conversations", "0044_zendesk_import"),
     ]
 
     operations = [
