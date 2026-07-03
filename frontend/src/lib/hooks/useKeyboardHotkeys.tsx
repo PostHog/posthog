@@ -1,6 +1,7 @@
 import { DependencyList } from 'react'
 
 import { useEventListener } from 'lib/hooks/useEventListener'
+import posthog from 'lib/posthog-typed'
 
 import { HotKey } from '~/types'
 
@@ -31,6 +32,24 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
 }
 
 const exceptions = ['.hotkey-block', '.hotkey-block *']
+
+function formatTriggeredKeybind(event: KeyboardEvent, key: string): string {
+    const parts: string[] = []
+    if (event.metaKey) {
+        parts.push('command')
+    }
+    if (event.ctrlKey) {
+        parts.push('ctrl')
+    }
+    if (event.altKey) {
+        parts.push('option')
+    }
+    if (event.shiftKey) {
+        parts.push('shift')
+    }
+    parts.push(key)
+    return parts.join('+')
+}
 
 /**
  *
@@ -73,6 +92,12 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                 if (normalizedKey === relevantKey) {
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
+                    }
+                    if (!event.repeat) {
+                        posthog.capture('keybind triggered', {
+                            keybind: formatTriggeredKeybind(event, normalizedKey),
+                            mechanism: 'hotkey',
+                        })
                     }
                     hotkey.action(event)
                     break

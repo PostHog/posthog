@@ -70,6 +70,7 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
         keybind: formatKeybind(triggeredKeybind),
         interaction: shortcut.interaction,
         scope: shortcut.scope ?? 'global',
+        mechanism: 'shortcut',
     })
 
     if (shortcut.interaction === 'click') {
