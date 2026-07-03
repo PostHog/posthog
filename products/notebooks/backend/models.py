@@ -183,9 +183,6 @@ class KernelRuntime(UUIDTModel):
 
 class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     """A single execution of a revamped-notebooks (SQLV2) node.
-
-    The callback endpoint upserts this row with the result envelope; the SSE
-    endpoint polls it until terminal. Also serves as the node's last-result store.
     The primary key is the run_id referenced by the run/callback/stream endpoints.
     """
 
