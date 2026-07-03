@@ -16,7 +16,13 @@ import {
 import type { MasterFailureGroupApi, RepoOverviewApi, RunFailureLogsApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
+import {
+    PullRequestRow,
+    STUCK_AFTER_DAYS,
+    engineeringAnalyticsLogic,
+    isStuck,
+    loaderStatusFromError,
+} from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -120,22 +126,43 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         overview: [
             null as RepoOverviewApi | null,
             {
-                loadOverview: async (): Promise<RepoOverviewApi> =>
-                    await engineeringAnalyticsRepoOverview(projectId(), {
-                        date_from: values.dateFrom ?? undefined,
-                        date_to: values.dateTo ?? undefined,
-                        source_id: values.sourceId ?? undefined,
-                    }),
+                loadOverview: async (): Promise<RepoOverviewApi | null> => {
+                    try {
+                        return await engineeringAnalyticsRepoOverview(projectId(), {
+                            date_from: values.dateFrom ?? undefined,
+                            date_to: values.dateTo ?? undefined,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                    } catch (error) {
+                        // "No GitHub source" is a deliberate 400, not a bug — swallow it so it isn't
+                        // captured as an exception (the shared `notConnected` state from
+                        // engineeringAnalyticsLogic still renders the connect prompt). Real failures
+                        // re-throw so they set `overviewFailed` and surface honestly.
+                        if (loaderStatusFromError(error) === 'notConnected') {
+                            return null
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         masterFailures: [
             [] as MasterFailureGroupApi[],
             {
-                loadMasterFailures: async (): Promise<MasterFailureGroupApi[]> =>
-                    await engineeringAnalyticsMasterFailures(projectId(), {
-                        date_from: MASTER_FAILURES_WINDOW,
-                        source_id: values.sourceId ?? undefined,
-                    }),
+                loadMasterFailures: async (): Promise<MasterFailureGroupApi[]> => {
+                    try {
+                        return await engineeringAnalyticsMasterFailures(projectId(), {
+                            date_from: MASTER_FAILURES_WINDOW,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                    } catch (error) {
+                        // See loadOverview: the not-connected 400 is expected, not an exception.
+                        if (loaderStatusFromError(error) === 'notConnected') {
+                            return []
+                        }
+                        throw error
+                    }
+                },
             },
         ],
         // 'unavailable' marks a failed fetch so we don't retry on every expand.

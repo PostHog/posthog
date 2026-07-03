@@ -58,6 +58,67 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
     })
 
+    // GitHub's account/token fields are optional in the connector schema (the backend validates
+    // credentials), so form validation alone lets the user click Next with nothing linked and loop
+    // on credential errors. canGoNext must block step 2 until an integration/token and repo are set.
+    describe('canGoNext for the GitHub source', () => {
+        // canGoNext reads only the connector name and the form payload, so the field schema is
+        // irrelevant here — the wizard's real GitHub config leaves the account/token fields optional.
+        const githubSource = {
+            name: 'Github',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const mountAtConfigStep = (): { logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void } => {
+            const logic = sourceWizardLogic({ availableSources: { Github: githubSource } })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(githubSource)
+            logic.actions.setStep(2)
+            return { logic, unmount }
+        }
+
+        it('stays blocked until an integration is linked and a repository is chosen', () => {
+            const { logic, unmount } = mountAtConfigStep()
+            try {
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'auth_method'], { selection: 'oauth' })
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'repository'], '')
+                expect(logic.values.canGoNext).toBe(false)
+
+                // Repository chosen but no account linked — still blocked.
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'repository'], 'PostHog/posthog')
+                expect(logic.values.canGoNext).toBe(false)
+
+                // Account linked — Next unlocks.
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'auth_method'], {
+                    selection: 'oauth',
+                    github_integration_id: 42,
+                })
+                expect(logic.values.canGoNext).toBe(true)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('gates the personal-access-token path on a token', () => {
+            const { logic, unmount } = mountAtConfigStep()
+            try {
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'repository'], 'PostHog/posthog')
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'auth_method'], { selection: 'pat' })
+                expect(logic.values.canGoNext).toBe(false)
+
+                logic.actions.setSourceConnectionDetailsValue(['payload', 'auth_method'], {
+                    selection: 'pat',
+                    personal_access_token: 'ghp_example',
+                })
+                expect(logic.values.canGoNext).toBe(true)
+            } finally {
+                unmount()
+            }
+        })
+    })
+
     describe('getDatabaseSchemaPayload', () => {
         it('includes the selected access method for schema discovery', () => {
             expect(
