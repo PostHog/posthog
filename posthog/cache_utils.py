@@ -9,7 +9,7 @@ from django.utils.timezone import now
 import orjson
 from django_redis.serializers.base import BaseSerializer
 
-from posthog.renderers import orjson_default
+from posthog.json_encoders import orjson_default
 from posthog.settings import TEST
 
 P = ParamSpec("P")

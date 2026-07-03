@@ -55,9 +55,9 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.json_encoders import orjson_default
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
-from posthog.renderers import orjson_default
 from posthog.security.url_validation import has_authority_bypass_chars
 
 tracer = trace.get_tracer(__name__)
