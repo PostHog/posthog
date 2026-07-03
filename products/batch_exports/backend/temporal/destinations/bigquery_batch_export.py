@@ -1219,9 +1219,10 @@ async def run_consumer(
 
         await all_consumers_done.wait()
 
-        # Only merge to final table if the upstream producer
-        # has not failed.
-        producer_failed = producer_task.exception() is not None
+        # Only merge to final table if the upstream producer has not failed and
+        # has not been cancelled. Upstream producer must be done by now as it
+        # is part of the termination condition for consumers.
+        producer_failed = producer_task.cancelled() or producer_task.exception() is not None
 
         if merge and not producer_failed:
             async with merge_semaphore:
