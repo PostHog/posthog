@@ -323,6 +323,31 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
+            # Schema drift on the incremental field: the column was altered to a type that no longer
+            # matches the stored `incremental_field_type` (e.g. a timestamp column changed to text),
+            # so `_build_query` emits `WHERE "col" > '<timestamp-literal>'` and Postgres rejects it
+            # with "operator does not exist: text > timestamp without time zone". Deterministic until
+            # the customer reconfigures the incremental field. MUST precede the generic "does not
+            # exist" key below so this actionable message wins as `friendly_errors[0]` instead of that
+            # key's `None`. Match only the stable operator fragment and exclude the volatile types.
+            "operator does not exist": (
+                "The incremental field configured for one of your synced tables no longer matches the "
+                "column's type in your database — for example the column was changed to text after the "
+                'sync was set up (PostgreSQL reported "operator does not exist"). Edit the table\'s sync '
+                "settings to reconfigure the incremental field (or choose a different sync type), then "
+                "re-enable the sync."
+            ),
+            # Proactive twin of the reactive "operator does not exist" key above. Raised by
+            # `_validate_incremental_field_type_matches_column` at sync setup when the stored
+            # incremental field type no longer maps to the live column type, so the sync fails up front
+            # with this message instead of letting the mismatched comparison reach Postgres. The stable
+            # fragment appears in both the raw activity `str(e)` and the Temporal-wrapped form.
+            "stored incremental field type no longer matches the column type": (
+                "The incremental field configured for one of your synced tables no longer matches the "
+                "column's type in your database (the column type was changed after the sync was set up). "
+                "Edit the table's sync settings to reconfigure the incremental field (or choose a "
+                "different sync type), then re-enable the sync."
+            ),
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,

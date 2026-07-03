@@ -18,6 +18,20 @@ class XminUnsupportedError(Exception):
     """
 
 
+class IncrementalFieldTypeMismatchError(Exception):
+    """Raised when the stored incremental field type no longer maps to the live column type.
+
+    The incremental field type is captured when a sync is configured and then persisted. If the
+    column is later altered to an incompatible type (e.g. a timestamp column changed to text),
+    `_build_query` still emits a literal of the stored type and Postgres rejects the comparison
+    with "operator does not exist: text > timestamp ...", permanently halting the sync behind a
+    cryptic error. Detecting the drift up front lets us fail with an actionable message. The stable
+    "stored incremental field type no longer matches the column type" fragment is listed in
+    `PostgresSource.get_non_retryable_errors` so the failure is non-retryable at both the raw
+    activity layer and the Temporal-wrapped workflow layer.
+    """
+
+
 class PostHogDatabaseConnectionError(Exception):
     """Raised when loading sync metadata from PostHog's own database fails to connect.
 

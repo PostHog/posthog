@@ -77,7 +77,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_psycopg_row_filter_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    IncrementalFieldTypeMismatchError,
+    XminUnsupportedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
@@ -2639,6 +2642,59 @@ def _project_table_columns(
     return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
 
 
+def _incremental_type_category(field_type: IncrementalFieldType) -> Optional[str]:
+    """Group incremental field types by the literal category `_build_query` compares against.
+
+    Postgres accepts implicit casts within a category (e.g. `date > timestamp`) but not across
+    categories or against a non-comparable column (e.g. `text > timestamp`), which is the drift we
+    guard for. Returns `None` for synthetic cursors (xmin) that don't map to a real column type.
+    """
+    if field_type in (IncrementalFieldType.Timestamp, IncrementalFieldType.DateTime, IncrementalFieldType.Date):
+        return "temporal"
+    if field_type in (IncrementalFieldType.Integer, IncrementalFieldType.Numeric):
+        return "numeric"
+    return None
+
+
+def _validate_incremental_field_type_matches_column(
+    table: Table[PostgreSQLColumn],
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    schema: str,
+    table_name: str,
+) -> None:
+    """Fail fast when the stored incremental field type no longer matches the live column type.
+
+    `filter_postgres_incremental_fields` only ever offers timestamp/date/integer columns, so the
+    stored `incremental_field_type` was valid when configured. If the column is later altered to an
+    incompatible type, `_build_query` emits a literal of the stored type and Postgres rejects the
+    comparison with "operator does not exist: <type> > <type>", permanently halting the sync behind
+    a cryptic error. Re-validating the persisted type against the live column here surfaces an
+    actionable message instead.
+    """
+    column = next((c for c in table.columns if c.name == incremental_field), None)
+    if column is None:
+        # Column renamed or dropped surfaces its own "column ... does not exist" error downstream;
+        # don't second-guess it here (avoids false positives from quoting/case-sensitivity quirks).
+        return
+
+    persisted_category = _incremental_type_category(incremental_field_type)
+    if persisted_category is None:
+        return
+
+    live_matches = filter_postgres_incremental_fields([(column.name, column.data_type, column.nullable)])
+    live_type = live_matches[0][1] if live_matches else None
+    live_category = _incremental_type_category(live_type) if live_type is not None else None
+
+    if live_category != persisted_category:
+        raise IncrementalFieldTypeMismatchError(
+            f'The stored incremental field type no longer matches the column type: "{incremental_field}" '
+            f'on {schema}.{table_name} is configured as "{incremental_field_type}", but the column type in '
+            f'your database is now "{column.data_type}". Reconfigure the incremental field for this table '
+            "(or choose a different sync type), then re-enable the sync."
+        )
+
+
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
@@ -2829,6 +2885,22 @@ def postgres_source(
 
                             table = _project_table_columns(full_table, retained_columns)
                             logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                            # Re-validate the persisted incremental field type against the live column
+                            # type before building any query. Catches schema drift (e.g. a timestamp
+                            # column later altered to text) up front with an actionable error instead of
+                            # letting `_build_query` emit a mismatched comparison Postgres rejects with a
+                            # cryptic "operator does not exist". xmin is a synthetic cursor with no real
+                            # column type, so it's excluded.
+                            if (
+                                should_use_incremental_field
+                                and not is_xmin
+                                and incremental_field
+                                and incremental_field_type is not None
+                            ):
+                                _validate_incremental_field_type_matches_column(
+                                    full_table, incremental_field, incremental_field_type, schema, table_name
+                                )
 
                             inner_query_with_limit = _build_query(
                                 schema,

@@ -28,11 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    IncrementalFieldTypeMismatchError,
     PostHogDatabaseConnectionError,
     XminUnsupportedError,
 )
@@ -88,6 +90,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _get_table,
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
+    _incremental_type_category,
     _is_connection_dropped_error,
     _is_connection_limit_error,
     _is_dropped_or_connect_timeout,
@@ -108,6 +111,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
     _tunnel_with_handshake_translation,
+    _validate_incremental_field_type_matches_column,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_foreign_keys,
@@ -398,6 +402,36 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "TLS ALPN rejection error should surface an actionable message"
         assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message: schema drift makes `_build_query` compare a timestamp literal
+            # against a column altered to text.
+            "operator does not exist: text > timestamp without time zone",
+            # Temporal-wrapped message carrying the class name.
+            "OperationalError: operator does not exist: text > timestamp without time zone",
+            # Proactive early-failure raised at setup by `_validate_incremental_field_type_matches_column`,
+            # in both raw and wrapped forms.
+            'The stored incremental field type no longer matches the column type: "updatedAt" on '
+            'api.project_tasks is configured as "timestamp", but the column type in your database is now "text".',
+            "IncrementalFieldTypeMismatchError: The stored incremental field type no longer matches the column type",
+        ],
+    )
+    def test_incremental_field_type_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Incremental field type mismatch should be non-retryable: {error_msg}"
+
+    def test_operator_does_not_exist_prefers_actionable_message_over_generic_key(self, source):
+        # The generic "does not exist" key (mapped to None) also substring-matches an
+        # "operator does not exist" error, so the actionable key must come first — production selects
+        # friendly_errors[0] and skips it entirely when that first match is None.
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "operator does not exist: text > timestamp without time zone"
+        matches = [reason for pattern, reason in non_retryable.items() if pattern in error_msg]
+        assert matches[0] is not None, "The actionable message must win over the generic 'does not exist' key"
+        assert "reconfigure the incremental field" in matches[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -865,6 +899,73 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
+
+def _table_with_column(column_name: str, data_type: str) -> Table:
+    return Table(
+        name="project_tasks",
+        parents=("api",),
+        columns=[PostgreSQLColumn(name=column_name, data_type=data_type, nullable=True)],
+        type="table",
+    )
+
+
+class TestValidateIncrementalFieldTypeMatchesColumn:
+    @pytest.mark.parametrize(
+        "data_type,incremental_field_type",
+        [
+            # Configured type still maps to the live column type — including cross-type-but-same-category
+            # cases Postgres compares fine via implicit cast (date literal vs timestamp column, etc.).
+            ("timestamp without time zone", IncrementalFieldType.Timestamp),
+            ("timestamp with time zone", IncrementalFieldType.Timestamp),
+            ("date", IncrementalFieldType.Timestamp),
+            ("timestamp without time zone", IncrementalFieldType.Date),
+            ("bigint", IncrementalFieldType.Integer),
+            ("smallint", IncrementalFieldType.Integer),
+            ("integer", IncrementalFieldType.Integer),
+        ],
+    )
+    def test_compatible_types_do_not_raise(self, data_type, incremental_field_type):
+        table = _table_with_column("updatedAt", data_type)
+        _validate_incremental_field_type_matches_column(
+            table, "updatedAt", incremental_field_type, "api", "project_tasks"
+        )
+
+    @pytest.mark.parametrize(
+        "data_type,incremental_field_type",
+        [
+            # The reported drift: a timestamp incremental field whose column was altered to text.
+            ("text", IncrementalFieldType.Timestamp),
+            ("character varying", IncrementalFieldType.Timestamp),
+            ("text", IncrementalFieldType.Integer),
+            # Cross-category drift: temporal cursor now points at a numeric column and vice versa.
+            ("bigint", IncrementalFieldType.Timestamp),
+            ("timestamp without time zone", IncrementalFieldType.Integer),
+        ],
+    )
+    def test_incompatible_types_raise_actionable_error(self, data_type, incremental_field_type):
+        table = _table_with_column("updatedAt", data_type)
+        with pytest.raises(IncrementalFieldTypeMismatchError, match="no longer matches the column type"):
+            _validate_incremental_field_type_matches_column(
+                table, "updatedAt", incremental_field_type, "api", "project_tasks"
+            )
+
+    def test_missing_column_is_not_flagged(self):
+        # A renamed/dropped column surfaces its own "column does not exist" error downstream; the
+        # validator must not raise its own (misleading) mismatch error for it.
+        table = _table_with_column("createdAt", "timestamp without time zone")
+        _validate_incremental_field_type_matches_column(
+            table, "updatedAt", IncrementalFieldType.Timestamp, "api", "project_tasks"
+        )
+
+    def test_xid_cursor_is_skipped(self):
+        # xmin is a synthetic cursor with no real column type — it must never be flagged even against
+        # an unrelated column type.
+        table = _table_with_column("updatedAt", "text")
+        assert _incremental_type_category(IncrementalFieldType.XID) is None
+        _validate_incremental_field_type_matches_column(
+            table, "updatedAt", IncrementalFieldType.XID, "api", "project_tasks"
+        )
 
 
 def _raise_eof() -> None:
