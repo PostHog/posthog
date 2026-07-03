@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
@@ -166,7 +166,7 @@ def interval_spec(interval: Union[IntervalType, str, None]) -> IntervalSpec:
         key = interval.value
     else:
         key = interval.lower()
-    spec = INTERVAL_SPECS.get(key)  # type: ignore[arg-type]
+    spec = INTERVAL_SPECS.get(cast(IntervalLiteral, key))
     if spec is None:
         raise UnsupportedIntervalError(f"Interval {interval!r} is unsupported")
     return spec
