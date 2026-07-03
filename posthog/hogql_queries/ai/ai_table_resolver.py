@@ -153,3 +153,14 @@ AI_EVENT_NAMES = frozenset(
         "$ai_evaluation",
     }
 )
+
+# Event types that make up a trace's shape. Ordered for deterministic query output;
+# excludes $ai_evaluation, which is scored metadata rather than a trace-structure event.
+TRACE_EVENT_NAMES: tuple[str, ...] = (
+    "$ai_span",
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_metric",
+    "$ai_feedback",
+    "$ai_trace",
+)

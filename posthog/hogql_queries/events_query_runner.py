@@ -209,10 +209,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             checker.visit(expr)
 
     def _heavy_ai_properties_expr(self, heavy_props: list[EventPropertyFilter]) -> ast.Expr:
-        # Heavy AI content ($ai_input, $ai_output_choices, ...) is stripped from
-        # events.properties at ingestion and lives on posthog.ai_events, so filters on it
-        # match event UUIDs against that table instead. The bounds mirror the outer query's
-        # timestamp window (see the "timestamps" section of to_query) to prune the scan.
+        # Bounds mirror the "timestamps" window in to_query so the ai_events scan is pruned.
         before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
         date_to = relative_date_parse(before, self.team.timezone_info)
         after = self.query.after or "-24h"

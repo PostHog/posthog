@@ -24,6 +24,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import TRACE_EVENT_NAMES
 from posthog.hogql_queries.ai.heavy_property_filters import heavy_ai_properties_in_expr, split_heavy_ai_property_filters
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
@@ -38,16 +39,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
-# Event types that participate in trace selection, aggregation, and filtering.
-TRACE_EVENT_NAMES: tuple[str, ...] = (
-    "$ai_span",
-    "$ai_generation",
-    "$ai_embedding",
-    "$ai_metric",
-    "$ai_feedback",
-    "$ai_trace",
-)
-_TRACE_EVENT_NAMES_SQL = ", ".join(f"'{name}'" for name in TRACE_EVENT_NAMES)
+
+def _trace_event_names_expr() -> ast.Tuple:
+    return ast.Tuple(exprs=[ast.Constant(value=name) for name in TRACE_EVENT_NAMES])
 
 
 class TracesQueryDateRange(QueryDateRange):
@@ -137,7 +131,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         min(timestamp) as first_ts,
                         max(timestamp) as last_ts
                     FROM events
-                    WHERE event IN ({_TRACE_EVENT_NAMES_SQL})
+                    WHERE event IN {{trace_event_names}}
                       AND {{conditions}}
                     GROUP BY trace_id
                     HAVING min(timestamp) <= {{unbuffered_date_to}}
@@ -152,6 +146,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 query_type="TracesQuery_TraceIds",
                 query=trace_ids_query,
                 placeholders={
+                    "trace_event_names": _trace_event_names_expr(),
                     "conditions": self._get_subquery_filter(),
                     "limit": ast.Constant(value=pagination_limit),
                     "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
@@ -200,6 +195,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             query_result = self.paginator.execute_hogql_query(
                 query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={
+                    "trace_event_names": _trace_event_names_expr(),
                     "filter_conditions": self._get_where_clause(date_range=narrowed_date_range),
                 },
                 team=self.team,
@@ -254,7 +250,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
 
         query = parse_select(
-            f"""
+            """
             SELECT
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
@@ -356,8 +352,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     )
                 ) AS tools
             FROM events
-            WHERE event IN ({_TRACE_EVENT_NAMES_SQL})
-              AND {{filter_conditions}}
+            WHERE event IN {trace_event_names}
+              AND {filter_conditions}
             GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
@@ -547,9 +543,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 for prop in regular_props:
                     property_filters.append(property_to_expr(prop, self.team))
                 if heavy_ai_props:
-                    # Heavy AI content is stripped from events.properties at ingestion, so
-                    # match trace IDs against the ai_events content columns instead. A trace
-                    # matches when any of its events in the window carries matching content.
+                    # A trace matches when any of its events in the window carries the content.
                     property_filters.append(
                         heavy_ai_properties_in_expr(
                             anchor=ast.Field(chain=["properties", "$ai_trace_id"]),
