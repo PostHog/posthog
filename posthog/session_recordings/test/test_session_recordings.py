@@ -1425,8 +1425,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
             (
                 "too_many_recordings",
-                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(21)]},
-                "Cannot process more than 20 recordings at once",
+                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(101)]},
+                "Cannot process more than 100 recordings at once",
             ),
         ]
     )

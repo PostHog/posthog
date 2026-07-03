@@ -132,7 +132,8 @@ from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
-MAX_RECORDINGS_PER_BULK_ACTION = 20
+# Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per bulk action.
+MAX_RECORDINGS_PER_BULK_ACTION = 100
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",

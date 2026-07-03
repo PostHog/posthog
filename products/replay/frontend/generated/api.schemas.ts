@@ -313,9 +313,9 @@ export interface PatchedSessionRecordingApi {
 
 export interface SessionRecordingBulkDeleteRequestApi {
     /**
-     * Session IDs of the recordings to delete (max 20 per call).
+     * Session IDs of the recordings to delete (max 100 per call).
      * @minItems 1
-     * @maxItems 20
+     * @maxItems 100
      */
     session_recording_ids: string[]
     /**

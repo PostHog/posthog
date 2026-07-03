@@ -195,10 +195,10 @@ tools:
             idempotent: true
         title: Bulk delete session recordings
         description: >
-            Delete a batch of session recordings by session ID, up to 20 per call. Deletion is permanent and cannot be
+            Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be
             undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more
             than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in
-            batches of 20. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much
+            batches of 100. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much
             faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal
             when some recordings were already deleted or never existed.
     session-recordings-list:

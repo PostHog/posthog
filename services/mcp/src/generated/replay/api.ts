@@ -140,14 +140,14 @@ export const SessionRecordingsBulkDeleteCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 20
+export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 100
 
 export const SessionRecordingsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
     session_recording_ids: zod
         .array(zod.string())
         .min(1)
         .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
-        .describe('Session IDs of the recordings to delete (max 20 per call).'),
+        .describe('Session IDs of the recordings to delete (max 100 per call).'),
     date_from: zod
         .string()
         .nullish()
