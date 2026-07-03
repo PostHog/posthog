@@ -169,6 +169,14 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_array(self, node: ast.Array) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
+    def visit_array_access(self, node: ast.ArrayAccess) -> bool:
+        # an element read out of an array is not one of the recognized timestamp fields
+        return False
+
+    def visit_tuple_access(self, node: ast.TupleAccess) -> bool:
+        # an element read out of a tuple is not one of the recognized timestamp fields
+        return False
+
 
 def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
     return IsTimeOrIntervalConstantVisitor(tombstone_string).visit(expr)
@@ -250,6 +258,15 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
     def visit_array(self, node: ast.Array) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> bool:
+        # conservatively treat an array element read as non-constant so the where-clause
+        # extractor leaves the comparison in place instead of pushing it down
+        return False
+
+    def visit_tuple_access(self, node: ast.TupleAccess) -> bool:
+        # conservatively treat a tuple element read as non-constant
+        return False
 
 
 class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
@@ -356,6 +373,12 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_array(self, node: ast.Array) -> bool:
+        return False
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: ast.TupleAccess) -> bool:
         return False
 
 
@@ -487,6 +510,12 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_array(self, node: ast.Array) -> bool:
+        return False
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> bool:
+        return False
+
+    def visit_tuple_access(self, node: ast.TupleAccess) -> bool:
         return False
 
 

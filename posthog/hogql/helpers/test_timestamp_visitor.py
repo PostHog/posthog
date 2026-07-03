@@ -140,6 +140,55 @@ class TestTimestampVisitorTypeCast(unittest.TestCase):
         self.assertEqual(is_simple_timestamp_field_expression(node, _make_hogql_context()), expected)
 
 
+class TestTimestampVisitorArrayAndTupleAccess(unittest.TestCase):
+    """Regression tests for visit_array_access / visit_tuple_access methods.
+
+    Array element reads (`arr[1]`) and tuple element reads (`tup.1`) produce ast.ArrayAccess /
+    ast.TupleAccess nodes that can reach these visitors via the sessions where-clause extractor
+    when they appear as an operand in a WHERE comparison. Before these methods existed the visitors
+    raised NotImplementedError, crashing query execution (and, downstream, subscription exports).
+    """
+
+    @parameterized.expand(
+        [
+            (
+                "IsSimpleTimestampFieldExpressionVisitor",
+                lambda: IsSimpleTimestampFieldExpressionVisitor(_make_hogql_context(), None),
+            ),
+            ("IsTimeOrIntervalConstantVisitor", lambda: IsTimeOrIntervalConstantVisitor(None)),
+            ("IsStartOfDayConstantVisitor", lambda: IsStartOfDayConstantVisitor(None)),
+            ("IsStartOfHourConstantVisitor", lambda: IsStartOfHourConstantVisitor(None)),
+            ("IsEndOfDayConstantVisitor", lambda: IsEndOfDayConstantVisitor(None)),
+            ("IsEndOfHourConstantVisitor", lambda: IsEndOfHourConstantVisitor(None)),
+        ]
+    )
+    def test_array_and_tuple_access_do_not_raise_not_implemented(self, _name: str, make_visitor) -> None:
+        array_access = ast.ArrayAccess(array=ast.Field(chain=["arr"]), property=ast.Constant(value=1))
+        tuple_access = ast.TupleAccess(tuple=ast.Field(chain=["tup"]), index=1)
+        # Should not raise NotImplementedError
+        self.assertFalse(make_visitor().visit(array_access))
+        self.assertFalse(make_visitor().visit(tuple_access))
+
+    @parameterized.expand(
+        [
+            (
+                "is_simple_timestamp_field_expression",
+                lambda n: is_simple_timestamp_field_expression(n, _make_hogql_context()),
+            ),
+            ("is_time_or_interval_constant", lambda n: is_time_or_interval_constant(n)),
+            ("is_start_of_day_constant", lambda n: is_start_of_day_constant(n)),
+            ("is_start_of_hour_constant", lambda n: is_start_of_hour_constant(n)),
+            ("is_end_of_day_constant", lambda n: is_end_of_day_constant(n)),
+            ("is_end_of_hour_constant", lambda n: is_end_of_hour_constant(n)),
+        ]
+    )
+    def test_helper_functions_handle_array_and_tuple_access(self, _name: str, helper_fn) -> None:
+        array_access = ast.ArrayAccess(array=ast.Field(chain=["arr"]), property=ast.Constant(value=1))
+        tuple_access = ast.TupleAccess(tuple=ast.Field(chain=["tup"]), index=1)
+        self.assertFalse(helper_fn(array_access))
+        self.assertFalse(helper_fn(tuple_access))
+
+
 class TestIsTimeOrIntervalConstant(unittest.TestCase):
     @parameterized.expand(
         [
