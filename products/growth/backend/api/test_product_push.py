@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -13,10 +14,13 @@ from posthog.models.project import Project
 
 from products.growth.backend.models import ProductPushCampaign
 
-try:
+if TYPE_CHECKING:
     from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    AccessControl = None
+else:
+    try:
+        from ee.models.rbac.access_control import AccessControl
+    except ImportError:
+        AccessControl = None
 
 
 class TestProductPushCampaignAPI(APIBaseTest):
