@@ -1484,6 +1484,9 @@ importers:
       '@posthog/hogvm-node':
         specifier: workspace:*
         version: link:../rust/common/hogvm/node
+      '@posthog/replay-anonymizer':
+        specifier: workspace:*
+        version: link:../rust/replay-anonymizer-node
       '@posthog/replay-headless':
         specifier: workspace:*
         version: link:../common/replay-headless
