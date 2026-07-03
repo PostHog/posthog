@@ -23,12 +23,8 @@ export class ScrubClient {
         this.url = new URL('/scrub', baseUrl)
     }
 
-    /**
-     * Scrub raw image bytes. Returns the scrubbed bytes, or `null` if the sidecar rejected the input as
-     * undecodable (422 — permanent, skip that image). Throws on transient failure (500/busy/network/timeout)
-     * after retries, or if `signal` aborts, so the caller leaves the Kafka window uncommitted and it replays
-     * (at-least-once). A transient sidecar error is never mistaken for a permanent skip.
-     */
+    /** Scrubbed bytes, or null when the sidecar rejects the input as undecodable (422). Throws on transient
+     *  failure or abort, so the caller can replay. */
     public async scrub(bytes: Buffer, signal?: AbortSignal): Promise<Buffer | null> {
         try {
             return await promiseRetry(

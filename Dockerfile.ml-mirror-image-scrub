@@ -2,7 +2,7 @@
 # Dockerfile.ml-mirror-image-scrub - Session Replay ML-mirror image-scrub sidecar
 #
 # An HTTP service that turns raw image bytes into scrubbed bytes (Stage 1 = sharp-only blur). The
-# plugin-server consumer owns Kafka + S3 and calls this over localhost; it runs as a sidecar container.
+# plugin-server consumer owns Kafka + S3 and calls this over loopback; it runs as a sidecar container.
 #
 # Deliberately NOT the plugin-server workspace build: standalone so its (Stage-2) heavy ML deps stay out
 # of the main image. sharp ships prebuilt libvips; there is no Kafka/S3/ML runtime here in Stage 1.
@@ -17,15 +17,15 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ARG COMMIT_HASH
 RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
-# Production deps only (sharp/libvips prebuilt; kafkajs/ioredis/aws-sdk/tsx are pure JS). Only this
-# package is copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own project root.
-COPY products/replay_vision/services/ml-mirror-image-scrub/package.json products/replay_vision/services/ml-mirror-image-scrub/pnpm-lock.yaml ./
+# Production deps only (sharp ships libvips prebuilt; prom-client/tsx are pure JS). Only this package is
+# copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own project root.
+COPY products/replay_vision/services/ml-mirror-image-scrub-sidecar/package.json products/replay_vision/services/ml-mirror-image-scrub-sidecar/pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     CI=1 pnpm install --prod --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
-COPY products/replay_vision/services/ml-mirror-image-scrub/tsconfig.json ./
-COPY products/replay_vision/services/ml-mirror-image-scrub/src ./src
+COPY products/replay_vision/services/ml-mirror-image-scrub-sidecar/tsconfig.json ./
+COPY products/replay_vision/services/ml-mirror-image-scrub-sidecar/src ./src
 
 RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \

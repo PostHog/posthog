@@ -298,7 +298,7 @@ const config: Config = {
         '/products/agent_platform/packages/',
         // Standalone package outside the pnpm workspace: its deps aren't in the root install, so its own
         // jest job runs these tests, not the frontend one.
-        '/products/replay_vision/services/ml-mirror-image-scrub/',
+        '/products/replay_vision/services/ml-mirror-image-scrub-sidecar/',
     ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files

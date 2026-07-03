@@ -1,8 +1,8 @@
 {
-    "name": "@posthog/ml-mirror-image-scrub",
+    "name": "@posthog/ml-mirror-image-scrub-sidecar",
     "version": "0.0.0",
     "private": true,
-    "description": "replay_vision image-scrub sidecar: an HTTP service that turns raw session-replay image bytes into scrubbed bytes (Stage 1 = sharp-only blur; Stage 2 swaps in the native ML scrub). The plugin-server consumer owns Kafka + S3 and calls this over localhost. Standalone package (not in pnpm-workspace.yaml) so its heavy Stage-2 ML deps never reach the root lockfile or the plugin-server image.",
+    "description": "replay_vision image-scrub sidecar: an HTTP service that turns raw session-replay image bytes into scrubbed bytes (Stage 1 = sharp-only blur; Stage 2 swaps in the native ML scrub). The plugin-server consumer owns Kafka + S3 and calls this over loopback. Standalone package (not in pnpm-workspace.yaml) so its heavy Stage-2 ML deps never reach the root lockfile or the plugin-server image.",
     "type": "module",
     "scripts": {
         "start": "tsx src/server.ts",

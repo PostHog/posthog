@@ -58,8 +58,6 @@ export class ImageBatcher {
         }
     }
 
-    /** Scrub every message with bounded concurrency; skips resolve to null, transient failures reject out
-     *  of here (→ the batch replays). maxBatchScrubMs aborts the whole batch if scrubbing runs long. */
     private async scrubBatch(messages: Message[]): Promise<ScrubbedImage[]> {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), this.options.maxBatchScrubMs)
@@ -107,8 +105,8 @@ export class ImageBatcher {
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
-    /** Write buffered images as one shard + index, then store offsets. On write failure, throws without
-     *  storing offsets or clearing the buffer, so the window replays. */
+    /** Store offsets only after the write lands: a failed write throws with offsets uncommitted, so the
+     *  window replays. */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
