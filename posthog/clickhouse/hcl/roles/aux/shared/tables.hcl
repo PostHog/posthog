@@ -1,5 +1,6 @@
 database "posthog" {
-  table "conversion_goal_attributed_preaggregated" {
+  table "_conversion_goal_attributed_preaggregated_columns" {
+    abstract = true
     column "team_id" {
       type = "Int64"
     }
@@ -56,6 +57,779 @@ database "posthog" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
     }
+  }
+  table "_experiment_metric_events_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "entity_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "numeric_value" {
+      type    = "Float64"
+      default = "0"
+    }
+    column "steps" {
+      type    = "Array(UInt8)"
+      default = "[]"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+  }
+  table "_marketing_conversions_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "conversion_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "conversion_math_value" {
+      type = "Float64"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "campaign_name" {
+      type = "String"
+    }
+    column "source_name" {
+      type = "String"
+    }
+    column "medium_name" {
+      type = "String"
+    }
+    column "content_name" {
+      type = "String"
+    }
+    column "term_name" {
+      type = "String"
+    }
+    column "referring_domain_name" {
+      type = "String"
+    }
+    column "gclid_name" {
+      type = "String"
+    }
+    column "fbclid_name" {
+      type = "String"
+    }
+    column "gad_source_name" {
+      type = "String"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+  }
+  table "_marketing_costs_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "source_id" {
+      type = "String"
+    }
+    column "source_name" {
+      type = "String"
+    }
+    column "grain" {
+      type = "LowCardinality(String)"
+    }
+    column "match_key" {
+      type = "String"
+    }
+    column "campaign_id" {
+      type = "String"
+    }
+    column "campaign_name" {
+      type = "String"
+    }
+    column "ad_group_id" {
+      type = "String"
+    }
+    column "ad_group_name" {
+      type = "String"
+    }
+    column "ad_id" {
+      type = "String"
+    }
+    column "ad_name" {
+      type = "String"
+    }
+    column "cost_date" {
+      type = "Date"
+    }
+    column "cost" {
+      type = "Float64"
+    }
+    column "clicks" {
+      type = "Float64"
+    }
+    column "impressions" {
+      type = "Float64"
+    }
+    column "reported_conversions" {
+      type = "Float64"
+    }
+    column "reported_conversion_value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+  }
+  table "_marketing_touchpoints_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "touchpoint_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "campaign_name" {
+      type = "String"
+    }
+    column "source_name" {
+      type = "String"
+    }
+    column "medium_name" {
+      type = "String"
+    }
+    column "content_name" {
+      type = "String"
+    }
+    column "term_name" {
+      type = "String"
+    }
+    column "referring_domain_name" {
+      type = "String"
+    }
+    column "gclid_name" {
+      type = "String"
+    }
+    column "fbclid_name" {
+      type = "String"
+    }
+    column "gad_source_name" {
+      type = "String"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+  }
+  table "_session_replay_features_columns" {
+    abstract = true
+    column "session_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "min_first_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "max_last_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    column "event_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "mouse_position_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "mouse_sum_x" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_sum_x_squared" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_sum_y" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_sum_y_squared" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_distance_traveled" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_direction_change_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "mouse_velocity_sum" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_velocity_sum_of_squares" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "mouse_velocity_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "scroll_event_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "total_scroll_magnitude" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "scroll_direction_reversal_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "rapid_scroll_reversal_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "scroll_to_top_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "click_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "keypress_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "mouse_activity_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "rage_click_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "dead_click_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "backspace_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "inter_action_gap_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "inter_action_gap_sum_ms" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "inter_action_gap_sum_of_squares_ms" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "max_idle_gap_ms" {
+      type = "SimpleAggregateFunction(max, Float64)"
+    }
+    column "long_idle_gap_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "quick_back_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "page_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "unique_url_count" {
+      type = "AggregateFunction(uniqCombined(12), String)"
+    }
+    column "login_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "signup_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "checkout_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "cart_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "billing_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "settings_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "account_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "error_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "not_found_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "admin_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "dashboard_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "onboarding_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "cancel_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "refund_path_visit_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "console_error_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "console_error_after_click_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "console_warn_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "network_request_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "network_failed_request_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "network_4xx_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "network_5xx_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "network_request_duration_sum" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "network_request_duration_sum_of_squares" {
+      type = "SimpleAggregateFunction(sum, Float64)"
+    }
+    column "network_request_duration_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "mutation_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "viewport_resize_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "touch_event_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "max_scroll_y" {
+      type = "SimpleAggregateFunction(max, Float64)"
+    }
+    column "unique_click_target_count" {
+      type = "AggregateFunction(uniqCombined(12), Int64)"
+    }
+    column "unique_form_field_count" {
+      type = "AggregateFunction(uniqCombined(12), Int64)"
+    }
+    column "text_selection_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "selection_copy_count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "is_deleted" {
+      type    = "SimpleAggregateFunction(max, UInt8)"
+      default = "0"
+    }
+  }
+  table "_web_bot_definition_columns" {
+    abstract = true
+    column "id" {
+      type = "UInt64"
+    }
+    column "parent_id" {
+      type = "UInt64"
+    }
+    column "regexp" {
+      type = "String"
+    }
+    column "keys" {
+      type = "Array(String)"
+    }
+    column "values" {
+      type = "Array(String)"
+    }
+  }
+  table "_web_bounces_dimensional_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounces_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_duration_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "_web_goals_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "action_id" {
+      type = "Int64"
+    }
+    column "count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "unique_persons_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "_web_stats_dimensional_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "host" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "pathname" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "viewport_width" {
+      type = "Int64"
+    }
+    column "viewport_height" {
+      type = "Int64"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "region_name" {
+      type = "String"
+    }
+    column "has_gclid" {
+      type = "Bool"
+    }
+    column "has_gad_source_paid_search" {
+      type = "Bool"
+    }
+    column "has_fbclid" {
+      type = "Bool"
+    }
+    column "mat_metadata_backend" {
+      type = "Nullable(String)"
+    }
+    column "mat_metadata_loggedIn" {
+      type = "Nullable(Bool)"
+    }
+    column "persons_uniq_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sessions_uniq_state" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "pageviews_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "_web_stats_frustration_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "breakdown_value" {
+      type = "String"
+    }
+    column "sum_rage_clicks_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "sum_dead_clicks_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "sum_errors_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "_web_stats_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "breakdown_by" {
+      type = "String"
+    }
+    column "breakdown_value" {
+      type = "String"
+    }
+    column "uniq_users_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "sum_pageviews_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "_web_vitals_paths_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "path" {
+      type = "String"
+    }
+    column "inp_quantiles_state" {
+      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
+    }
+    column "lcp_quantiles_state" {
+      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
+    }
+    column "cls_quantiles_state" {
+      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
+    }
+    column "fcp_quantiles_state" {
+      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
+  table "conversion_goal_attributed_preaggregated" {
+    extend = "_conversion_goal_attributed_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -113,40 +887,7 @@ database "posthog" {
     }
   }
   table "experiment_metric_events_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "entity_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "session_id" {
-      type = "String"
-    }
-    column "numeric_value" {
-      type    = "Float64"
-      default = "0"
-    }
-    column "steps" {
-      type    = "Array(UInt8)"
-      default = "[]"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_experiment_metric_events_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -316,59 +1057,7 @@ database "posthog" {
     }
   }
   table "marketing_conversions_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "conversion_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "conversion_math_value" {
-      type = "Float64"
-    }
-    column "session_id" {
-      type = "String"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "medium_name" {
-      type = "String"
-    }
-    column "content_name" {
-      type = "String"
-    }
-    column "term_name" {
-      type = "String"
-    }
-    column "referring_domain_name" {
-      type = "String"
-    }
-    column "gclid_name" {
-      type = "String"
-    }
-    column "fbclid_name" {
-      type = "String"
-    }
-    column "gad_source_name" {
-      type = "String"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_conversions_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -377,68 +1066,7 @@ database "posthog" {
     }
   }
   table "marketing_costs_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "source_id" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "grain" {
-      type = "LowCardinality(String)"
-    }
-    column "match_key" {
-      type = "String"
-    }
-    column "campaign_id" {
-      type = "String"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "ad_group_id" {
-      type = "String"
-    }
-    column "ad_group_name" {
-      type = "String"
-    }
-    column "ad_id" {
-      type = "String"
-    }
-    column "ad_name" {
-      type = "String"
-    }
-    column "cost_date" {
-      type = "Date"
-    }
-    column "cost" {
-      type = "Float64"
-    }
-    column "clicks" {
-      type = "Float64"
-    }
-    column "impressions" {
-      type = "Float64"
-    }
-    column "reported_conversions" {
-      type = "Float64"
-    }
-    column "reported_conversion_value" {
-      type = "Float64"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_costs_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -447,53 +1075,7 @@ database "posthog" {
     }
   }
   table "marketing_touchpoints_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "touchpoint_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "medium_name" {
-      type = "String"
-    }
-    column "content_name" {
-      type = "String"
-    }
-    column "term_name" {
-      type = "String"
-    }
-    column "referring_domain_name" {
-      type = "String"
-    }
-    column "gclid_name" {
-      type = "String"
-    }
-    column "fbclid_name" {
-      type = "String"
-    }
-    column "gad_source_name" {
-      type = "String"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_touchpoints_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -780,211 +1362,7 @@ database "posthog" {
     }
   }
   table "session_replay_features" {
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "min_first_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_last_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_position_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_sum_x" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_x_squared" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_y" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_y_squared" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_distance_traveled" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_direction_change_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_velocity_sum" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_velocity_sum_of_squares" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_velocity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "scroll_event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "total_scroll_magnitude" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "scroll_direction_reversal_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "rapid_scroll_reversal_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "scroll_to_top_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "keypress_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_activity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "rage_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "dead_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "backspace_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "inter_action_gap_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "inter_action_gap_sum_ms" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "inter_action_gap_sum_of_squares_ms" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "max_idle_gap_ms" {
-      type = "SimpleAggregateFunction(max, Float64)"
-    }
-    column "long_idle_gap_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "quick_back_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "page_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "unique_url_count" {
-      type = "AggregateFunction(uniqCombined(12), String)"
-    }
-    column "login_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "signup_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "checkout_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "cart_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "billing_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "settings_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "account_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "error_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "not_found_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "admin_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "dashboard_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "onboarding_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "cancel_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "refund_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_after_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_warn_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_request_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_failed_request_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_4xx_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_5xx_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_request_duration_sum" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "network_request_duration_sum_of_squares" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "network_request_duration_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mutation_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "viewport_resize_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "touch_event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "max_scroll_y" {
-      type = "SimpleAggregateFunction(max, Float64)"
-    }
-    column "unique_click_target_count" {
-      type = "AggregateFunction(uniqCombined(12), Int64)"
-    }
-    column "unique_form_field_count" {
-      type = "AggregateFunction(uniqCombined(12), Int64)"
-    }
-    column "text_selection_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "selection_copy_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "is_deleted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
+    extend = "_session_replay_features_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -1000,62 +1378,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "conversion_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "conversion_value" {
-      type = "Float64"
-    }
-    column "touchpoint_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "touchpoint_weight" {
-      type = "Float64"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "medium_name" {
-      type = "String"
-    }
-    column "content_name" {
-      type = "String"
-    }
-    column "term_name" {
-      type = "String"
-    }
-    column "referring_domain_name" {
-      type = "String"
-    }
-    column "gclid_name" {
-      type = "String"
-    }
-    column "fbclid_name" {
-      type = "String"
-    }
-    column "gad_source_name" {
-      type = "String"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_conversion_goal_attributed_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.conversion_goal_attributed_preaggregated"
       replica_name   = "{replica}-{shard}"
@@ -1070,40 +1393,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "entity_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "event_uuid" {
-      type = "UUID"
-    }
-    column "session_id" {
-      type = "String"
-    }
-    column "numeric_value" {
-      type    = "Float64"
-      default = "0"
-    }
-    column "steps" {
-      type    = "Array(UInt8)"
-      default = "[]"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_experiment_metric_events_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated"
       replica_name   = "{replica}-{shard}"
@@ -1118,59 +1408,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "conversion_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "conversion_math_value" {
-      type = "Float64"
-    }
-    column "session_id" {
-      type = "String"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "medium_name" {
-      type = "String"
-    }
-    column "content_name" {
-      type = "String"
-    }
-    column "term_name" {
-      type = "String"
-    }
-    column "referring_domain_name" {
-      type = "String"
-    }
-    column "gclid_name" {
-      type = "String"
-    }
-    column "fbclid_name" {
-      type = "String"
-    }
-    column "gad_source_name" {
-      type = "String"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_conversions_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.marketing_conversions_preaggregated"
       replica_name   = "{replica}-{shard}"
@@ -1185,68 +1423,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "source_id" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "grain" {
-      type = "LowCardinality(String)"
-    }
-    column "match_key" {
-      type = "String"
-    }
-    column "campaign_id" {
-      type = "String"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "ad_group_id" {
-      type = "String"
-    }
-    column "ad_group_name" {
-      type = "String"
-    }
-    column "ad_id" {
-      type = "String"
-    }
-    column "ad_name" {
-      type = "String"
-    }
-    column "cost_date" {
-      type = "Date"
-    }
-    column "cost" {
-      type = "Float64"
-    }
-    column "clicks" {
-      type = "Float64"
-    }
-    column "impressions" {
-      type = "Float64"
-    }
-    column "reported_conversions" {
-      type = "Float64"
-    }
-    column "reported_conversion_value" {
-      type = "Float64"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_costs_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.marketing_costs_preaggregated"
       replica_name   = "{replica}-{shard}"
@@ -1261,53 +1438,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "touchpoint_timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "campaign_name" {
-      type = "String"
-    }
-    column "source_name" {
-      type = "String"
-    }
-    column "medium_name" {
-      type = "String"
-    }
-    column "content_name" {
-      type = "String"
-    }
-    column "term_name" {
-      type = "String"
-    }
-    column "referring_domain_name" {
-      type = "String"
-    }
-    column "gclid_name" {
-      type = "String"
-    }
-    column "fbclid_name" {
-      type = "String"
-    }
-    column "gad_source_name" {
-      type = "String"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "Date"
-      default = "today() + toIntervalDay(7)"
-    }
+    extend = "_marketing_touchpoints_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.marketing_touchpoints_preaggregated"
       replica_name   = "{replica}-{shard}"
@@ -1320,211 +1451,7 @@ database "posthog" {
     settings = {
       index_granularity = "512"
     }
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "min_first_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_last_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_position_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_sum_x" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_x_squared" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_y" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_sum_y_squared" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_distance_traveled" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_direction_change_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_velocity_sum" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_velocity_sum_of_squares" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "mouse_velocity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "scroll_event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "total_scroll_magnitude" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "scroll_direction_reversal_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "rapid_scroll_reversal_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "scroll_to_top_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "keypress_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_activity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "rage_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "dead_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "backspace_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "inter_action_gap_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "inter_action_gap_sum_ms" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "inter_action_gap_sum_of_squares_ms" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "max_idle_gap_ms" {
-      type = "SimpleAggregateFunction(max, Float64)"
-    }
-    column "long_idle_gap_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "quick_back_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "page_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "unique_url_count" {
-      type = "AggregateFunction(uniqCombined(12), String)"
-    }
-    column "login_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "signup_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "checkout_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "cart_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "billing_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "settings_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "account_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "error_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "not_found_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "admin_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "dashboard_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "onboarding_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "cancel_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "refund_path_visit_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_after_click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_warn_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_request_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_failed_request_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_4xx_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_5xx_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "network_request_duration_sum" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "network_request_duration_sum_of_squares" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "network_request_duration_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mutation_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "viewport_resize_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "touch_event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "max_scroll_y" {
-      type = "SimpleAggregateFunction(max, Float64)"
-    }
-    column "unique_click_target_count" {
-      type = "AggregateFunction(uniqCombined(12), Int64)"
-    }
-    column "unique_form_field_count" {
-      type = "AggregateFunction(uniqCombined(12), Int64)"
-    }
-    column "text_selection_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "selection_copy_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "is_deleted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
+    extend = "_session_replay_features_columns"
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_features"
       replica_name = "{replica}"
@@ -1569,21 +1496,7 @@ database "posthog" {
     settings = {
       index_granularity = "8192"
     }
-    column "id" {
-      type = "UInt64"
-    }
-    column "parent_id" {
-      type = "UInt64"
-    }
-    column "regexp" {
-      type = "String"
-    }
-    column "keys" {
-      type = "Array(String)"
-    }
-    column "values" {
-      type = "Array(String)"
-    }
+    extend = "_web_bot_definition_columns"
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_web_bot_definition"
       replica_name = "{replica}"
@@ -1598,110 +1511,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "period_bucket" {
-      type = "DateTime"
-    }
-    column "host" {
-      type = "String"
-    }
-    column "device_type" {
-      type = "String"
-    }
-    column "entry_pathname" {
-      type = "String"
-    }
-    column "end_pathname" {
-      type = "String"
-    }
-    column "browser" {
-      type = "String"
-    }
-    column "os" {
-      type = "String"
-    }
-    column "viewport_width" {
-      type = "Int64"
-    }
-    column "viewport_height" {
-      type = "Int64"
-    }
-    column "referring_domain" {
-      type = "String"
-    }
-    column "utm_source" {
-      type = "String"
-    }
-    column "utm_medium" {
-      type = "String"
-    }
-    column "utm_campaign" {
-      type = "String"
-    }
-    column "utm_term" {
-      type = "String"
-    }
-    column "utm_content" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "String"
-    }
-    column "city_name" {
-      type = "String"
-    }
-    column "region_code" {
-      type = "String"
-    }
-    column "region_name" {
-      type = "String"
-    }
-    column "has_gclid" {
-      type = "Bool"
-    }
-    column "has_gad_source_paid_search" {
-      type = "Bool"
-    }
-    column "has_fbclid" {
-      type = "Bool"
-    }
-    column "mat_metadata_backend" {
-      type = "Nullable(String)"
-    }
-    column "mat_metadata_loggedIn" {
-      type = "Nullable(Bool)"
-    }
-    column "persons_uniq_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sessions_uniq_state" {
-      type = "AggregateFunction(uniq, String)"
-    }
-    column "pageviews_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "bounces_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "total_session_duration_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "total_session_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_bounces_dimensional_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_bounces_dimensional_preaggregated"
       replica_name   = "{replica}"
@@ -1716,32 +1526,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "action_id" {
-      type = "Int64"
-    }
-    column "count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "unique_persons_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_goals_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_goals_preaggregated"
       replica_name   = "{replica}"
@@ -1803,104 +1588,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "period_bucket" {
-      type = "DateTime"
-    }
-    column "host" {
-      type = "String"
-    }
-    column "device_type" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "entry_pathname" {
-      type = "String"
-    }
-    column "end_pathname" {
-      type = "String"
-    }
-    column "browser" {
-      type = "String"
-    }
-    column "os" {
-      type = "String"
-    }
-    column "viewport_width" {
-      type = "Int64"
-    }
-    column "viewport_height" {
-      type = "Int64"
-    }
-    column "referring_domain" {
-      type = "String"
-    }
-    column "utm_source" {
-      type = "String"
-    }
-    column "utm_medium" {
-      type = "String"
-    }
-    column "utm_campaign" {
-      type = "String"
-    }
-    column "utm_term" {
-      type = "String"
-    }
-    column "utm_content" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "String"
-    }
-    column "city_name" {
-      type = "String"
-    }
-    column "region_code" {
-      type = "String"
-    }
-    column "region_name" {
-      type = "String"
-    }
-    column "has_gclid" {
-      type = "Bool"
-    }
-    column "has_gad_source_paid_search" {
-      type = "Bool"
-    }
-    column "has_fbclid" {
-      type = "Bool"
-    }
-    column "mat_metadata_backend" {
-      type = "Nullable(String)"
-    }
-    column "mat_metadata_loggedIn" {
-      type = "Nullable(Bool)"
-    }
-    column "persons_uniq_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sessions_uniq_state" {
-      type = "AggregateFunction(uniq, String)"
-    }
-    column "pageviews_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_dimensional_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_dimensional_preaggregated"
       replica_name   = "{replica}"
@@ -1915,35 +1603,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "sum_rage_clicks_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "sum_dead_clicks_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "sum_errors_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_frustration_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_frustration_preaggregated"
       replica_name   = "{replica}"
@@ -2044,35 +1704,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_by" {
-      type = "String"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "uniq_users_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sum_pageviews_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_stats_preaggregated"
       replica_name   = "{replica}"
@@ -2087,38 +1719,7 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "path" {
-      type = "String"
-    }
-    column "inp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "lcp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "cls_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "fcp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_vitals_paths_preaggregated_columns"
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_vitals_paths_preaggregated"
       replica_name   = "{replica}"
@@ -2126,21 +1727,7 @@ database "posthog" {
     }
   }
   table "web_bot_definition" {
-    column "id" {
-      type = "UInt64"
-    }
-    column "parent_id" {
-      type = "UInt64"
-    }
-    column "regexp" {
-      type = "String"
-    }
-    column "keys" {
-      type = "Array(String)"
-    }
-    column "values" {
-      type = "Array(String)"
-    }
+    extend = "_web_bot_definition_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2149,110 +1736,7 @@ database "posthog" {
     }
   }
   table "web_bounces_dimensional_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "period_bucket" {
-      type = "DateTime"
-    }
-    column "host" {
-      type = "String"
-    }
-    column "device_type" {
-      type = "String"
-    }
-    column "entry_pathname" {
-      type = "String"
-    }
-    column "end_pathname" {
-      type = "String"
-    }
-    column "browser" {
-      type = "String"
-    }
-    column "os" {
-      type = "String"
-    }
-    column "viewport_width" {
-      type = "Int64"
-    }
-    column "viewport_height" {
-      type = "Int64"
-    }
-    column "referring_domain" {
-      type = "String"
-    }
-    column "utm_source" {
-      type = "String"
-    }
-    column "utm_medium" {
-      type = "String"
-    }
-    column "utm_campaign" {
-      type = "String"
-    }
-    column "utm_term" {
-      type = "String"
-    }
-    column "utm_content" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "String"
-    }
-    column "city_name" {
-      type = "String"
-    }
-    column "region_code" {
-      type = "String"
-    }
-    column "region_name" {
-      type = "String"
-    }
-    column "has_gclid" {
-      type = "Bool"
-    }
-    column "has_gad_source_paid_search" {
-      type = "Bool"
-    }
-    column "has_fbclid" {
-      type = "Bool"
-    }
-    column "mat_metadata_backend" {
-      type = "Nullable(String)"
-    }
-    column "mat_metadata_loggedIn" {
-      type = "Nullable(Bool)"
-    }
-    column "persons_uniq_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sessions_uniq_state" {
-      type = "AggregateFunction(uniq, String)"
-    }
-    column "pageviews_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "bounces_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "total_session_duration_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "total_session_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_bounces_dimensional_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2261,32 +1745,7 @@ database "posthog" {
     }
   }
   table "web_goals_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "action_id" {
-      type = "Int64"
-    }
-    column "count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "unique_persons_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_goals_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2295,104 +1754,7 @@ database "posthog" {
     }
   }
   table "web_stats_dimensional_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "period_bucket" {
-      type = "DateTime"
-    }
-    column "host" {
-      type = "String"
-    }
-    column "device_type" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "entry_pathname" {
-      type = "String"
-    }
-    column "end_pathname" {
-      type = "String"
-    }
-    column "browser" {
-      type = "String"
-    }
-    column "os" {
-      type = "String"
-    }
-    column "viewport_width" {
-      type = "Int64"
-    }
-    column "viewport_height" {
-      type = "Int64"
-    }
-    column "referring_domain" {
-      type = "String"
-    }
-    column "utm_source" {
-      type = "String"
-    }
-    column "utm_medium" {
-      type = "String"
-    }
-    column "utm_campaign" {
-      type = "String"
-    }
-    column "utm_term" {
-      type = "String"
-    }
-    column "utm_content" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "String"
-    }
-    column "city_name" {
-      type = "String"
-    }
-    column "region_code" {
-      type = "String"
-    }
-    column "region_name" {
-      type = "String"
-    }
-    column "has_gclid" {
-      type = "Bool"
-    }
-    column "has_gad_source_paid_search" {
-      type = "Bool"
-    }
-    column "has_fbclid" {
-      type = "Bool"
-    }
-    column "mat_metadata_backend" {
-      type = "Nullable(String)"
-    }
-    column "mat_metadata_loggedIn" {
-      type = "Nullable(Bool)"
-    }
-    column "persons_uniq_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sessions_uniq_state" {
-      type = "AggregateFunction(uniq, String)"
-    }
-    column "pageviews_count_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_dimensional_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2401,35 +1763,7 @@ database "posthog" {
     }
   }
   table "web_stats_frustration_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "sum_rage_clicks_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "sum_dead_clicks_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "sum_errors_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_frustration_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2438,35 +1772,7 @@ database "posthog" {
     }
   }
   table "web_stats_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "breakdown_by" {
-      type = "String"
-    }
-    column "breakdown_value" {
-      type = "String"
-    }
-    column "uniq_users_state" {
-      type = "AggregateFunction(uniq, UUID)"
-    }
-    column "sum_pageviews_state" {
-      type = "AggregateFunction(sum, Int64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_stats_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"
@@ -2475,38 +1781,7 @@ database "posthog" {
     }
   }
   table "web_vitals_paths_preaggregated" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "job_id" {
-      type = "UUID"
-    }
-    column "time_window_start" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "path" {
-      type = "String"
-    }
-    column "inp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "lcp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "cls_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "fcp_quantiles_state" {
-      type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
-    }
-    column "computed_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now()"
-    }
-    column "expires_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "now() + toIntervalDay(7)"
-    }
+    extend = "_web_vitals_paths_preaggregated_columns"
     engine "distributed" {
       cluster_name    = "aux"
       remote_database = "posthog"

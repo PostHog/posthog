@@ -670,6 +670,9 @@ export function drawTickMarks(
 
 export interface DrawGridOptions {
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the interior grid lines. Solid when omitted.
+     *  The plot-edge baseline strokes stay solid either way — only the interior lines dash. */
+    gridDash?: number[]
     /** Draw the solid plot-edge baseline strokes framing the grid (both value-axis edges).
      *  Defaults to true. Charts drawing their own axis lines pass false — the L-axis replaces the
      *  near baseline, and the far one would read as a stray border. */
@@ -700,7 +703,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
-    ctx.setLineDash([])
+    ctx.setLineDash(options.gridDash ?? [])
 
     // Skip the first category tick when it falls right next to the axis baseline
     // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
@@ -731,6 +734,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
             ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
             ctx.stroke()
         }
+        ctx.setLineDash([])
         if (frame) {
             const axisY = snapToPixel(dimensions.plotTop)
             ctx.beginPath()
@@ -774,6 +778,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.stroke()
     }
 
+    ctx.setLineDash([])
     if (frame) {
         const axisX = snapToPixel(dimensions.plotLeft)
         ctx.beginPath()
@@ -796,13 +801,14 @@ export function drawCrosshair(
     dimensions: ChartDimensions,
     coord: number,
     color: string,
-    orientation: 'vertical' | 'horizontal' = 'vertical'
+    orientation: 'vertical' | 'horizontal' = 'vertical',
+    dash?: number[]
 ): void {
     // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
     const line = Math.round(coord) + 0.5
     ctx.strokeStyle = color
     ctx.lineWidth = 1
-    ctx.setLineDash([])
+    ctx.setLineDash(dash ?? [])
     ctx.beginPath()
     if (orientation === 'vertical') {
         ctx.moveTo(line, dimensions.plotTop)
@@ -812,6 +818,7 @@ export function drawCrosshair(
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, line)
     }
     ctx.stroke()
+    ctx.setLineDash([])
 }
 
 export interface BarRoundedCorners {
@@ -1312,6 +1319,7 @@ type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult
 
 interface ComposeDrawHoverOptions {
     crosshairColor: string | undefined
+    crosshairDash?: number[]
     showCrosshair: boolean
     axisOrientation?: 'vertical' | 'horizontal'
     labelToCoord?: (label: string) => number | undefined
@@ -1322,13 +1330,13 @@ export function composeDrawHoverWithCrosshair(
     getDrawHover: () => DrawHoverFn,
     options: ComposeDrawHoverOptions
 ): DrawHoverFn {
-    const { crosshairColor, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
+    const { crosshairColor, crosshairDash, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
             const label = args.labels[args.hoverIndex]
             const coord = labelToCoord ? labelToCoord(label) : args.scales.x(label)
             if (coord != null && isFinite(coord)) {
-                drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
+                drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation, crosshairDash)
             }
         }
         return getDrawHover()(args)

@@ -1720,7 +1720,8 @@ class JustSiftSourceConfig(config.Config):
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
@@ -1819,7 +1820,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

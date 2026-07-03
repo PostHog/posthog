@@ -1,7 +1,7 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
+import { applyOuterStackCaps, bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
@@ -13,6 +13,7 @@ import {
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
+    type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
@@ -195,7 +196,12 @@ function ComboChartInner<Meta = unknown>({
                     : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
                           (entry) => entry.x
                       )
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, frame: !showAxisLines, categoryTicks })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -210,6 +216,14 @@ function ComboChartInner<Meta = unknown>({
                 stackedData: barStackedData,
                 topStackedKeyByAxis,
             })
+            // Stacked cap rounding is re-resolved per band from the laid-out rects, so breakdown
+            // and diverging stacks round their actual outer segments.
+            applyOuterStackCaps(
+                barLayers.flatMap((layer) => layer.bars.map((bar) => ({ bar, yAxisId: layer.series.yAxisId }))),
+                comboScales,
+                false,
+                barLayout
+            )
             for (const { series: s, bars } of barLayers) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
@@ -291,6 +305,7 @@ function ComboChartInner<Meta = unknown>({
                   }).hits
                 : null
 
+            const hoveredBars: { series: ResolvedSeries; bar: BarRect }[] = []
             for (const s of barSeries) {
                 if (barHits && !barHits.has(s.key)) {
                     continue
@@ -309,6 +324,16 @@ function ComboChartInner<Meta = unknown>({
                 if (!bar) {
                     continue
                 }
+                hoveredBars.push({ series: s, bar })
+            }
+            // Match the static layer's per-band cap resolution so highlights round the same corners.
+            applyOuterStackCaps(
+                hoveredBars.map((h) => ({ bar: h.bar, yAxisId: h.series.yAxisId })),
+                comboScales,
+                false,
+                barLayout
+            )
+            for (const { series: s, bar } of hoveredBars) {
                 const barColor = barColorAt(s, bar.dataIndex)
                 const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
                 drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
