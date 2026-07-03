@@ -19,7 +19,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { colonDelimitedDuration, humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -189,6 +189,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
         // Collapsing discards the seek intent, or re-expanding would remount the seeker and replay it.
         if (recordingExpanded) {
             setPendingSeek(null)
+        } else if (observation.window_start_offset_s != null) {
+            // Moment observations open the player at the observed window, not the recording start.
+            setPendingSeek({ ms: Math.floor(observation.window_start_offset_s * 1000), trigger: Date.now() })
         }
         setRecordingExpanded(!recordingExpanded)
     }
@@ -263,6 +266,26 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 <span>{triggerLabel}</span>
                             )}
                         </LabeledRow>
+                        {observation.moment_event_name && (
+                            <LabeledRow label="Moment">
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <LemonTag type="completion" className="font-mono">
+                                        {observation.moment_event_name}
+                                        {observation.coalesced_event_count > 1
+                                            ? ` ×${observation.coalesced_event_count}`
+                                            : ''}
+                                    </LemonTag>
+                                    {observation.window_start_offset_s != null &&
+                                        observation.window_end_offset_s != null && (
+                                            <span className="text-xs text-muted tabular-nums">
+                                                {colonDelimitedDuration(observation.window_start_offset_s, null)}–
+                                                {colonDelimitedDuration(observation.window_end_offset_s, null)} of the
+                                                recording
+                                            </span>
+                                        )}
+                                </div>
+                            </LabeledRow>
+                        )}
                         <LabeledRow label="Session">
                             <Link
                                 to={urls.sessionProfile(observation.session_id)}

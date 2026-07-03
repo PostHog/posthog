@@ -4,6 +4,8 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type {
+    MomentEventApi,
+    MomentsConfigApi,
     PatchedReplayScannerApi,
     ReplayScannerApi,
     ScannerTypeEnumApi,
@@ -21,7 +23,13 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+export type IneligibleKind =
+    | 'no_recording'
+    | 'too_short'
+    | 'too_inactive'
+    | 'too_long'
+    | 'no_events'
+    | 'moment_outside_recording'
 
 const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
     no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
@@ -29,6 +37,10 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: str
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
     too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
+    moment_outside_recording: {
+        label: 'Moment outside recording',
+        description: 'The focus event fired while session replay was not capturing, so there is nothing to watch.',
+    },
 }
 
 export type FailureKind =
@@ -107,6 +119,14 @@ export function failureKindDescription(kind: FailureKind): string {
 export function ineligibleKindDescription(kind: IneligibleKind): string {
     return INELIGIBLE_KINDS[kind].description
 }
+
+export const MOMENT_WINDOW_OPTIONS: { value: number; label: string }[] = [
+    { value: 10, label: '10 seconds' },
+    { value: 30, label: '30 seconds' },
+    { value: 60, label: '1 minute' },
+    { value: 120, label: '2 minutes' },
+    { value: 300, label: '5 minutes' },
+]
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
@@ -197,11 +217,20 @@ export type ScannerConfig =
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
+// MomentEventApi's `properties` items are `{ [key: string]: unknown }`, which trips kea's DeepPartial the same
+// way hedgehog_config does; re-typed with `any` values — the UI passes these through without reading into them.
+export type MomentEventConfig = Omit<MomentEventApi, 'properties'> & { properties?: Record<string, any>[] }
+export type MomentsConfig = Omit<MomentsConfigApi, 'events'> & { events: MomentEventConfig[] }
+
 // Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
-export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
+export type BaseReplayScanner = Omit<
+    ReplayScannerApi,
+    'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'moments_config'
+> &
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
+        moments_config: MomentsConfig | null
     }
 
 export interface MonitorScanner extends BaseReplayScanner {

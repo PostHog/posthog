@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tool
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import { FilterPill } from '../../components/FilterPill'
@@ -138,6 +139,31 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     <span className="text-muted">—</span>
                 ),
         },
+        ...(scanner?.scan_scope === 'moments'
+            ? ([
+                  {
+                      title: 'Moment',
+                      key: 'moment',
+                      render: (_, obs) =>
+                          obs.moment_event_name ? (
+                              <div className="flex items-center gap-1 whitespace-nowrap">
+                                  <LemonTag type="completion" className="font-mono">
+                                      {obs.moment_event_name}
+                                      {obs.coalesced_event_count > 1 ? ` ×${obs.coalesced_event_count}` : ''}
+                                  </LemonTag>
+                                  {obs.window_start_offset_s != null && obs.window_end_offset_s != null && (
+                                      <span className="text-xs text-muted tabular-nums">
+                                          {colonDelimitedDuration(obs.window_start_offset_s, null)}–
+                                          {colonDelimitedDuration(obs.window_end_offset_s, null)}
+                                      </span>
+                                  )}
+                              </div>
+                          ) : (
+                              <span className="text-muted">—</span>
+                          ),
+                  },
+              ] satisfies LemonTableColumns<ReplayObservationApi>)
+            : []),
         {
             title: 'Status',
             key: 'status',
@@ -197,7 +223,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     size="small"
                     type="secondary"
                     icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
+                    to={urls.replaySingle(
+                        obs.session_id,
+                        // Open moment observations at the observed window instead of the recording start.
+                        obs.window_start_offset_s != null
+                            ? { secondsOffsetFromStart: Math.floor(obs.window_start_offset_s) }
+                            : undefined
+                    )}
                     className="whitespace-nowrap"
                     data-attr="vision-observation-view-recording"
                 >

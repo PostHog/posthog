@@ -189,8 +189,28 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconBolt />} title="Triggers" />
                     <div className="flex flex-col gap-3">
+                        <LabeledRow label="Scan scope">
+                            {scanner.scan_scope === 'moments' ? (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span>Moments around</span>
+                                    {(scanner.moments_config?.events ?? []).map((momentEvent, i) => (
+                                        <LemonTag key={i} type="completion" className="font-mono">
+                                            {momentEvent.event}
+                                        </LemonTag>
+                                    ))}
+                                    <span className="text-muted text-xs">
+                                        ({scanner.moments_config?.before_seconds ?? 60}s before /{' '}
+                                        {scanner.moments_config?.after_seconds ?? 60}s after)
+                                    </span>
+                                </div>
+                            ) : (
+                                <span>Entire recording</span>
+                            )}
+                        </LabeledRow>
                         <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
-                        <LabeledRow label="Recording filters">
+                        <LabeledRow
+                            label={scanner.scan_scope === 'moments' ? 'Only in sessions matching' : 'Recording filters'}
+                        >
                             {!hasTriggers ? (
                                 <span className="text-muted">No filters</span>
                             ) : (

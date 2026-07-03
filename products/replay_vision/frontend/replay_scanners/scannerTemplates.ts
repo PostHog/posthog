@@ -126,6 +126,8 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         enabled: true,
         sampling_rate: 1,
         query: { kind: NodeKind.RecordingsQuery },
+        scan_scope: 'recording',
+        moments_config: null,
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
         emits_signals: false,

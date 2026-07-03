@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton, LemonSelect, LemonSnack } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -26,6 +27,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { DurationType, RecordingDurationFilter, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { MOMENT_WINDOW_OPTIONS, MomentsConfig } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
@@ -88,6 +90,115 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
+const EMPTY_MOMENTS_CONFIG: MomentsConfig = { events: [], before_seconds: 60, after_seconds: 60 }
+
+// At most 5 moments per session; overlapping windows are merged (mirrors backend moments.py constants).
+const MAX_MOMENT_EVENTS = 10
+
+function ScannerScanScope({ isNew }: { isNew: boolean }): JSX.Element {
+    return (
+        <LemonField name="scan_scope">
+            {({ value, onChange }) => (
+                <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                    <div className="space-y-1">
+                        <LemonLabel>Scan scope</LemonLabel>
+                        <div className="text-xs text-muted">
+                            How much of each matching recording the scanner watches.
+                            {!isNew && ' Fixed after creation.'}
+                        </div>
+                    </div>
+                    <LemonSegmentedButton
+                        value={value}
+                        onChange={isNew ? onChange : () => {}}
+                        size="small"
+                        options={[
+                            {
+                                value: 'recording',
+                                label: 'Entire recording',
+                                disabledReason: isNew ? undefined : 'Scan scope is fixed after creation',
+                            },
+                            {
+                                value: 'moments',
+                                label: 'Moments around events',
+                                disabledReason: isNew ? undefined : 'Scan scope is fixed after creation',
+                            },
+                        ]}
+                    />
+                </LemonCard>
+            )}
+        </LemonField>
+    )
+}
+
+function ScannerMomentsConfig(): JSX.Element {
+    return (
+        <LemonField name="moments_config">
+            {({ value, onChange }) => {
+                const config = (value as MomentsConfig | null) ?? EMPTY_MOMENTS_CONFIG
+                const events = config.events ?? []
+                return (
+                    <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                        <div className="space-y-1">
+                            <LemonLabel>Moments</LemonLabel>
+                            <div className="text-xs text-muted">
+                                A short clip is scanned around each time one of these events fires.
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {events.map((momentEvent, index) => (
+                                <LemonSnack
+                                    key={`${momentEvent.event}-${index}`}
+                                    onClose={() =>
+                                        onChange({ ...config, events: events.filter((_, i) => i !== index) })
+                                    }
+                                >
+                                    {momentEvent.event}
+                                </LemonSnack>
+                            ))}
+                            {events.length < MAX_MOMENT_EVENTS && (
+                                <TaxonomicPopover
+                                    groupType={TaxonomicFilterGroupType.Events}
+                                    value={null}
+                                    onChange={(eventName) => {
+                                        const name = String(eventName ?? '')
+                                        if (!name || events.some((e) => e.event === name)) {
+                                            return
+                                        }
+                                        onChange({ ...config, events: [...events, { event: name, properties: [] }] })
+                                    }}
+                                    placeholder={events.length ? 'Add another event' : 'Choose an event'}
+                                    size="small"
+                                    type="secondary"
+                                />
+                            )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span>Include</span>
+                            <LemonSelect
+                                size="small"
+                                value={config.before_seconds ?? 60}
+                                onChange={(v) => onChange({ ...config, before_seconds: v })}
+                                options={MOMENT_WINDOW_OPTIONS}
+                            />
+                            <span>before and</span>
+                            <LemonSelect
+                                size="small"
+                                value={config.after_seconds ?? 60}
+                                onChange={(v) => onChange({ ...config, after_seconds: v })}
+                                options={MOMENT_WINDOW_OPTIONS}
+                            />
+                            <span>after each event.</span>
+                        </div>
+                        <div className="text-xs text-muted">
+                            Overlapping windows are merged into one clip; at most 5 moments are scanned per session.
+                        </div>
+                    </LemonCard>
+                )
+            }}
+        </LemonField>
+    )
+}
+
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -99,8 +210,15 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
         return <div className="text-muted">Loading…</div>
     }
 
+    const isNew = scannerId === 'new'
+    const isMoments = scanner.scan_scope === 'moments'
+    // Scope stays visible on existing moments scanners even if the flag is later turned off.
+    const showScanScope = Boolean(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MOMENTS]) || isMoments
+
     return (
         <div className="space-y-6">
+            {showScanScope && <ScannerScanScope isNew={isNew} />}
+            {isMoments && <ScannerMomentsConfig />}
             <LemonField name="sampling_rate">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0
@@ -166,10 +284,13 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                         <LemonCard hoverEffect={false} className="p-3 space-y-3">
                             <div className="flex items-start justify-between gap-2">
                                 <div className="space-y-1">
-                                    <LemonLabel>Recording filters</LemonLabel>
+                                    <LemonLabel>
+                                        {isMoments ? 'Only in sessions matching…' : 'Recording filters'}
+                                    </LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort. Leave empty to scan all
-                                        completed recordings.
+                                        {isMoments
+                                            ? 'Moments are only scanned in sessions matching these filters. Leave empty to consider all completed recordings.'
+                                            : 'Filter by event, action, person, session, or cohort. Leave empty to scan all completed recordings.'}
                                     </div>
                                 </div>
                                 <TestAccountFilterSwitch

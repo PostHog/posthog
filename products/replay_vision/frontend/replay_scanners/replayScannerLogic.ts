@@ -1,5 +1,5 @@
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
@@ -266,14 +266,20 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         configErrors.scale = 'Scale max must be greater than min'
                     }
                 }
+                // Cast: DeepPartialMap types object-field errors as nested maps, but kea-forms renders a
+                // plain string for `moments_config` fine and LemonField reads it directly.
                 return {
                     name: !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
                         scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined
                             : 'Sampling rate must be between 0% and 100%',
+                    moments_config:
+                        scanner.scan_scope === 'moments' && !scanner.moments_config?.events?.length
+                            ? 'Add at least one event to scan moments around'
+                            : undefined,
                     scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
-                }
+                } as DeepPartialMap<ReplayScanner, ValidationErrorType>
             },
             submit: async (scanner: ReplayScanner) => {
                 // Mid-wizard Enter (default 'save' intent) must advance, not create; pathname is project-prefixed, hence endsWith.
@@ -769,6 +775,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        moments_config:
+                            scanner.scan_scope === 'moments' ? (scanner.moments_config ?? undefined) : undefined,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })
