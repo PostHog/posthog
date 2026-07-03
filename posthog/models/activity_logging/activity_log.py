@@ -89,6 +89,7 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "InstanceSetting",
+    "SignalReport",
     "SignalScoutConfig",
 ]
 ChangeAction = Literal[

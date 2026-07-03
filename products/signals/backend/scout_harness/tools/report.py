@@ -51,6 +51,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     _assert_team_owns_run,
     _preflight_emit_gates,
     _resolve_task_id,
+    remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
     MAX_REPORT_SIGNALS,
@@ -111,6 +112,9 @@ class EmitReportResult:
     `report_id` even when it was suppressed). `emitted` means it actually surfaced in the inbox
     (status READY or PENDING_INPUT); a safety-suppressed or not-actionable report has emitted=False.
     `skipped_reason` is set only when a preflight gate stopped the call before any report was created.
+    `remediation` carries a one-line, scout-actionable next step for that skip (see
+    `EMIT_SKIP_REMEDIATION`) so a gate-skipped report isn't a dead end — the scout learns why its
+    report was dropped and how to unblock it rather than losing a full run to a silent skip.
     """
 
     report_id: str | None
@@ -118,6 +122,7 @@ class EmitReportResult:
     emitted: bool
     skipped_reason: str | None
     safety_explanation: str | None
+    remediation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,7 +191,12 @@ def _normalize_repository(repository: str | None) -> str | None:
 def _gate_skip_result(preflight: str) -> EmitReportResult:
     logger.warning("signals_scout.emit_report: skipped %s", preflight, extra={"skipped_reason": preflight})
     return EmitReportResult(
-        report_id=None, status=None, emitted=False, skipped_reason=preflight, safety_explanation=None
+        report_id=None,
+        status=None,
+        emitted=False,
+        skipped_reason=preflight,
+        safety_explanation=None,
+        remediation=remediation_for_skip(preflight),
     )
 
 

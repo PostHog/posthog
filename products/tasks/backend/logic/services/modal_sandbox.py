@@ -26,6 +26,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 
@@ -105,10 +106,13 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     ModalTimeoutError,
     ModalConnectionError,
+    ModalServiceError,
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
 )
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -1086,7 +1090,7 @@ class ModalSandbox(SandboxBase):
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, ttl=None)
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")

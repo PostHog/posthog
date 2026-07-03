@@ -363,7 +363,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -621,7 +621,8 @@ class ChargedeskSourceConfig(config.Config):
 
 @config.config
 class ChargifySourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
@@ -949,7 +950,8 @@ class DeputySourceConfig(config.Config):
 
 @config.config
 class DevinAISourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str
 
 
 @config.config
@@ -1104,7 +1106,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1141,7 +1143,7 @@ class FastbillSourceConfig(config.Config):
 
 @config.config
 class FastlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1222,7 +1224,7 @@ class FlexportSourceConfig(config.Config):
 
 @config.config
 class FloatAppSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1252,7 +1254,8 @@ class FreshBooksSourceConfig(config.Config):
 
 @config.config
 class FreshcallerSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1274,7 +1277,8 @@ class FreshsalesSourceConfig(config.Config):
 
 @config.config
 class FreshserviceSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -1284,7 +1288,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FulcrumSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1294,12 +1298,19 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
@@ -1355,8 +1366,13 @@ class GoLoginSourceConfig(config.Config):
 
 
 @config.config
-class GoldcastSourceConfig(config.Config):
+class GojiberrySourceConfig(config.Config):
     pass
+
+
+@config.config
+class GoldcastSourceConfig(config.Config):
+    access_key: str
 
 
 @config.config
@@ -1436,7 +1452,7 @@ class GoogleTasksSourceConfig(config.Config):
 
 @config.config
 class GoogleWebfontsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1473,12 +1489,13 @@ class GreytHrSourceConfig(config.Config):
 
 @config.config
 class GridlySourceConfig(config.Config):
-    pass
+    api_key: str
+    view_id: str
 
 
 @config.config
 class GuardianSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1509,7 +1526,8 @@ class HeightSourceConfig(config.Config):
 
 @config.config
 class HellobatonSourceConfig(config.Config):
-    pass
+    company: str
+    api_key: str
 
 
 @config.config
@@ -1540,7 +1558,7 @@ class HoorayHRSourceConfig(config.Config):
 
 @config.config
 class HubplannerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1551,7 +1569,8 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class HuggingFaceSourceConfig(config.Config):
-    pass
+    api_token: str
+    author: str
 
 
 @config.config
@@ -1566,7 +1585,8 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class IP2WhoisSourceConfig(config.Config):
-    pass
+    api_key: str
+    domains: str
 
 
 @config.config
@@ -1606,7 +1626,8 @@ class InsightfulSourceConfig(config.Config):
 
 @config.config
 class InsightlySourceConfig(config.Config):
-    pass
+    pod: str
+    api_key: str
 
 
 @config.config
@@ -1621,7 +1642,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1636,7 +1657,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1646,7 +1667,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1691,7 +1713,8 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -1701,7 +1724,8 @@ class JustSiftSourceConfig(config.Config):
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
@@ -1716,7 +1740,7 @@ class KafkaSourceConfig(config.Config):
 
 @config.config
 class KatanaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1779,7 +1803,8 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeadfeederSourceConfig(config.Config):
-    pass
+    api_token: str
+    start_date: str | None = None
 
 
 @config.config
@@ -1799,7 +1824,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1841,7 +1866,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1915,7 +1940,7 @@ class MailjetSourceConfig(config.Config):
 
 @config.config
 class MailosaurSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1935,7 +1960,8 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MarketstackSourceConfig(config.Config):
-    pass
+    access_key: str
+    symbols: str | None = None
 
 
 @config.config
@@ -1957,6 +1983,11 @@ class MentionSourceConfig(config.Config):
 
 @config.config
 class MercadoAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class MercurySourceConfig(config.Config):
     pass
 
 
@@ -2020,7 +2051,7 @@ class MissiveSourceConfig(config.Config):
 
 @config.config
 class MixMaxSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2077,7 +2108,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2112,17 +2144,20 @@ class NewRelicSourceConfig(config.Config):
 
 @config.config
 class NewYorkTimesSourceConfig(config.Config):
-    pass
+    api_key: str
+    article_search_query: str | None = None
 
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2142,12 +2177,13 @@ class NinjaOneRMMSourceConfig(config.Config):
 
 @config.config
 class NoCRMSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
 class NorthpassLMSSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2208,7 +2244,7 @@ class OnepagecrmSourceConfig(config.Config):
 
 @config.config
 class OnfleetSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2218,7 +2254,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2228,12 +2264,14 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
@@ -2341,7 +2379,7 @@ class PaperformSourceConfig(config.Config):
 
 @config.config
 class PapersignSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2407,7 +2445,7 @@ class PersistIqSourceConfig(config.Config):
 
 @config.config
 class PersonaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2418,7 +2456,8 @@ class PersonioSourceConfig(config.Config):
 
 @config.config
 class PexelsSourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config
@@ -2435,7 +2474,8 @@ class PhylloSourceConfig(config.Config):
 
 @config.config
 class PicqerSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key: str
 
 
 @config.config
@@ -3194,6 +3234,11 @@ class TawkToSourceConfig(config.Config):
 
 
 @config.config
+class TeachableSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TeamtailorSourceConfig(config.Config):
     pass
 
@@ -3883,6 +3928,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GMAIL: GmailSourceConfig,
         ExternalDataSourceType.GOCARDLESS: GoCardlessSourceConfig,
         ExternalDataSourceType.GOLOGIN: GoLoginSourceConfig,
+        ExternalDataSourceType.GOJIBERRY: GojiberrySourceConfig,
         ExternalDataSourceType.GOLDCAST: GoldcastSourceConfig,
         ExternalDataSourceType.GONG: GongSourceConfig,
         ExternalDataSourceType.GOOGLEADMANAGER: GoogleAdManagerSourceConfig,
@@ -3998,6 +4044,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MENDELEY: MendeleySourceConfig,
         ExternalDataSourceType.MENTION: MentionSourceConfig,
         ExternalDataSourceType.MERCADOADS: MercadoAdsSourceConfig,
+        ExternalDataSourceType.MERCURY: MercurySourceConfig,
         ExternalDataSourceType.MERGE: MergeSourceConfig,
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.METABASE: MetabaseSourceConfig,
@@ -4229,6 +4276,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
         ExternalDataSourceType.TAVUS: TavusSourceConfig,
         ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
+        ExternalDataSourceType.TEACHABLE: TeachableSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,
         ExternalDataSourceType.TEAMWORK: TeamworkSourceConfig,
         ExternalDataSourceType.TEMPO: TempoSourceConfig,

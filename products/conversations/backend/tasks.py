@@ -1544,6 +1544,8 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
                 github_repo=repo,
                 github_issue_number=issue_number,
                 unread_team_count=0,
+                # Created from a signature-validated GitHub webhook — platform-attested identity.
+                identity_verified=True,
             )
 
             if title:
@@ -1877,6 +1879,9 @@ def create_github_issue(
         status=Status.OPEN,
         github_repo=repo,
         github_issue_number=issue_number,
+        # Outbound issue opened by the team — there's no external party whose identity we verified,
+        # so leave it unknown rather than claiming a verification that never happened.
+        identity_verified=None,
     )
 
     CommentModel.objects.create(
