@@ -2628,7 +2628,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        source_type_model = ExternalDataSourceType(source_type)
+        try:
+            source_type_model = ExternalDataSourceType(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
