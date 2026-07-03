@@ -32,6 +32,7 @@ class WorkflowContext(BaseModel):
     """Snapshot of the workflow run, threaded through every activity."""
 
     run_id: str
+    workflow_started_at: datetime
     period_start: datetime
     period_end: datetime
     date_str: str

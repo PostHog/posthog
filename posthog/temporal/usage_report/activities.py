@@ -218,6 +218,7 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
         pointer = {
             "version": SQS_POINTER_VERSION,
             "run_id": inputs.ctx.run_id,
+            "workflow_started_at": inputs.ctx.workflow_started_at.isoformat(),
             "date": inputs.ctx.date_str,
             "period_start": inputs.ctx.period_start.isoformat(),
             "period_end": inputs.ctx.period_end.isoformat(),

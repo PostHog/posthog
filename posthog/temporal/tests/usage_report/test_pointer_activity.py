@@ -22,6 +22,7 @@ from posthog.temporal.usage_report.types import AggregateResult, EnqueuePointerI
 def _ctx() -> WorkflowContext:
     return WorkflowContext(
         run_id="run-test",
+        workflow_started_at=datetime(2026, 5, 5, 1, 45, 0, tzinfo=UTC),
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str="2026-05-04",
@@ -80,6 +81,7 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
     assert body == {
         "version": SQS_POINTER_VERSION,
         "run_id": "run-test",
+        "workflow_started_at": "2026-05-05T01:45:00+00:00",
         "date": "2026-05-04",
         "period_start": "2026-05-04T00:00:00+00:00",
         "period_end": "2026-05-04T23:59:59.999999+00:00",
