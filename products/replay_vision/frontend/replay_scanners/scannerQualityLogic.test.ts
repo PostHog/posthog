@@ -83,9 +83,9 @@ describe('scannerQualityLogic', () => {
     })
 
     it.each<[RatedFilterValue, Record<string, unknown>]>([
-        ['all', { status: 'succeeded', limit: QUALITY_PAGE_SIZE }],
-        ['rated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: true }],
-        ['unrated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: false }],
+        ['all', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, order_by: '-created_at' }],
+        ['rated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: true, order_by: '-created_at' }],
+        ['unrated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: false, order_by: '-created_at' }],
     ])('the "%s" filter requests the matching observation set', async (filter, expectedParams) => {
         await mountLogic()
         logic.actions.setRatedFilter(filter)

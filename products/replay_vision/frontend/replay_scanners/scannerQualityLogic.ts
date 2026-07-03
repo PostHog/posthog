@@ -23,7 +23,7 @@ import type {
     ReplayScannerPromptSuggestionApi,
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
-import { replayScannerLogic } from './replayScannerLogic'
+import { ObservationsSorting, replayScannerLogic, resolveOrderByKey } from './replayScannerLogic'
 import type { scannerQualityLogicType } from './scannerQualityLogicType'
 
 export type RatedFilterValue = 'all' | 'unrated' | 'rated'
@@ -47,6 +47,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadObservationsFailure: true,
         setPage: (page: number) => ({ page }),
         setRatedFilter: (value: RatedFilterValue) => ({ value }),
+        setSort: (sorting: ObservationsSorting | null) => ({ sorting }),
         labelChanged: (observationId: string, label: ReplayObservationLabelApi | null) => ({ observationId, label }),
         loadLabelStats: true,
         loadLabelStatsSuccess: (stats: ObservationLabelStatsApi) => ({ stats }),
@@ -89,6 +90,13 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             {
                 setPage: (_, { page }) => Math.max(1, page),
                 setRatedFilter: () => 1,
+                setSort: () => 1,
+            },
+        ],
+        sort: [
+            { columnKey: 'created_at', order: -1 } as ObservationsSorting | null,
+            {
+                setSort: (_, { sorting }) => sorting,
             },
         ],
         // Defaults to the not-yet-rated results: the tab's call to action is rating what's still unreviewed.
@@ -209,6 +217,15 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 if (values.ratedFilter !== 'all') {
                     params.labeled = values.ratedFilter === 'rated'
                 }
+                if (values.sort) {
+                    // The scene keeps the scanner logic mounted; read the type lazily for the Result sort key.
+                    const scannerType = replayScannerLogic.findMounted({ id: props.scannerId })?.values.scanner
+                        ?.scanner_type
+                    const orderKey = resolveOrderByKey(values.sort.columnKey, scannerType)
+                    if (orderKey) {
+                        params.order_by = values.sort.order === -1 ? `-${orderKey}` : orderKey
+                    }
+                }
                 const response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
                 actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
             } catch {
@@ -218,6 +235,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
 
         setPage: () => actions.loadObservations(),
         setRatedFilter: () => actions.loadObservations(),
+        setSort: () => actions.loadObservations(),
 
         // Refresh the chart and staleness shortly after a rating settles; debounced so a burst loads once.
         labelChanged: async (_, breakpoint) => {

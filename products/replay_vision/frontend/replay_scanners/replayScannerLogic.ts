@@ -118,7 +118,7 @@ const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
     monitor: 'result_verdict',
 }
 
-function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
+export function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
     if (columnKey === 'result') {
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
