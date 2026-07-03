@@ -2666,6 +2666,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
+            # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
