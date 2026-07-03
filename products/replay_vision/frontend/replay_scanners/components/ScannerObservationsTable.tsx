@@ -98,12 +98,10 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         scanner,
         triggeringOnDemandObservation,
         retryingObservationIds,
-        retryingAllFailed,
     } = useValues(logic)
     const {
         refreshObservations,
         retryObservation,
-        retryAllFailed,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -212,7 +210,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 icon={<IconRefresh />}
                                 onClick={() => retryObservation(obs.id)}
                                 loading={retryingObservationIds.includes(obs.id)}
-                                disabledReason={retryingAllFailed ? 'Bulk retry in progress…' : undefined}
                                 className="whitespace-nowrap"
                                 data-attr="vision-observation-retry"
                             >
@@ -288,24 +285,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     Clear filters
                                 </LemonButton>
                             </>
-                        )}
-                        {observationStats.failed > 0 && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    icon={<IconRefresh />}
-                                    onClick={() => retryAllFailed()}
-                                    loading={retryingAllFailed}
-                                    tooltip="Delete the failed observations and re-run the scanner on their recordings"
-                                    data-attr="vision-observations-retry-all-failed"
-                                >
-                                    Retry all failed
-                                </LemonButton>
-                            </AccessControlAction>
                         )}
                         <Tooltip
                             title={

@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 import {
     visionScannersCreate,
     visionScannersObservationsRetryCreate,
-    visionScannersObservationsRetryFailedCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -237,9 +236,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         retryObservation: (observationId: string) => ({ observationId }),
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
-        retryAllFailed: true,
-        retryAllFailedSuccess: true,
-        retryAllFailedFailure: true,
         refreshObservations: true,
     }),
 
@@ -392,7 +388,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
                 // The replacement row is inserted by the workflow moments after the retry 202 lands.
                 retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
-                retryAllFailedSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
         ],
         retryingObservationIds: [
@@ -406,14 +401,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     state.filter((id) => id !== observationId),
                 retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
                     state.filter((id) => id !== observationId),
-            },
-        ],
-        retryingAllFailed: [
-            false,
-            {
-                retryAllFailed: () => true,
-                retryAllFailedSuccess: () => false,
-                retryAllFailedFailure: () => false,
             },
         ],
         scannerLoading: [
@@ -903,39 +890,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 } catch (error: any) {
                     actions.retryObservationFailure(observationId)
                     lemonToast.error(`Failed to retry observation${error.detail ? `: ${error.detail}` : ''}`)
-                }
-            },
-
-            retryAllFailed: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId || props.id === 'new') {
-                    actions.retryAllFailedFailure()
-                    return
-                }
-                try {
-                    const response = await visionScannersObservationsRetryFailedCreate(String(teamId), props.id)
-                    actions.retryAllFailedSuccess()
-                    if (response.retried > 0) {
-                        const more =
-                            response.remaining_failed > 0
-                                ? ` ${response.remaining_failed} more remain — retry again to continue.`
-                                : ''
-                        lemonToast.success(
-                            `Retrying ${response.retried} failed observation${response.retried === 1 ? '' : 's'}.${more}`
-                        )
-                        refreshVisionQuota()
-                    } else {
-                        lemonToast.info('No failed observations to retry.')
-                    }
-                    if (response.failed_to_start > 0) {
-                        lemonToast.error(
-                            `${response.failed_to_start} retr${response.failed_to_start === 1 ? 'y' : 'ies'} failed to start — those recordings now show as not scanned.`
-                        )
-                    }
-                    reloadObservationsAndStats()
-                } catch (error: any) {
-                    actions.retryAllFailedFailure()
-                    lemonToast.error(`Failed to retry observations${error.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

@@ -295,27 +295,6 @@ class RetryResponseSerializer(serializers.Serializer):
     )
 
 
-class RetryFailedResponseSerializer(serializers.Serializer):
-    """Summary response for POST /vision/scanners/{id}/observations/retry_failed/."""
-
-    retried = serializers.IntegerField(
-        min_value=0,
-        help_text="Failed observations deleted and re-queued as new workflow runs.",
-    )
-    failed_to_start = serializers.IntegerField(
-        min_value=0,
-        help_text="Rows deleted whose workflow start failed; the sessions show as not scanned and can be re-scanned.",
-    )
-    remaining_failed = serializers.IntegerField(
-        min_value=0,
-        help_text="Failed observations left untouched by this batch (batch cap); call again to continue.",
-    )
-
-
-# Bounds one request's synchronous Temporal workflow-start fan-out.
-RETRY_FAILED_BATCH_LIMIT = 100
-
-
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
@@ -479,7 +458,7 @@ class ReplayObservationViewSet(
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
     # Retrying deletes and re-runs, so it carries the same write posture as the scanner's own /observe/.
-    scope_object_write_actions = ["retry", "retry_failed"]
+    scope_object_write_actions = ["retry"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
@@ -568,40 +547,6 @@ class ReplayObservationViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
-
-    @extend_schema(request=None, responses={200: RetryFailedResponseSerializer})
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="retry_failed",
-        required_scopes=["replay_scanner:write", "session_recording:read"],
-    )
-    def retry_failed(self, request: Request, **kwargs: Any) -> Response:
-        """Retry the scanner's failed observations, oldest first, capped per call by the batch limit."""
-        scanner = self._scanner_for_url()
-        check_observation_quota(self.team.organization_id)
-        failed_qs = ReplayObservation.objects.filter(
-            team_id=self.team_id, scanner_id=scanner.id, status=ObservationStatus.FAILED
-        )
-        batch = list(failed_qs.order_by("created_at").values_list("id", "session_id")[:RETRY_FAILED_BATCH_LIMIT])
-        user_id = cast(User, request.user).id
-        retried = 0
-        failed_to_start = 0
-        for observation_id, session_id in batch:
-            # Status re-checked in the DELETE so a row a concurrent retry already replaced is left alone.
-            deleted, _ = ReplayObservation.objects.filter(id=observation_id, status=ObservationStatus.FAILED).delete()
-            if not deleted:
-                continue
-            _, outcome = start_apply_scanner_workflow(scanner, session_id, triggered_by_user_id=user_id)
-            if outcome is WorkflowStartOutcome.FAILED:
-                failed_to_start += 1
-            else:
-                retried += 1
-        return Response(
-            RetryFailedResponseSerializer(
-                {"retried": retried, "failed_to_start": failed_to_start, "remaining_failed": failed_qs.count()}
-            ).data
-        )
 
 
 @extend_schema_view(

@@ -1595,40 +1595,6 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 202, resp.json())
         self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
 
-    def test_retry_failed_retries_only_failed_rows(
-        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
-    ) -> None:
-        mock_sync_connect.return_value = MagicMock()
-        start_workflow = MagicMock()
-        mock_async_to_sync.return_value = start_workflow
-        failed_ids = [self._create_failed(f"sess-f{i}").id for i in range(3)]
-        untouched = ReplayObservation.objects.create(
-            scanner=self.scanner,
-            session_id="sess-ok",
-            scanner_snapshot=_snapshot_for(self.scanner),
-            triggered_by=ObservationTrigger.SCHEDULE,
-            status=ObservationStatus.SUCCEEDED,
-            completed_at=timezone.now(),
-        )
-
-        resp = self.client.post(f"{self.observations_url(str(self.scanner.id))}retry_failed/")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json(), {"retried": 3, "failed_to_start": 0, "remaining_failed": 0})
-        self.assertFalse(ReplayObservation.objects.filter(id__in=failed_ids).exists())
-        self.assertTrue(ReplayObservation.objects.filter(id=untouched.id).exists())
-        self.assertEqual(start_workflow.call_count, 3)
-
-    def test_retry_failed_respects_batch_cap(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
-        mock_sync_connect.return_value = MagicMock()
-        mock_async_to_sync.return_value = MagicMock()
-        for i in range(3):
-            self._create_failed(f"sess-cap{i}")
-
-        with patch("products.replay_vision.backend.api.observations.RETRY_FAILED_BATCH_LIMIT", 2):
-            resp = self.client.post(f"{self.observations_url(str(self.scanner.id))}retry_failed/")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json(), {"retried": 2, "failed_to_start": 0, "remaining_failed": 1})
-
 
 class TestSessionReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:

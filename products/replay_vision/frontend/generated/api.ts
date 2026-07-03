@@ -22,7 +22,6 @@ import type {
     PatchedVisionActionApi,
     ReplayObservationApi,
     ReplayScannerApi,
-    RetryFailedResponseApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
@@ -282,23 +281,6 @@ export const visionObservationsRetryCreate = async (
     })
 }
 
-export const getVisionObservationsRetryFailedCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/observations/retry_failed/`
-}
-
-/**
- * Retry the scanner's failed observations, oldest first, capped per call by the batch limit.
- */
-export const visionObservationsRetryFailedCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<RetryFailedResponseApi> => {
-    return apiMutator<RetryFailedResponseApi>(getVisionObservationsRetryFailedCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/quota/`
 }
@@ -508,24 +490,6 @@ export const visionScannersObservationsRetryCreate = async (
     options?: RequestInit
 ): Promise<RetryResponseApi> => {
     return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getVisionScannersObservationsRetryFailedCreateUrl = (projectId: string, scannerId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/retry_failed/`
-}
-
-/**
- * Retry the scanner's failed observations, oldest first, capped per call by the batch limit.
- */
-export const visionScannersObservationsRetryFailedCreate = async (
-    projectId: string,
-    scannerId: string,
-    options?: RequestInit
-): Promise<RetryFailedResponseApi> => {
-    return apiMutator<RetryFailedResponseApi>(getVisionScannersObservationsRetryFailedCreateUrl(projectId, scannerId), {
         ...options,
         method: 'POST',
     })
