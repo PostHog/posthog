@@ -19,6 +19,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
 from posthog.tasks.email import NotificationSetting, should_send_notification
+from posthog.tasks.email_utils import compute_week_over_week_change
 from posthog.temporal.common.clickhouse import get_client as get_ch_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -27,6 +28,7 @@ from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
     query_experiments_launched,
     query_new_dashboards,
+    query_new_error_issues,
     query_new_event_definitions,
     query_new_external_data_sources,
     query_new_feature_flags,
@@ -45,6 +47,7 @@ from posthog.temporal.weekly_digest.types import (
     DashboardList,
     DigestProductSuggestion,
     DigestResourceType,
+    ErrorIssueList,
     EventDefinitionList,
     ExperimentList,
     ExternalDataSourceList,
@@ -58,6 +61,8 @@ from posthog.temporal.weekly_digest.types import (
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
+    UsageTrendMetric,
+    UsageTrends,
     UserDigestContext,
 )
 
@@ -328,6 +333,114 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
         )
 
 
+@activity.defn(name="generate-error-issue-lookup")
+async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
+    # New error-tracking issues follow the standard "created within window" lookup,
+    # exactly like dashboards / feature flags.
+    return await generate_digest_data_lookup(
+        input,
+        key_kind=TeamDataKey.ERROR_ISSUES,
+        query_func=query_new_error_issues,
+        resource_type=ErrorIssueList,
+    )
+
+
+# NOTE: This ClickHouse query is written to match the recording-lookup pattern but has
+# NOT been executed against a live cluster — review the table/column names and confirm
+# `uniq(distinct_id)` is the desired "active users" definition before enabling in prod.
+USAGE_TRENDS_QUERY = """
+SELECT
+    countIf(timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS events_current,
+    countIf(timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS events_previous,
+    uniqIf(distinct_id, timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS users_current,
+    uniqIf(distinct_id, timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS users_previous
+FROM events
+WHERE team_id = %(team_id)s
+    AND timestamp >= %(prev_start)s
+    AND timestamp < %(cur_end)s
+FORMAT JSON
+"""
+
+
+def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMetric:
+    change = compute_week_over_week_change(current, previous or None, higher_is_better=True)
+    if change is None:
+        return UsageTrendMetric(label=label, current=current, previous=previous, change_pct=0, direction="flat")
+    return UsageTrendMetric(
+        label=label,
+        current=current,
+        previous=previous,
+        change_pct=change["percent"],
+        direction="up" if change["direction"] == "Up" else "down",
+    )
+
+
+@activity.defn(name="generate-usage-trends-lookup")
+async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
+    async with Heartbeater():
+        bind_contextvars(
+            digest_key=input.digest.key,
+            period_start=input.digest.period_start,
+            period_end=input.digest.period_end,
+            batch_start=input.batch[0],
+            batch_end=input.batch[1],
+        )
+        logger = LOGGER.bind()
+        logger.info("Generating usage trends batch")
+
+        window = input.digest.period_end - input.digest.period_start
+        parameters_base = {
+            "cur_start": input.digest.period_start,
+            "cur_end": input.digest.period_end,
+            "prev_start": input.digest.period_start - window,
+            "prev_end": input.digest.period_start,
+        }
+
+        team_count = 0
+
+        async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
+            batch_start, batch_end = input.batch
+            async for team in query_teams_for_digest()[batch_start:batch_end]:
+                try:
+                    raw_response: bytes = b""
+                    async with ch_client.aget_query(
+                        query=USAGE_TRENDS_QUERY,
+                        query_parameters={**parameters_base, "team_id": team.id},
+                        query_id=str(uuid4()),
+                    ) as ch_response:
+                        raw_response = await ch_response.content.read()
+
+                    response = ClickHouseResponse.model_validate_json(raw_response)
+                    row = response.data[0]
+
+                    events_current = int(row.get("events_current", 0) or 0)
+                    users_current = int(row.get("users_current", 0) or 0)
+
+                    # Skip inactive teams entirely — no numbers worth showing.
+                    if events_current == 0:
+                        continue
+
+                    usage_trends = UsageTrends(
+                        metrics=[
+                            _usage_trend_metric("Events", events_current, int(row.get("events_previous", 0) or 0)),
+                            _usage_trend_metric("Active users", users_current, int(row.get("users_previous", 0) or 0)),
+                        ]
+                    )
+
+                    key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
+                    await r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
+                    team_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate usage trends for team {team.id}, skipping...",
+                        error=str(e),
+                        team_id=team.id,
+                    )
+                    continue
+
+        logger.info("Finished generating usage trends batch", team_count=team_count)
+
+
 @activity.defn(name="generate-user-notification-lookup")
 async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
@@ -463,6 +576,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                                 team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team.id),
                                 team_data_key(input.digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id),
                                 team_data_key(input.digest.key, TeamDataKey.SURVEYS_LAUNCHED, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id),
+                                team_data_key(input.digest.key, TeamDataKey.ERROR_ISSUES, team.id),
                             ]
                         )
 
@@ -476,6 +591,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             FilterList(root=[]),
                             RecordingCount(recording_count=0),
                             SurveyList(root=[]),
+                            UsageTrends(),
+                            ErrorIssueList(root=[]),
                         ]
 
                         digest_data = [
@@ -496,6 +613,8 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                                 filters=digest_data[6],
                                 expiring_recordings=digest_data[7],
                                 surveys_launched=digest_data[8],
+                                usage_trends=digest_data[9],
+                                error_issues=digest_data[10],
                             )
                         )
                         team_count += 1
