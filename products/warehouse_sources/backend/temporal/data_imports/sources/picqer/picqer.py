@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from requests import Session
+from requests.exceptions import RequestException
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -185,6 +186,6 @@ def validate_credentials(account: str, api_key: str) -> tuple[bool, int | None]:
     url = f"{_base_url(account)}/warehouses"
     try:
         response = _make_session(api_key).get(url, params={"offset": 0}, timeout=10)
-    except Exception:
+    except RequestException:
         return False, None
     return response.status_code in (200, 403), response.status_code

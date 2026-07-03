@@ -56,7 +56,7 @@ class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.canonical_descriptions import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
         )
 
