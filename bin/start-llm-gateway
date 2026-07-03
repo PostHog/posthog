@@ -32,7 +32,11 @@ export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 
 uv sync --quiet
 
-exec .venv/bin/uvicorn llm_gateway.main:app \
+# `python -m uvicorn` instead of the uvicorn console script: a venv carried over from a moved or
+# renamed checkout passes `uv sync`, but its console-script shebangs still point at the old repo
+# path and fail with "bad interpreter". Module invocation resolves through the venv's interpreter
+# symlink, which survives the move.
+exec .venv/bin/python -m uvicorn llm_gateway.main:app \
     --host 0.0.0.0 \
     --port "${LLM_GATEWAY_PORT:-3308}" \
     --reload
