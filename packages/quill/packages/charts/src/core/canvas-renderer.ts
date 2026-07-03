@@ -709,7 +709,13 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
 
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
-            const x = snapToPixel(yScale(tick))
+            const coord = yScale(tick)
+            // In axis-line (frameless) mode, skip grid lines hugging the left edge — they'd double
+            // up against the chart-drawn value-axis line. Framed grids keep their baseline gridline.
+            if (!frame && coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
+                continue
+            }
+            const x = snapToPixel(coord)
             ctx.beginPath()
             ctx.moveTo(x, dimensions.plotTop)
             ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)

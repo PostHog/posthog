@@ -766,6 +766,21 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.moveTo.mock.calls.some(([x]) => x === leftX)).toBe(true)
         })
 
+        it.each([{ frame: true, expectBaselineTick: true }, { frame: false, expectBaselineTick: false }])(
+            'horizontal orientation: baseline-hugging value gridline drawn only when framed (frame: $frame)',
+            ({ frame, expectBaselineTick }) => {
+                const ctx = mockCanvasContext()
+                const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                // Horizontal mode maps values to x; range starts at the plot's left edge, so the
+                // 0 tick lands exactly on the value-axis baseline.
+                drawCtx.yScale = scaleLinear().domain([0, 100]).range([48, 784])
+                drawGrid(drawCtx, { orientation: 'horizontal', frame })
+                const baselineX = Math.round(48) + 0.5
+                const drewBaselineTick = ctx.moveTo.mock.calls.some(([x, y]) => x === baselineX && y === dimensions.plotTop)
+                expect(drewBaselineTick).toBe(expectBaselineTick)
+            }
+        )
+
         it('skips the frame strokes and bottom-hugging gridline when frame is false', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { frame: false })
