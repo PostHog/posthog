@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 LLM_COSTS_BY_MODEL = {
     "gpt-4o": {"prompt_token": 2.5 / 1e6, "completion_token": 10 / 1e6},
     "gpt-4o-mini": {"prompt_token": 0.15 / 1e6, "completion_token": 0.6 / 1e6},
+    "claude-sonnet-4": {"prompt_token": 3 / 1e6, "completion_token": 15 / 1e6},
+    "claude-3-5-haiku": {"prompt_token": 0.8 / 1e6, "completion_token": 4 / 1e6},
+    "gemini-2.0-flash": {"prompt_token": 0.1 / 1e6, "completion_token": 0.4 / 1e6},
 }
 
 SP = TypeVar("SP", bound="SimPerson")
@@ -171,12 +174,14 @@ class SimServerClient(SimClient):
         base_url: str = "https://api.openai.com/v1",
         provider: str = "openai",
         model: str = "gpt-4o",
+        span_name: Optional[str] = None,
         trace_id: Optional[str] = None,
         http_status: int = 200,
         is_streaming: bool = False,
         time_to_first_token: Optional[float] = None,
     ):
         """Capture an AI generation event."""
+        # The gpt-4o encoding is a good-enough token count proxy for all simulated models
         input_tokens = sum(len(self.matrix.gpt_4o_encoding.encode(message["content"])) for message in input)
         output_tokens = len(self.matrix.gpt_4o_encoding.encode(output_content))
         input_cost_usd = input_tokens * LLM_COSTS_BY_MODEL[model]["prompt_token"]
@@ -205,6 +210,7 @@ class SimServerClient(SimClient):
                 "$ai_latency": latency,
                 "$ai_trace_id": trace_id or str(uuid4()),
                 "$ai_stream": is_streaming,
+                **({"$ai_span_name": span_name} if span_name is not None else {}),
                 **({"$ai_time_to_first_token": time_to_first_token} if time_to_first_token is not None else {}),
             },
             distinct_id=distinct_id,
@@ -216,6 +222,7 @@ class SimServerClient(SimClient):
         *,
         distinct_id: str,
         input_state: Any,
+        span_name: str = "SpikeChain",
         trace_id: Optional[str] = None,
     ) -> Generator[tuple[str, Callable]]:
         """Capture an AI generation event."""
@@ -236,7 +243,7 @@ class SimServerClient(SimClient):
                 {
                     "$ai_input_state": input_state,
                     "$ai_output_state": output_state,
-                    "$ai_span_name": "SpikeChain",
+                    "$ai_span_name": span_name,
                     "$ai_trace_id": trace_id,
                 },
                 distinct_id=distinct_id,
