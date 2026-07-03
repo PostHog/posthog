@@ -1,14 +1,29 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionScannersObservationsList, visionScannersObservationsStatsRetrieve } from '../generated/api'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import {
+    visionScannersObservationsList,
+    visionScannersObservationsStatsRetrieve,
+    visionScannersPromptSuggestionsApplyCreate,
+    visionScannersPromptSuggestionsCurrentRetrieve,
+    visionScannersPromptSuggestionsDismissCreate,
+    visionScannersPromptSuggestionsGenerateCreate,
+    visionScannersPromptSuggestionsList,
+} from '../generated/api'
 import type {
+    CurrentPromptSuggestionApi,
     ObservationLabelStatsApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
+    ReplayScannerPromptSuggestionApi,
     VisionScannersObservationsListParams,
 } from '../generated/api.schemas'
+import { replayScannerLogic } from './replayScannerLogic'
 import type { scannerQualityLogicType } from './scannerQualityLogicType'
 
 export type RatedFilterValue = 'all' | 'unrated' | 'rated'
@@ -20,7 +35,7 @@ export interface ScannerQualityLogicProps {
     scannerId: string
 }
 
-/** State for the Quality tab: succeeded observations to rate, plus the rated-over-time aggregates. */
+/** State for the Quality tab: the prompt recommendation, observations to rate, and rated-over-time aggregates. */
 export const scannerQualityLogic = kea<scannerQualityLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerQualityLogic']),
     props({} as ScannerQualityLogicProps),
@@ -36,6 +51,21 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadLabelStats: true,
         loadLabelStatsSuccess: (stats: ObservationLabelStatsApi) => ({ stats }),
         loadLabelStatsFailure: true,
+        loadCurrentSuggestion: true,
+        loadCurrentSuggestionSuccess: (current: CurrentPromptSuggestionApi) => ({ current }),
+        loadCurrentSuggestionFailure: true,
+        generateSuggestion: true,
+        generateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
+        generateSuggestionFailure: true,
+        applySuggestion: (suggestionId: string) => ({ suggestionId }),
+        applySuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
+        applySuggestionFailure: true,
+        dismissSuggestion: (suggestionId: string) => ({ suggestionId }),
+        dismissSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
+        dismissSuggestionFailure: true,
+        loadSuggestionHistory: true,
+        loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => ({ history }),
+        loadSuggestionHistoryFailure: true,
     }),
 
     reducers({
@@ -61,8 +91,9 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 setRatedFilter: () => 1,
             },
         ],
+        // Defaults to the not-yet-rated results: the tab's call to action is rating what's still unreviewed.
         ratedFilter: [
-            'all' as RatedFilterValue,
+            'unrated' as RatedFilterValue,
             {
                 setRatedFilter: (_, { value }) => value,
             },
@@ -89,9 +120,77 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadLabelStatsFailure: () => false,
             },
         ],
+        currentSuggestion: [
+            null as ReplayScannerPromptSuggestionApi | null,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.suggestion,
+                generateSuggestionSuccess: (_, { suggestion }) => suggestion,
+                applySuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
+                dismissSuggestionSuccess: (state, { suggestion }) => (state?.id === suggestion.id ? suggestion : state),
+            },
+        ],
+        suggestionStale: [
+            false,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.stale,
+                generateSuggestionSuccess: () => false,
+            },
+        ],
+        ratedCount: [
+            0,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.rated_count,
+            },
+        ],
+        suggestionLoading: [
+            true,
+            {
+                loadCurrentSuggestion: () => true,
+                loadCurrentSuggestionSuccess: () => false,
+                loadCurrentSuggestionFailure: () => false,
+            },
+        ],
+        generating: [
+            false,
+            {
+                generateSuggestion: () => true,
+                generateSuggestionSuccess: () => false,
+                generateSuggestionFailure: () => false,
+            },
+        ],
+        applying: [
+            false,
+            {
+                applySuggestion: () => true,
+                applySuggestionSuccess: () => false,
+                applySuggestionFailure: () => false,
+            },
+        ],
+        dismissing: [
+            false,
+            {
+                dismissSuggestion: () => true,
+                dismissSuggestionSuccess: () => false,
+                dismissSuggestionFailure: () => false,
+            },
+        ],
+        suggestionHistory: [
+            [] as ReplayScannerPromptSuggestionApi[],
+            {
+                loadSuggestionHistorySuccess: (_, { history }) => history,
+            },
+        ],
+        suggestionHistoryLoading: [
+            false,
+            {
+                loadSuggestionHistory: () => true,
+                loadSuggestionHistorySuccess: () => false,
+                loadSuggestionHistoryFailure: () => false,
+            },
+        ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         loadObservations: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -120,10 +219,11 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         setPage: () => actions.loadObservations(),
         setRatedFilter: () => actions.loadObservations(),
 
-        // Refresh the chart shortly after a rating settles; debounced so a burst of ratings loads once.
+        // Refresh the chart and staleness shortly after a rating settles; debounced so a burst loads once.
         labelChanged: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadLabelStats()
+            actions.loadCurrentSuggestion()
         },
 
         loadLabelStats: async () => {
@@ -140,10 +240,107 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 actions.loadLabelStatsFailure()
             }
         },
+
+        loadCurrentSuggestion: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await visionScannersPromptSuggestionsCurrentRetrieve(String(teamId), props.scannerId)
+                actions.loadCurrentSuggestionSuccess(response)
+            } catch {
+                actions.loadCurrentSuggestionFailure()
+            }
+        },
+
+        // Keep the recommendation current without a scheduler: regenerate once per visit when the
+        // ratings changed since it was generated (or none exists yet but ratings do).
+        loadCurrentSuggestionSuccess: ({ current }) => {
+            const canEdit = !getAccessControlDisabledReason(
+                AccessControlResourceType.SessionRecording,
+                AccessControlLevel.Editor
+            )
+            const needsRefresh = current.rated_count > 0 && (current.stale || !current.suggestion)
+            if (canEdit && needsRefresh && !cache.autoGenerated) {
+                cache.autoGenerated = true
+                actions.generateSuggestion()
+            }
+        },
+
+        generateSuggestion: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.generateSuggestionFailure()
+                return
+            }
+            try {
+                const suggestion = await visionScannersPromptSuggestionsGenerateCreate(String(teamId), props.scannerId)
+                actions.generateSuggestionSuccess(suggestion)
+            } catch (error: any) {
+                lemonToast.error(`Couldn't generate a recommendation${error.detail ? `: ${error.detail}` : ''}`)
+                actions.generateSuggestionFailure()
+            }
+        },
+
+        applySuggestion: async ({ suggestionId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.applySuggestionFailure()
+                return
+            }
+            try {
+                const suggestion = await visionScannersPromptSuggestionsApplyCreate(
+                    String(teamId),
+                    props.scannerId,
+                    suggestionId
+                )
+                actions.applySuggestionSuccess(suggestion)
+                lemonToast.success('Prompt applied to the scanner as a new version')
+                // The scanner's prompt and version changed; refresh it wherever the scene shows it.
+                replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
+            } catch (error: any) {
+                lemonToast.error(`Failed to apply the recommendation${error.detail ? `: ${error.detail}` : ''}`)
+                actions.applySuggestionFailure()
+            }
+        },
+
+        dismissSuggestion: async ({ suggestionId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.dismissSuggestionFailure()
+                return
+            }
+            try {
+                const suggestion = await visionScannersPromptSuggestionsDismissCreate(
+                    String(teamId),
+                    props.scannerId,
+                    suggestionId
+                )
+                actions.dismissSuggestionSuccess(suggestion)
+            } catch (error: any) {
+                lemonToast.error(`Failed to dismiss the recommendation${error.detail ? `: ${error.detail}` : ''}`)
+                actions.dismissSuggestionFailure()
+            }
+        },
+
+        loadSuggestionHistory: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await visionScannersPromptSuggestionsList(String(teamId), props.scannerId)
+                actions.loadSuggestionHistorySuccess(response.results ?? [])
+            } catch {
+                actions.loadSuggestionHistoryFailure()
+            }
+        },
     })),
 
     afterMount(({ actions }) => {
         actions.loadObservations()
         actions.loadLabelStats()
+        actions.loadCurrentSuggestion()
     }),
 ])
