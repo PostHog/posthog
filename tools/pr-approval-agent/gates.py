@@ -87,7 +87,7 @@ if any(
     raise ValueError("DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()")
 
 
-def _dependency_ecosystem(name: str) -> str | None:
+def _ecosystem_for_manifest(name: str) -> str | None:
     for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
         if any(fnmatch(name, pattern) for pattern in spec.manifests):
             return ecosystem
@@ -554,7 +554,7 @@ def detect_title_scrutiny_flags(subject: str) -> list[str]:
 def has_dependency_changes(files: list[str]) -> bool:
     for f in files:
         name = Path(f).name.lower()
-        if name in _ALL_LOCKFILE_NAMES or _dependency_ecosystem(name) is not None:
+        if name in _ALL_LOCKFILE_NAMES or _ecosystem_for_manifest(name) is not None:
             return True
         if name.startswith("requirements") and name.endswith((".txt", ".in")):
             return True
@@ -562,7 +562,7 @@ def has_dependency_changes(files: list[str]) -> bool:
 
 
 def is_dependency_manifest(path: str) -> bool:
-    return _dependency_ecosystem(Path(path).name.lower()) is not None
+    return _ecosystem_for_manifest(Path(path).name.lower()) is not None
 
 
 def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
@@ -582,7 +582,7 @@ def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     return sorted(
         f
         for f in files
-        if (ecosystem := _dependency_ecosystem(Path(f).name.lower())) is not None
+        if (ecosystem := _ecosystem_for_manifest(Path(f).name.lower())) is not None
         and ecosystem not in ecosystems_with_lockfile_change
     )
 
