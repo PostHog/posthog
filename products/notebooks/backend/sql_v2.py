@@ -1,12 +1,14 @@
-"""Helpers for the revamped-notebooks SQLV2 run flow (Journey 1 slice).
+"""Helpers for the revamped-notebooks SQLV2 run flow (Journey 1).
 
 The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
-POST (mirroring PostHog Code's agent-server), which fabricates a result and POSTs
-it back to the token-authed callback endpoint. The control plane (write_file /
-execute) is used only once, to launch the kernel-server — never per run.
+POST (mirroring PostHog Code's agent-server). The kernel-server fetches the
+node's capped result page from the data-plane endpoint (real ClickHouse data via
+HogQL) and POSTs the envelope back to the token-authed callback endpoint. The
+control plane (write_file / execute) is used only to deploy and launch the
+kernel-server package — never per run.
 
-The callback token is a stateless signed token for the slice; hardening swaps it
-for the RS256 sandbox event-ingest JWT used by PostHog Code.
+The callback and data-plane tokens are stateless signed tokens for the slice;
+hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Code.
 """
 
 import hmac
@@ -22,9 +24,9 @@ import posthoganalytics
 
 from posthog.models.user import User
 
+from products.notebooks.backend.kernel_package import SANDBOX_PACKAGE_NAME, kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.notebooks.backend.sql_v2_kernel_server import KERNEL_SERVER_SOURCE
-from products.tasks.backend.facade.sandbox import get_sandbox_class_for_backend
+from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class_for_backend
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +34,12 @@ REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
+_DATA_PLANE_TOKEN_SALT = "notebooks.sql_v2.data_plane"
+_DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 3600
+
+# Rows in the display page the kernel fetches for a run. Paging beyond it re-queries
+# ClickHouse (push-to-CH: a displayed HogQL node is never fully materialized).
+DISPLAY_PAGE_LIMIT = 50
 
 # The container port the sandbox already exposes (mapped to a host port at create
 # time). Mirrors docker_sandbox.AGENT_SERVER_PORT (47821) and
@@ -40,8 +48,11 @@ _CONTAINER_PORT_BY_BACKEND = {
     KernelRuntime.Backend.DOCKER: 47821,
     KernelRuntime.Backend.MODAL: 8080,
 }
-_KERNEL_SERVER_PATH = "/tmp/nb_sql_v2_kernel_server.py"
+_PACKAGE_ROOT = "/tmp/nb_kernel_pkg"
+_TARBALL_PATH = "/tmp/nb_kernel.tar.gz"
 _SECRET_PATH = "/tmp/nb_sql_v2_secret"
+_SERVER_LOG_PATH = "/tmp/nb_kernel_server.log"
+_SERVER_PID_PATH = "/tmp/nb_kernel_server.pid"
 _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 _COMMAND_TOKEN_TTL_SECONDS = 300
@@ -89,23 +100,10 @@ def kernel_server_secret(runtime_id: str) -> str:
 
 
 def mint_command_token(secret: str, run_id: str, ttl_seconds: int = _COMMAND_TOKEN_TTL_SECONDS) -> str:
-    """Sign a short-lived, run-scoped command token the kernel-server verifies."""
+    """Sign a short-lived, run-scoped command token; `kernel.auth` verifies it in the sandbox."""
     exp = int(time.time()) + ttl_seconds
     signature = hmac.new(secret.encode(), f"{run_id}.{exp}".encode(), hashlib.sha256).hexdigest()
     return f"{run_id}.{exp}.{signature}"
-
-
-def verify_command_token(secret: str, run_id: str, token: str) -> bool:
-    """Mirror of the check the kernel-server runs — kept here so it can be tested."""
-    try:
-        token_run_id, exp_str, signature = token.rsplit(".", 2)
-        exp = int(exp_str)
-    except (ValueError, AttributeError):
-        return False
-    if token_run_id != run_id or exp < int(time.time()):
-        return False
-    expected = hmac.new(secret.encode(), f"{token_run_id}.{exp_str}".encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
 
 
 def _backend_base_url() -> str:
@@ -117,6 +115,24 @@ def _backend_base_url() -> str:
 
 def build_callback_url(run_id: str) -> str:
     return f"{_backend_base_url()}/internal/notebooks/runs/{run_id}/result/"
+
+
+def build_data_plane_url() -> str:
+    return f"{_backend_base_url()}/internal/notebooks/data_plane/query/"
+
+
+def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None) -> str:
+    return signing.dumps(
+        {"notebook_short_id": notebook_short_id, "team_id": team_id, "user_id": user_id},
+        salt=_DATA_PLANE_TOKEN_SALT,
+    )
+
+
+def verify_data_plane_token(token: str) -> tuple[str, int, int | None]:
+    """Return (notebook_short_id, team_id, user_id) from a valid token, else raise signing.BadSignature."""
+    data = signing.loads(token, salt=_DATA_PLANE_TOKEN_SALT, max_age=_DATA_PLANE_TOKEN_MAX_AGE_SECONDS)
+    user_id = data.get("user_id")
+    return str(data["notebook_short_id"]), int(data["team_id"]), int(user_id) if user_id is not None else None
 
 
 def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntime | None:
@@ -140,47 +156,75 @@ def _with_connect_token(url: str, connect_token: str | None) -> str:
     return f"{url}?_modal_connect_token={connect_token}" if connect_token else url
 
 
-def _wait_for_server_ready(server_url: str, connect_token: str | None) -> None:
+def _server_version(server_url: str, connect_token: str | None) -> str | None:
+    """The deployed package hash the running server reports, or None if unreachable."""
     health_url = _with_connect_token(f"{server_url.rstrip('/')}/health", connect_token)
+    try:
+        response = requests.get(health_url, timeout=2)
+        if response.status_code != 200:
+            return None
+        return str(response.json().get("version") or "")
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def _wait_for_server_ready(server_url: str, connect_token: str | None, expected_version: str) -> None:
     deadline = time.monotonic() + _SERVER_READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        try:
-            if requests.get(health_url, timeout=2).status_code == 200:
-                return
-        except requests.RequestException:
-            pass
+        if _server_version(server_url, connect_token) == expected_version:
+            return
         time.sleep(0.3)
     raise RuntimeError("SQLV2 kernel-server did not become ready")
 
 
-def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime:
-    """Start the in-sandbox kernel-server once; return the runtime it runs in.
+def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package: bytes, version: str) -> None:
+    """Write the kernel package + secret into the sandbox and (re)launch the server.
 
-    Idempotent — reuses the URL persisted on the runtime after the first start.
-    This is the only place the control plane (write_file/execute) is used, and only
-    to launch the server (+ drop its command-auth secret), exactly as Code
-    bootstraps its agent-server. Per-run dispatch is a plain authed HTTP POST.
+    This is the only place the control plane (write_file/execute) is used, exactly
+    as Code bootstraps its agent-server. Per-run dispatch is a plain authed POST.
+    """
+    port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
+    sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
+    sandbox.write_file(_TARBALL_PATH, package)
+    # Stop a previous server via its PID file — never pkill by our own name: the
+    # pattern would match this very launch command's shell and kill it mid-deploy.
+    # The pkill lines only clear pre-package servers (distinct names, safe to
+    # match) from sandboxes that predate the PID file; drop them once those age out.
+    # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    # Prefer the notebook venv python (has pyarrow).
+    launch = (
+        f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
+        "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
+        f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
+        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
+        f"cd {_PACKAGE_ROOT} && nohup $PY -m {SANDBOX_PACKAGE_NAME}.server "
+        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
+        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+    )
+    sandbox.execute(launch, timeout_seconds=30)
+
+
+def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime:
+    """Ensure the in-sandbox kernel-server is running the current package version.
+
+    Idempotent — a healthy server at the expected version is reused as-is; a stale
+    or unreachable one is redeployed from the freshly built tarball (this is the
+    dev loop: edit `kernel/`, next run redeploys, no image rebuild).
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
         raise SQLV2KernelNotRunning()
 
-    if runtime.server_url:
+    package, version = kernel_package_bytes_and_hash()
+    if runtime.server_url and _server_version(runtime.server_url, runtime.server_connect_token) == version:
         return runtime
 
     sandbox_class = get_sandbox_class_for_backend(runtime.backend)
     sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
-
-    port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
-    sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
-    sandbox.write_file(_KERNEL_SERVER_PATH, KERNEL_SERVER_SOURCE.encode())
-    sandbox.execute(
-        f"nohup python3 {_KERNEL_SERVER_PATH} {port} {_SECRET_PATH} > /tmp/nb_sql_v2_kernel_server.log 2>&1 &",
-        timeout_seconds=15,
-    )
+    _deploy_kernel_server(sandbox, runtime, package, version)
 
     credentials = sandbox.get_connect_credentials()
-    _wait_for_server_ready(credentials.url, credentials.token)
+    _wait_for_server_ready(credentials.url, credentials.token, version)
 
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
@@ -195,14 +239,17 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
     """
     runtime = ensure_sql_v2_server(notebook, user)
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
-    callback_token = mint_callback_token(str(run.id), notebook.team_id)
+    user_id = user.id if isinstance(user, User) else None
     response = requests.post(
         _with_connect_token(f"{runtime.server_url.rstrip('/')}/run", runtime.server_connect_token),
         json={
             "run_id": str(run.id),
             "code": code,
             "callback_url": build_callback_url(str(run.id)),
-            "callback_token": callback_token,
+            "callback_token": mint_callback_token(str(run.id), notebook.team_id),
+            "data_plane_url": build_data_plane_url(),
+            "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+            "page_limit": DISPLAY_PAGE_LIMIT,
         },
         headers={"Authorization": f"Bearer {command_token}"},
         timeout=_RUN_POST_TIMEOUT_SECONDS,

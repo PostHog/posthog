@@ -194,7 +194,7 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
-from products.notebooks.backend.temporal import (
+from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
 )

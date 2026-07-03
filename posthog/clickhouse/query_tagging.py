@@ -68,6 +68,7 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"

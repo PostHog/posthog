@@ -1,21 +1,35 @@
+import io
 import json
+import math
+import tarfile
+import datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core import signing
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
+from products.notebooks.backend.kernel import (
+    auth as kernel_auth,
+    envelope as kernel_envelope,
+    runner as kernel_runner,
+)
+from products.notebooks.backend.kernel.data_plane import DataPlaneError, decode_arrow_stream
+from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import (
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
-    verify_command_token,
+    mint_data_plane_token,
+    verify_data_plane_token,
 )
+from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -122,6 +136,15 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_called_once()
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_blank_code_is_rejected_before_dispatch(self, _mock_enabled, mock_start):
+        # A stale-attribute FE bug once sent empty code all the way into the sandbox; fail fast here instead.
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": ""}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
+        mock_start.assert_not_called()
+
     @patch(
         "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
         side_effect=RuntimeError("temporal unavailable"),
@@ -201,8 +224,10 @@ class TestSQLV2Activities(APIBaseTest):
         dispatch_sql_v2_run_activity(self._run_input(run))
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.FAILED)
 
+    @patch("products.notebooks.backend.sql_v2._server_version")
     @patch("products.notebooks.backend.sql_v2.requests.post")
-    def test_dispatch_activity_posts_to_ready_server(self, mock_post):
+    def test_dispatch_activity_posts_to_ready_server(self, mock_post, mock_version):
+        mock_version.return_value = kernel_package_bytes_and_hash()[1]  # server already at the deployed version
         run = self._create_run()
         KernelRuntime.objects.create(
             team=self.team,
@@ -217,6 +242,12 @@ class TestSQLV2Activities(APIBaseTest):
         dispatch_sql_v2_run_activity(self._run_input(run))
         mock_post.assert_called_once()
         self.assertIn("/run", mock_post.call_args.args[0])
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["code"], "select 1")
+        # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
+        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
     def test_mark_failed_activity(self):
@@ -226,9 +257,11 @@ class TestSQLV2Activities(APIBaseTest):
 
 
 class TestSQLV2CommandToken(SimpleTestCase):
+    # Backend mints (sql_v2), the in-sandbox kernel verifies (kernel.auth) — this
+    # round-trip is the contract that keeps the two HMAC implementations in sync.
     def test_valid_token_verifies(self):
         secret = kernel_server_secret("rt-1")
-        self.assertTrue(verify_command_token(secret, "run-1", mint_command_token(secret, "run-1")))
+        self.assertTrue(kernel_auth.verify_command_token(secret, "run-1", mint_command_token(secret, "run-1")))
 
     @parameterized.expand(
         [
@@ -241,4 +274,132 @@ class TestSQLV2CommandToken(SimpleTestCase):
     )
     def test_invalid_tokens_rejected(self, _name, make_case):
         verify_secret, run_id, token = make_case(kernel_server_secret("rt-1"))
-        self.assertFalse(verify_command_token(verify_secret, run_id, token))
+        self.assertFalse(kernel_auth.verify_command_token(verify_secret, run_id, token))
+
+
+class TestSQLV2DataPlaneToken(SimpleTestCase):
+    def test_round_trip(self):
+        token = mint_data_plane_token("nb123", 7, 42)
+        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+
+    @parameterized.expand(
+        [
+            ("tampered", lambda: mint_data_plane_token("nb123", 7, 42)[:-2] + "xx"),
+            ("wrong_salt", lambda: mint_callback_token("run-1", 7)),
+            ("garbage", lambda: "not-a-token"),
+        ]
+    )
+    def test_invalid_tokens_rejected(self, _name, make_token):
+        with self.assertRaises(signing.BadSignature):
+            verify_data_plane_token(make_token())
+
+
+class TestSQLV2DataPlaneEndpoint(APIBaseTest):
+    URL = "/internal/notebooks/data_plane/query/"
+
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbdp001")
+
+    def _post(self, body: dict, token: str | None = None):
+        kwargs = {"data": json.dumps(body), "content_type": "application/json"}
+        if token is not None:
+            kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
+        return self.client.post(self.URL, **kwargs)
+
+    def _token(self, short_id: str | None = None) -> str:
+        return mint_data_plane_token(short_id or self.notebook.short_id, self.team.id, self.user.id)
+
+    def test_runs_query_and_returns_arrow(self):
+        response = self._post({"query": "select 1 as answer"}, token=self._token())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response["Content-Type"], "application/vnd.apache.arrow.stream")
+        columns, rows, types = decode_arrow_stream(response.content)
+        self.assertEqual(columns, ["answer"])
+        self.assertEqual(rows, [(1,)])
+        # The real ClickHouse type must survive the Arrow round-trip (schema metadata).
+        self.assertEqual(types[0][0], "answer")
+        self.assertIn("Int", types[0][1])
+
+    def test_outer_limit_and_offset_cap_the_page(self):
+        response = self._post({"query": "select number from numbers(10)", "limit": 3, "offset": 2}, token=self._token())
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(rows, [(2,), (3,), (4,)])
+
+    def test_hogql_error_is_surfaced(self):
+        response = self._post({"query": "select ceci n'est pas une query"}, token=self._token())
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.json()["error"])
+
+    @parameterized.expand(
+        [
+            ("missing_token", None, 401),
+            ("garbage_token", "not-a-token", 401),
+        ]
+    )
+    def test_rejects_bad_auth(self, _name, token, expected_status):
+        response = self._post({"query": "select 1"}, token=token)
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_unknown_notebook_returns_404(self):
+        response = self._post({"query": "select 1"}, token=self._token(short_id="nope999"))
+        self.assertEqual(response.status_code, 404)
+
+
+class TestSQLV2KernelPackage(SimpleTestCase):
+    def test_arrow_contract_round_trip(self):
+        # Where backend encoding and kernel decoding actually meet: duplicate column
+        # names must survive, a mixed-type column falls back to strings, and the
+        # declared HogQL types ride through as schema metadata.
+        columns = ["value", "value", "mixed"]
+        rows = [(1, "a", 1), (2, "b", "two")]
+        types = [["value", "Int64"], ["value", "String"], ["mixed", "String"]]
+        decoded_columns, decoded_rows, decoded_types = decode_arrow_stream(_rows_to_arrow_bytes(columns, rows, types))
+        self.assertEqual(decoded_columns, columns)
+        self.assertEqual(decoded_rows, [(1, "a", "1"), (2, "b", "two")])
+        self.assertEqual(decoded_types, types)
+
+    def test_types_fall_back_to_arrow_schema_without_metadata(self):
+        columns, rows = ["n", "s"], [(1, "a")]
+        _cols, _rows, types = decode_arrow_stream(_rows_to_arrow_bytes(columns, rows))
+        self.assertEqual(types, [["n", "Int64"], ["s", "String"]])
+
+    def test_envelope_cells_are_json_safe(self):
+        result = kernel_envelope.from_columns_and_rows(
+            ["ts", "nan", "blob"],
+            [(datetime.datetime(2026, 7, 3, 12, 0), math.nan, b"bytes")],
+        )
+        json.dumps(result)  # a NaN or datetime here would make the callback body unparseable
+        self.assertEqual(result["first_page"], [["2026-07-03T12:00:00", None, "bytes"]])
+        self.assertEqual(result["row_count"], 1)
+
+    def test_runner_delivers_error_callback_when_fetch_fails(self):
+        # A failed fetch must still produce a callback — otherwise the run hangs until the watchdog.
+        payload = {
+            "run_id": "r1",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        delivered = {}
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+            patch(
+                "products.notebooks.backend.kernel.data_plane.fetch_query_page",
+                side_effect=DataPlaneError("no such table"),
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(delivered["status"], "error")
+        self.assertEqual(delivered["error"], "no such table")
+
+    def test_tarball_contains_the_package(self):
+        package, version = kernel_package_bytes_and_hash()
+        with tarfile.open(fileobj=io.BytesIO(package), mode="r:gz") as tar:
+            names = tar.getnames()
+        self.assertIn("nb_kernel/server.py", names)
+        self.assertIn("nb_kernel/__init__.py", names)
+        self.assertEqual(len(version), 16)
