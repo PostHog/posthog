@@ -138,10 +138,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
     if task_run and action == "closed" and merged:
-        # Only trust the merge for runs that already claim this PR URL, or webhook matches from a
-        # branch in the installed repo itself (same fork-PR caveat as the pr_url backstop above).
+        # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
+        # above already covers branch-matched internal PRs, so requiring equality here keeps a
+        # same-branch webhook for a different PR from marking this run's PR as merged.
         run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url or is_internal_branch:
+        if run_output.get("pr_url") == pr_url:
             _record_run_pr_merged(task_run)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
