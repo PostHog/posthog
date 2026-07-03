@@ -41,6 +41,7 @@ from posthog.api.team import (
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_logs_config,
+    validate_secret_token_generation,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -1531,6 +1532,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
+        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
