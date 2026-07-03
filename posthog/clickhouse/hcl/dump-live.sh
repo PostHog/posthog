@@ -35,6 +35,7 @@ chmod 0755 "$OUTDIR" 2>/dev/null || true
 # Match the published ports in docker-compose.multinode-clickhouse.yml.
 #   role  default-host  default-port  default-db
 ROLES=(
+  "data      localhost 9000 posthog"
   "ops       localhost 9300 posthog"
   "logs      localhost 9500 posthog"
   "ai_events localhost 9100 posthog"
