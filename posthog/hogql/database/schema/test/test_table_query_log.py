@@ -44,6 +44,7 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             workload=ANY,
             team_id=self.team.pk,
             readonly=True,
+            ch_user=None,
             external_tables=None,
         )
         assert response.results is not None
