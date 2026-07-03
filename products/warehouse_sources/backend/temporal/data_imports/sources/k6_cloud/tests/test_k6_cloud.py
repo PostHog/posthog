@@ -94,6 +94,18 @@ class TestAbsoluteUrl:
     def test_absolute_url(self, _name: str, current: str, next_link: str, expected: str) -> None:
         assert _absolute_url(current, next_link) == expected
 
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/steal"),
+            ("relative_to_other_host", "//evil.example.com/steal"),
+            ("http_scheme", "http://api.k6.io/cloud/v6/test_runs"),
+        ]
+    )
+    def test_rejects_non_k6_next_link(self, _name: str, next_link: str) -> None:
+        # A tampered `@nextLink` must never redirect the credential-bearing request off the k6 origin.
+        with pytest.raises(ValueError):
+            _absolute_url("https://api.k6.io/cloud/v6/test_runs", next_link)
+
 
 class _FakeResumableManager:
     def __init__(self, state: K6CloudResumeConfig | None = None) -> None:
@@ -159,6 +171,19 @@ class TestGetRows:
         manager = _FakeResumableManager(K6CloudResumeConfig(next_url=resume_url))
         rows = self._collect(manager, monkeypatch, pages, "test_runs")
         assert rows == [{"id": 9}]
+
+    def test_rejects_poisoned_resume_url(self, monkeypatch: Any) -> None:
+        # Resume state is loaded from Redis; a poisoned next link must not leak credentials off-origin.
+        manager = _FakeResumableManager(K6CloudResumeConfig(next_url="https://evil.example.com/steal"))
+        with pytest.raises(ValueError):
+            self._collect(manager, monkeypatch, {}, "test_runs")
+
+    def test_missing_value_key_raises(self, monkeypatch: Any) -> None:
+        # A 200 whose body lacks `value` is an unexpected format — fail loud rather than empty the table.
+        pages = {"https://api.k6.io/cloud/v6/load_zones": {"@nextLink": None}}
+        manager = _FakeResumableManager()
+        with pytest.raises(KeyError):
+            self._collect(manager, monkeypatch, pages, "load_zones")
 
     def test_non_paginated_endpoint_reads_single_page(self, monkeypatch: Any) -> None:
         # load_zones returns everything in one response with no @nextLink and never saves state.
@@ -227,7 +252,10 @@ class TestValidateCredentials:
     ) -> None:
         response = MagicMock()
         response.status_code = status
+        # `validate_credentials` opens the session as a context manager, so the `with` target
+        # must be the same mock we configure `.get` on.
         session = MagicMock()
+        session.__enter__.return_value = session
         session.get.return_value = response
 
         with patch.object(k6_cloud, "make_tracked_session", return_value=session):
@@ -235,6 +263,7 @@ class TestValidateCredentials:
 
     def test_network_error_is_invalid_not_forbidden(self) -> None:
         session = MagicMock()
+        session.__enter__.return_value = session
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(k6_cloud, "make_tracked_session", return_value=session):
             assert validate_credentials("tok", "1") == (False, False)
@@ -243,6 +272,7 @@ class TestValidateCredentials:
         response = MagicMock()
         response.status_code = 200
         session = MagicMock()
+        session.__enter__.return_value = session
         session.get.return_value = response
         with patch.object(k6_cloud, "make_tracked_session", return_value=session):
             validate_credentials("tok", "1")

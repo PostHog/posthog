@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,7 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.s
 )
 
 # Grafana Cloud k6 pins the current REST API under a single global host + version path.
-K6_CLOUD_BASE_URL = "https://api.k6.io/cloud/v6"
+K6_CLOUD_HOST = "api.k6.io"
+K6_CLOUD_BASE_URL = f"https://{K6_CLOUD_HOST}/cloud/v6"
 
 # $top caps at 1000 rows per page (the documented maximum).
 PAGE_SIZE = 1000
@@ -119,9 +120,8 @@ def validate_credentials(api_token: str, stack_id: str, schema_name: Optional[st
         url = f"{K6_CLOUD_BASE_URL}/auth"
 
     try:
-        response = make_tracked_session().get(
-            url, headers=_get_headers(api_token, stack_id), timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        with make_tracked_session() as session:
+            response = session.get(url, headers=_get_headers(api_token, stack_id), timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
         return False, False
 
@@ -142,8 +142,6 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = K6_CLOUD_ENDPOINTS[endpoint]
     headers = _get_headers(api_token, stack_id)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
 
     initial_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
@@ -152,40 +150,63 @@ def get_rows(
     # The `@nextLink` is an absolute URL that already carries the filter + `$skip` offset,
     # so on resume (and on every page after the first) we fetch it with no extra params.
     if resume_config is not None and resume_config.next_url:
-        url: str = resume_config.next_url
+        # Resume state comes back from Redis, so re-pin it to the k6 origin before we send the token.
+        url: str = _require_k6_origin(resume_config.next_url)
         params: Optional[dict[str, str]] = None
         logger.debug(f"k6 Cloud: resuming {endpoint} from saved next link")
     else:
         url = f"{K6_CLOUD_BASE_URL}{config.path}"
         params = initial_params
 
-    while True:
-        data = _fetch_page(session, url, params, headers, logger)
+    # One session reused across every page so urllib3 keeps the connection alive; the `with`
+    # closes it promptly even if the consumer abandons the generator early.
+    with make_tracked_session() as session:
+        while True:
+            data = _fetch_page(session, url, params, headers, logger)
 
-        items = data.get("value", [])
-        next_url = data.get("@nextLink")
+            # Fail fast if the payload is missing `value` — an empty table is a bug, not a valid sync.
+            items = data["value"]
+            next_url = data.get("@nextLink")
 
-        if items:
-            yield items
-            # Save state only after yielding, so a crash re-yields the last page rather
-            # than skipping it (merge dedupes on the primary key). Only persist when more
-            # pages remain — there's nothing to resume into on the final page.
-            if config.paginated and next_url:
-                resumable_source_manager.save_state(K6CloudResumeConfig(next_url=_absolute_url(url, next_url)))
+            if items:
+                yield items
+                # Save state only after yielding, so a crash re-yields the last page rather
+                # than skipping it (merge dedupes on the primary key). Only persist when more
+                # pages remain — there's nothing to resume into on the final page.
+                if config.paginated and next_url:
+                    resumable_source_manager.save_state(K6CloudResumeConfig(next_url=_absolute_url(url, next_url)))
 
-        if not config.paginated or not next_url:
-            break
+            if not config.paginated or not next_url:
+                break
 
-        # Advance to the next page before the next fetch, otherwise we loop on this page.
-        url = _absolute_url(url, next_url)
-        params = None
+            # Advance to the next page before the next fetch, otherwise we loop on this page.
+            url = _absolute_url(url, next_url)
+            params = None
+
+
+def _require_k6_origin(url: str) -> str:
+    """Reject any pagination/resume URL that doesn't point at the k6 API origin.
+
+    `@nextLink` is attacker-influenceable response data and resume state is loaded back from
+    Redis, so before we send the bearer token + stack id to a URL we confirm its scheme is
+    https and its host is the k6 API host. Otherwise a tampered link could exfiltrate the
+    stored credential to an attacker-controlled or internal server.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != K6_CLOUD_HOST:
+        raise ValueError(f"k6 Cloud: refusing to follow non-k6 URL: {url}")
+    return url
 
 
 def _absolute_url(current_url: str, next_link: str) -> str:
-    """Resolve `@nextLink` against the current URL in case the API returns a relative link."""
-    if next_link.startswith("http://") or next_link.startswith("https://"):
-        return next_link
-    return urljoin(current_url, next_link)
+    """Resolve `@nextLink` against the current URL, then pin it to the k6 origin.
+
+    Relative links are joined onto the current (already-pinned) URL; absolute links are taken
+    as-is. Either way the result must resolve to the k6 API host — `_require_k6_origin` rejects
+    a tampered link before we send credentials to it.
+    """
+    resolved = next_link if next_link.startswith(("http://", "https://")) else urljoin(current_url, next_link)
+    return _require_k6_origin(resolved)
 
 
 def k6_cloud_source(

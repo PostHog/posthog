@@ -52,6 +52,11 @@ class TestK6CloudSource:
         assert stack_id_field.name == "stack_id"
         assert stack_id_field.secret is False
 
+    def test_stack_id_is_a_connection_host_field(self) -> None:
+        # `stack_id` routes the stored token to a specific k6 stack, so changing it must re-require
+        # the secret — guards against credential retargeting across stacks.
+        assert self.source.connection_host_fields == ["stack_id"]
+
     def test_get_schemas_matches_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)

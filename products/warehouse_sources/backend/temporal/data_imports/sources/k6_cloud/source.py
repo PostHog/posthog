@@ -43,6 +43,13 @@ class K6CloudSource(ResumableSource[K6CloudSourceConfig, K6CloudResumeConfig]):
         return ExternalDataSourceType.K6CLOUD
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `stack_id` selects which Grafana Cloud k6 stack the stored bearer token is sent to, so
+        # retargeting it must re-require the token — otherwise the credential could be reused
+        # against a different stack.
+        return ["stack_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.K6_CLOUD,
