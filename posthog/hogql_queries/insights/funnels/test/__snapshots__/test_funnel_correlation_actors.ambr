@@ -268,12 +268,12 @@
                      if(equals(e.event, 'insight updated'), 1, 0) AS step_2
               FROM events_json AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed', 'insight updated'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -287,12 +287,12 @@
                                                                                            actor_id AS id
      FROM events_json AS event
      LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
      JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), toTimeZone(funnel_actors.first_timestamp, 'UTC')), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(toTimeZone(funnel_actors.final_timestamp, 'UTC'), plus(toTimeZone(toTimeZone(funnel_actors.first_timestamp, 'UTC'), 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            or isNotNull(target_step)))
@@ -357,12 +357,12 @@
                      if(equals(e.event, 'insight analyzed'), 1, 0) AS step_1
               FROM events_json AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed'))), or(equals(step_0, 1), equals(step_1, 1))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -376,12 +376,12 @@
                                                                         actor_id AS id
      FROM events_json AS event
      LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
      JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_from), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), toTimeZone(funnel_actors.first_timestamp, 'UTC')), less(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), coalesce(toTimeZone(funnel_actors.final_timestamp, 'UTC'), plus(toTimeZone(toTimeZone(funnel_actors.first_timestamp, 'UTC'), 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(target_step)))
@@ -558,12 +558,12 @@
                      if(equals(e.event, 'insight analyzed'), 1, 0) AS step_1
               FROM events_json AS e
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
