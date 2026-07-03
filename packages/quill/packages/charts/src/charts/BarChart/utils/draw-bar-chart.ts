@@ -124,6 +124,7 @@ export function drawBarChartStatic(
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
+            gridDash: theme.gridDashPattern,
             frame: !showAxisLines,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
             // In the axis-line style only the value-axis grid guides reading; category lines

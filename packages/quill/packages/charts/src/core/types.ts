@@ -11,7 +11,11 @@ export interface ChartTheme {
      *  then `gridColor` — set it to mute the lines without muting the tick label text. */
     axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
