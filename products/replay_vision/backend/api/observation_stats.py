@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any, Literal, get_args
 
 from django.db import connection
-from django.db.models import Count, Min, Q, QuerySet
+from django.db.models import Count, Max, Min, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import TruncDate
 from django.utils import timezone
@@ -110,16 +110,25 @@ def _label_day_counts(
     return [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows]
 
 
-def _version_markers(queryset: QuerySet[ReplayObservation], cutoff: Any) -> list[dict[str, Any]]:
-    """First day each prompt version appears within the window, so the chart can mark version changes."""
+def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, Any]]:
+    """Every prompt version that produced observations, with its first day, prompt text (from the run
+    snapshot), and rating counts. All-time: charts window it client-side; the configuration overview
+    shows the full history."""
     rows = (
-        queryset.filter(created_at__gte=cutoff)
-        .annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
+        queryset.annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
         .exclude(snapshot_version=None)
-        .annotate(day=TruncDate("created_at"))
+        .annotate(
+            day=TruncDate("created_at"),
+            snapshot_prompt=KeyTextTransform("prompt", KeyTextTransform("scanner_config", "scanner_snapshot")),
+        )
         .order_by()
         .values("snapshot_version")
-        .annotate(first_day=Min("day"))
+        .annotate(
+            first_day=Min("day"),
+            prompt=Max("snapshot_prompt"),
+            up=Count("id", filter=Q(label__is_correct=True)),
+            down=Count("id", filter=Q(label__is_correct=False)),
+        )
     )
     markers = []
     for row in rows:
@@ -127,7 +136,15 @@ def _version_markers(queryset: QuerySet[ReplayObservation], cutoff: Any) -> list
             version = int(row["snapshot_version"])
         except (TypeError, ValueError):
             continue
-        markers.append({"date": row["first_day"], "version": version})
+        markers.append(
+            {
+                "date": row["first_day"],
+                "version": version,
+                "prompt": row["prompt"] or "",
+                "up": row["up"],
+                "down": row["down"],
+            }
+        )
     return sorted(markers, key=lambda marker: (marker["date"], marker["version"]))
 
 
@@ -146,7 +163,7 @@ def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dic
         "by_day": _label_day_counts(labeled, "created_at", cutoff),
         # Bucketed by the day the rating was last set or changed: the team's rating activity.
         "by_rating_day": _label_day_counts(labeled, "label__updated_at", cutoff),
-        "version_markers": _version_markers(queryset, cutoff),
+        "version_markers": _version_markers(queryset),
     }
 
 
