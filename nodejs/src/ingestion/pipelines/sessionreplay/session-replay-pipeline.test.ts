@@ -396,6 +396,46 @@ describe('session-replay-pipeline', () => {
             expect(offsets).toEqual(new Map([[0, 3]]))
         })
 
+        it('drops a session blocked in the resolve-key step but still tracks its offset', async () => {
+            // Block session-2 at the rate limiter. Unlike the restriction/parse drops above, this drop
+            // originates inside the batched resolve-key step, so it verifies that step's drop is wired
+            // into offset tracking the same way.
+            ;(sessionFilter.isBlocked as jest.Mock).mockImplementationOnce((sessions: SessionSet) => {
+                const map = new SessionMap<boolean>()
+                for (const { teamId, sessionId } of sessions) {
+                    map.set(teamId, sessionId, sessionId === 'session-2')
+                }
+                return Promise.resolve(map)
+            })
+
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                topHog,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [
+                createMessage(0, 1, 'session-1'),
+                createMessage(0, 2, 'session-2'),
+                createMessage(0, 3, 'session-3'),
+            ]
+
+            const offsets = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
+            // The blocked session isn't recorded, but its offset still advances the partition.
+            expect(offsets).toEqual(new Map([[0, 3]]))
+        })
+
         it('filters out messages that fail to parse', async () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
