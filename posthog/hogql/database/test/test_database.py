@@ -1540,6 +1540,132 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         timestamp_field = db.get_table("native_timestamp_table").fields["timestamp"]
         assert isinstance(timestamp_field, DateTimeDatabaseField)
 
+    @parameterized.expand(
+        [
+            ("id", "real_id"),
+            ("distinct_id", "real_distinct_id"),
+        ]
+    )
+    def test_data_warehouse_events_modifier_remaps_identity_field_over_existing_column(
+        self, virtual_field: str, configured_column: str
+    ):
+        # A warehouse table can have its own column literally named `id` / `distinct_id` while the
+        # series is configured to use a different column. The configured `id_field` / `distinct_id_field`
+        # must win, so the virtual field resolves to the configured column rather than the table's own
+        # decoy column (which would otherwise be selected silently).
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="decoy_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "real_id": "String",
+                "real_distinct_id": "String",
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="decoy_identity_table",
+                    id_field="real_id",
+                    distinct_id_field="real_distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("decoy_identity_table").fields[virtual_field]
+        assert isinstance(field, ExpressionField)
+        assert isinstance(field.expr, ast.Field)
+        assert field.expr.chain == [configured_column]
+
+    @parameterized.expand(
+        [
+            ("id",),
+            ("distinct_id",),
+        ]
+    )
+    def test_data_warehouse_events_modifier_keeps_existing_identity_column_when_configured(self, virtual_field: str):
+        # When the configured field name equals the virtual field name, the table's own column is used
+        # directly rather than wrapped in a remapping expression.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_identity_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "distinct_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_identity_table",
+                    id_field="id",
+                    distinct_id_field="distinct_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        field = db.get_table("native_identity_table").fields[virtual_field]
+        assert isinstance(field, StringDatabaseField)
+        assert not isinstance(field, ExpressionField)
+
+    def test_data_warehouse_events_modifier_keeps_existing_person_id_column(self):
+        # Unlike id/distinct_id/timestamp, person_id has no configured field on the modifier to remap
+        # from, and a native `person_id` column is treated as authoritative (e.g. an already-resolved
+        # person UUID). It must win over the distinct_id-derived fallback rather than being overridden.
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="native_person_id_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={
+                "id": "String",
+                "user_id": "String",
+                "person_id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="native_person_id_table",
+                    id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created_at",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+
+        person_id_field = db.get_table("native_person_id_table").fields["person_id"]
+        assert isinstance(person_id_field, StringDatabaseField)
+        assert not isinstance(person_id_field, ExpressionField)
+
     def test_data_warehouse_events_modifiers_with_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

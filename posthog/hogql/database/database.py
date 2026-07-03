@@ -1639,7 +1639,11 @@ class Database(BaseModel):
             if table is None:
                 return root_node
 
-            if "id" not in table.fields.keys():
+            # The configured `id_field` must win even when the source table has its own column
+            # literally named `id`. Without this guard the virtual mapping is skipped and queries
+            # silently resolve to the table's own `id` column instead of the configured field.
+            id_field_is_remapped = warehouse_modifier.id_field != "id"
+            if id_field_is_remapped or "id" not in table.fields.keys():
                 table.fields["id"] = ExpressionField(
                     name="id",
                     expr=parse_expr(warehouse_modifier.id_field),
@@ -1678,13 +1682,21 @@ class Database(BaseModel):
                             ),
                         )
 
-            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-            if "distinct_id" not in table.fields.keys():
+            # As with `id` and `timestamp` above, the configured `distinct_id_field` must win over a
+            # source column literally named `distinct_id`; otherwise the virtual mapping is skipped and
+            # the wrong column is used silently.
+            distinct_id_field_is_remapped = warehouse_modifier.distinct_id_field != "distinct_id"
+            if distinct_id_field_is_remapped or "distinct_id" not in table.fields.keys():
                 table.fields["distinct_id"] = ExpressionField(
                     name="distinct_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
+            # person_id is deliberately left as "inject only when absent": the modifier has no
+            # person_id_field to remap from, and a source column literally named `person_id` is
+            # plausibly authoritative (e.g. an already-resolved person UUID), so it should win. When
+            # the table has no `person_id`, derive it from the events join if one exists, else fall
+            # back to the configured distinct_id_field.
             if "person_id" not in table.fields.keys():
                 events_join = next(
                     (
