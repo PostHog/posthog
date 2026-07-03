@@ -200,11 +200,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
-                getElementStatsFailure: () => false,
             },
         ],
         clickmapsEnabled: [
-            false,
+            true,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
             },
@@ -273,6 +272,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url, limit }, breakpoint) => {
                     await breakpoint(150)
+
+                    // the gates can flip while we sit in the breakpoint (the embedded app sends
+                    // toggleClickmapsEnabled(false) just after mount), so re-check before fetching
+                    if (!values.heatmapEnabled || !values.clickmapsEnabled) {
+                        return values.elementStats ?? emptyElementsStatsPages
+                    }
 
                     const { href, wildcardHref } = values
                     // We re-raise below to drive getElementStatsFailure; let the global
@@ -563,7 +568,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadClickmap: async () => {
-            if (values.clickmapsEnabled) {
+            // this logic stays mounted while the heatmap menu is closed, so navigation
+            // must not fetch stats until the user is actually looking
+            if (values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats()
             }
         },
@@ -598,7 +605,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
-                actions.getElementStats()
+                actions.maybeLoadClickmap()
             } else {
                 actions.stopElementObservation()
                 actions.resetElementStats()
@@ -613,6 +620,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
+            } else if (!values.elementStats) {
+                // the initial load failed, so the button doubles as the retry affordance
+                actions.maybeLoadClickmap()
             }
         },
 
@@ -627,7 +637,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             // the first page painted; fetch the rest in one background request. Only the initial
             // trigger refetches, so an auto-load result can never re-trigger itself.
-            if (trigger === 'initial' && elementStats?.next && values.clickmapsEnabled) {
+            if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
             }
         },
