@@ -19,17 +19,10 @@ def clean_invalid_multivariate_filters(apps, schema_editor):
     """
     FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
 
-    # _base_manager: the default manager excludes soft-deleted flags
-    candidates = FeatureFlag._base_manager.filter(
-        Q(filters__has_key="multivariate")
-        & ~Q(filters__multivariate=None)
-        # isnull matches a missing key; =None matches an explicit JSON null
-        & (
-            Q(filters__multivariate__variants__isnull=True)
-            | Q(filters__multivariate__variants=None)
-            | Q(filters__multivariate__variants=[])
-        )
-    )
+    # _base_manager: the default manager excludes soft-deleted flags.
+    # Deliberately broad (any non-null multivariate): key-transform lookups can't
+    # match a non-array `variants` scalar, so the per-row guard below decides.
+    candidates = FeatureFlag._base_manager.filter(Q(filters__has_key="multivariate") & ~Q(filters__multivariate=None))
 
     total = 0
     batch: list = []
