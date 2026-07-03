@@ -43,8 +43,9 @@ PERIOD_END = datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC)
 # metrics; dies with v1.
 LEGACY_EQUIVALENTS: dict[str, Callable[[datetime, datetime], list[Any]]] = {
     "event_count_in_period": lambda b, e: get_teams_with_billable_event_count_in_period(b, e, count_distinct=True),
-    "enhanced_persons_event_count_in_period": lambda b,
-    e: get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True),
+    "enhanced_persons_event_count_in_period": lambda b, e: (
+        get_teams_with_billable_enhanced_persons_event_count_in_period(b, e, count_distinct=True)
+    ),
     "event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period,
 }
 

@@ -67,8 +67,16 @@ def run_events_family(begin: datetime, end: datetime) -> dict[str, list[tuple[in
                 ch_user=ClickHouseUser.BILLING,
             )
             for team_id, *values in rows:
-                for metric, value in zip(EVENTS_METRICS, values):
+                # strict: a drift between the SELECT columns and the metric list
+                # must fail loudly, not misattribute counts across billed metrics.
+                for metric, value in zip(EVENTS_METRICS, values, strict=True):
                     team_totals = totals[metric.name]
                     team_totals[team_id] = team_totals.get(team_id, 0) + value
 
-    return {name: list(team_totals.items()) for name, team_totals in totals.items()}
+    # The fused scan yields a row for every team with any event in the period,
+    # so most values are 0. Legacy per-metric queries filtered in WHERE and
+    # never emitted zero rows; drop them to keep artifacts the same shape.
+    return {
+        name: [(team_id, value) for team_id, value in team_totals.items() if value != 0]
+        for name, team_totals in totals.items()
+    }
