@@ -7,10 +7,9 @@ import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/cons
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { NewSessionFlag } from './pipeline-types'
+import { NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 /**
  * Record-phase batch step: for the whole batch, learn which sessions are new, rate-limit the new ones
@@ -23,10 +22,13 @@ import { SessionReplayHeaders } from './validate-headers-step'
  * this batch is caught here. Because token consumption lives in this step's own retry scope, a
  * downstream key-resolution failure never re-runs it and double-charges the budget.
  *
- * A blocked new session is marked seen here (it's dropped and never reaches the key step), so it isn't
- * re-rate-limited next batch. Sessions that survive are marked seen only after their key is durably
- * resolved (see {@link createMarkSeenStep}). A dropped message still commits its offset — the drop flows
- * out carrying its source message for the single offset-tracking stage (see {@link runSessionReplayPipeline}).
+ * Blocked sessions are dropped without being marked seen. While the block holds they're re-checked and
+ * dropped again each batch (cheap — an in-memory token check plus the batched block read); once it
+ * clears they're treated as new again, so they generate a key and record encrypted. Marking a blocked
+ * session seen would instead leave it keyless, and after the block expired it would resolve via getKey
+ * with no key and record cleartext. Sessions are marked seen only after their key is durably resolved
+ * (see {@link createMarkSeenStep}). A dropped message still commits its offset — the drop flows out
+ * carrying its source message for the single offset-tracking stage (see {@link runSessionReplayPipeline}).
  */
 export function createTrackAndGateStep<
     T extends {
@@ -59,18 +61,11 @@ export function createTrackAndGateStep<
         // One batched Redis read tells us which sessions are blocked.
         const blocked = await sessionFilter.isBlocked(toResolve)
 
-        // Blocked new sessions drop here, so mark them seen now — they never reach the key step, and
-        // marking them keeps them from being rate-limited again next batch.
-        const blockedNewlySeen = new SessionSet()
-        const results = values.map((value) => {
+        return values.map((value) => {
             const teamId = value.team.teamId
             const sessionId = value.headers.session_id
-            const isNewSession = !seen.get(teamId, sessionId)
 
             if (blocked.get(teamId, sessionId)) {
-                if (isNewSession) {
-                    blockedNewlySeen.add(teamId, sessionId)
-                }
                 logger.debug('🔁', 'session_replay_session_dropped_before_record', {
                     sessionId,
                     teamId,
@@ -79,11 +74,7 @@ export function createTrackAndGateStep<
                 return drop<T & NewSessionFlag>('session_blocked')
             }
 
-            return ok({ ...value, isNewSession })
+            return ok({ ...value, isNewSession: !seen.get(teamId, sessionId) })
         })
-
-        await sessionTracker.markSeen(blockedNewlySeen)
-
-        return results
     }
 }

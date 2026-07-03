@@ -2,9 +2,9 @@ import { isOkResult } from '~/ingestion/framework/results'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { SessionReplayHeaders } from './pipeline-types'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { SessionTracker } from './sessions/session-tracker'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 describe('createMarkSeenStep', () => {
     let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'markSeen'>>

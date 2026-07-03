@@ -4,8 +4,8 @@ import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { SessionReplayHeaders } from './pipeline-types'
 import { createResolveKeyStep } from './session-resolve-key-step'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 jest.mock('~/common/utils/logger', () => ({ logger: { debug: jest.fn() } }))
 

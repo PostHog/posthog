@@ -3,10 +3,10 @@ import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/cons
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { SessionReplayHeaders } from './pipeline-types'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 jest.mock('~/common/utils/logger', () => ({ logger: { debug: jest.fn() } }))
 
@@ -72,8 +72,8 @@ describe('createTrackAndGateStep', () => {
 
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
         expect(isOkResult(results[0]) ? results[0].value.isNewSession : null).toBe(true)
-        // A surviving new session is marked seen later (after its key resolves), not here.
-        expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(new SessionSet())
+        // Marking seen happens only after the key resolves (createMarkSeenStep), never in this step.
+        expect(mockSessionTracker.markSeen).not.toHaveBeenCalled()
     })
 
     it('tags a seen session as existing and does not rate-limit it', async () => {
@@ -111,23 +111,17 @@ describe('createTrackAndGateStep', () => {
         expect(isOkResult(results[1])).toBe(true)
     })
 
-    it('marks a blocked NEW session seen but not a blocked EXISTING one', async () => {
-        // 'new' is unseen, 'old' is seen; both get blocked.
-        mockSessionTracker.hasSeen.mockImplementation((sessions: SessionSet) => {
-            const map = new SessionMap<boolean>()
-            for (const { teamId, sessionId } of sessions) {
-                map.set(teamId, sessionId, sessionId === 'old')
-            }
-            return Promise.resolve(map)
-        })
+    it('drops blocked sessions without marking them seen', async () => {
+        mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
         mockSessionFilter.isBlocked.mockImplementation(mapAll(true))
 
-        const results = await createStep()([element(1, 'new'), element(1, 'old')])
+        const results = await createStep()([element(1, 'a'), element(1, 'b')])
 
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(results[1].type).toBe(PipelineResultType.DROP)
-        // Only the blocked NEW session is marked seen here — the blocked existing one already was.
-        expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(new SessionSet().add(1, 'new'))
+        // Blocked sessions stay unseen: while blocked they're re-dropped, and once unblocked they're
+        // treated as new so they get a key and record encrypted rather than resolving keyless to cleartext.
+        expect(mockSessionTracker.markSeen).not.toHaveBeenCalled()
     })
 
     it('keys new/blocked state by (teamId, sessionId) so identical ids on different teams do not collide', async () => {

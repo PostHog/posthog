@@ -5,8 +5,7 @@ import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { NewSessionFlag } from './pipeline-types'
-import { SessionReplayHeaders } from './validate-headers-step'
+import { NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
 
 /**
  * Record-phase per-session step: resolve a session's encryption key, off the S3 write path. Wired under
