@@ -137,6 +137,7 @@ describe('ml-mirror-pipeline', () => {
             sessionTracker,
             sessionFilter,
             keyStore,
+            sessionKeyResolutionMaxConcurrency: 20,
             topHog,
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,

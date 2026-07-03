@@ -23,8 +23,10 @@ import { ValueMatcher } from '~/types'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { createRecordSessionEventStep } from './record-session-event-step'
+import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
-import { createResolveSessionKeyStep } from './session-batch-resolve-session-key-step'
+import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
+import { createResolveKeyStep } from './session-resolve-key-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
@@ -51,6 +53,8 @@ export interface SessionReplayPipelineConfig {
     sessionFilter: SessionFilter
     /** Resolves per-session encryption keys before recording. */
     keyStore: KeyStore
+    /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
+    sessionKeyResolutionMaxConcurrency: number
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
     /** Session batch manager for recording sessions. */
@@ -88,6 +92,7 @@ export function createSessionReplayPipeline(
         sessionTracker,
         sessionFilter,
         keyStore,
+        sessionKeyResolutionMaxConcurrency,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -126,12 +131,34 @@ export function createSessionReplayPipeline(
                     tries: 3,
                     sleepMs: 100,
                 })
-                // Track the session, rate-limit/block new sessions, and resolve its encryption key —
-                // off the S3 write path. Blocked and deleted sessions are dropped here.
-                .pipeBatchWithRetry(createResolveSessionKeyStep(sessionTracker, sessionFilter, keyStore), {
+                // Track sessions and rate-limit/block new ones for the whole batch, tagging each with
+                // isNewSession. Blocked sessions are dropped here. Its own retry scope means a later
+                // key-resolution failure never re-runs the rate limiter and double-charges the budget.
+                .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     tries: 3,
                     sleepMs: 100,
                 })
+                // Resolve each session's encryption key. Grouped by session so it runs once per session
+                // (the cached keystore fans the key to its other messages) and concurrently across
+                // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
+                // keystore blip to that one session. Deleted sessions are dropped here.
+                .groupBy((element) => `${element.team.teamId}:${element.headers.session_id}`)
+                .concurrently(
+                    (group) =>
+                        group.sequentially((b) =>
+                            b.retry((rb) => rb.pipe(createResolveKeyStep(keyStore)), {
+                                name: 'resolve_session_key',
+                                tries: 3,
+                                sleepMs: 100,
+                            })
+                        ),
+                    { maxConcurrency: sessionKeyResolutionMaxConcurrency }
+                )
+                // Re-collect the per-session groups into one batch — both to mark the whole batch seen
+                // in a single Redis write and as the barrier that guarantees every key is resolved first.
+                .gather()
+                // Mark the surviving new sessions seen, now that every key is durably resolved.
+                .pipeBatch(createMarkSeenStep(sessionTracker))
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                 .filterMap(
                     (element) => ({

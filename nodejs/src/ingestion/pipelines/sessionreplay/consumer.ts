@@ -320,6 +320,7 @@ export class SessionRecordingIngester {
             sessionTracker: this.sessionTracker,
             sessionFilter: this.sessionFilter,
             keyStore: this.keyStore,
+            sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,

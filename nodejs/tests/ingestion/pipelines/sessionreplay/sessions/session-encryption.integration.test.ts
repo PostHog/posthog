@@ -87,7 +87,7 @@ describe('session recording encryption integration', () => {
     let batchBuffer: Uint8Array
     let currentOffset: number
     // Sessions whose key has already been generated, so repeats resolve via getKey — mirroring what
-    // createResolveSessionKeyStep does in production.
+    // the pre-record resolve-key step does in production.
     let seenSessions: Set<string>
 
     // Resolves the session's key the way the pre-record step would (generate once, then get) and

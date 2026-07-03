@@ -107,9 +107,8 @@ export class SessionBatchRecorder {
      * @param message - The message to record, including team context
      * @param retentionPeriod - The session's retention, resolved upstream; sets the key expiry and
      *   routes the flush to the matching per-retention storage.
-     * @param sessionKey - The session's encryption key, resolved upstream by
-     *   {@link createResolveSessionKeyStep} (which also drops blocked/deleted sessions before they
-     *   reach here).
+     * @param sessionKey - The session's encryption key, resolved upstream by the track-and-gate and
+     *   resolve-key steps (which also drop blocked/deleted sessions before they reach here).
      * @returns Number of raw bytes written (without compression)
      */
     public async record(

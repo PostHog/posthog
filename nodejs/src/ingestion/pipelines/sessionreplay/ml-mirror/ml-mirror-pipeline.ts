@@ -17,8 +17,10 @@ import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymi
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
-import { createResolveSessionKeyStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-session-key-step'
+import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
+import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
@@ -46,6 +48,7 @@ export function createMlMirrorReplayPipeline(
         sessionTracker,
         sessionFilter,
         keyStore,
+        sessionKeyResolutionMaxConcurrency,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -79,12 +82,31 @@ export function createMlMirrorReplayPipeline(
                     tries: 3,
                     sleepMs: 100,
                 })
-                // Track the session, rate-limit/block new sessions, and resolve its encryption key —
-                // off the S3 write path. Blocked and deleted sessions are dropped here.
-                .pipeBatchWithRetry(createResolveSessionKeyStep(sessionTracker, sessionFilter, keyStore), {
+                // Track sessions and rate-limit/block new ones for the whole batch, tagging each with
+                // isNewSession; blocked sessions are dropped here, in their own retry scope.
+                .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     tries: 3,
                     sleepMs: 100,
                 })
+                // Resolve each session's encryption key once per session (grouped), concurrently across
+                // sessions with a bounded fan-out and per-session retry. Deleted sessions drop here.
+                .groupBy((element) => `${element.team.teamId}:${element.headers.session_id}`)
+                .concurrently(
+                    (group) =>
+                        group.sequentially((b) =>
+                            b.retry((rb) => rb.pipe(createResolveKeyStep(keyStore)), {
+                                name: 'resolve_session_key',
+                                tries: 3,
+                                sleepMs: 100,
+                            })
+                        ),
+                    { maxConcurrency: sessionKeyResolutionMaxConcurrency }
+                )
+                // Re-collect the per-session groups into one batch — both to mark the whole batch seen
+                // in a single Redis write and as the barrier that guarantees every key is resolved first.
+                .gather()
+                // Mark the surviving new sessions seen, now that every key is durably resolved.
+                .pipeBatch(createMarkSeenStep(sessionTracker))
                 .filterMap(
                     (element) => ({
                         result: element.result,
