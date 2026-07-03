@@ -45,9 +45,9 @@ T = TypeVar("T")
 # message will be redelivered to its new owner. Workflow starts are deduplicated by
 # workflow id, so redelivery is safe and these must not crash the consumer.
 _REBALANCE_COMMIT_ERROR_CODES = (
-    KafkaError.ILLEGAL_GENERATION,
-    KafkaError.UNKNOWN_MEMBER_ID,
-    KafkaError.REBALANCE_IN_PROGRESS,
+    KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
+    KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
+    KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
 )
 
 

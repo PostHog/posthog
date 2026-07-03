@@ -184,9 +184,9 @@ class TestFingerprintEmbeddingResultConsumer:
     @pytest.mark.parametrize(
         "error_code",
         [
-            KafkaError.ILLEGAL_GENERATION,
-            KafkaError.UNKNOWN_MEMBER_ID,
-            KafkaError.REBALANCE_IN_PROGRESS,
+            KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
+            KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
+            KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
         ],
     )
     @pytest.mark.asyncio
@@ -201,7 +201,7 @@ class TestFingerprintEmbeddingResultConsumer:
     @pytest.mark.asyncio
     async def test_commit_reraises_non_rebalance_errors(self) -> None:
         consumer = MagicMock()
-        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError.OFFSET_METADATA_TOO_LARGE))
+        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError.OFFSET_METADATA_TOO_LARGE))  # type: ignore[attr-defined]
 
         with pytest.raises(KafkaException):
             await _commit_message(consumer, MagicMock())
