@@ -33,6 +33,7 @@ import {
     priorityOptions,
     statusOptionsWithoutAll,
 } from '../../types'
+import { AddWidgetsBlock } from './AddWidgetsBlock'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -42,6 +43,7 @@ import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
+import { TICKET_SIDEBAR_WIDGETS, type TicketSidebarWidgetKey, ticketSidebarLogic } from './ticketSidebarLogic'
 
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
@@ -102,6 +104,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+
+    const { hiddenWidgets } = useValues(ticketSidebarLogic)
+
+    // Which widgets make sense for this ticket — the customize menu only offers these
+    const widgetAvailability: Record<TicketSidebarWidgetKey, boolean> = {
+        customer: !!ticket?.distinct_id,
+        'related-groups': !!person?.uuid,
+        'staff-actions': !!user?.is_staff && !!ticket,
+        'ai-triage': aiSuggestionsEnabled && !!ticket,
+        'session-recording': ticket?.channel_source === 'widget',
+        'recent-events': ticket?.channel_source === 'widget',
+        exceptions: ticket?.channel_source === 'widget',
+        'previous-tickets': ticket?.channel_source === 'widget',
+        activity: !!ticket?.id,
+    }
+    const availableWidgets = TICKET_SIDEBAR_WIDGETS.map((widget) => widget.key).filter((key) => widgetAvailability[key])
+    const showWidget = (key: TicketSidebarWidgetKey): boolean => widgetAvailability[key] && !hiddenWidgets.includes(key)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -193,7 +212,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 <div className="space-y-4 flex-1 min-w-[300px] pl-2">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
-                        {ticket?.distinct_id && (
+                        {showWidget('customer') && ticket?.distinct_id && (
                             <>
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
@@ -409,15 +428,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     </LemonCard>
 
                     {/* Related Groups Panel */}
-                    {person?.uuid && (
+                    {showWidget('related-groups') && person?.uuid && (
                         <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
                     )}
 
                     {/* Staff Actions Panel */}
-                    {user?.is_staff && ticket && <StaffActionsPanel />}
+                    {showWidget('staff-actions') && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
+                    {showWidget('ai-triage') && ticket && (
                         <AIPanel
                             aiTriage={ticket.ai_triage}
                             knowledgeGaps={knowledgeGaps}
@@ -429,35 +448,46 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {ticket?.channel_source === 'widget' && (
                         <>
                             {/* Session Recording Panel */}
-                            <SessionRecordingPanel
-                                sessionContext={ticket?.session_context}
-                                distinctId={ticket?.distinct_id}
-                            />
+                            {showWidget('session-recording') && (
+                                <SessionRecordingPanel
+                                    sessionContext={ticket?.session_context}
+                                    distinctId={ticket?.distinct_id}
+                                />
+                            )}
 
                             {/* Recent Events Panel */}
-                            <RecentEventsPanel
-                                eventsQuery={eventsQuery}
-                                distinctId={ticket?.distinct_id}
-                                sessionId={ticket?.session_id}
-                            />
+                            {showWidget('recent-events') && (
+                                <RecentEventsPanel
+                                    eventsQuery={eventsQuery}
+                                    distinctId={ticket?.distinct_id}
+                                    sessionId={ticket?.session_id}
+                                />
+                            )}
 
                             {/* Exceptions Panel */}
-                            <ExceptionsPanel
-                                exceptionsQuery={exceptionsQuery}
-                                sessionId={ticket?.session_id}
-                                distinctId={ticket?.distinct_id}
-                            />
+                            {showWidget('exceptions') && (
+                                <ExceptionsPanel
+                                    exceptionsQuery={exceptionsQuery}
+                                    sessionId={ticket?.session_id}
+                                    distinctId={ticket?.distinct_id}
+                                />
+                            )}
 
                             {/* Previous Tickets Panel */}
-                            <PreviousTicketsPanel
-                                previousTickets={previousTickets}
-                                previousTicketsLoading={previousTicketsLoading}
-                            />
+                            {showWidget('previous-tickets') && (
+                                <PreviousTicketsPanel
+                                    previousTickets={previousTickets}
+                                    previousTicketsLoading={previousTicketsLoading}
+                                />
+                            )}
                         </>
                     )}
 
                     {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    {showWidget('activity') && ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+
+                    {/* Add widgets */}
+                    <AddWidgetsBlock availableWidgets={availableWidgets} />
                 </div>
             </div>
         </SceneContent>
