@@ -28,6 +28,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
@@ -196,7 +197,7 @@ class TestExperimentCRUD(APILicensedTest):
         frozen_flag.filters = {
             **frozen_flag.filters,
             "groups": [
-                {**group, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
                 for group in frozen_flag.filters.get("groups", [])
             ],
         }

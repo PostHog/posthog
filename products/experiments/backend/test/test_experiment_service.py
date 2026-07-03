@@ -31,6 +31,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
@@ -3020,6 +3021,7 @@ class TestExperimentService(APIBaseTest):
     def _stamp_exposure_frozen_marker(self, flag: FeatureFlag) -> None:
         filters = deepcopy(flag.filters)
         for group in filters.get("groups", []):
+            group[EXPOSURE_FROZEN_GROUP_KEY] = True
             group["description"] = EXPOSURE_FROZEN_GROUP_MARKER
         flag.filters = filters
         flag.save()
@@ -3082,11 +3084,12 @@ class TestExperimentService(APIBaseTest):
         assert cohort.is_static is True
         mock_insert.assert_called_once()
 
-        # The cohort condition + marker were AND'd into every release group.
+        # The cohort condition + freeze key + marker note were AND'd into every release group.
         groups = frozen.feature_flag.filters["groups"]
         assert len(groups) >= 1
         for group in groups:
             assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in group["properties"]
+            assert group[EXPOSURE_FROZEN_GROUP_KEY] is True
             assert EXPOSURE_FROZEN_GROUP_MARKER in group["description"]
 
         # Variants left byte-for-byte unchanged so enrolled users keep their variant.
@@ -3106,6 +3109,7 @@ class TestExperimentService(APIBaseTest):
         internal_group = {
             "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
             "rollout_percentage": 100,
+            "description": "Internal test users",
         }
         self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
 
@@ -3118,15 +3122,20 @@ class TestExperimentService(APIBaseTest):
         assert len(groups) == 2
         cohort_condition = {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"}
 
-        # Catch-all group: only the cohort condition added.
+        # Catch-all group: only the cohort condition added; description is just the marker note.
         assert groups[0]["properties"] == [cohort_condition]
         assert groups[0]["rollout_percentage"] == 100
+        assert groups[0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert groups[0]["description"] == EXPOSURE_FROZEN_GROUP_MARKER
 
-        # Internal group: original property preserved, cohort condition appended last.
+        # Internal group: original property preserved, cohort condition appended last, and the
+        # user-authored description survives with the marker note prepended.
         assert len(groups[1]["properties"]) == 2
         assert groups[1]["properties"][-1] == cohort_condition
         assert groups[1]["properties"][0]["key"] == "email"
         assert groups[1]["rollout_percentage"] == 100
+        assert groups[1][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert groups[1]["description"] == f"{EXPOSURE_FROZEN_GROUP_MARKER} Internal test users"
 
     @parameterized.expand(
         [
@@ -3165,6 +3174,26 @@ class TestExperimentService(APIBaseTest):
 
         with self.assertRaises(ValidationError):
             service.freeze_exposure(experiment, request=self._make_request())
+
+    def test_flag_update_after_freeze_preserves_frozen_state(self):
+        experiment = self._create_running_experiment(name="Freeze Then Edit", feature_flag_key="freeze-edit-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # The frozen state rides on a non-schema group key, so it only survives as long as flag
+        # validation keeps passing unknown group keys through. Pin that contract: an unrelated
+        # flag edit sent the way the flag UI sends it — full filters payload included — must not
+        # strip the freeze key. If this fails, someone added group-key whitelisting to
+        # FeatureFlagSerializer and freezing needs a schema-level home for its state.
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"][0]["rollout_percentage"] = 50
+        self._update_flag_filters(flag, edited_filters)
+
+        frozen.refresh_from_db()
+        assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert frozen.is_exposure_frozen is True
 
     def test_freeze_exposure_rejects_when_query_times_out(self):
         experiment = self._create_running_experiment(name="Freeze Timeout", feature_flag_key="freeze-timeout-flag")

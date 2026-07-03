@@ -16,9 +16,15 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-# Marker stamped on each feature-flag release group's `description` when an experiment's exposure is
-# frozen. Frozen-exposure state is derived from this marker, not stored on the experiment — the same
-# spirit as is_paused being derived from feature_flag.active rather than persisted.
+# Structured key stamped on each feature-flag release group when an experiment's exposure is frozen.
+# Frozen-exposure state is derived from this key, not stored on the experiment — the same spirit as
+# is_paused being derived from feature_flag.active rather than persisted. Unknown group keys pass
+# through flag validation and are ignored by the Rust flag matcher, so this is additive metadata;
+# that pass-through contract is pinned by test_flag_update_after_freeze_preserves_frozen_state.
+EXPOSURE_FROZEN_GROUP_KEY = "exposure_frozen"
+
+# Human-readable note prepended to each release group's `description` when freezing. Purely
+# informational — the description stays user-editable prose and carries no state.
 EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."
 
 
@@ -153,11 +159,12 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def is_exposure_frozen(self) -> bool:
         # Frozen exposure is not stored on the experiment — it is the running state with the linked flag's
         # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
-        # marker stamped on each group's description when the cohort condition was AND'd in.
+        # structured key stamped on each group when the cohort condition was AND'd in — the same predicate
+        # the JSONB-containment filter uses in the experiments list endpoint.
         if not self.is_running or self.feature_flag_id is None:
             return False
         groups = (self.feature_flag.filters or {}).get("groups", [])
-        return any(EXPOSURE_FROZEN_GROUP_MARKER in (group.get("description") or "") for group in groups)
+        return any(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
 
     @property
     def computed_status(self) -> "Experiment.Status":

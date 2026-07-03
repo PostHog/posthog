@@ -10,8 +10,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, TextField, Value, When
-from django.db.models.functions import Cast, Coalesce, Now, NullIf
+from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
 import pydantic
@@ -51,6 +51,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -1828,33 +1829,32 @@ class ExperimentService:
 
     @staticmethod
     def _transform_filters_for_frozen_exposure(current_filters: dict, cohort_id: int) -> dict:
-        """AND a static-cohort condition into every release group and stamp the freeze marker.
+        """AND a static-cohort condition into every release group and stamp the freeze key.
 
         AND (not a new group): groups are OR'd, so a separate group would *widen* access.
         AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
         preserved so a future unfreeze or manual revert strips back to exactly the original.
-        Everything else (``multivariate``, ``payloads``, aggregation index) is left byte-for-byte.
+        The frozen state lives in the structured EXPOSURE_FROZEN_GROUP_KEY on each group;
+        the marker is merely prepended to the (preserved) ``description`` as a human-readable
+        note. Everything else (``multivariate``, ``payloads``, aggregation index) is left
+        byte-for-byte.
         """
         cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
 
-        new_filters = deepcopy(current_filters)
         new_groups = []
         for group in current_filters.get("groups", []):
-            existing_description = group.get("description") or ""
-            description = (
-                existing_description
-                if EXPOSURE_FROZEN_GROUP_MARKER in existing_description
-                else f"{existing_description} {EXPOSURE_FROZEN_GROUP_MARKER}".strip()
+            # One deepcopy per group so the new filters never alias the original flag's dicts.
+            new_group = deepcopy(group)
+            new_group["properties"] = [*new_group.get("properties", []), cohort_condition]
+            new_group[EXPOSURE_FROZEN_GROUP_KEY] = True
+            existing_description = new_group.get("description")
+            new_group["description"] = (
+                f"{EXPOSURE_FROZEN_GROUP_MARKER} {existing_description}"
+                if existing_description
+                else EXPOSURE_FROZEN_GROUP_MARKER
             )
-            new_groups.append(
-                {
-                    **deepcopy(group),
-                    "properties": [*deepcopy(group.get("properties", [])), cohort_condition],
-                    "description": description,
-                }
-            )
-        new_filters["groups"] = new_groups
-        return new_filters
+            new_groups.append(new_group)
+        return {**current_filters, "groups": new_groups}
 
     def _report_experiment_exposure_frozen(
         self,
@@ -2937,14 +2937,12 @@ class ExperimentService:
                     status_enum = None
 
                 if status_enum and status_enum != ExperimentQueryStatus.ALL:
-                    # Exposure-frozen is derived from the marker freeze_exposure stamps on each flag
-                    # release group; cast the flag filters JSON to text so the same substring check
-                    # the model property uses (is_exposure_frozen) can run in the database.
-                    queryset = queryset.annotate(flag_filters_text=Cast("feature_flag__filters", TextField()))
                     launched_unfinished = Q(status=Experiment.Status.RUNNING) | Q(
                         status__isnull=True, start_date__isnull=False, end_date__isnull=True
                     )
-                    exposure_frozen = Q(flag_filters_text__contains=EXPOSURE_FROZEN_GROUP_MARKER)
+                    # Same detection as Experiment.is_exposure_frozen: some release group carries the
+                    # structured freeze key. JSONB containment scopes the match to groups[] entries.
+                    exposure_frozen = Q(feature_flag__filters__contains={"groups": [{EXPOSURE_FROZEN_GROUP_KEY: True}]})
 
                     if status_enum == ExperimentQueryStatus.DRAFT:
                         queryset = queryset.filter(
