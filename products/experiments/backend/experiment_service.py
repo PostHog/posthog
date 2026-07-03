@@ -1875,7 +1875,13 @@ class ExperimentService:
             is_static=True,
             created_by=self.user,
         )
-        cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id)
+        try:
+            cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id)
+        except Exception:
+            # The cohort row exists but isn't referenced by anything yet — drop it so a failed
+            # population doesn't leave an empty static cohort behind.
+            cohort.delete()
+            raise
         return cohort
 
     @staticmethod
