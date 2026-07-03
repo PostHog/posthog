@@ -1,4 +1,4 @@
-import { CyclotronJobInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
 import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
 
@@ -212,6 +212,45 @@ describe('CyclotronJobInputsValidation', () => {
 
                 expect(result.valid).toBe(true)
                 expect(result.errors).toEqual({})
+            })
+        })
+
+        describe('native_email To field (object form)', () => {
+            // native_email stores `to` as { name, email }, unlike the legacy `email` type which stores a bare string.
+            const nativeEmailInput = (
+                to: unknown,
+                templating: 'hog' | 'liquid' = 'liquid'
+            ): Record<string, CyclotronJobInputType> => ({
+                email: {
+                    templating,
+                    value: { html: '<p>Hi</p>', subject: 'Subject', from: { integrationId: 1 }, to },
+                },
+            })
+            const schema: CyclotronJobInputSchemaType[] = [{ key: 'email', type: 'native_email', label: 'Email' }]
+
+            it('errors on a malformed Liquid template in to.email', () => {
+                // Dot notation on a $-prefixed, hyphenated survey key is invalid Liquid — the natural first attempt.
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({ name: '', email: '{{ event.properties.$survey_response_1c0454ff-1138 }}' }),
+                    schema
+                )
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain('Liquid template error')
+            })
+
+            it('passes a valid bracket-notation Liquid template in to.email', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({ name: '', email: "{{ event.properties['$survey_response_1c0454ff-1138'] }}" }),
+                    schema
+                )
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('requires the To address when to.email is empty', () => {
+                const result = CyclotronJobInputsValidation.validate(nativeEmailInput({ name: '', email: '' }), schema)
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain('To is required')
             })
         })
 
