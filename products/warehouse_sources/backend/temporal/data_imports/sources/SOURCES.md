@@ -156,6 +156,7 @@ the row lists both.
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
+| float_app               | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
@@ -443,7 +444,6 @@ doesn't conflict with concurrent PRs.
 - firebolt
 - flexmail
 - flexport
-- float_app
 - flowlu
 - formbricks
 - freeagent
