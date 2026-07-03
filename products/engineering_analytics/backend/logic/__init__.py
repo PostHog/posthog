@@ -197,8 +197,7 @@ def build_author_workflow_costs(
 ) -> list[WorkflowCost]:
     if not author.strip():
         raise ValueError("author is required")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_author_workflow_costs(curated=curated, author=author.strip(), date_from=parsed_from, date_to=parsed_to)
 
 
