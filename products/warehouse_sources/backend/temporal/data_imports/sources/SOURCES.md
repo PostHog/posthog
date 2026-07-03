@@ -156,6 +156,7 @@ the row lists both.
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
+| gainsight_px            | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
@@ -450,7 +451,6 @@ doesn't conflict with concurrent PRs.
 - freshchat
 - freshservice
 - fulcrum
-- gainsight_px
 - gitbook
 - glassfrog
 - gmail
