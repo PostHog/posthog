@@ -20,6 +20,7 @@ from django.db.models import F
 import structlog
 from slack_sdk import WebClient
 
+from posthog.event_usage import report_team_action
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -995,6 +996,41 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         _backfill_thread_replies(client, team, ticket, channel, root_ts, after_ts=message_ts)
 
 
+def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
+    """Fire an internal PostHog event when our own bot is added to a channel.
+
+    Unlike the human join/leave alerts, this isn't gated on any team setting — it's usage
+    analytics for PostHog, not a customer-facing Slack message. Only the bot's own join is
+    tracked; every other user's join is ignored here.
+
+    There's deliberately no matching "bot left channel" event: Slack delivers
+    ``member_left_channel`` only to remaining channel members, so the bot doesn't reliably
+    receive its own removal.
+    """
+    user = event.get("user")
+    channel = event.get("channel")
+    if not user or not channel:
+        return
+    if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
+        return
+
+    client = get_slack_client(team)
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    if not own_bot_user_id or user != own_bot_user_id:
+        return
+
+    settings_dict = team.conversations_settings or {}
+    report_team_action(
+        team,
+        "support slack bot joined channel",
+        {
+            "slack_team_id": slack_team_id,
+            "slack_channel_id": channel,
+            "is_configured_channel": channel in _configured_support_channels(settings_dict),
+        },
+    )
+
+
 def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
     """Post a join/leave alert to the configured alert channel.
 
@@ -1066,6 +1102,7 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
 def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
+    _track_bot_joined_channel(event, team, slack_team_id)
     _handle_member_event(event, team, joined=True)
 
 
