@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import posthoganalytics
 from temporalio import activity, workflow
@@ -8,6 +9,19 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+# Experiment gating which order the backfill fetches issues in.
+SIGNALS_ET_BACKFILL_SORT_FLAG = "signals-et-backfill-sort"
+
+# Number of issues to seed the Signals inbox with on backfill.
+BACKFILL_ISSUE_LIMIT = 10
+
+# Issue sort orders (ErrorTrackingQuery.orderBy values), both applied DESC.
+ORDER_BY_RECENCY = "first_seen"  # control: most recently first-seen issues
+ORDER_BY_USERS_IMPACTED = "users"  # test: issues impacting the most distinct users
 
 
 @dataclass
@@ -29,37 +43,45 @@ class EmitBackfillSignalInput:
     issue: ErrorTrackingIssueData
 
 
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
-    """Fetch the 10 most recent error tracking issues ordered by first seen."""
-    from posthog.schema import DateRange, ErrorTrackingQuery
+def _backfill_order_by(team: "Team") -> str:
+    """Pick the backfill sort order for this team from the experiment variant.
 
-    from posthog.models import Team
-    from posthog.sync import database_sync_to_async
+    Control (or flag service unavailable) keeps recency ordering; the test variant
+    ranks issues by the number of distinct users impacted.
+    """
+    variant = posthoganalytics.get_feature_flag(
+        SIGNALS_ET_BACKFILL_SORT_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
+        },
+        send_feature_flag_events=False,
+    )
+    return ORDER_BY_USERS_IMPACTED if variant == "test" else ORDER_BY_RECENCY
+
+
+def _fetch_issues_ordered_by(team: "Team", order_by: str) -> list[ErrorTrackingIssueData]:
+    """Fetch the top BACKFILL_ISSUE_LIMIT issues for a team, ordered by `order_by` DESC."""
+    from posthog.schema import DateRange, ErrorTrackingQuery
 
     from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
-    team = await Team.objects.aget(id=input.team_id)
-
-    def _run_query():
-        runner = ErrorTrackingQueryRunner(
-            team=team,
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(),
-                orderBy="first_seen",
-                orderDirection="DESC",
-                volumeResolution=1,
-                limit=10,
-                withFirstEvent=True,
-                withAggregations=False,
-            ),
-        )
-        return runner.calculate()
-
-    response = await database_sync_to_async(_run_query)()
+    runner = ErrorTrackingQueryRunner(
+        team=team,
+        query=ErrorTrackingQuery(
+            kind="ErrorTrackingQuery",
+            dateRange=DateRange(),
+            orderBy=order_by,
+            orderDirection="DESC",
+            volumeResolution=1,
+            limit=BACKFILL_ISSUE_LIMIT,
+            withFirstEvent=True,
+            withAggregations=False,
+        ),
+    )
+    response = runner.calculate()
 
     issues: list[ErrorTrackingIssueData] = []
     for result in response.results:
@@ -86,6 +108,19 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
         )
 
     return issues
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
+    """Fetch the issues to backfill, ordered per the team's experiment variant."""
+    from posthog.models import Team
+    from posthog.sync import database_sync_to_async
+
+    team = await Team.objects.aget(id=input.team_id)
+    order_by = await database_sync_to_async(_backfill_order_by)(team)
+    return await database_sync_to_async(_fetch_issues_ordered_by)(team, order_by)
 
 
 @activity.defn
