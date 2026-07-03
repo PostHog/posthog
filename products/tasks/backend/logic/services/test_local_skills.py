@@ -94,22 +94,28 @@ class TestLocalSkills(BaseTest):
         self.assertEqual(result, self.cache.dist_dir)
         self.assertEqual(self.cache.hash_file.read_text(), expected_hash)
 
-    def test_ensure_built_build_failure_with_empty_dist_raises(self) -> None:
+    def test_ensure_built_build_failure_with_empty_dist_degrades_to_empty_dir(self) -> None:
         mock_cls = MagicMock()
         mock_cls.return_value.build_all.side_effect = RuntimeError("boom")
 
         with patch(PATCH_TARGET, mock_cls):
-            with self.assertRaisesRegex(RuntimeError, "hogli build:skills"):
-                self.cache.ensure_built()
+            result = self.cache.ensure_built()
 
+        # Must not raise: a failed render degrades to an empty, COPY-safe
+        # directory so the caller's sandbox image build keeps going.
+        self.assertEqual(result, self.cache.dist_dir)
+        self.assertTrue(self.cache.dist_dir.is_dir())
+        # Hash stays unpinned so a later working build is retried.
         self.assertFalse(self.cache.hash_file.exists())
 
-    def test_ensure_built_empty_manifest_raises(self) -> None:
+    def test_ensure_built_empty_manifest_degrades_to_empty_dir(self) -> None:
         mock_cls = _mock_builder(self.cache, produce_files=False)
 
         with patch(PATCH_TARGET, mock_cls):
-            with self.assertRaisesRegex(RuntimeError, "hogli build:skills"):
-                self.cache.ensure_built()
+            result = self.cache.ensure_built()
+
+        self.assertEqual(result, self.cache.dist_dir)
+        self.assertTrue(self.cache.dist_dir.is_dir())
 
     def test_hash_reacts_to_relevant_changes_only(self) -> None:
         skill_file = self.base_dir / "products" / "alpha" / "skills" / "my-skill" / "SKILL.md"

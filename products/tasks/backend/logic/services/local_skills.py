@@ -98,7 +98,12 @@ class LocalSkillsCache:
         3. Build fails but ``dist/skills`` is already populated → reuse it
            with a warning. Keeps things working when the renderer breaks
            for unrelated reasons.
-        4. Otherwise raise.
+        4. Build fails with no existing output → warn and fall back to an
+           empty, COPY-safe directory instead of aborting the caller's
+           image build. The Dockerfile's unconditional COPY only needs the
+           directory to exist, and ``install-skills.sh`` already no-ops on
+           an empty skills dir, so a missing render degrades to a
+           skill-less sandbox rather than a hard crash.
 
         Never falls back to ``.agents/skills/`` — that directory is the
         user's local Claude Code workspace and has nothing to do with
@@ -113,8 +118,11 @@ class LocalSkillsCache:
         try:
             self._build(source_hash)
             return self.dist_dir
-        except Exception as exc:
-            logger.warning("Local skill build failed: %s", exc)
+        except Exception:
+            # exc_info surfaces *why* the in-process build failed — the
+            # condition that otherwise silently turns a recoverable empty
+            # dist into a build-time crash.
+            logger.warning("Local skill build failed", exc_info=True)
 
         if self._has_existing_output():
             logger.warning("Falling back to existing %s", self.dist_dir)
@@ -129,7 +137,13 @@ class LocalSkillsCache:
                 logger.warning("Could not pin hash after fallback: %s", write_exc)
             return self.dist_dir
 
-        raise RuntimeError(f"No rendered local skills at {self.dist_dir}. Run `hogli build:skills` to populate it.")
+        logger.warning(
+            "No rendered local skills at %s and in-process build failed; continuing with an "
+            "empty skills directory. Run `hogli build:skills` to populate it.",
+            self.dist_dir,
+        )
+        self.dist_dir.mkdir(parents=True, exist_ok=True)
+        return self.dist_dir
 
     def _has_skill_files(self) -> bool:
         """Check whether ``dist_dir`` contains any files besides the hash marker."""
