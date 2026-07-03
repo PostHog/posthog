@@ -180,6 +180,7 @@ the row lists both.
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
+| instatus                | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | intruder                | HTTP                        | requests                                                        | ✅                          |
 | invoiceninja            | HTTP                        | requests                                                        | ✅                          |
@@ -484,7 +485,6 @@ doesn't conflict with concurrent PRs.
 - insightful
 - instagram
 - instantly
-- instatus
 - interzoid
 - invoiced
 - jamf_pro

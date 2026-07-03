@@ -1638,7 +1638,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
