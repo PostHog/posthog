@@ -21,13 +21,19 @@ logger = getLogger(__name__)
 # `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
 FixContext = Literal["string", "property"]
 
-# Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
-# never appear in PropertyDefinition and must not be flagged as unknown.
-DYNAMIC_PROPERTY_PREFIXES = (
+# Property-name prefixes that are legitimately absent from PropertyDefinition and must not be flagged
+# as unknown. Two distinct reasons live here:
+#   - dynamic properties encode an id/key after the prefix (e.g. `$feature/my-flag`), so a row per
+#     value would be nonsensical;
+#   - virtual properties (`$virt_*`) are computed at query time from other columns (see the events
+#     table schema in `posthog/hogql/database/schema/events.py`) and are never ingested, so they have
+#     no PropertyDefinition row despite provably existing on query results.
+EXCLUDED_PROPERTY_PREFIXES = (
     "$feature/",
     "$feature_enrollment/",
     "$survey_responded/",
     "$survey_dismissed/",
+    "$virt_",
 )
 
 
@@ -116,7 +122,7 @@ def validate_taxonomy_references(
 
         if visitor.property_names:
             property_references = [
-                reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+                reference for reference in visitor.property_names if not _is_excluded_property(reference.name)
             ]
             if property_references:
                 warnings.extend(
@@ -141,8 +147,8 @@ def _is_properties_field(node: ast.Expr) -> bool:
     return isinstance(node, ast.Field) and len(node.chain) == 1 and node.chain[0] == "properties"
 
 
-def _is_dynamic_property(name: str) -> bool:
-    return any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
+def _is_excluded_property(name: str) -> bool:
+    return any(name.startswith(prefix) for prefix in EXCLUDED_PROPERTY_PREFIXES)
 
 
 def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> TaxonomyReference | None:

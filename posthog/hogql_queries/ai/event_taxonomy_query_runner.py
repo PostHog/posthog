@@ -98,11 +98,25 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 },
             )
 
+        # Rank the sample values by how often each value occurs so the highest-volume values are
+        # always kept: `groupArray` does not preserve the subquery's `ORDER BY value_count DESC`
+        # (aggregation runs across threads), so a plain `arraySlice(groupArray(...), 1, N)` would
+        # return an arbitrary N of the distinct values and could silently drop a very common one.
+        # `arraySort` is ascending, so we take the last N (highest counts) and reverse to keep the
+        # familiar most-frequent-first order.
         return parse_select(
             """
                 SELECT
                     key,
-                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
+                    arrayReverse(
+                        arrayMap(
+                            t -> t.2,
+                            arraySlice(
+                                arraySort(t -> t.1, groupArray(tuple(value_count, value))),
+                                {neg_count}
+                            )
+                        )
+                    ) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
@@ -110,7 +124,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             """,
             placeholders={
                 "from_query": self._get_subquery(),
-                "count": count_expr,
+                "neg_count": ast.Constant(value=-(self.query.maxPropertyValues or 5)),
             },
         )
 
@@ -201,7 +215,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     SELECT
                         key,
                         value,
-                        count() as count
+                        count() as value_count
                     FROM (
                         SELECT
                             {props} as kv
@@ -212,7 +226,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
                     WHERE value IS NOT NULL AND value != ''
                     GROUP BY key, value
-                    ORDER BY count DESC
+                    ORDER BY value_count DESC
                 """,
                 placeholders={
                     "props": ast.Array(

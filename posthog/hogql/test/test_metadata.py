@@ -278,6 +278,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
+    def test_metadata_does_not_warn_for_virtual_property(self):
+        # Virtual event properties ($virt_*) are computed at query time and never have a
+        # PropertyDefinition row, so they must not be flagged as unknown taxonomy — the value
+        # provably exists on results, and a "did you mean" rename would be actively wrong.
+        PropertyDefinition.objects.create(team=self.team, name="$device_type")
+
+        metadata = self._select("SELECT properties.$virt_is_bot, properties.$virt_traffic_type FROM events")
+
+        self.assertTrue(metadata.isValid)
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
     def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 

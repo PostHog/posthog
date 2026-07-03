@@ -34,13 +34,13 @@
 # name: TestEventTaxonomyQueryRunner.test_property_taxonomy_handles_numeric_property_values
   '''
   SELECT key AS key,
-                arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+                arrayReverse(arrayMap(t -> t.2, arraySlice(arraySort(t -> t.1, groupArray(tuple(value_count, value))), -5))) AS
   values,
                 count(DISTINCT value) AS total_count
   FROM
     (SELECT key,
             value,
-            count() AS count
+            count() AS value_count
      FROM
        (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'))] AS kv
         FROM events
@@ -50,7 +50,7 @@
      WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
      GROUP BY key,
               value
-     ORDER BY count DESC)
+     ORDER BY value_count DESC)
   GROUP BY key
   ORDER BY total_count DESC,
            key ASC
