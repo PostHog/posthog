@@ -24,10 +24,11 @@ from pathlib import Path
 # justify a parser for how rarely it changes.
 _ANY_CHANGE_RISKY = frozenset({"setup.py", "setup.cfg", "gemfile"})
 
-# Key-and-value share a line in these formats, so a line scan can't be
-# bypassed by editing a value without its key appearing in the diff.
+# Key-and-value share a line in go.mod, so a line scan can't be bypassed by
+# editing a value without its key appearing in the diff. Only `replace` is
+# risky there: a `require` bump without go.sum fails CI deterministically
+# (Go defaults to -mod=readonly), so no silent fetch is possible.
 _RISKY_LINE_PATTERNS: dict[str, re.Pattern[str]] = {
-    "cargo.toml": re.compile(r"^\s*build\s*="),
     "go.mod": re.compile(r"^\s*replace[\s(]"),
 }
 _TSCONFIG_LINE_PATTERN = re.compile(r'"(?:plugins|extends)"\s*:')
@@ -57,6 +58,28 @@ def _toml_risky_subtree(text: str) -> object:
     return found
 
 
+# Cargo resolves manifests at build time and our CI doesn't pass --locked
+# everywhere (cargo test in ci-rust.yml, cargo build in ci-mcp/ci-nodejs), so
+# a dependency or feature edit without Cargo.lock silently fetches new code.
+_CARGO_RISKY_KEYS = frozenset({"dependencies", "dev-dependencies", "build-dependencies", "features", "build"})
+
+
+def _cargo_risky_subtree(text: str) -> object:
+    data = tomllib.loads(text) if text.strip() else {}
+    found: list[tuple[tuple[str, ...], object]] = []
+
+    def walk(node: object, path: tuple[str, ...]) -> None:
+        if not isinstance(node, dict):
+            return
+        for key in sorted(node):
+            if key in _CARGO_RISKY_KEYS:
+                found.append(((*path, key), node[key]))
+            walk(node[key], (*path, key))
+
+    walk(data, ())
+    return found
+
+
 def _tsconfig_risky_subtree(text: str) -> object:
     data = json.loads(text) if text.strip() else {}
     if not isinstance(data, dict):
@@ -78,6 +101,11 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_tex
         try:
             return _toml_risky_subtree(base_text) != _toml_risky_subtree(head_text)
         except (tomllib.TOMLDecodeError, ValueError):
+            return True
+    if name == "cargo.toml":
+        try:
+            return _cargo_risky_subtree(base_text) != _cargo_risky_subtree(head_text)
+        except tomllib.TOMLDecodeError:
             return True
     if name.startswith("tsconfig") and name.endswith(".json"):
         # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
