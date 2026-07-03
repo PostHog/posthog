@@ -1,13 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
-import { HealthCheckResult, PluginServerService } from '~/types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '~/types'
 
 import { Scope, extend } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
@@ -30,12 +31,16 @@ export type PipelineFactory<S extends Record<string, object>> = (
 ) => IngestionBatchingPipeline
 
 /**
- * Constraint on a scope's container: must expose a `promiseScheduler`.
- * The common consumer pulls it from the container to schedule pipeline
- * side effects. The scheduler is owned by the user-provided scope so its
- * lifetime spans the consumer's lifetime.
+ * Constraint on a scope's container: must expose a `promiseScheduler` and
+ * `outputs`. The common consumer pulls the scheduler from the container to
+ * schedule pipeline side effects, and the outputs to run the optional producer
+ * healthcheck. Both are owned by the user-provided scope so their lifetime
+ * spans the consumer's lifetime.
  */
-export type ContainerWithPromiseScheduler = Record<string, object> & { promiseScheduler: PromiseScheduler }
+export type CommonConsumerContainer = Record<string, object> & {
+    promiseScheduler: PromiseScheduler
+    outputs: IngestionOutputs<string>
+}
 
 export type CommonIngestionConsumerConfig = Pick<
     IngestionConsumerConfig,
@@ -44,6 +49,7 @@ export type CommonIngestionConsumerConfig = Pick<
     | 'INGESTION_PIPELINE'
     | 'INGESTION_LANE'
     | 'KAFKA_BATCH_START_LOGGING_ENABLED'
+    | 'INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK'
 >
 
 const latestOffsetTimestampGauge = new Gauge({
@@ -60,8 +66,9 @@ const latestOffsetTimestampGauge = new Gauge({
  * consumer, and returns a live `CommonIngestionConsumer` that owns the
  * started handle.
  */
-export class CommonIngestionConsumerScope<S extends ContainerWithPromiseScheduler> {
+export class CommonIngestionConsumerScope<S extends CommonConsumerContainer> {
     private readonly innerScope: Scope<S & { kafkaConsumer: KafkaConsumerInterface }>
+    private readonly producerHealthcheckEnabled: boolean
 
     constructor(
         private readonly name: string,
@@ -69,6 +76,7 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
         scope: Scope<S>,
         pipelineFactory: PipelineFactory<S>
     ) {
+        this.producerHealthcheckEnabled = config.INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK
         const consumerName = this.name
         this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {
             const pipeline = pipelineFactory({ container })
@@ -86,7 +94,11 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
 
     async start(): Promise<{ consumer: CommonIngestionConsumer; stop: () => Promise<void> }> {
         const started = await this.innerScope.start()
-        const consumer = new CommonIngestionConsumer(this.name, started.container.kafkaConsumer)
+        const consumer = new CommonIngestionConsumer(
+            this.name,
+            started.container.kafkaConsumer,
+            this.producerHealthcheckEnabled ? started.container.outputs : undefined
+        )
         return { consumer, stop: started.stop }
     }
 }
@@ -100,11 +112,26 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
 export class CommonIngestionConsumer {
     constructor(
         readonly name: string,
-        private readonly kafkaConsumer: KafkaConsumerInterface
+        private readonly kafkaConsumer: KafkaConsumerInterface,
+        // Present only when INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK is enabled, in
+        // which case the healthcheck also verifies every output producer's brokers.
+        private readonly outputs?: IngestionOutputs<string>
     ) {}
 
-    isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+    async isHealthy(): Promise<HealthCheckResult> {
+        const consumerHealth = this.kafkaConsumer.isHealthy()
+        if (consumerHealth.isError()) {
+            return consumerHealth
+        }
+
+        if (this.outputs) {
+            const failures = await this.outputs.checkHealth()
+            if (failures.length > 0) {
+                return new HealthCheckResultError('Kafka producer(s) unhealthy', { failedProducers: failures })
+            }
+        }
+
+        return new HealthCheckResultOk()
     }
 }
 

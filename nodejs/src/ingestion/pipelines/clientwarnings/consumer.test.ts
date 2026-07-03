@@ -19,6 +19,7 @@ describe('createClientWarningsConsumer', () => {
             INGESTION_PIPELINE: 'clientwarnings',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
+            INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK: false,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
             ...({} as IngestionOutputsConfig),
         }

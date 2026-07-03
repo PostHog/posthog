@@ -22,6 +22,7 @@ describe('createAiConsumer', () => {
             INGESTION_PIPELINE: 'ai',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
+            INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK: false,
             INGESTION_CONSUMER_OVERFLOW_TOPIC: '',
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
             INGESTION_WORKER_CONCURRENT_BATCHES: 1,
