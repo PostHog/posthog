@@ -32,6 +32,7 @@ function mockBrowser(): jest.Mocked<Browser> {
     return {
         newPage: jest.fn(),
         close: jest.fn(),
+        connected: true,
     } as any
 }
 
@@ -108,6 +109,49 @@ describe('BrowserPool', () => {
         await pool.releasePage(p2)
 
         expect(puppeteerCapture.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('discards a dead idle browser and launches a fresh one', async () => {
+        // A browser can crash while parked idle; handing out a page from it
+        // throws Puppeteer's "Session closed". The pool must drop it instead.
+        const dead = mockBrowser()
+        const fresh = mockBrowser()
+        dead.newPage.mockResolvedValue(mockPage())
+        fresh.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(dead).mockResolvedValueOnce(fresh)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        await pool.releasePage(p1)
+
+        // Browser dies while idle in the pool.
+        ;(dead as any).connected = false
+
+        const p2 = await pool.getPage()
+
+        expect(dead.close).toHaveBeenCalled()
+        expect(dead.newPage).toHaveBeenCalledTimes(1) // only the first, live acquisition
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
+        await pool.releasePage(p2)
+    })
+
+    it('relaunches when newPage throws on a reused browser', async () => {
+        // Guards the race where the browser dies between the liveness check
+        // and newPage — the crash must not propagate into the render.
+        const flaky = mockBrowser()
+        const fresh = mockBrowser()
+        flaky.newPage.mockRejectedValue(new Error('Protocol error: Session closed'))
+        const page = mockPage()
+        fresh.newPage.mockResolvedValue(page)
+        puppeteerCapture.launch.mockResolvedValueOnce(flaky).mockResolvedValueOnce(fresh)
+
+        pool = new BrowserPool(100)
+        const result = await pool.getPage()
+
+        expect(result).toBe(page)
+        expect(flaky.close).toHaveBeenCalled()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
+        await pool.releasePage(result)
     })
 
     it('recycles browser when usage hits recycleAfter', async () => {

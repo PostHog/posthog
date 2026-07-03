@@ -92,17 +92,44 @@ export class BrowserPool {
     }
 
     async getPage(): Promise<Page> {
-        let slot: BrowserSlot
-        if (this.idle.length > 0) {
-            slot = this.idle.pop()!
-        } else {
+        let slot = await this.acquireLiveSlot()
+        let page: Page
+        try {
+            page = await slot.browser.newPage()
+        } catch (err) {
+            // The browser died between the liveness check and newPage (e.g. it
+            // crashed while idle and surfaces as "Session closed"). Drop the
+            // dead slot and try once with a fresh browser rather than
+            // propagating the crash into the render.
+            log.warn({ err }, 'newPage failed on reused browser, relaunching')
+            RasterizationMetrics.browserDiscarded()
+            await this.closeBrowser(slot)
             slot = await this.launchBrowser()
+            page = await slot.browser.newPage()
         }
-        const page = await slot.browser.newPage()
         slot.usageCount++
         this.slots.set(page, slot)
         RasterizationMetrics.setBrowserCounts(this.slots.size, this.idle.length)
         return page
+    }
+
+    /**
+     * Return a slot whose browser is still connected. Idle browsers can crash
+     * while parked in the pool; handing out a page from a dead one throws a
+     * Puppeteer "Session closed" error on first use. Discard any dead idle
+     * slots and fall back to launching a fresh browser.
+     */
+    private async acquireLiveSlot(): Promise<BrowserSlot> {
+        while (this.idle.length > 0) {
+            const slot = this.idle.pop()!
+            if (slot.browser.connected) {
+                return slot
+            }
+            log.warn({ usage_count: slot.usageCount }, 'discarding dead idle browser')
+            RasterizationMetrics.browserDiscarded()
+            await this.closeBrowser(slot)
+        }
+        return this.launchBrowser()
     }
 
     async releasePage(page: Page): Promise<void> {

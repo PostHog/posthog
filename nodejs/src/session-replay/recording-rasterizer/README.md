@@ -18,6 +18,8 @@ Temporal workflow (Python)
 
 The worker maintains a warm Chromium browser pool —
 a single browser instance is reused across exports and recycled after N uses.
+A reused browser that crashed while idle is detected and replaced before a page is handed out,
+so a dead session never propagates into a render.
 
 Screenshots default to JPEG (q=80) via a CDP session monkey-patch,
 giving ~30% faster frame capture than the hardcoded PNG in puppeteer-capture.
