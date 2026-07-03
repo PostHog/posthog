@@ -2110,6 +2110,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
         mock_get_user_blast_radius.assert_not_called()
 
+    def test_hog_flow_user_blast_radius_unexpected_error_is_logged_and_returns_500(self):
+        # A query-build/ClickHouse failure (not a ValidationError) used to propagate as a bare, unlogged
+        # 500 — invisible to the MCP audience-sizing tool. It must now return a controlled 500 and log the
+        # cause so the failing filter is diagnosable.
+        with (
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
+            patch("products.workflows.backend.api.hog_flow.logger.exception") as mock_log_exception,
+        ):
+            mock_get_user_blast_radius.side_effect = RuntimeError("HogQL build error")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 500, response.json()
+        mock_log_exception.assert_called_once()
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_flag_condition(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:

@@ -1509,19 +1509,27 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         filters = request.data.get("filters", {})
         group_type_index = request.data.get("group_type_index", None)
 
-        reject_flag_conditions_in_audience(self.team, filters)
-
-        result = get_user_blast_radius(self.team, filters, group_type_index)
-
-        return Response(
-            BlastRadiusSerializer(
-                {
-                    "affected": result.affected,
-                    "total": result.total,
-                    "limit": get_hogflow_batch_trigger_limit(self.team_id),
-                }
-            ).data
-        )
+        try:
+            reject_flag_conditions_in_audience(self.team, filters)
+            result = get_user_blast_radius(self.team, filters, group_type_index)
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": result.affected,
+                        "total": result.total,
+                        "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    }
+                ).data
+            )
+        except exceptions.ValidationError:
+            # DRF turns this into a 400 with the field-level detail — let it surface unchanged.
+            raise
+        except Exception as e:
+            # Without this, an error building/running the audience query (bad cohort ref, malformed
+            # property values, HogQL/ClickHouse failure) returned a bare 500 with no logged cause, so
+            # the failing filter was invisible. Mirror internal_user_blast_radius: log and 500 clearly.
+            logger.exception("Error in user_blast_radius", error=str(e), team_id=self.team_id)
+            raise exceptions.APIException("Failed to compute audience size for the given filters")
 
     @extend_schema(
         operation_id="hog_flows_invocation_results_retrieve",
