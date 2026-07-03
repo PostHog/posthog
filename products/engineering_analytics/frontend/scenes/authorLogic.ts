@@ -90,7 +90,8 @@ export const authorLogic = kea<authorLogicType>([
                 const to = dateTo ? dateStringToDayJs(dateTo) : null
                 return prs.filter((pr) => {
                     const created = dayjs(pr.createdAt)
-                    return (!from || created.isAfter(from)) && (!to || created.isBefore(to))
+                    // Inclusive of both bounds so a PR opened on the boundary day isn't dropped.
+                    return (!from || !created.isBefore(from)) && (!to || !created.isAfter(to))
                 })
             },
         ],

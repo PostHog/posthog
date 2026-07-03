@@ -206,8 +206,9 @@ def query_workflow_window_costs(
 
 
 # One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
-# attributed to the author through their PRs (attribution is by PR number — SPEC §7), windowed on the
-# run start so the figure answers "spend over [window]", never an unbounded all-time.
+# attributed to the author through their PRs, keyed on (repo_owner, repo_name, pr_number) — never
+# pr_number alone, since PR numbers restart per repo (SPEC §7). Windowed on the run start so the figure
+# answers "spend over [window]", never an unbounded all-time.
 _AUTHOR_WORKFLOW_SELECT = """
     SELECT
         r.workflow_name, j.labels,
@@ -216,8 +217,10 @@ _AUTHOR_WORKFLOW_SELECT = """
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
-    WHERE r.pr_number IN (SELECT number FROM __PR_SOURCE__ WHERE author_handle = {author})
-        AND r.run_started_at >= {date_from} __DATE_TO__
+    INNER JOIN (
+            SELECT DISTINCT repo_owner, repo_name, number FROM __PR_SOURCE__ WHERE author_handle = {author}
+        ) AS ap ON r.repo_owner = ap.repo_owner AND r.repo_name = ap.repo_name AND r.pr_number = ap.number
+    WHERE r.run_started_at >= {date_from} __DATE_TO__
     GROUP BY r.workflow_name, j.labels
     LIMIT 1000000
 """

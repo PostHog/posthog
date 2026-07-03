@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { Link } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -62,6 +62,10 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
     const avatarUrl = prs[0]?.authorAvatarUrl
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
+    // A source can hold several repos, so the author's PRs may span repos. Only claim one repo (and link
+    // per-workflow into it) when they all agree; otherwise the page is genuinely cross-repo.
+    const repoSlugs = Array.from(new Set(prs.map((pr) => `${pr.repoOwner}/${pr.repoName}`)))
+    const singleRepo = repoSlugs.length === 1 ? prs[0] : null
 
     return (
         <SceneContent>
@@ -69,7 +73,9 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
             <ScopeBar
                 repoSlot={
                     <RepoScopeChip
-                        label={prs[0] ? `${prs[0].repoOwner}/${prs[0].repoName}` : 'Repository'}
+                        label={
+                            repoSlugs.length === 1 ? repoSlugs[0] : repoSlugs.length ? 'All repositories' : 'Repository'
+                        }
                         to={hubUrl}
                     />
                 }
@@ -119,6 +125,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         />
                         <MetricTile
                             label="CI cost"
+                            tooltip="Full CI cost of the PRs opened in the selected window, across each PR's whole history — not only runs inside the window. The 'Where their CI minutes go' breakdown below counts CI runs started in the window instead, so the two won't reconcile exactly."
                             value={formatCost(totalCostUsd)}
                             sub={
                                 totalCostUsd != null
@@ -160,11 +167,14 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 <Section
                     id="author-cost"
                     title="Where their CI minutes go"
-                    note="runs attributed via their pull requests, over the window above"
+                    note="CI runs started in the selected window, split by workflow (attributed via this author's PRs)"
                 >
                     {workflowCosts.length > 0 ? (
                         <LemonCard hoverEffect={false} className="p-4 lg:max-w-xl">
-                            <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
+                            <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-secondary">
+                                By workflow
+                                {workflowCostsLoading && <Spinner className="text-xs" />}
+                            </h3>
                             {workflowCosts.slice(0, 8).map((cost, i) => (
                                 <ShareRow
                                     key={cost.workflow_name || '(unknown)'}
@@ -176,11 +186,11 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                     }
                                     color={SHARE_COLORS[i % SHARE_COLORS.length]}
                                     to={
-                                        prs[0]
+                                        singleRepo
                                             ? combineUrl(
                                                   urls.engineeringAnalyticsWorkflowRuns(
-                                                      prs[0].repoOwner,
-                                                      prs[0].repoName,
+                                                      singleRepo.repoOwner,
+                                                      singleRepo.repoName,
                                                       cost.workflow_name
                                                   ),
                                                   sourceId ? { source: sourceId } : {}
@@ -189,6 +199,12 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                     }
                                 />
                             ))}
+                            {workflowCosts.length > 8 && (
+                                <div className="pt-2 text-xs text-tertiary">
+                                    +{workflowCosts.length - 8} more{' '}
+                                    {pluralize(workflowCosts.length - 8, 'workflow', undefined, false)}, not shown
+                                </div>
+                            )}
                         </LemonCard>
                     ) : (
                         <span className="text-xs text-secondary">
