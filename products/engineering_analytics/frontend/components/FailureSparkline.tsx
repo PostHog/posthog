@@ -9,15 +9,14 @@ export interface FailureSparklineProps {
     labels?: string[]
     /** Accessible name for the chart (role="img"); screen readers can't read the per-bucket titles. */
     ariaLabel?: string
-    /** Minimum bucket slots. When there are fewer buckets than this, the bars stay narrow and
-     *  right-align (the left fills with empty track) instead of stretching fat — for the few-push
-     *  PR view. Omit (the Workflows tab) to let the buckets fill the full width. */
+    /** Minimum bucket slots; fewer buckets right-align as narrow bars instead of stretching fat (the
+     *  few-push PR view). Omit to fill the full width. */
     minSlots?: number
     className?: string
 }
 
-// The chart is drawn in a unit grid (1 unit wide per bucket, fixed height) and stretched to the
-// cell with preserveAspectRatio="none", so it adapts to any window length without per-window sizing.
+// Unit grid (1 unit/bucket) stretched to the cell via preserveAspectRatio="none" — adapts to any
+// window length without per-window sizing.
 const VIEW_HEIGHT = 100
 // Baseline sits a hair above the bottom edge so it reads as a track, not a border.
 const BASELINE_Y = 96
@@ -30,12 +29,9 @@ const MIN_FAIL_HEIGHT = 8
 const BAR_INSET = 0.18 // leaves a gutter between bars within each unit-wide bucket
 
 /**
- * Tiny run-status chart: one stacked bar per bucket, rising off an always-visible dotted baseline.
- * Total height is completed runs (volume); the red segment is decisive failures stacked at the
- * baseline, with successes a faint cap above. The red *fraction* reads as the failure rate — a 1%
- * day is a sliver, a 50% day is half-red — which length encodes far more accurately than shade. The
- * baseline is the point: a healthy workflow shows a clean track, so "no failures" never looks like
- * "no data".
+ * Stacked bar per bucket on a dotted baseline: bar height = completed runs (volume), red segment =
+ * decisive failures, so the red fraction reads as the failure rate. The always-on baseline keeps "no
+ * failures" from looking like "no data".
  */
 export function FailureSparkline({
     completed,
@@ -47,8 +43,7 @@ export function FailureSparkline({
 }: FailureSparklineProps): JSX.Element {
     const maxCompleted = Math.max(...completed, 1)
     const usableHeight = BASELINE_Y - TOP_PAD
-    // Reserve at least `minSlots` columns so a handful of buckets stay narrow and sit on the right
-    // (empty track to their left) rather than stretching across the whole cell.
+    // Reserve minSlots columns so few buckets stay narrow and right-aligned, not stretched.
     const slots = Math.max(completed.length, minSlots ?? 0, 1)
     const offset = slots - completed.length
 

@@ -213,7 +213,9 @@ class TestRepartitionActivity:
                 patch.object(repartition_table, "capture_repartition_event") as capture,
                 patch.object(repartition_table.DeltaTableHelper, "get_delta_table", new=AsyncMock(return_value=delta)),
                 patch.object(ctrl, "target_partition_bytes", return_value=1),
-                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                # The activity evaluates the rollout flag once and threads the verdict into detection,
+                # so patch the binding the activity reads from (not the controller's).
+                patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event"),
             ):
                 ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))

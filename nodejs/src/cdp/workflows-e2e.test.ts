@@ -287,8 +287,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     /**
      * Construct and enqueue a batch-shaped CyclotronJobInvocation directly, mimicking what
-     * CdpBatchHogFlowRequestsConsumer.createHogFlowInvocation would produce. Skips the
-     * blast-radius API call so tests don't need to stand up the Django side.
+     * the batch resolver's buildHogFlowInvocation would produce. Skips the blast-radius API
+     * call so tests don't need to stand up the Django side.
      */
     async function triggerBatchWorkflow(hogFlow: HogFlow, personUuid: string): Promise<void> {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
@@ -2677,10 +2677,8 @@ describe('Workflows E2E (email queue)', () => {
  * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
  *
  * Goes through real express + supertest, real CdpApi, real cyclotron-node
- * Postgres. Verifies that POST `/batch_invocations/<id>` with the
- * `CDP_BATCH_RESOLVER_ROUTING` matching the team creates a resolver
- * cyclotron job pointing at the right queue with the right state. When the
- * routing matcher excludes the team, the legacy Kafka path takes over.
+ * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
+ * cyclotron job pointing at the right queue with the right state.
  *
  * The deep state-machine paths (page execution, terminal write, truncation,
  * Django down → resolver parks) are covered by the integration tests in
@@ -2723,7 +2721,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
-            CDP_BATCH_RESOLVER_ROUTING: '*',
         })
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
@@ -2753,7 +2750,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         await resetTestDatabase()
         await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
         team = await getFirstTeam(hub.postgres)
-        api['batchResolverRoutingMatcher'] = () => true
         resolverWorker = undefined
     })
 
@@ -2854,26 +2850,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pagesProcessed: 0,
         })
         expect(state.pendingTerminal).toBeUndefined()
-    })
-
-    it('POST /batch_invocations with no routing match falls back to the legacy Kafka path', async () => {
-        api['batchResolverRoutingMatcher'] = () => false
-
-        const flow = await insertActiveBatchFlow()
-        const parentRunId = new UUIDT().toString()
-
-        const response = await supertest(app)
-            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false } })
-            .expect(200)
-
-        expect(response.body).toEqual({ status: 'queued' })
-
-        const rows = await cyclotronPool.query(
-            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
-            [parentRunId]
-        )
-        expect(rows.rows).toHaveLength(0)
     })
 
     it('rejects with 400 when the workflow is not a batch trigger', async () => {

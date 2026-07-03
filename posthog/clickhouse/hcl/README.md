@@ -90,7 +90,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-c0affa0 -help
+  ghcr.io/posthog/chschema:sha-deff440 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in

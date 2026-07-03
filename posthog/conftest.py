@@ -472,10 +472,16 @@ class _JUnitTimingsPlugin:
     phase. The backend CI uses `-o junit_duration_report=call`, so session and
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
+
+    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
+    junitxml appends children only for passed/failed/skipped reports, so a rerun
+    report leaves no trace and a flaky fail-then-pass serializes as a clean
+    `<testcase/>` — invisible to flaky-test telemetry.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
     _PROPERTY_COLLECTION = "posthog.collection_seconds"
+    _PROPERTY_RERUNS = "posthog.reruns"
 
     def __init__(self) -> None:
         self._session_start: float | None = None
@@ -496,6 +502,18 @@ class _JUnitTimingsPlugin:
     def pytest_runtest_call(self, item: pytest.Item) -> None:
         if self._first_test_call_start is None:
             self._first_test_call_start = time.monotonic()
+
+    # `tryfirst` so the property is on the report before junitxml's own
+    # logreport consumes `user_properties` into the `<testcase>` element.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
+        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
+            return
+        # Appended exactly once: intermediate attempts never log a non-rerun teardown,
+        # and each report owns its own copy of `user_properties`.
+        report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:
