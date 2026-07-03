@@ -183,11 +183,20 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
 
     is_cloudflare = is_cloudflare_proxy_by_cname(record.target_cname)
 
-    checks: list[CheckResult] = [_check_cname(record)]
+    cname_check = _check_cname(record)
+    checks: list[CheckResult] = [cname_check]
 
     # Primary signal: does the proxy actually serve HTTPS and accept an event? A pass means
     # the cert is live and deployed, regardless of what the provider API says.
-    live_check = _check_live_event(record)
+    #
+    # Gate the probe on the CNAME first. `record.domain` is org-admin-controlled, so we only
+    # fire the outbound request once DNS confirms the domain points at our managed proxy
+    # target — otherwise Diagnose could be aimed at an internal address and used as an
+    # SSRF / port-scan primitive. A failed CNAME is the actionable issue anyway.
+    if cname_check.status == "passed":
+        live_check = _check_live_event(record)
+    else:
+        live_check = _skip("live_event", "Live event probe", "Skipped — DNS isn't pointing at the proxy yet.")
     checks.append(live_check)
 
     if live_check.status == "passed":
