@@ -332,10 +332,10 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
 - key `addressed:web_vitals:pricing-lcp-2026-06-02` — _"`/pricing` LCP p75 stepped
   2300→4600ms ~2026-05-30 (hero image not preloaded); team fixed 2026-06-02, back to
   ~2200ms. Don't re-file that window."_
-- key `dedupe:web_vitals:checkout-inp` — _"`/checkout` INP p75 620ms (poor) reported
-  2026-06-08, report live in inbox. If it's still poor next run, edit that report; don't
-  author fresh."_ One stable key per page + metric — update it in place, don't mint a
-  dated variant.
+- key `dedupe:web_vitals:app.example.com/checkout:INP` — _"`/checkout` INP p75 620ms
+  (poor) reported 2026-06-08, report live in inbox. If it's still poor next run, edit
+  that report; don't author fresh."_ One stable key per host + page + metric — update it
+  in place, don't mint a dated variant.
 - key `report:web_vitals:app.example.com/checkout:INP` — _"Report `019f0a96-…` covers the
   `/checkout` INP standing-poor. Edit it (`append_note` the fresh window's p75 + samples)
   while the page stays slow and the report is live; if it was resolved and the page later
