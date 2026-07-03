@@ -1709,7 +1709,8 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
