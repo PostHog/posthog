@@ -12,6 +12,7 @@ import type {
     PaginatedAccountNoteListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountsEvents } from '../Accounts/constants'
 import type { accountNotesLogicType } from './accountNotesLogicType'
 
 const RESULTS_PER_PAGE = 50
@@ -64,8 +65,17 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
             }),
         ],
     })),
-    listeners(({ actions }) => ({
-        setSearch: () => actions.loadAccountNotes(),
+    listeners(({ actions, values }) => ({
+        // Analytics capture is debounced so only the settled query reports, never per keystroke;
+        // no raw search text is logged (PII convention).
+        setSearch: async (_, breakpoint) => {
+            actions.loadAccountNotes()
+            await breakpoint(500)
+            posthog.capture(AccountsEvents.NotesTabSearched, {
+                has_query: !!values.search,
+                query_length: values.search.length,
+            })
+        },
         setPage: () => actions.loadAccountNotes(),
         loadAccountNotesFailure: ({ error }) => {
             posthog.captureException(error)
@@ -73,6 +83,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
         },
     })),
     afterMount(({ actions }) => {
+        posthog.capture(AccountsEvents.NotesTabViewed)
         actions.loadAccountNotes()
     }),
 ])
