@@ -33,6 +33,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
+    AccountNoteSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
@@ -803,6 +804,43 @@ def _synthesize_notebook_content(text_content, existing_content):
     if text_content and not has_usable_content:
         return {"type": "doc", "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}]}
     return None
+
+
+@extend_schema(tags=["customer_analytics"])
+class AccountNotesViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "account"
+    serializer_class = AccountNoteSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Full-text search across note title and content, plus substring match on account name.",
+            ),
+        ],
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_account_notes_for_view(
+                team_id=self.team_id,
+                user_access_control=self.user_access_control,
+                offset=offset,
+                limit=limit,
+                search=request.query_params.get("search", "").strip() or None,
+            ),
+            AccountNoteSerializer,
+        )
 
 
 @extend_schema(

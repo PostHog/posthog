@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -169,6 +169,23 @@ class TestDockerSandboxUnit:
         assert "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://host.docker.internal:8000/i/v1/logs" in env_args
         # Non-URL env vars must pass through untouched.
         assert "POSTHOG_TEAM_ID=1" in env_args
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    def test_create_raises_clear_error_when_image_missing(self, mock_run):
+        # `docker image inspect` returns non-zero when the local-only sandbox image was
+        # never built. create() must fail with a clear SandboxProvisionError naming the
+        # image instead of letting `docker run` attempt an unpullable registry pull.
+        mock_run.return_value = MagicMock(stdout="", stderr="No such image", returncode=1)
+
+        config = SandboxConfig(name="test-sandbox", template=SandboxTemplate.DEFAULT_BASE)
+
+        with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"):
+            with pytest.raises(SandboxProvisionError) as exc:
+                DockerSandbox.create(config)
+
+        assert exc.value.context["image"] == "posthog-sandbox-base"
+        # Surfaced before `docker run` is ever attempted, so no doomed pull happens.
+        assert not any("run" in call.args[0] for call in mock_run.call_args_list)
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_get_status_running(self, mock_run):
