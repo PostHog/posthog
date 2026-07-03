@@ -6,7 +6,7 @@ summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 
 import math
 from datetime import timedelta
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 from django.db import connection
 from django.db.models import Count, Min, Q, QuerySet
@@ -89,10 +89,16 @@ def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[s
     }
 
 
-def _label_day_counts(labeled: QuerySet[ReplayObservation], day_field: str, cutoff: Any) -> list[dict[str, Any]]:
+def _label_day_counts(
+    labeled: QuerySet[ReplayObservation], day_field: Literal["created_at", "label__updated_at"], cutoff: Any
+) -> list[dict[str, Any]]:
+    # Explicit branches (not a dynamic **{f"{field}__gte"} key) so ORM field names stay static.
+    if day_field == "created_at":
+        windowed = labeled.filter(created_at__gte=cutoff)
+    else:
+        windowed = labeled.filter(label__updated_at__gte=cutoff)
     rows = (
-        labeled.filter(**{f"{day_field}__gte": cutoff})
-        .annotate(day=TruncDate(day_field))
+        windowed.annotate(day=TruncDate(day_field))
         .order_by()  # Don't let parent ordering leak into GROUP BY.
         .values("day")
         .annotate(
