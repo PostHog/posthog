@@ -538,7 +538,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             and self.query.trendsFilter.hideWeekends
             and self.query_date_range.interval_name not in ("hour", "minute", "week", "month", "quarter", "year")
         ):
-            final_result = self._filter_weekend_buckets(final_result)
+            final_result = self._filter_buckets_to_days(final_result, {1, 2, 3, 4, 5})
+
+        # daysOfWeek filters events at the query level; for day interval also drop the
+        # deselected day buckets so the chart doesn't show a row of zeros for them
+        days_of_week = self.query_date_range.days_of_week()
+        if days_of_week and self.query_date_range.interval_name == "day":
+            final_result = self._filter_buckets_to_days(final_result, set(days_of_week))
 
         return final_result, has_more
 
@@ -720,7 +726,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             res.append(series_object)
         return res
 
-    def _filter_weekend_buckets(self, results: list[dict]) -> list[dict]:
+    def _filter_buckets_to_days(self, results: list[dict], allowed_iso_days: set[int]) -> list[dict]:
         filtered = []
         for series_result in results:
             days = series_result.get("days")
@@ -728,18 +734,18 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 filtered.append(series_result)
                 continue
 
-            # Build weekday mask — parse date string and check day of week
+            # Build allowed-day mask — parse date string and check day of week
             weekday_indices = []
             for i, day_str in enumerate(days):
                 try:
                     dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
-                    if dt.weekday() < 5:  # Mon=0..Fri=4
+                    if dt.isoweekday() in allowed_iso_days:
                         weekday_indices.append(i)
                 except (ValueError, TypeError):
                     weekday_indices.append(i)  # Keep unparseable entries
 
             if len(weekday_indices) == len(days):
-                # No weekends found, nothing to filter
+                # Nothing to filter
                 filtered.append(series_result)
                 continue
 
@@ -766,7 +772,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if new_result.get("action") is not None and "days" in new_result["action"]:
                 action_days = new_result["action"]["days"]
                 new_result["action"] = {**new_result["action"]}
-                new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]
+                new_result["action"]["days"] = [d for d in action_days if d.isoweekday() in allowed_iso_days]
 
             filtered.append(new_result)
         return filtered
