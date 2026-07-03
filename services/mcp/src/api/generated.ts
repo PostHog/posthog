@@ -138,27 +138,6 @@ export namespace Schemas {
     }
 
     /**
-     * A team-wide account note — an internal notebook linked to a Customer analytics account.
-     */
-    export interface AccountNote {
-      /** URL-safe short ID of the notebook. */
-      readonly short_id: string;
-      /**
-         * Title of the note.
-         * @nullable
-         */
-      readonly title: string | null;
-      /** When the note was created. */
-      readonly created_at: string;
-      /** When the note was last modified. */
-      readonly last_modified_at: string;
-      /** UUID of the account this note is linked to. */
-      readonly account_id: string;
-      /** Name of the account this note is linked to. */
-      readonly account_name: string;
-    }
-
-    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -213,6 +192,29 @@ export namespace Schemas {
       /** @nullable */
       readonly hedgehog_config: UserBasicHedgehogConfig;
       role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    /**
+     * A team-wide account note — an internal notebook linked to a Customer analytics account.
+     */
+    export interface AccountNote {
+      /** URL-safe short ID of the notebook. */
+      readonly short_id: string;
+      /**
+         * Title of the note.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the note was created. */
+      readonly created_at: string;
+      /** When the note was last modified. */
+      readonly last_modified_at: string;
+      /** UUID of the account this note is linked to. */
+      readonly account_id: string;
+      /** Name of the account this note is linked to. */
+      readonly account_name: string;
+      /** User who created the note, if known. */
+      readonly created_by: UserBasic | null;
     }
 
     export interface AccountNotebook {
@@ -60572,6 +60574,14 @@ export namespace Schemas {
     };
 
     export type AccountNotesListParams = {
+    /**
+     * Only return notes linked to this account.
+     */
+    account_id?: string;
+    /**
+     * Only return notes created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
     /**
      * Number of results to return per page.
      */

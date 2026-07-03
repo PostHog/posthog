@@ -1917,7 +1917,7 @@ class TestAccountNotesViewSet(APIBaseTest):
         return notebook
 
     def test_list_returns_account_notes_with_account_fields(self):
-        note = self._link_note(title="Renewal")
+        note = self._link_note(title="Renewal", created_by=self.user)
 
         response = self.client.get(self.endpoint_base)
 
@@ -1928,6 +1928,8 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(results[0]["title"], "Renewal")
         self.assertEqual(results[0]["account_id"], str(self.account.id))
         self.assertEqual(results[0]["account_name"], "Acme Corp")
+        self.assertEqual(results[0]["created_by"]["id"], self.user.id)
+        self.assertEqual(results[0]["created_by"]["email"], self.user.email)
 
     def test_list_excludes_unlinked_deleted_noninternal_and_other_team_notes(self):
         included = self._link_note(title="Included")
@@ -1963,6 +1965,46 @@ class TestAccountNotesViewSet(APIBaseTest):
 
         titles = {n["title"] for n in response.json()["results"]}
         self.assertEqual(titles, expected_titles)
+
+    def test_list_filter_by_account(self):
+        other_account = Account.objects.unscoped().create(team=self.team, name="Beta LLC")
+        self._link_note(title="Acme note")
+        self._link_note(title="Beta note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?account_id={self.account.id}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Acme note"])
+
+    @parameterized.expand(
+        [
+            ("account_id", "not-a-uuid"),
+            ("created_by", "alice"),
+            ("created_by", "alice,bob"),
+        ]
+    )
+    def test_list_rejects_malformed_filter(self, param, value):
+        response = self.client.get(f"{self.endpoint_base}?{param}={value}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("single", "{uid}"),
+            ("comma_joined", "{uid},999999"),  # the encoding the generated frontend client sends
+            ("repeated", "{uid}&created_by=999999"),
+        ]
+    )
+    def test_list_filter_by_created_by(self, _name, created_by_query):
+        other_user = User.objects.create_and_join(self.organization, "note-author@posthog.com", None)
+        self._link_note(title="Mine", created_by=self.user)
+        self._link_note(title="Theirs", created_by=other_user)
+
+        query = created_by_query.format(uid=self.user.id)
+        response = self.client.get(f"{self.endpoint_base}?created_by={query}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Mine"])
 
     def test_list_orders_by_last_modified_desc_and_paginates(self):
         with freeze_time("2024-01-01"):
