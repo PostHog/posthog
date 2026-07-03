@@ -1789,9 +1789,9 @@ snapshots:
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.b210ce352a085f9ed57aed4675cc78d23db5d2312f276ec790040b2ce27e293a.duU6Lgj4ID4h_Qo76s2bErUZYu2IuRIHoy4D7_tCGT4
     dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.e86ceb254b401c489ab99a971210ae6fcff0e47bb7eb512daf896b47fc2473d7.gdReADxQa9J9TbRINl5Oyg7NSoRwOfgdP_20x6IXN9I
+        hash: v1.k794b7964.e978356d65861c73f58912b1254a148fd0a5965d8948d9718ea23da2d2bd86dc.jZxbynM6mLWDESs2O7B7wpUvqBGdlwWLTIM7Vjk0bQI
     dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.ce4054465ab9e06e075e861a445d1b9ef950b0b8daf695d96c861b35e2a879e9.b-JT0h-0O_q3tb2zrAFJrbj-0TDVU2X9oqsO59LA25A
+        hash: v1.k794b7964.4e02d99e169a9ecd1914a806911aff5655e497103fda3b0510b3c9ab95bc54dc.enTEcRvIRAKlGJZ-hLfFCPfaL_EPv3NkpdboAX8xitQ
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.efdbea5790ee8e35bd2ae969acc32686edd47bf2990008fcd3d6f572f309f18b.4ZbAHTXiE7te8-Ck6clsY28Y5-JOOCpIPfSguR6E4Es
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -1920,6 +1920,34 @@ snapshots:
         hash: v1.k794b7964.0600e1578c99c4388b9a2251ce03d1dd782ada03f7c370ab4c6ca3d1fc439299.N_1E05hIQbLpHPRr30SVKVe7RO841TkG8ge6oZtF8Bo
     dashboards-dashboard-widgets-widget-types-session-replay-recent-recordings-widget-settings--default--light:
         hash: v1.k794b7964.a54fd854672dbfd9bca0120f80eda64b5f26fa50d07f65a20e491d0726110732.6B1Uq49T3-NH5rQ_Aqdrk4Ov0eHWtT2BzWYbQ_jLsg8
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--default--dark:
+        hash: v1.k794b7964.689464bce4a1206c325d2ae0b399c400999f0bc57b816a1f2178877038b42a70.Wk9pArVKKfVjZnsmYk3mZM_5Vdk-UvqxXxOc7w4SAx8
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--default--light:
+        hash: v1.k794b7964.a70292bc114698ad21b7eb1ccf2d66cdde1f3f3e7e389ca81c0278af82bddd6c.F8sAzBPZTRm_8VkO7zBiAwBFoR1kf9dAoeouADSPI68
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--empty--dark:
+        hash: v1.k794b7964.a1a1f87fcec1bf068c916a24cda5a6591d120ff7bb6a14ca769133affcb82b60.fYFsCaMq7SgVx3ts_Ew6okwM1U6ntdCH7gIrzmpkRFw
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--empty--light:
+        hash: v1.k794b7964.386e92eab330f08b5b72bc3ca563a05b9a07a83796be5db231ab5c2bda1cbed7.fQF2PM38cKA48zPYsMJXiOf5H8dmZte9pD1nvkbm7o0
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--loading--dark:
+        hash: v1.k794b7964.76916af756f95c2900838644067aed3434ceff597721b2f4b06b1423cbb779da.NiEAVsTreeXn6U2UUntQik_QLwNZPlYJbC5U39jGGcs
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--loading--light:
+        hash: v1.k794b7964.2e68359ea7a83280078a27dd7e1f5a7da0a230fcb4ea7bee4226c6a2ff714f71.ug3C2h73NqWkPLg9TCIchTClrH2S7VbMnVy_Ieh_AT4
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--not-configured--dark:
+        hash: v1.k794b7964.bd747ea02cc6e58a8af1abd44590640d7d8a91203ded325560ae503204c77a24.ckuzKQ56GXAQDRc8LHw7UbdfZl-JKQfodjadyYiX2yA
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--not-configured--light:
+        hash: v1.k794b7964.466604f442e0eff7e8d7568d3af2c427369c365505e4ae1722ffcd637b4705d9.sIcBl9Mofdi0o-lFR7f6WsJHKneVkyZh2AOjo1btJkY
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--survey-not-found--dark:
+        hash: v1.k794b7964.8c29d65fcfe13d6cfda30fc318aede2372af2ec5044234cd9be140f4502eb5dc.0jrp5GNT_Xf1qcPa94oVPlksBxBtSD5LpdT8zBQn_DY
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--survey-not-found--light:
+        hash: v1.k794b7964.fd81d37949198b994bb6d30f26beea0eab128073eb8e3418251805e612a318a0.BhuqBNcWYIs3K84mkNRdNAT_oh5ero1NKTpoe6Ow8qg
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--tile-filters-read-only--dark:
+        hash: v1.k794b7964.838fe0eaf1bd8d61bb7fa7b678c386c748fcc2f5a58b946ae794ca18c1cfc83d.pcrkX3xDouKttRjzrNpHao1pEELL8gbM-yu95LujoM4
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results--tile-filters-read-only--light:
+        hash: v1.k794b7964.2e21078da5a7a03f97d08039611c18e2cd7fc3e87d7408e58c5f9e49d7919bcc.AkcagsKiGJJq18asQz5u8kHod3kRskAtKf9clczrgiE
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results-widget-settings--default--dark:
+        hash: v1.k794b7964.d85162890adfd23f18b6d6eed403b13f3214ba736eff252f6e257b5712cc0b7e.J0T8DzrU_0ugAguRm0kiWCJUGyjjOCczr7WWWCcHPWk
+    dashboards-dashboard-widgets-widget-types-surveys-survey-results-widget-settings--default--light:
+        hash: v1.k794b7964.0f0a60feefadec70ee2150f2fbb695c65931cb8a1a01ab18b8ed8665ae3c463c.uDTEg7W8U3kqKGNIZy9KssosgswGkQtaDxJU_F9CKkY
     dashboards-dashboard-widgets-widgetcard--default--dark:
         hash: v1.k794b7964.131c8ca3c5e54927f05d636bbbf578d239f0caaaaa672df4a3d258a95262b360.QaO0tmZaChmZ6GKYLMewEm-GpVqdiEYVpLJTMv78RgI
     dashboards-dashboard-widgets-widgetcard--default--light:
