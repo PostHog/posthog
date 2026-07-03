@@ -138,6 +138,27 @@ export namespace Schemas {
     }
 
     /**
+     * A team-wide account note — an internal notebook linked to a Customer analytics account.
+     */
+    export interface AccountNote {
+      /** URL-safe short ID of the notebook. */
+      readonly short_id: string;
+      /**
+         * Title of the note.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the note was created. */
+      readonly created_at: string;
+      /** When the note was last modified. */
+      readonly last_modified_at: string;
+      /** UUID of the account this note is linked to. */
+      readonly account_id: string;
+      /** Name of the account this note is linked to. */
+      readonly account_name: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -11365,6 +11386,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -11977,6 +11999,8 @@ export namespace Schemas {
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
+      /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+      failing_workflows?: string[];
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -29621,6 +29645,23 @@ export namespace Schemas {
       recommended_actions: RecommendedAction[];
     }
 
+    export interface MasterFailureGroup {
+      /** Repository the failures occurred in. */
+      repo: RepoRef;
+      /** GitHub Actions workflow name the failing runs belong to. */
+      workflow_name: string;
+      /** De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure signature together with the workflow. '' when the job-level source isn't synced and the group degrades to workflow level. */
+      failed_job: string;
+      /** Distinct failing default-branch runs in this group within the window. */
+      run_count: number;
+      /** When the oldest failing run in the group started. */
+      first_seen: string;
+      /** When the newest failing run in the group started. */
+      last_seen: string;
+      /** Run id of the newest failing run — the drill-down anchor. */
+      latest_run_id: number;
+    }
+
     /**
      * * `key` - key
      * * `value` - value
@@ -29735,6 +29776,29 @@ export namespace Schemas {
       agent_mode?: AgentModeEnum;
       is_sandbox?: boolean;
       resume_payload?: unknown;
+    }
+
+    export interface MessageAsset {
+      /** The workflow run this email was sent in. */
+      invocation_id: string;
+      /** The email step (action node) within the workflow that sent this email. */
+      action_id: string;
+      /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+      parent_run_id: string;
+      /** Asset kind. Currently always 'email'. */
+      kind: string;
+      /** The recipient's distinct_id. */
+      distinct_id: string;
+      /** The recipient's person UUID, if resolved. */
+      person_id: string;
+      /** The recipient email address. */
+      recipient: string;
+      /** The email subject line. */
+      subject: string;
+      /** Delivery status at capture time. Currently always 'sent'. */
+      status: string;
+      /** When the email was sent. */
+      sent_at: string;
     }
 
     export interface MessageCategory {
@@ -31145,6 +31209,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Account[];
+    }
+
+    export interface PaginatedAccountNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNote[];
     }
 
     export interface PaginatedAccountNotebookList {
@@ -36201,6 +36274,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -47356,6 +47430,61 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
+    export interface RepoOverview {
+      /** Workflow runs started in the window, all branches and workflows. */
+      run_count: number;
+      /** Same count over the equal-length window immediately before date_from — the delta baseline. */
+      run_count_prev: number;
+      /**
+         * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+         * @nullable
+         */
+      success_rate: number | null;
+      /**
+         * Success rate over the previous window. Null if none completed.
+         * @nullable
+         */
+      success_rate_prev: number | null;
+      /** Runs in the window that were a 2nd+ attempt (attempt > 1). */
+      rerun_cycles: number;
+      /** Re-run cycles over the previous window. */
+      rerun_cycles_prev: number;
+      /**
+         * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
+         * @nullable
+         */
+      median_open_to_merge_seconds: number | null;
+      /**
+         * The same median over the previous window. Null when nothing merged.
+         * @nullable
+         */
+      median_open_to_merge_seconds_prev: number | null;
+      /**
+         * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes: number | null;
+      /**
+         * Billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes_prev: number | null;
+      /**
+         * Estimated CI cost in USD (billable minutes x runner-tier rate); null when the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /**
+         * Estimated cost over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd_prev: number | null;
+      /** Whether the job-level source is synced (cost and queue figures exist). */
+      jobs_available: boolean;
+      /** 'master' or 'main', picked by observed run volume in the window. */
+      default_branch: string;
+    }
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -47530,6 +47659,17 @@ export namespace Schemas {
     export interface RoleLookupResponse {
       /** Matching reference, or null if none exists. */
       reference: RoleExternalReference | null;
+    }
+
+    export interface RunFailureLogs {
+      /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
+      jobs: CIJobFailureLog[];
+      /** Workflow run id the failure logs are for. */
+      run_id: number;
+      /** False when no failure logs were found — the run didn't fail, or its logs aged out of the short Logs retention. */
+      logs_available: boolean;
+      /** True when the overall line cap across all jobs was hit. */
+      truncated: boolean;
     }
 
     export interface RunInsightsResponse {
@@ -53817,6 +53957,13 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd?: number | null;
+      /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
+      rerun_cycles?: number;
+      /**
+         * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+         * @nullable
+         */
+      success_rate_prev?: number | null;
     }
 
     export interface WorkflowJob {
@@ -53854,6 +54001,54 @@ export namespace Schemas {
       runner_label: string;
       /**
          * Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowJobAggregate {
+      /** De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded '${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together. */
+      job_name: string;
+      /** Job instances observed in the window (all shards, all attempts). */
+      job_count: number;
+      /** Distinct raw job names inside the group - the observed matrix width. */
+      shard_count: number;
+      /** Distinct workflow runs the job appeared in. */
+      runs_in: number;
+      /**
+         * runs_in divided by the workflow's total runs in the window; below 1.0 means the job is conditional and skips some runs. Null when the workflow had no runs.
+         * @nullable
+         */
+      run_share: number | null;
+      /**
+         * Median queue wait (created to started) in seconds - where runner-capacity problems hide. Null when nothing started.
+         * @nullable
+         */
+      queue_p50_seconds: number | null;
+      /**
+         * Median duration of completed job instances, in seconds. Null if none completed.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+         * @nullable
+         */
+      failure_rate: number | null;
+      /** Job instances that ran on a 2nd+ run attempt - retry pressure. */
+      retry_job_count: number;
+      /**
+         * Billable (self-hosted) minutes across the group's instances; null when every instance ran on an unknown tier.
+         * @nullable
+         */
+      billable_minutes: number | null;
+      /**
+         * Estimated cost in USD via the runner-tier rate ladder; null when every instance ran on an unknown tier.
          * @nullable
          */
       estimated_cost_usd: number | null;
@@ -57056,6 +57251,66 @@ export namespace Schemas {
       Draft: 'draft',
     } as const;
 
+    export type EnvironmentsHogFlowsAssetsRetrieveParams = {
+    /**
+     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
+     * @minLength 1
+     */
+    action_id?: string;
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return assets sent to this distinct_id.
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string;
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
+     */
+    parent_run_id?: string;
+    /**
+     * Case-insensitive substring match on recipient email or subject.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsHogFlowsAssetContentRetrieveParams = {
+    /**
+     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
+     */
+    action_id?: string;
+    /**
+     * The workflow run the email was sent in.
+     * @minLength 1
+     */
+    invocation_id: string;
+    };
+
     export type EnvironmentsHogFlowsInvocationResultsRetrieveParams = {
     /**
      * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
@@ -60176,6 +60431,21 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AccountNotesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Full-text search across note title and content, plus substring match on account name.
+     */
+    search?: string;
+    };
+
     export type AccountsListParams = {
     /**
      * Filter by account executive. Use 'unassigned' or an integer user id.
@@ -62172,6 +62442,48 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsJobAggregatesParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to aggregate jobs for.
+     */
+    workflow_name: string;
+    };
+
+    export type EngineeringAnalyticsMasterFailuresParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrCostParams = {
     /**
      * Pull request number to estimate cost for.
@@ -62237,6 +62549,32 @@ export namespace Schemas {
      * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsRepoOverviewParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * Workflow run id whose failure logs to fetch.
+     */
+    run_id: number;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -63619,6 +63957,66 @@ export namespace Schemas {
       Archived: 'archived',
       Draft: 'draft',
     } as const;
+
+    export type HogFlowsAssetsRetrieveParams = {
+    /**
+     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
+     * @minLength 1
+     */
+    action_id?: string;
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return assets sent to this distinct_id.
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string;
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
+     */
+    parent_run_id?: string;
+    /**
+     * Case-insensitive substring match on recipient email or subject.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type HogFlowsAssetContentRetrieveParams = {
+    /**
+     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
+     */
+    action_id?: string;
+    /**
+     * The workflow run the email was sent in.
+     * @minLength 1
+     */
+    invocation_id: string;
+    };
 
     export type HogFlowsInvocationResultsRetrieveParams = {
     /**

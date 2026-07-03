@@ -92,6 +92,7 @@ the row lists both.
 | chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk              | HTTP                        | requests                                                        | ✅                          |
+| chargify                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
 | churnkey                | HTTP                        | requests                                                        | ✅                          |
 | coda                    | HTTP                        | requests                                                        | ✅                          |
@@ -133,6 +134,7 @@ the row lists both.
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
+| freshcaller             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
 | freshservice            | HTTP                        | requests                                                        | ✅                          |
@@ -141,6 +143,7 @@ the row lists both.
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
+| eventzilla              | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
@@ -393,7 +396,6 @@ doesn't conflict with concurrent PRs.
 - captain_data
 - cart_com
 - castor_edc
-- chargify
 - chatwoot
 - chift
 - chorus
@@ -432,7 +434,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- eventzilla
 - expensify
 - facebook_pages
 - fastbill
@@ -448,7 +449,6 @@ doesn't conflict with concurrent PRs.
 - freeagent
 - freightview
 - freshbooks
-- freshcaller
 - freshchat
 - freshservice
 - fulcrum
