@@ -92,6 +92,36 @@ describe('SessionTracker integration', () => {
         expect(result.get(teamId, `batch-never-${testRunId}`)).toBe(false)
     })
 
+    it('resolves a large interleaved batch across teams, matching each session to its own seen state', async () => {
+        const teams = [10, 11, 12]
+        const all = new SessionSet()
+        const toMark = new SessionSet()
+        const expectedSeen = new Map<string, boolean>()
+
+        // Interleave seen/unseen within each team and across teams, so a misaligned MGET (result i
+        // read against the wrong session) or a per-team key collision surfaces as a mismatch.
+        for (const teamId of teams) {
+            for (let i = 0; i < 8; i++) {
+                const sessionId = `mixed-${teamId}-${i}-${testRunId}`
+                const seen = i % 2 === 0
+                all.add(teamId, sessionId)
+                if (seen) {
+                    toMark.add(teamId, sessionId)
+                }
+                expectedSeen.set(`${teamId}:${sessionId}`, seen)
+            }
+        }
+
+        await new SessionTracker(redisPool, 5 * 60 * 1000).markSeen(toMark)
+
+        // Fresh instance so every answer comes from Redis (MGET), not the local cache.
+        const result = await new SessionTracker(redisPool, 5 * 60 * 1000).hasSeen(all)
+
+        for (const { teamId, sessionId } of all) {
+            expect(result.get(teamId, sessionId)).toBe(expectedSeen.get(`${teamId}:${sessionId}`))
+        }
+    })
+
     it('keeps seen state isolated per team in Redis', async () => {
         const teamA = 6
         const teamB = 7
