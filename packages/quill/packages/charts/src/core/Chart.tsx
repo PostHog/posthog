@@ -103,6 +103,10 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: given the nearest band index and cursor, return the effective hover index — or
+     *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
+     *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
+    resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
 }
 
 export function Chart<Meta = unknown>({
@@ -125,6 +129,7 @@ export function Chart<Meta = unknown>({
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -311,6 +316,7 @@ export function Chart<Meta = unknown>({
         interactionAxis,
         labelToCoord,
         wrapClickData,
+        resolveHoverIndex,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
