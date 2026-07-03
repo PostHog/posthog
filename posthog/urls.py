@@ -278,7 +278,7 @@ urlpatterns = [
     ),
     # Health check probe endpoints for K8s
     # NOTE: We have _health, livez, and _readyz. _health is deprecated and
-    # is only included for compatability with old installations. For new
+    # is only included for compatibility with old installations. For new
     # operations livez and readyz should be used.
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),

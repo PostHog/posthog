@@ -349,7 +349,7 @@ def get_latest_successful_backup(
     s3: S3Resource,
 ) -> Optional[Backup]:
     """
-    Checks the latest succesful backup to use it as a base backup.
+    Checks the latest successful backup to use it as a base backup.
     """
     if not latest_backups or not config.incremental:
         context.log.info("No latest backup found or a full backup was requested. Skipping status check.")
