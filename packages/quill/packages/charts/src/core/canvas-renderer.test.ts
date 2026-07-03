@@ -10,6 +10,8 @@ import {
     drawLine,
     drawLineSeriesLayer,
     drawSelectionRect,
+    drawTickMarks,
+    resolveAxisLineColor,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
 
@@ -703,6 +705,79 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('resolveAxisLineColor — precedence', () => {
+        it.each([
+            {
+                name: 'returns axisLineColor when all three tiers are set',
+                theme: { axisLineColor: '#111111', axisColor: '#222222', gridColor: '#333333' },
+                expected: '#111111',
+            },
+            {
+                name: 'falls back to axisColor when axisLineColor is absent',
+                theme: { axisColor: '#222222', gridColor: '#333333' },
+                expected: '#222222',
+            },
+            {
+                name: 'falls back to gridColor when axisLineColor and axisColor are absent',
+                theme: { gridColor: '#333333' },
+                expected: '#333333',
+            },
+            {
+                name: 'returns undefined when no tier is set',
+                theme: {},
+                expected: undefined,
+            },
+        ])('$name', ({ theme, expected }) => {
+            expect(resolveAxisLineColor(theme as any)).toBe(expected)
+        })
+    })
+
+    describe('drawTickMarks', () => {
+        it('draws x ticks downward from the snapped baseline and y ticks outward from each side', () => {
+            const ctx = mockCanvasContext()
+            drawTickMarks(ctx, dimensions, {
+                xs: [100.4],
+                ys: [
+                    { y: 200.6, side: 'left', offset: 0 },
+                    { y: 120.2, side: 'right', offset: 10 },
+                ],
+            })
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(100.5, baselineY)
+            expect(ctx.lineTo).toHaveBeenCalledWith(100.5, baselineY + 4)
+            const leftEdge = Math.round(dimensions.plotLeft) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(leftEdge - 4, 201.5)
+            expect(ctx.lineTo).toHaveBeenCalledWith(leftEdge, 201.5)
+            const rightEdge = Math.round(dimensions.plotLeft + dimensions.plotWidth + 10) + 0.5
+            expect(ctx.moveTo).toHaveBeenCalledWith(rightEdge, 120.5)
+            expect(ctx.lineTo).toHaveBeenCalledWith(rightEdge + 4, 120.5)
+        })
+    })
+
+    describe('drawGrid — frame gating', () => {
+        it('keeps the plot-edge frame strokes and the baseline gridline by default', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']))
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            // The 0-value tick maps to the plot bottom; framed grids must keep drawing it.
+            expect(ctx.moveTo.mock.calls.some(([, y]) => y === baselineY)).toBe(true)
+            // Left frame stroke present.
+            const leftX = Math.round(dimensions.plotLeft) + 0.5
+            expect(ctx.moveTo.mock.calls.some(([x]) => x === leftX)).toBe(true)
+        })
+
+        it('skips the frame strokes and bottom-hugging gridline when frame is false', () => {
+            const ctx = mockCanvasContext()
+            drawGrid(makeDrawContext(ctx, ['a', 'b']), { frame: false })
+            const baselineY = Math.round(dimensions.plotTop + dimensions.plotHeight) + 0.5
+            // No stroke may run along the bottom edge — the chart's own axis line owns it.
+            expect(ctx.moveTo.mock.calls.some(([, y]) => y === baselineY)).toBe(false)
+            // And no right-edge closing stroke.
+            const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) + 0.5
+            expect(ctx.moveTo.mock.calls.some(([x]) => x === closingX)).toBe(false)
+        })
+    })
+
     describe('drawGrid', () => {
         it('draws a horizontal line at the first y-tick (vertical orientation)', () => {
             const ctx = mockCanvasContext()
@@ -719,7 +794,7 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']))
             const leftX = dimensions.plotLeft + 0.5
-            const rightX = dimensions.plotLeft + dimensions.plotWidth - 0.5
+            const rightX = dimensions.plotLeft + dimensions.plotWidth + 0.5
             expect(ctx.moveTo.mock.calls).toContainEqual([leftX, dimensions.plotTop])
             expect(ctx.lineTo.mock.calls).toContainEqual([leftX, dimensions.plotTop + dimensions.plotHeight])
             expect(ctx.moveTo.mock.calls).toContainEqual([rightX, dimensions.plotTop])
@@ -746,7 +821,7 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             drawGrid(makeDrawContext(ctx, ['a', 'b']), { orientation: 'horizontal' })
             const topY = dimensions.plotTop + 0.5
-            const bottomY = dimensions.plotTop + dimensions.plotHeight - 0.5
+            const bottomY = dimensions.plotTop + dimensions.plotHeight + 0.5
             expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, topY])
             expect(ctx.lineTo.mock.calls).toContainEqual([dimensions.plotLeft + dimensions.plotWidth, topY])
             expect(ctx.moveTo.mock.calls).toContainEqual([dimensions.plotLeft, bottomY])

@@ -47,6 +47,8 @@ export interface TimeSeriesLineChartConfig {
     showCrosshair?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
     showAxisLines?: boolean
+    /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
+    showTickMarks?: boolean
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
@@ -94,6 +96,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         percentStackView,
         showCrosshair,
         showAxisLines,
+        showTickMarks,
         curve,
         tooltip: tooltipConfig,
         legend,
@@ -133,6 +136,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid,
         showAxisLines,
+        showTickMarks,
         curve,
         percentStackView,
         showCrosshair,
