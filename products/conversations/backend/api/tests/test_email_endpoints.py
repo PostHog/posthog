@@ -359,14 +359,14 @@ class TestEmailMultiConfig(BaseTest):
 
     @patch(
         "products.conversations.backend.api.email_settings.mailgun_add_domain",
-        side_effect=MailgunDomainConflict("Domain example.com already exists"),
+        side_effect=MailgunDomainConflict("Domain example.com is already registered by another Mailgun account"),
     )
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_connect_rejects_preexisting_mailgun_domain(
+    def test_connect_rejects_domain_taken_by_another_account(
         self,
         _mock_setting: MagicMock,
         mock_mailgun_delete: MagicMock,

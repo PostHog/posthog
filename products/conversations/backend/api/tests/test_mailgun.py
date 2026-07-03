@@ -25,11 +25,44 @@ def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
 @patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
 @patch("products.conversations.backend.mailgun.requests.post")
 class TestAddDomain:
-    def test_already_exists_raises_instead_of_adopting(self, mock_post: MagicMock, _mock_key: MagicMock):
-        mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
+    @patch("products.conversations.backend.mailgun.requests.delete")
+    def test_already_exists_reclaims_by_delete_and_recreate(
+        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+    ):
+        # Orphan re-add: domain still in our Mailgun account (prior delete failed/skipped).
+        # add_domain must delete then recreate it so it comes back fresh/unverified.
+        mock_post.side_effect = [
+            _mailgun_response(400, {"message": "domain example.com already exists"}),
+            _mailgun_response(
+                201,
+                {
+                    "sending_dns_records": [
+                        {"record_type": "TXT", "name": "example.com", "value": "v=spf1"},
+                        {"record_type": "CNAME", "name": "track.example.com", "value": "m.mg"},
+                    ]
+                },
+            ),
+        ]
+        mock_delete.return_value = _mailgun_response(200)
 
-        with pytest.raises(MailgunDomainConflict, match="already exists"):
+        result = add_domain("example.com")
+
+        assert [r["record_type"] for r in result["sending_dns_records"]] == ["TXT"]
+        mock_delete.assert_called_once()
+        assert mock_post.call_count == 2
+
+    @patch("products.conversations.backend.mailgun.requests.delete")
+    def test_already_exists_still_present_after_delete_raises(
+        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+    ):
+        # If the recreate still reports "already exists" we must not loop forever.
+        mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
+        mock_delete.return_value = _mailgun_response(200)
+
+        with pytest.raises(MailgunDomainConflict, match="could not be reclaimed"):
             add_domain("example.com")
+
+        assert mock_post.call_count == 2
 
     def test_already_taken_still_raises(self, mock_post: MagicMock, _mock_key: MagicMock):
         mock_post.return_value = _mailgun_response(
@@ -54,11 +87,20 @@ class TestAddDomain:
 
         assert [r["record_type"] for r in result["sending_dns_records"]] == ["TXT"]
 
-    def test_case_insensitive_already_exists_match(self, mock_post: MagicMock, _mock_key: MagicMock):
-        mock_post.return_value = _mailgun_response(400, {"message": "Domain Already EXISTS"})
+    @patch("products.conversations.backend.mailgun.requests.delete")
+    def test_case_insensitive_already_exists_match(
+        self, mock_delete: MagicMock, mock_post: MagicMock, _mock_key: MagicMock
+    ):
+        mock_post.side_effect = [
+            _mailgun_response(400, {"message": "Domain Already EXISTS"}),
+            _mailgun_response(201, {"sending_dns_records": []}),
+        ]
+        mock_delete.return_value = _mailgun_response(200)
 
-        with pytest.raises(MailgunDomainConflict, match="already exists"):
-            add_domain("example.com")
+        result = add_domain("example.com")
+
+        assert result == {"sending_dns_records": []}
+        mock_delete.assert_called_once()
 
     def test_unrecognised_400_falls_through_to_raise_for_status(self, mock_post: MagicMock, _mock_key: MagicMock):
         resp = _mailgun_response(400, {"message": "some other error"})

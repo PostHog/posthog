@@ -94,8 +94,17 @@ def _filter_sending_records(records: list[dict[str, Any]]) -> list[dict[str, Any
     return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
 
 
-def add_domain(domain: str) -> dict[str, Any]:
-    """Register a sending domain with Mailgun. Returns DNS records to configure."""
+def add_domain(domain: str, *, _reclaim_orphan: bool = True) -> dict[str, Any]:
+    """Register a sending domain with Mailgun. Returns DNS records to configure.
+
+    Our Mailgun account is shared across all tenants, so a domain can already exist
+    in the account as an *orphan* — a prior disconnect removed the PostHog row but
+    the Mailgun delete failed or was skipped. In that case we reclaim it by deleting
+    and recreating so it comes back **unverified**, forcing fresh DNS proof. We never
+    adopt a pre-existing (possibly still-active) domain as-is: that would let a
+    different tenant inherit another org's verified sending domain without ever
+    controlling its DNS. Cross-org ownership is guarded in PostHog before we get here.
+    """
     resp = requests.post(
         f"{MAILGUN_API_BASE}/domains",
         auth=("api", _get_api_key()),
@@ -114,11 +123,16 @@ def add_domain(domain: str) -> dict[str, Any]:
             error_msg = resp.json().get("message", "").lower()
         except Exception:
             error_msg = ""
-        # Never silently adopt a pre-existing Mailgun domain — the shared
-        # account may hold domains we don't own. Fail loud so operators
-        # can reconcile manually.
+        # Orphan in our own account — delete and recreate once so re-add works but the
+        # domain starts unverified. _reclaim_orphan guards against an infinite loop if
+        # the delete didn't actually clear it.
         if "already exists" in error_msg:
-            raise MailgunDomainConflict(f"Domain {domain} already exists")
+            if _reclaim_orphan:
+                logger.info("mailgun_domain_already_exists_reclaiming", domain=domain)
+                delete_domain(domain)
+                return add_domain(domain, _reclaim_orphan=False)
+            raise MailgunDomainConflict(f"Domain {domain} already exists and could not be reclaimed")
+        # Registered under a *different* Mailgun account — we genuinely can't use it.
         if "already taken" in error_msg:
             raise MailgunDomainConflict(f"Domain {domain} is already registered by another Mailgun account")
 
