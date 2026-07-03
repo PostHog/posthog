@@ -222,6 +222,7 @@ depends_on = [
     "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.surveys",
 ]
 layer = "modules"
 
