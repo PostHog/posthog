@@ -18,6 +18,18 @@ export const SECTIONS = [
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
+    { id: 'playwright', title: 'Playwright' },
+    { id: 'storybook-snapshots', title: 'Storybook snapshots' },
+    { id: 'playwright-snapshots', title: 'Playwright snapshots' },
+    { id: 'backend-snapshots', title: 'Backend snapshots' },
+    { id: 'mcp-snapshots', title: 'MCP snapshots' },
+    { id: 'ai-evals', title: 'AI evals' },
+    { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },
+    { id: 'hogql-parser-py', title: 'hogql-parser version' },
+    { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
+    { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
+    { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 
 export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
@@ -184,7 +196,7 @@ function sectionEquals(a, b) {
 // comments we do not own. The login is the identity behind the `github.token` the
 // posting workflow steps pass — moving them to a custom app token changes the login and
 // would orphan every existing report comment, so handle that transition here too.
-function isReportComment(comment) {
+export function isReportComment(comment) {
     return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
 }
 
@@ -194,6 +206,28 @@ function isReportComment(comment) {
 // retrying for a nicety comment.
 function isWriteConflict(err) {
     return err.status === 404
+}
+
+// Mark a section resolved (status ok), but only when the report already carries it —
+// a check whose condition passes on every PR must not add a section saying so, while
+// a warning that was real on one push must not linger after a later push fixes it.
+export async function clearSectionIfPresent({ id, summary, body }) {
+    const context = resolvePrContext(`clearing "${id}"`)
+    if (!context) {
+        return
+    }
+    let reportComment
+    try {
+        reportComment = (await listPrComments(context)).find(isReportComment)
+    } catch (err) {
+        console.warn(`Could not read PR comments: ${err.message}`)
+        return
+    }
+    if (!reportComment || !parseSections(reportComment.body).has(id)) {
+        console.info(`No existing "${id}" section — nothing to clear.`)
+        return
+    }
+    await postSection({ id, status: 'ok', summary, body })
 }
 
 // Post or update this run's section into the shared comment. Fork PRs run with a
