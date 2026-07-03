@@ -1763,7 +1763,7 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
-    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
@@ -2489,7 +2489,7 @@ export interface ExternalDataSourceCreateApi {
      * * `api` - api
      * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi
-    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
 }
 
@@ -2526,7 +2526,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
-    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
@@ -3001,6 +3001,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3302,7 +3303,15 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
      * * `Baserow` - Baserow
-     * * `Plunk` - Plunk */
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -5431,7 +5440,7 @@ export interface SourceSetupApi {
      * @nullable
      */
     description?: string | null
-    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
 }
 

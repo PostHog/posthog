@@ -732,7 +732,7 @@ export const externalDataSourcesCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
 export const externalDataSourcesCreateBodyCreatedViaDefault = `api`
-export const externalDataSourcesCreateBodyDirectQueryEnabledDefault = true
+export const externalDataSourcesCreateBodyDirectQueryEnabledDefault = false
 
 export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
@@ -1428,7 +1428,7 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(externalDataSourcesCreateBodyDirectQueryEnabledDefault)
         .describe(
-            'Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.'
+            'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
         ),
 })
 
@@ -1458,7 +1458,7 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1490,7 +1490,7 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1598,7 +1598,7 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1630,7 +1630,7 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1662,7 +1662,7 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1701,7 +1701,7 @@ export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1744,7 +1744,7 @@ export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1776,7 +1776,7 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1808,7 +1808,7 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1843,7 +1843,7 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1880,7 +1880,7 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -1912,7 +1912,7 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
@@ -3340,7 +3340,7 @@ export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
-export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = true
+export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = false
 
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
@@ -4031,7 +4031,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
         .describe(
-            'Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.'
+            'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
         ),
 })
 
@@ -4061,7 +4061,7 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
             ),
         job_inputs: zod.unknown().optional(),
     })
