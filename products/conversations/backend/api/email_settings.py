@@ -97,6 +97,11 @@ def _release_domain_if_unused(team: Team, domain: str) -> None:
 
     Left in place, the registration would make every future connect for this
     domain fail with a domain conflict.
+
+    The `exists()` check narrows but cannot fully close a TOCTOU window: a
+    concurrent connect could persist a config on this domain between the check and
+    the delete. Mailgun calls run outside the team-row lock by design, so we accept
+    that window; the loser at worst re-registers on its next verify.
     """
     if EmailChannel.objects.filter(domain=domain).exists():
         return
@@ -123,6 +128,8 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     if EmailChannel.objects.filter(domain=domain).exists():
         return None
 
+    # Decision phase (reads only). A lookup/verify failure here must leave the
+    # original conflict standing, not delete anything.
     try:
         mg_domain = mailgun_get_domain(domain)
         if mg_domain is None:
@@ -134,13 +141,29 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
             # A stranded domain can sit "active" long after its DNS records were
             # removed — re-verify before treating it as genuinely in use.
             state = mailgun_verify_domain(domain).get("state")
-        if state != "unverified":
-            return None
+    except Exception:
+        logger.exception("email_connect_reclaim_lookup_failed", team_id=team.id, domain=domain)
+        return None
 
+    if state != "unverified":
+        return None
+
+    # Re-check immediately before the destructive delete. A concurrent connect for the
+    # same brand-new domain may have registered it and be persisting a config since our
+    # first check (Mailgun calls run outside the team-row lock by design). This narrows
+    # — does not close — that window, but the read-only decision phase above is where
+    # most of the latency sits, so the remaining window is small.
+    if EmailChannel.objects.filter(domain=domain).exists():
+        return None
+
+    # Mutation phase. If the delete lands but the re-add fails, the stale registration
+    # is already gone, so the next connect registers the now-absent domain cleanly. Emit
+    # a distinct signal so that half-completed state is diagnosable.
+    try:
         mailgun_delete_domain(domain)
         dns_records = mailgun_add_domain(domain)
     except Exception:
-        logger.exception("email_connect_reclaim_domain_failed", team_id=team.id, domain=domain)
+        logger.exception("email_connect_reclaim_rewrite_failed", team_id=team.id, domain=domain)
         return None
 
     logger.info("email_connect_reclaimed_stranded_domain", team_id=team.id, domain=domain)
