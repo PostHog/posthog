@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -77,14 +79,43 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
 
-    def test_labeled_filter_excludes_unlabeled(self) -> None:
+    def test_labeled_filter_splits_labeled_from_unlabeled(self) -> None:
         unlabeled = self._create_observation(self.scanner, "sess-2")
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
 
-        results = self.client.get(f"{self.observations_url(self.scanner.id)}?labeled=true").json()["results"]
-        ids = {r["id"] for r in results}
-        self.assertIn(str(self.observation.id), ids)
-        self.assertNotIn(str(unlabeled.id), ids)
+        base_url = self.observations_url(self.scanner.id)
+        labeled_ids = {r["id"] for r in self.client.get(f"{base_url}?labeled=true").json()["results"]}
+        self.assertEqual(labeled_ids, {str(self.observation.id)})
+        unlabeled_ids = {r["id"] for r in self.client.get(f"{base_url}?labeled=false").json()["results"]}
+        self.assertEqual(unlabeled_ids, {str(unlabeled.id)})
+
+    def test_stats_label_aggregates_split_by_day_and_direction(self) -> None:
+        same_day_down = self._create_observation(self.scanner, "sess-down-today")
+        earlier = self._create_observation(self.scanner, "sess-down-earlier")
+        outside_window = self._create_observation(self.scanner, "sess-up-old")
+        self._create_observation(self.scanner, "sess-unlabeled")
+        # created_at is auto_now_add, so pin every row from one captured `now` (midnight-safe) via update.
+        now = timezone.now().replace(hour=12)
+        ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(created_at=now)
+        ReplayObservation.objects.filter(id=earlier.id).update(created_at=now - timedelta(days=3))
+        ReplayObservation.objects.filter(id=outside_window.id).update(created_at=now - timedelta(days=40))
+        self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
+        for observation in (same_day_down, earlier, outside_window):
+            is_correct = observation is outside_window
+            self.client.post(self._label_url(observation), {"is_correct": is_correct}, format="json")
+
+        labels = self.client.get(f"{self.observations_url(self.scanner.id)}stats/?recent_days=14").json()["labels"]
+
+        # Totals span the whole filtered set; by_day only covers the recent window.
+        self.assertEqual(labels["up_total"], 2)
+        self.assertEqual(labels["down_total"], 2)
+        self.assertEqual(
+            labels["by_day"],
+            [
+                {"date": (now - timedelta(days=3)).date().isoformat(), "up": 0, "down": 1},
+                {"date": now.date().isoformat(), "up": 1, "down": 1},
+            ],
+        )
 
     def test_order_by_label_groups_labeled_with_unlabeled_last(self) -> None:
         correct_obs = self._create_observation(self.scanner, "sess-correct")
