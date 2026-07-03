@@ -20,7 +20,9 @@ use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{OffsetTracker, PartitionRouter, ShuffleMessage};
+use cohort_stream_processor::partitions::{
+    MeteredReceiver, OffsetTracker, PartitionRouter, ShuffleMessage,
+};
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, MembershipSink, MembershipStatus,
 };
@@ -288,6 +290,7 @@ fn spawn_worker_with_restore(
     durable_restore: bool,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,

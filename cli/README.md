@@ -32,6 +32,18 @@ These variables can also be loaded from a dotenv-style file via `--dotenv-file <
 
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
+## Uploading native debug symbols
+
+`posthog-cli symbol-sets upload --directory <dir>` scans a directory for native debug symbols and uploads them so PostHog can symbolicate native stack frames.
+A single command handles both desktop/server formats:
+
+- **Linux (ELF):** executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id. This branch is cross-platform.
+- **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
+
+Pass `--include-source` to bundle the referenced source files for richer context around frames.
+
+The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
@@ -51,6 +63,8 @@ Commands require different API scopes. Make sure to set these scopes on your per
 | ----------------------------- | ------------------------------------------ |
 | `query`                       | `query:read`                               |
 | `sourcemap`                   | `error_tracking:write`                     |
+| `symbol-sets`                 | `error_tracking:write`                     |
+| `dsym`                        | `error_tracking:write`                     |
 | `exp endpoints list/get/pull` | `endpoint:read`                            |
 | `exp endpoints push`          | `endpoint:write`, `insight_variable:write` |
 | `exp endpoints run`           | `query:read`                               |

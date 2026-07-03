@@ -415,6 +415,11 @@ jobs:
             - name: Build frontend (bundle-size + eager-graph report)
               run: pnpm --filter=@posthog/frontend build:with-report
 
+            # Measured before the base build overwrites dist/. Untracked, so it survives the
+            # git reset --hard onto the base tree; the dist-size section reads it back.
+            - name: Measure PR dist size
+              run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
@@ -428,12 +433,25 @@ jobs:
                   git reset --hard "$BASE_SHA"
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
+                  du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
 
-            # The bundle-size and eager-graph comments read the PR build's report by its
-            # checkout sha (the base build overwrites the plain filename). After the base
-            # build the tree is on the BASE branch, so guard for the scripts' absence (also
-            # covers branches predating a check). Budgets are surfaced warn-only.
-            - name: Post eager graph comment
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # After the base build the tree is on the BASE branch, so guard for the scripts'
+            # absence (also covers branches predating a check). Budgets are surfaced
+            # warn-only further down.
+            - name: Clean up legacy per-check CI comments
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — eager graph
               if: always() && github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
@@ -441,10 +459,10 @@ jobs:
                   if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
                       node frontend/bin/post-eager-graph-comment.mjs
                   else
-                      echo "Skipping eager graph comment — script not present on this checkout"
+                      echo "Skipping eager graph section — script not present on this checkout"
                   fi
 
-            - name: Post bundle size comment
+            - name: Post CI report — bundle size
               if: always() && github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
@@ -452,7 +470,18 @@ jobs:
                   if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
                       node frontend/bin/post-bundle-size-comment.mjs
                   else
-                      echo "Skipping bundle size comment — script not present on this checkout"
+                      echo "Skipping bundle size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — dist size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
+                      node frontend/bin/post-dist-size-comment.mjs
+                  else
+                      echo "Skipping dist size section — script not present on this checkout"
                   fi
 
             - name: Check eager graph budgets (warn only)
@@ -477,8 +506,12 @@ jobs:
 
             - name: Calculate dist folder size
               id: dist-size
+              # After the base build the workspace's dist/ holds the BASE branch's build, so
+              # read back the PR measurement taken before it — the captured metric must be
+              # the PR's size. The du fallback covers runs where that file wasn't written
+              # (dist/ is still the PR's own build then).
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
                   echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
 
@@ -592,7 +625,7 @@ jobs:
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs, master push, and merge_group it's skipped, so
             # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -610,7 +643,10 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 2
+                  # Keep shard runtime well under timeout-minutes: the EE suite at 2
+                  # shards ran 13-15 min on the 2-worker config and regularly died at
+                  # the 15-min timeout, failing the whole run.
+                  SHARD_COUNT: 4
                   MODE: ${{ needs.select-jest-tests.outputs.mode }}
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
               run: |
@@ -632,7 +668,9 @@ jobs:
                           --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
-                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
                   fi
 
     calculate-running-time:

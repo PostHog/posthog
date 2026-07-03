@@ -91,14 +91,13 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                 <div className="shrink-0 lg:px-1">{searchInput}</div>
                 <LemonDivider className="mb-0 mt-4" />
                 <div className={cn('flex flex-col flex-1 min-h-0', tasks.length > 0 && '-mx-4')}>{content}</div>
-                <div className="shrink-0 h-20" />
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
                     to={urls.taskNew()}
                     size="large"
                     data-attr="tasks-new-mobile"
-                    className="fixed bottom-4 right-4 z-20 shadow-md"
+                    className="fixed bottom-[calc(1rem_+_env(safe-area-inset-bottom))] right-4 z-20 shadow-md"
                 >
                     New task
                 </LemonButton>

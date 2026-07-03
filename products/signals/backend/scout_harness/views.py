@@ -767,6 +767,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -885,6 +886,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
                     "safety_explanation": result.safety_explanation,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,

@@ -102,6 +102,12 @@ export function FunnelBarHorizontalChart({
                     const isOptional = isStepOptional(stepIndex + 1)
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
+                        // Stacked breakdown + compare: the drop-off band aggregates every value for the
+                        // period, so it can't be scoped to one value and isn't clickable. Pure compare tags
+                        // each drop-off with its period's breakdownIndex, so it stays interactive.
+                        if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
+                            return
+                        }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
                         // route the matching period series (converted vs. dropped-off) — handled before the
                         // generic drop-off branch, which would otherwise open the aggregate step.

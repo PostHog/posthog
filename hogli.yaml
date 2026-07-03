@@ -62,6 +62,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: devex
+          title: Developer experience feedback
         - key: utilities
           title: Git worktrees and admin
         - key: devbox
@@ -614,7 +616,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run NGINX Unit application server
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -939,6 +941,10 @@ tools:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
         hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -991,6 +997,10 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+devex:
+    devex:feedback:
+        click: hogli_commands.feedback:devex_feedback
+        description: Send feedback about the dev experience to the devex team (humans and agents)
 utilities:
     nuke:
         steps:

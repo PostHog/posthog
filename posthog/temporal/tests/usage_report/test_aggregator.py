@@ -24,15 +24,17 @@ from posthog.temporal.usage_report.aggregator import (
     load_all_data,
     sort_org_reports,
 )
-from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import Manifest, ReportCompleteness, RunQueryToS3Result, WorkflowContext
 
 
-def _ctx(run_id: str = "abc") -> WorkflowContext:
+def _ctx(run_id: str = "abc", report_completeness: ReportCompleteness = "partial") -> WorkflowContext:
     return WorkflowContext(
         run_id=run_id,
+        workflow_started_at=datetime(2026, 5, 5, 1, 45, 0, tzinfo=UTC),
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str="2026-05-04",
+        report_completeness=report_completeness,
     )
 
 
@@ -189,7 +191,7 @@ def test_iter_chunk_lines_emits_id_and_report() -> None:
 
 
 def test_build_manifest_returns_typed_manifest() -> None:
-    ctx = _ctx(run_id="run-1")
+    ctx = _ctx(run_id="run-1", report_completeness="complete")
     with (
         patch("posthog.temporal.usage_report.aggregator.settings") as mock_settings,
         patch("posthog.temporal.usage_report.aggregator.bucket", return_value="posthog-billing-usage-reports"),
@@ -210,6 +212,7 @@ def test_build_manifest_returns_typed_manifest() -> None:
     assert manifest.date == "2026-05-04"
     assert manifest.period_start == ctx.period_start
     assert manifest.period_end == ctx.period_end
+    assert manifest.report_completeness == "complete"
     assert manifest.region == "US"
     assert manifest.site_url == "https://us.posthog.com"
     assert manifest.bucket == "posthog-billing-usage-reports"

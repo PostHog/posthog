@@ -265,6 +265,10 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
             counter!(R::DESERIALIZE_ERRORS_TOTAL).increment(outcome.deserialize_errors);
         }
 
+        // Follower keeps the blocking dispatch on purpose: merges/transfers/cascades are low-volume, so
+        // a full channel here can await a drain without risking the heartbeat — unlike the events
+        // consumer's non-blocking, partition-pausing path (`EventDispatcher::dispatch_events_nonblocking`).
+        // Port that path here if any of these topics ever approaches events-topic volume.
         R::dispatch(&self.dispatcher, outcome.messages).await;
 
         if outcome.transport_error {
