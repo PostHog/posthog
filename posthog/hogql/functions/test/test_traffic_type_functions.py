@@ -387,15 +387,14 @@ class TestBotIPClassification:
         assert isinstance(result, ast.Call)
         assert isinstance(result.args[0], ast.CompareOperation)
 
-    @pytest.mark.parametrize(
-        "function_builder,expected_default",
+    @parameterized.expand(
         [
             (get_traffic_type, "Regular"),
             (get_traffic_category, "regular"),
             (get_bot_type, ""),
             (get_bot_name, ""),
             (get_bot_operator, ""),
-        ],
+        ]
     )
     def test_lookup_builders_fall_back_to_ip_lookup_when_ua_unmatched(self, function_builder, expected_default):
         node = ast.Call(name="test", args=[])
@@ -451,15 +450,14 @@ class TestBotIPDefinitionsDataStructure:
                 floor = 16 if network.version == 4 else 32
                 assert network.prefixlen >= floor, f"{key} range {cidr} wider than /{floor}"
 
-    @pytest.mark.parametrize(
-        "ip",
+    @parameterized.expand(
         [
             # Source IPs from the report that motivated IP-range detection: Google's mobile
             # rendering service crawling with a real Android UA (posthog#66604).
             "66.249.84.5",
             "74.125.150.10",
             "192.178.10.5",
-        ],
+        ]
     )
     def test_reported_google_renderer_ips_are_covered(self, ip):
         address = ipaddress.ip_address(ip)
