@@ -1720,7 +1720,8 @@ class JustSiftSourceConfig(config.Config):
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
