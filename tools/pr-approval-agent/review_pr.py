@@ -30,6 +30,7 @@ from gates import (
     MAX_FILES,
     MAX_LINES,
     assign_tier,
+    category_fully_exempt,
     classify_files,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
@@ -315,7 +316,11 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
-        title_flags = [c for c in detect_title_scrutiny_flags(pr.title) if c not in deny]
+        title_flags = [
+            c
+            for c in detect_title_scrutiny_flags(pr.title)
+            if c not in deny and not category_fully_exempt(c, file_paths)
+        ]
         # Dependency manifests are .json/.toml/.cfg so they'd otherwise ride
         # the allow-list into the T0 fast path — but manifest scripts execute
         # in CI, so they get full T1 scrutiny even though they no longer deny.
