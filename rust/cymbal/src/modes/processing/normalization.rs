@@ -75,9 +75,10 @@ fn lib_rules() -> Vec<LibRule> {
         "posthog-go",
         "posthog-rs",
         "posthog-elixir",
-        // Java server SDK: `posthog-java` is the current identifier;
-        // `posthog-server` is the deprecated identifier still emitted by
-        // unmigrated clients. Both are crash-first.
+        // Java: `posthog-server` is the current java server SDK identifier
+        // (module in the posthog-android repo, shares the android coercer);
+        // `posthog-java` is the tombstoned legacy SDK, included defensively.
+        // Both are crash-first.
         "posthog-java",
         "posthog-server",
     ];
