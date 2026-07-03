@@ -566,7 +566,9 @@ class QueryTimeCountingMiddleware:
         if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
             return True
         try:
-            return resolve(path).func.__name__ == "home"
+            # Frontend page loads resolve to either the `home` view (unauthenticated routes)
+            # or its `home_with_region_redirect` wrapper (the authenticated catch-all).
+            return resolve(path).func.__name__ in ("home", "home_with_region_redirect")
         except Exception:
             return False
 
