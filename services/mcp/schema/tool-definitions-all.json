@@ -8753,6 +8753,36 @@
             "readOnlyHint": false
         }
     },
+    "vision-observations-label-create": {
+        "description": "Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the quality-over-time chart and the AI prompt recommendations. Find observation IDs via `vision-scanners-observations-list` (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Rate a scanner observation",
+        "title": "Rate a scanner observation",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-observations-label-destroy": {
+        "description": "Remove the shared thumbs up/down rating (and its feedback) from a replay scanner observation, returning it to unrated. Team-wide: this clears the rating for everyone.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Remove a scanner observation rating",
+        "title": "Remove a scanner observation rating",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
     "vision-observations-list": {
         "description": "List every replay vision observation recorded for a single session, across all scanners the caller can read. This is the \"what has Replay Vision found about this session?\" lookup — pair it with the session-recording MCP tools or the investigating-replay skill while investigating a recording. The `session_id` query parameter is REQUIRED; without it the request is rejected. Each result includes the scanner that produced it, the observation `status` (pending/running/succeeded/failed/ineligible), the `error_reason` for terminal non-success statuses, and the `scanner_result` (LLM output) on success. To list observations for one specific scanner over time instead, use `vision-scanners-observations-list`.",
         "category": "Replay vision",
