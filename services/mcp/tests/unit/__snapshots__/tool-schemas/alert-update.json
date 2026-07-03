@@ -2206,6 +2206,56 @@
             "description": "Whether the alert is actively being evaluated.",
             "type": "boolean"
         },
+        "forecast_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "condition": {
+                            "enum": ["future_breach", "band_deviation"],
+                            "type": "string"
+                        },
+                        "engine": {
+                            "const": "prophet",
+                            "default": "prophet",
+                            "type": "string"
+                        },
+                        "horizon": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30."
+                        },
+                        "interval_width": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95)."
+                        },
+                        "type": {
+                            "const": "ForecastConfig",
+                            "default": "ForecastConfig",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["condition"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Forecast alert configuration (third alert mode). Mutually exclusive with detector_config."
+        },
         "id": {
             "description": "A UUID string identifying this alert configuration.",
             "type": "string"
