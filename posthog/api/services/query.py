@@ -1,4 +1,6 @@
-from typing import Optional
+from typing import Optional, cast
+
+from django.contrib.auth.models import AnonymousUser
 
 import structlog
 import pydantic_core
@@ -34,6 +36,7 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -50,7 +53,7 @@ def process_query_dict(
     variables_override_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
+    user: Optional[User | SyntheticUser | AnonymousUser] = None,
     user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
@@ -120,7 +123,7 @@ def process_query_model(
     variables_override: Optional[list[HogQLVariable]] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
+    user: Optional[User | SyntheticUser | AnonymousUser] = None,
     user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
@@ -132,29 +135,33 @@ def process_query_model(
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
+    # Query internals are typed for real users but tolerate synthetic and shared-viewer
+    # principals at runtime (see QueryRunner.user); narrow pragmatically at this boundary.
+    runner_user = cast(Optional[User], user)
+
     if isinstance(query, HogQLAutocomplete):
         _, database = resolve_database_for_connection(
             team,
             query.connectionId,
-            user=user,
+            user=runner_user,
             error_factory=ValidationError,
             modifiers=create_default_modifiers_for_team(team),
         )
-        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=runner_user)
 
     if isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
-        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+        return get_hogql_metadata(query=metadata_query, team=team, user=runner_user)
 
     if isinstance(query, DatabaseSchemaQuery):
         _, database = resolve_database_for_connection(
             team,
             query.connectionId,
-            user=user,
+            user=runner_user,
             error_factory=ValidationError,
             modifiers=create_default_modifiers_for_team(team),
         )
-        context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
+        context = HogQLContext(team_id=team.pk, team=team, database=database, user=runner_user)
         serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
         table_names = set(serialized_tables.keys())
         joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
@@ -182,7 +189,7 @@ def process_query_model(
         )
 
     query_runner = get_query_runner_or_none(
-        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+        query, team, limit_context=limit_context, user=runner_user, user_access_control=user_access_control
     )
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
@@ -233,7 +240,7 @@ def process_query_model(
 
         result = query_runner.run(
             execution_mode=execution_mode,
-            user=user,
+            user=runner_user,
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,

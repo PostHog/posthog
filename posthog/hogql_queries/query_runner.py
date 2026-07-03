@@ -1639,9 +1639,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             ) as slo:
                 try:
                     # Abort early if the user doesn't have access to the query runner
-                    # We'll proceed as usual if there's no user connected to this request
+                    # We'll proceed as usual if there's no user connected to this request. Unauthenticated
+                    # principals (shared-viewer runs) have no RBAC identity to validate — the share link
+                    # itself is their authorization, matching the userless behavior.
                     # We're capturing the error for analytics purposes, but we reraise the same one
-                    if user is not None:
+                    if user is not None and user.is_authenticated:
                         try:
                             self.validate_query_runner_access(user)
                         except UserAccessControlError as error:
@@ -2013,7 +2015,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        # Unauthenticated principals (shared-viewer runs) have no membership to resolve restrictions
+        # against; treat them as userless so only the default property rules apply.
+        user = self.user if self.user is not None and self.user.is_authenticated else None
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=user)
         if not restricted:
             return None
         return sorted(restricted)
@@ -2336,12 +2341,13 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
-        before any database exists, which a cache hit never reaches. None for userless runs and for
-        synthetic principals (e.g. a project secret API key)."""
+        before any database exists, which a cache hit never reaches. None for userless runs, for
+        synthetic principals (e.g. a project secret API key), and for unauthenticated principals
+        (shared-viewer runs) — UserAccessControl requires a real authenticated User."""
         # user is typed Optional[User] but a project secret API key passes a SyntheticUser at runtime;
         # broaden for isinstance.
         user = cast("Optional[User | SyntheticUser]", self.user)
-        if user is None or isinstance(user, SyntheticUser):
+        if user is None or isinstance(user, SyntheticUser) or not user.is_authenticated:
             return None
         if self._user_access_control is None:
             self._user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2351,10 +2357,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         payload = super().get_cache_payload()
 
         # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL
-        # feature is unavailable and a user is provided (i.e. not a userless query or a project token)
+        # feature is unavailable and a real user is provided (i.e. not a userless query, a project
+        # token, or an unauthenticated shared-viewer principal)
         user = cast("Optional[User | SyntheticUser]", self.user)
         if (
             user is not None
+            and user.is_authenticated
             and not isinstance(user, SyntheticUser)
             and not self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
         ):
@@ -2397,12 +2405,15 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user is None:
             return ["*"] if queried_resources is None else sorted(queried_resources) or None
 
-        # Synthetic principals (e.g. a project secret API key) are scope-gated; partition on the readable
-        # scopes so a narrower token can't be served a broader principal's cached result.
-        if isinstance(user, SyntheticUser):
+        # Synthetic principals (e.g. a project secret API key) and unauthenticated principals
+        # (shared-viewer runs) are scope-gated; partition on the readable scopes so a narrower
+        # token can't be served a broader principal's cached result.
+        if isinstance(user, SyntheticUser) or not user.is_authenticated:
             if queried_resources is None:
                 return ["*"]
-            return sorted(queried_resources - user.readable_system_table_access_scopes()) or None
+            scopes_getter = getattr(user, "readable_system_table_access_scopes", None)
+            readable_scopes = scopes_getter() if scopes_getter is not None else set()
+            return sorted(queried_resources - readable_scopes) or None
 
         user_access_control = self.user_access_control
         if user_access_control is None:

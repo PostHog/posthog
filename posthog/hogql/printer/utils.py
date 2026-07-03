@@ -159,9 +159,12 @@ def prepare_ast_for_printing(
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
+            # Unauthenticated principals (shared-viewer runs) have no membership to resolve
+            # restrictions against; treat them as userless so only the default rules apply.
+            restrictions_user = context.user if context.user is not None and context.user.is_authenticated else None
             context.restricted_properties = get_restricted_properties_for_team(
                 team_id=context.team_id,
-                user=context.user,
+                user=restrictions_user,
             )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:

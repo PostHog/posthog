@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -8,7 +10,8 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard
 
-from posthog.models import OrganizationMembership
+from posthog.auth import SharedViewerAnonymousUser, TeamSecretTokenUser
+from posthog.models import OrganizationMembership, SharingConfiguration
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -497,6 +500,27 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
+
+    @parameterized.expand(["shared_viewer", "team_secret_token"])
+    def test_bypassing_principals_skip_warehouse_acl_but_not_system_table_acl(self, principal_kind: str):
+        # Even a project-wide deny doesn't apply: these principals declare
+        # bypasses_warehouse_access_control instead of failing closed like a userless build.
+        self._create_ac(resource="warehouse_objects", access_level="none")
+        if principal_kind == "shared_viewer":
+            config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            principal: SharedViewerAnonymousUser | TeamSecretTokenUser = SharedViewerAnonymousUser(config)
+        else:
+            principal = TeamSecretTokenUser(self.team)
+
+        database = Database.create_for(team=self.team, user=principal)
+
+        assert "allowed_table" not in database._denied_tables
+        assert "denied_table" not in database._denied_tables
+        # RBAC-scoped system tables stay hidden - the bypass covers warehouse tables/views only.
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        assert "dashboards" not in system_node.children
+        assert "system.dashboards" in database._denied_tables
 
     def test_to_printed_hogql_bypass_prints_warehouse_table_userless(self):
         # Guards the fail-closed fix: query runners print the response HogQL userless right after the

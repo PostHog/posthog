@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
+from django.contrib.auth.models import AnonymousUser
+
 import structlog
 from pydantic import BaseModel
 
@@ -14,6 +16,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.synthetic_user import SyntheticUser
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -53,7 +56,7 @@ def calculate_for_query_based_insight(
     team: Team,
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
-    user: Optional[User],
+    user: Optional[User | SyntheticUser | AnonymousUser],
     user_access_control: Optional["UserAccessControl"] = None,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,

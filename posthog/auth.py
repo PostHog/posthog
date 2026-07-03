@@ -847,6 +847,35 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
+class SharedViewerAnonymousUser(AnonymousUser):
+    """Principal for executing queries on behalf of a viewer of a publicly shared resource.
+
+    Enabling sharing is an explicit publish act: once a link is live, its query results are
+    shown to any anonymous viewer, so this principal declares
+    ``bypasses_warehouse_access_control`` instead of failing closed like a plain userless run.
+    RBAC-scoped system tables stay hidden (``readable_system_table_access_scopes`` is empty).
+
+    Pass it to query execution (``process_query_dict`` / ``Database.create_for``) only —
+    never assign it to ``request.user``.
+    """
+
+    # Shared pages always render their published results; see class docstring.
+    bypasses_warehouse_access_control: bool = True
+
+    email: Optional[str] = None
+
+    def __init__(self, sharing_configuration: SharingConfiguration) -> None:
+        super().__init__()
+        if not sharing_configuration.enabled:
+            raise ValueError("SharedViewerAnonymousUser requires an enabled sharing configuration")
+        self.sharing_configuration = sharing_configuration
+        self.current_team_id = sharing_configuration.team_id
+        self.distinct_id = f"shared-viewer-{sharing_configuration.team_id}"
+
+    def readable_system_table_access_scopes(self) -> set[str]:
+        return set()
+
+
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens

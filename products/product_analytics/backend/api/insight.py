@@ -52,7 +52,11 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+from posthog.auth import (
+    SharedViewerAnonymousUser,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+)
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -1115,10 +1119,19 @@ class InsightSerializer(InsightBasicSerializer):
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
                 request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                if request_user is None and is_shared:
+                    # Sharing is an explicit publish act: run under the shared-viewer principal so
+                    # warehouse-backed insights resolve instead of failing closed userless.
+                    request_user = self.context.get("shared_viewer_user")
                 # Reuse the request's single UserAccessControl across all of a dashboard's insight
                 # runners, so the cache fingerprint resolves access once per request, not per tile.
+                # Only for real users - UserAccessControl can't be built for a shared-viewer principal.
                 view = self.context.get("view")
-                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
+                request_user_access_control = (
+                    getattr(view, "user_access_control", None)
+                    if request_user is not None and request_user.is_authenticated
+                    else None
+                )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
@@ -1454,10 +1467,19 @@ class InsightViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
 
-        context["is_shared"] = isinstance(
-            self.request.successful_authenticator,
+        authenticator = self.request.successful_authenticator
+        is_shared = isinstance(
+            authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
+        context["is_shared"] = is_shared
+        if is_shared:
+            # Refreshes from a shared page run under the shared-viewer principal, matching the
+            # server-side render in SharingViewerPageViewSet.
+            authenticator = cast(
+                SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication, authenticator
+            )
+            context["shared_viewer_user"] = SharedViewerAnonymousUser(authenticator.sharing_configuration)
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context

@@ -23,6 +23,8 @@ from posthog.api.sharing import (
     check_can_edit_sharing_configuration,
     shared_url_as_png,
 )
+from posthog.auth import SharedViewerAnonymousUser
+from posthog.caching.fetch_from_cache import NothingInCacheResult
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.filters.filter import Filter
@@ -34,6 +36,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -1634,3 +1637,84 @@ class TestSharingResourceEditChecks(APIBaseTest):
             check_can_edit_sharing_configuration(view, request, sharing)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
+
+
+class TestSharedViewerPrincipal(APIBaseTest):
+    def _shared_insight_config(self) -> SharingConfiguration:
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Shared trends",
+            query={
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
+        )
+        return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+    def test_principal_requires_an_enabled_sharing_configuration(self):
+        with self.assertRaises(ValueError):
+            SharedViewerAnonymousUser(SharingConfiguration(team=self.team, enabled=False))
+
+    @mock_exporter_template
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_shared_insight_page_runs_queries_under_shared_viewer_principal(self, mock_calculate):
+        mock_calculate.return_value = NothingInCacheResult()
+        config = self._shared_insight_config()
+
+        response = self.client.get(f"/shared/{config.access_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_calculate.called
+        principal = mock_calculate.call_args.kwargs["user"]
+        assert isinstance(principal, SharedViewerAnonymousUser)
+        assert principal.sharing_configuration == config
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_sharing_token_api_refresh_runs_queries_under_shared_viewer_principal(self, mock_calculate):
+        mock_calculate.return_value = NothingInCacheResult()
+        config = self._shared_insight_config()
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?short_id={config.insight.short_id}"
+            f"&sharing_access_token={config.access_token}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_calculate.called
+        principal = mock_calculate.call_args.kwargs["user"]
+        assert isinstance(principal, SharedViewerAnonymousUser)
+        assert principal.sharing_configuration == config
+
+    @patch("posthog.api.sharing.process_query_dict")
+    def test_shared_notebook_inline_queries_run_under_shared_viewer_principal(self, mock_process_query_dict):
+        mock_process_query_dict.return_value = {"results": []}
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Shared notebook",
+            created_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {
+                            "nodeId": "inline-node-1",
+                            "query": {
+                                "kind": "DataTableNode",
+                                "source": {"kind": "EventsQuery", "select": ["event"]},
+                            },
+                        },
+                    }
+                ],
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}.json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_process_query_dict.called
+        principal = mock_process_query_dict.call_args.kwargs["user"]
+        assert isinstance(principal, SharedViewerAnonymousUser)
+        assert principal.sharing_configuration == config

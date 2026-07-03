@@ -20,6 +20,10 @@ class SyntheticUser:
     is_active: bool = True
     is_anonymous: bool = False
 
+    # Project-wide token principals bypass warehouse table/view access control by design;
+    # Database.create_for reads this declaratively.
+    bypasses_warehouse_access_control: bool = True
+
     def __init__(self, team, distinct_id: str):
         self.team = team
         self.current_team_id = team.id

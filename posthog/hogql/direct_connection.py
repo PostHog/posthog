@@ -44,8 +44,12 @@ def get_direct_connection_source(
     if source is None:
         return None
 
-    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
-        source, required_level="viewer"
+    # Unauthenticated principals (shared-viewer runs) have no RBAC identity to check;
+    # treat them like a userless call.
+    if (
+        user is not None
+        and user.is_authenticated
+        and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
         return None
 

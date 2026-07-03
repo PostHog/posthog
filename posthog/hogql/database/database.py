@@ -169,6 +169,8 @@ from products.warehouse_sources.backend.facade.models import (
 # posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
 # so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
     from posthog.schema import (
         DatabaseSchemaDataWarehouseTable,
         DatabaseSchemaEndpointTable,
@@ -205,7 +207,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User | SyntheticUser"]
+    user: Optional["User | SyntheticUser | AnonymousUser"]
     connection_id: str | None
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
@@ -438,7 +440,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 def _compute_system_table_access_decision(
     team: "Team",
-    user: Optional["User | SyntheticUser"],
+    user: Optional["User | SyntheticUser | AnonymousUser"],
     user_access_control: Optional["UserAccessControl"] = None,
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
@@ -448,9 +450,12 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     system_children = SystemTables().children
 
-    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
-    if user is None or isinstance(user, SyntheticUser):
-        readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
+    # Anonymous, synthetic, or unauthenticated principal (e.g. a shared-viewer): keep only
+    # access-controlled tables its scopes cover (none for anonymous / team token). Must return here —
+    # UserAccessControl below requires a real authenticated User.
+    if user is None or isinstance(user, SyntheticUser) or not user.is_authenticated:
+        scopes_getter = getattr(user, "readable_system_table_access_scopes", None)
+        readable_scopes = scopes_getter() if scopes_getter is not None else set()
         return None, {
             name
             for name, table_node in system_children.items()
@@ -459,7 +464,8 @@ def _compute_system_table_access_decision(
             and table_node.table.access_scope not in readable_scopes
         }
 
-    user_access_control = user_access_control or UserAccessControl(user=user, team=team)
+    # The guard above returned for every non-User principal; only a real authenticated User reaches here.
+    user_access_control = user_access_control or UserAccessControl(user=cast("User", user), team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -1049,7 +1055,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
+        user: Optional["User | SyntheticUser | AnonymousUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1076,7 +1082,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User | SyntheticUser"] = None,
+        user: Optional["User | SyntheticUser | AnonymousUser"] = None,
         user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
@@ -1305,11 +1311,13 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            # Synthetic principals (project secret API keys) are project-wide and bypass object-level
-            # RBAC by design, so they bypass warehouse access control too. System tables stay
+            # Principals declare their stance via `bypasses_warehouse_access_control`: synthetic
+            # principals (project secret API keys) are project-wide and bypass object-level RBAC by
+            # design; shared-viewer principals render published results. System tables stay
             # scope-gated for them via _compute_system_table_access_decision above. This field only
             # gates the warehouse checks in _build_from_sources.
-            bypass_warehouse_access_control=bypass_warehouse_access_control or isinstance(user, SyntheticUser),
+            bypass_warehouse_access_control=bypass_warehouse_access_control
+            or getattr(user, "bypasses_warehouse_access_control", False),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
