@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import intruder
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import (
     IntruderResumeConfig,
@@ -49,7 +50,10 @@ def _collect(
 
     rows: list[dict] = []
     for batch in get_rows(
-        access_token="token", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager
+        access_token="token",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=cast(ResumableSourceManager[IntruderResumeConfig], manager),
     ):
         rows.extend(batch)
     return rows
@@ -58,7 +62,7 @@ def _collect(
 class TestStandardPagination:
     def test_follows_next_url_until_exhausted(self, monkeypatch: Any) -> None:
         # A bug that dropped the `next` follow (or read the wrong key) would only return page one.
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/targets/?limit=100": {
                 "results": [{"id": 1}, {"id": 2}],
                 "next": "https://api.intruder.io/v1/targets/?limit=100&offset=100",
@@ -72,7 +76,7 @@ class TestStandardPagination:
         assert [r["id"] for r in rows] == [1, 2, 3]
 
     def test_empty_first_page_terminates(self, monkeypatch: Any) -> None:
-        pages = {"https://api.intruder.io/v1/scans/?limit=100": {"results": [], "next": None}}
+        pages: dict[str, Any] = {"https://api.intruder.io/v1/scans/?limit=100": {"results": [], "next": None}}
         rows = _collect(_FakeResumableManager(), monkeypatch, "scans", pages)
         assert rows == []
 
@@ -80,7 +84,7 @@ class TestStandardPagination:
         # State must be saved AFTER yielding a page and only when more pages remain, so a crash
         # re-yields the last page (merge dedupes) rather than skipping it. Saving the final page's
         # (absent) cursor would be wrong.
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/targets/?limit=100": {
                 "results": [{"id": 1}],
                 "next": "https://api.intruder.io/v1/targets/?limit=100&offset=100",
@@ -93,7 +97,7 @@ class TestStandardPagination:
 
     def test_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
         # With saved state the first request must be the saved cursor, not the initial page.
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/targets/?limit=100&offset=100": {"results": [{"id": 2}], "next": None},
         }
         manager = _FakeResumableManager(
@@ -111,7 +115,7 @@ class TestOccurrencesFanOut:
     def test_injects_parent_issue_id_into_every_row(self, monkeypatch: Any) -> None:
         # The occurrences endpoint response has no issue reference; without the injected issue_id the
         # composite primary key [issue_id, id] collapses to id and duplicate rows accumulate.
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
             "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {
                 "results": [{"id": 1}, {"id": 2}],
@@ -127,7 +131,7 @@ class TestOccurrencesFanOut:
         ]
 
     def test_follows_occurrence_pagination_within_an_issue(self, monkeypatch: Any) -> None:
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10], None),
             "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {
                 "results": [{"id": 1}],
@@ -143,7 +147,7 @@ class TestOccurrencesFanOut:
 
     def test_resumes_from_bookmarked_issue(self, monkeypatch: Any) -> None:
         # Resuming must skip already-processed issue 10 and pick up at issue 20.
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
             "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
         }
@@ -153,7 +157,7 @@ class TestOccurrencesFanOut:
 
     def test_deleted_bookmarked_issue_restarts_from_first(self, monkeypatch: Any) -> None:
         # If the bookmarked issue no longer exists, re-pull from the first issue (merge dedupes).
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
             "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {"results": [{"id": 1}], "next": None},
             "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
@@ -163,7 +167,7 @@ class TestOccurrencesFanOut:
         assert [r["id"] for r in rows] == [1, 3]
 
     def test_advances_bookmark_between_issues(self, monkeypatch: Any) -> None:
-        pages = {
+        pages: dict[str, Any] = {
             "https://api.intruder.io/v1/issues/?limit=100": self._issue_page([10, 20], None),
             "https://api.intruder.io/v1/issues/10/occurrences/?limit=100": {"results": [{"id": 1}], "next": None},
             "https://api.intruder.io/v1/issues/20/occurrences/?limit=100": {"results": [{"id": 3}], "next": None},
