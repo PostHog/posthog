@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
-from django.db.models.functions import Lower
+from django.db import ProgrammingError, models
+from django.db.models.functions import Coalesce, Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -845,31 +845,52 @@ def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
 
 
-def _has_person_email_cache_key(team_id: int) -> str:
-    return f"has_person_email:{team_id}"
+HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS = 24 * 60 * 60
+HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS = 30 * 60
+HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS = 60
+YOUNG_PROJECT_AGE = datetime.timedelta(days=7)
+
+
+def _has_person_email_cache_key(project_id: int) -> str:
+    return f"has_person_email:project:{project_id}"
+
+
+def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
+    if has_person_email:
+        return HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS
+    # Ingestion writes property definitions with raw SQL (property-defs-rs), which
+    # bypasses the Django signals — so for a project still setting up, this TTL is
+    # the only thing standing between "started sending email" and the flag flipping.
+    project_created_at = team.project.created_at if team.project else team.created_at
+    if timezone.now() - project_created_at < YOUNG_PROJECT_AGE:
+        return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
+    return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
 
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
     from posthog.models import PropertyDefinition
 
-    cache_key = _has_person_email_cache_key(team.id)
+    cache_key = _has_person_email_cache_key(team.project_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
-    has_person_email = PropertyDefinition.objects.filter(
-        team=team, type=PropertyDefinition.Type.PERSON, name="$email"
-    ).exists()
+    has_person_email = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name="email")
+        .exists()
+    )
 
-    if has_person_email:
-        safe_cache_set(cache_key, has_person_email, timeout=BOTH_DEFAULTS_PRESENT_TTL_SECONDS)
+    safe_cache_set(cache_key, has_person_email, timeout=_has_person_email_ttl(team, has_person_email))
 
     return has_person_email
 
 
-def invalidate_has_person_email_cache(team_id: int) -> None:
-    safe_cache_delete(_has_person_email_cache_key(team_id))
+def invalidate_has_person_email_cache(project_id: int) -> None:
+    safe_cache_delete(_has_person_email_cache_key(project_id))
 
 
 @tracer.start_as_current_span("template.frontend_apps")

@@ -15,6 +15,7 @@ from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework.request import Request
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
 
 from posthog.utils import (
+    HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
+    HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
+    HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
     PotentialSecurityProblemException,
     _build_flag_provider,
     absolute_uri,
@@ -565,31 +569,64 @@ class TestDefaultEventName(BaseTest):
 
     @parameterized.expand(
         [
-            ("person_email_present", "$email", PropertyDefinition.Type.PERSON, True),
-            ("no_matching_property", "$browser", PropertyDefinition.Type.PERSON, False),
-            ("event_email_ignored", "$email", PropertyDefinition.Type.EVENT, False),
-            ("plain_email_ignored", "email", PropertyDefinition.Type.PERSON, False),
+            ("person_email_present", "email", PropertyDefinition.Type.PERSON, True),
+            ("dollar_email_ignored", "$email", PropertyDefinition.Type.PERSON, False),
+            ("event_email_ignored", "email", PropertyDefinition.Type.EVENT, False),
+            ("other_person_property_ignored", "name", PropertyDefinition.Type.PERSON, False),
         ]
     )
     def test_get_has_person_email(self, _name, prop_name, prop_type, expected):
         PropertyDefinition.objects.create(name=prop_name, type=prop_type, team=self.team)
         assert get_has_person_email(self.team) is expected
 
-    def test_has_person_email_negative_is_not_cached(self):
+    def test_has_person_email_is_project_scoped_not_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            name="email", type=PropertyDefinition.Type.PERSON, team=other_team, project=self.team.project
+        )
+        assert get_has_person_email(self.team) is True
+
+    @parameterized.expand(
+        [
+            ("present_young_project", True, 0, HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS),
+            ("present_old_project", True, 30, HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS),
+            ("absent_young_project", False, 0, HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS),
+            ("absent_old_project", False, 30, HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS),
+        ]
+    )
+    def test_has_person_email_cache_ttl_depends_on_presence_and_project_age(
+        self, _name, create_email, project_age_days, expected_ttl
+    ):
+        if create_email:
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        self.team.project.created_at = now() - timedelta(days=project_age_days)
+        self.team.project.save()
+        with patch("posthog.utils.safe_cache_set") as mock_set:
+            get_has_person_email(self.team)
+        mock_set.assert_called_once()
+        _, kwargs = mock_set.call_args
+        assert kwargs["timeout"] == expected_ttl
+
+    @parameterized.expand([("present", True), ("absent", False)])
+    def test_has_person_email_result_is_cached(self, _name, create_email):
+        if create_email:
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert self.team.project is not None
         with self.assertNumQueries(1):
-            assert get_has_person_email(self.team) is False
-        with self.assertNumQueries(1):
+            assert get_has_person_email(self.team) is create_email
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is create_email
+
+    def test_has_person_email_cache_invalidated_when_email_property_created(self):
+        assert get_has_person_email(self.team) is False
+        with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is False
 
-    def test_has_person_email_positive_is_cached(self):
-        PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
-        with self.assertNumQueries(1):
-            assert get_has_person_email(self.team) is True
-        with self.assertNumQueries(0):
-            assert get_has_person_email(self.team) is True
+        PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
 
     def test_has_person_email_cache_invalidated_when_email_property_deleted(self):
-        pd = PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        pd = PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
         assert get_has_person_email(self.team) is True
         with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is True
@@ -597,12 +634,11 @@ class TestDefaultEventName(BaseTest):
         pd.delete()
         assert get_has_person_email(self.team) is False
 
-    def test_has_person_email_cache_not_invalidated_when_unrelated_property_deleted(self):
-        PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
+    def test_has_person_email_cache_not_invalidated_when_unrelated_property_created(self):
+        PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
         assert get_has_person_email(self.team) is True
 
-        unrelated = PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
-        unrelated.delete()
+        PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
         with self.assertNumQueries(0):
             assert get_has_person_email(self.team) is True
 

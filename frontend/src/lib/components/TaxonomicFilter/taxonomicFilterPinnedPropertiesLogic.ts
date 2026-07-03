@@ -85,7 +85,7 @@ function buildDefaultPinnedFilters(): PinnedTaxonomicFilter[] {
         )
     }
     if (appContext?.has_person_email) {
-        defaults.push(makeDefaultPinnedFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', '$email'))
+        defaults.push(makeDefaultPinnedFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', 'email'))
     }
     return defaults
 }
@@ -180,13 +180,13 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                     if (raw) {
                         const oldProperties: string[] = JSON.parse(raw)
                         if (Array.isArray(oldProperties) && oldProperties.length > 0) {
-                            const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) => ({
-                                groupType: TaxonomicFilterGroupType.PersonProperties,
-                                groupName: 'Person properties',
-                                value: prop,
-                                item: { name: prop },
-                                timestamp: Date.now(),
-                            }))
+                            const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) =>
+                                makeDefaultPinnedFilter(
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    'Person properties',
+                                    prop
+                                )
+                            )
                             actions.setPinnedFilters(migrated)
                             localStorage.removeItem(OLD_PERSIST_KEY)
                         }
@@ -201,13 +201,15 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                 if (localStorage.getItem(DEFAULTS_SEEDED_KEY)) {
                     return
                 }
-                if (values.pinnedFilters.length === 0) {
-                    const defaults = buildDefaultPinnedFilters()
-                    if (defaults.length > 0) {
-                        actions.setPinnedFilters(defaults)
-                    }
+                if (values.pinnedFilters.length > 0) {
+                    localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+                    return
                 }
-                localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+                const defaults = buildDefaultPinnedFilters()
+                if (defaults.length > 0) {
+                    actions.setPinnedFilters(defaults)
+                    localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+                }
             }
 
             migrateOldQuickFilters()

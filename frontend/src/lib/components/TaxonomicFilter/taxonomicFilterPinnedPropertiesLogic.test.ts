@@ -302,22 +302,22 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
 
         it.each([
             {
-                description: 'pins both $current_url and $email when the team sends both',
+                description: 'pins both $current_url and email when the team sends both',
                 hasPageview: true,
                 hasPersonEmail: true,
                 expected: [
                     { value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties },
-                    { value: '$email', groupType: TaxonomicFilterGroupType.PersonProperties },
+                    { value: 'email', groupType: TaxonomicFilterGroupType.PersonProperties },
                 ],
             },
             {
-                description: 'pins only $email when the team sends no pageviews',
+                description: 'pins only email when the team sends no pageviews',
                 hasPageview: false,
                 hasPersonEmail: true,
-                expected: [{ value: '$email', groupType: TaxonomicFilterGroupType.PersonProperties }],
+                expected: [{ value: 'email', groupType: TaxonomicFilterGroupType.PersonProperties }],
             },
             {
-                description: 'pins only $current_url when the team does not send $email',
+                description: 'pins only $current_url when the team does not send email',
                 hasPageview: true,
                 hasPersonEmail: false,
                 expected: [{ value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties }],
@@ -334,6 +334,21 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             expect(logic.values.pinnedFilters.map((f) => ({ value: f.value, groupType: f.groupType }))).toEqual(
                 expected
             )
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(expected.length > 0 ? '1' : null)
+        })
+
+        it('re-seeds on a later mount once the team starts sending a default property', () => {
+            mountFreshWith(false, false)
+            expect(logic.values.pinnedFilters).toEqual([])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBeNull()
+
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: false } as unknown as AppContext
+            initKeaTests()
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url'])
             expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe('1')
         })
 
