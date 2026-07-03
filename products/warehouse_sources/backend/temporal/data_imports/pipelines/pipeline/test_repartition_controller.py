@@ -142,8 +142,10 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
 
     def test_unpartitionable_over_budget_skips_with_reason(self, team):
-        # An unpartitioned table with no usable key can't be repartitioned — we must surface the specific
-        # reason (so a human is alerted) rather than silently flag a target that would fail.
+        # An unpartitioned table with no usable key can't be repartitioned — we surface the specific
+        # reason via the event + metric rather than silently flagging a target that would fail. This is
+        # a known, non-actionable operational state, so it must NOT also fire capture_exception (which
+        # would mint a redundant error-tracking issue for something a human resolves manually anyway).
         schema = _make_schema(team, {})
         with tempfile.TemporaryDirectory() as d:
             delta = _write_unpartitioned_delta(f"{d}/u")
@@ -151,6 +153,7 @@ class TestRepartitionDetection:
                 patch.object(ctrl, "target_partition_bytes", return_value=1),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event") as capture,
+                patch.object(ctrl, "capture_exception") as capture_exc,
             ):
                 self._detect(team, schema, delta)
 
@@ -158,6 +161,27 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+        capture_exc.assert_not_called()
+
+    def test_unexpected_skip_reason_still_captures_exception(self, team):
+        # An unrecognised skip reason is genuinely unexpected — keep the error-tracking exception so a
+        # new no-target path can't silently swallow tables that never get repartitioned.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "select_repartition_target", return_value=(None, "something_unexpected")),
+                patch.object(ctrl, "capture_repartition_event"),
+                patch.object(ctrl, "capture_exception") as capture_exc,
+            ):
+                self._detect(team, schema, delta)
+
+        capture_exc.assert_called_once()
 
 
 class TestRepartitionActivity:

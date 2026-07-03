@@ -45,6 +45,22 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Skip reasons the controller expects for a table it genuinely can't repartition further (already at
+# the finest tier, nothing to shrink, no keys to partition on). These are non-actionable operational
+# states, already surfaced via the `warehouse_repartition_skipped` event and the
+# DELTA_REPARTITION_SKIP_TOTAL metric — they must NOT also spawn error-tracking issues. Any reason
+# outside this set is unexpected and still gets captured as an exception.
+KNOWN_SKIP_REASONS = frozenset(
+    {
+        "within_budget",
+        "no_partitions",
+        "datetime_at_finest_tier",
+        "numerical_cannot_shrink",
+        "numerical_no_size",
+        "unpartitionable_no_keys",
+    }
+)
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 1_000_000_000))
@@ -203,6 +219,10 @@ async def maybe_flag_for_repartition(
             # Over budget but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
             DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
+            # These operational states have no automated fix, but the event + metric above already
+            # surface them — only an *unexpected* reason warrants an error-tracking exception.
+            if reason not in KNOWN_SKIP_REASONS:
+                capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             props = base_event_props(schema, source, str(job.id))
             props.update({"max_partition_bytes_before": max_bytes, "reason": reason})
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
@@ -219,7 +239,6 @@ async def maybe_flag_for_repartition(
                 partition_format=schema.partition_format,
                 partition_count=len(partition_bytes),
             )
-            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             return
 
         pending = {**target.to_dict(), "trigger_reason": "proactive_threshold", "attempts": 0}
