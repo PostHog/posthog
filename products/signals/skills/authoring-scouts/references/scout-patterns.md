@@ -93,11 +93,11 @@ Not a deep dive into one surface — that's what specialists are for — but the
 ### Recommendation / gap
 
 The odd one out: nothing is wrong, but something is **missing or sub-optimal**.
-Emits P3 recommendations rather than P0–P2 anomalies.
+Files P3 recommendations rather than P0–P2 anomalies.
 
 - **Watched data:** the delta between what exists and what good practice would have — events with no insight coverage, critical events with no alert, a sequential funnel nobody built, insights pointing at events that stopped firing.
 - **Discriminator:** a high-value entity that lacks the coverage/configuration it should have.
-- **Calibration:** default `priority` P3; weight by how much the gap matters, not by urgency.
+- **Calibration:** default `priority` P3 with `actionability: requires_human_input`; weight by how much the gap matters, not by urgency.
   Don't flood the inbox — a recommendation the team won't act on is noise.
 - See `products/signals/skills/signals-scout-observability-gaps/SKILL.md`.
 
