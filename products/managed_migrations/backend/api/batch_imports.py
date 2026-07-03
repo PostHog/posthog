@@ -583,9 +583,26 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Clear the lease and backoff state so the Rust worker stops owning the row. Without this
+        # the worker keeps its lease and its next lease-scoped write flips the status back to
+        # running, leaving the job stuck in a paused/running loop the user can't escape.
         batch_import.status = BatchImport.Status.PAUSED
         batch_import.status_message = "Paused by user"
-        batch_import.save(update_fields=["status", "status_message", "updated_at"])
+        batch_import.lease_id = None
+        batch_import.leased_until = None
+        batch_import.backoff_attempt = 0
+        batch_import.backoff_until = None
+        batch_import.save(
+            update_fields=[
+                "status",
+                "status_message",
+                "lease_id",
+                "leased_until",
+                "backoff_attempt",
+                "backoff_until",
+                "updated_at",
+            ]
+        )
 
         return Response({"status": "paused"})
 
@@ -616,3 +633,37 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"status": "resumed"})
+
+    @action(methods=["POST"], detail=True)
+    def cancel(self, request: Request, **kwargs) -> Response:
+        """Cancel a running or paused batch import, moving it to a terminal state."""
+        batch_import = self.get_object()
+
+        if batch_import.status not in (BatchImport.Status.RUNNING, BatchImport.Status.PAUSED):
+            return Response(
+                {"error": "Only running or paused imports can be cancelled"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Terminal cancel: clear the lease/backoff state so the Rust worker stops owning the row,
+        # and set a status the worker never re-claims (it only picks up 'running' jobs). This frees
+        # the org's single-running-import slot so new imports can be created.
+        batch_import.status = BatchImport.Status.CANCELLED
+        batch_import.status_message = "Cancelled by user"
+        batch_import.lease_id = None
+        batch_import.leased_until = None
+        batch_import.backoff_attempt = 0
+        batch_import.backoff_until = None
+        batch_import.save(
+            update_fields=[
+                "status",
+                "status_message",
+                "lease_id",
+                "leased_until",
+                "backoff_attempt",
+                "backoff_until",
+                "updated_at",
+            ]
+        )
+
+        return Response({"status": "cancelled"})

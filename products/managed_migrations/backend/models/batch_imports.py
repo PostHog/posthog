@@ -28,6 +28,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         FAILED = "failed", "Failed"
         PAUSED = "paused", "Paused"
         RUNNING = "running", "Running"
+        CANCELLED = "cancelled", "Cancelled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by_id = models.IntegerField(null=True, blank=True)

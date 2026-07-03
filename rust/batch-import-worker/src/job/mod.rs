@@ -372,6 +372,18 @@ impl Job {
     }
 
     pub async fn process(self) -> Result<Option<Self>, Error> {
+        // Between chunks, honor an external pause/cancel (issued via the API) promptly: if the row
+        // is no longer ours to process, stop cleanly and drop the job rather than fighting the API
+        // for the row. Any checkpointed-but-uncommitted data is simply not written; the part offset
+        // only advances on commit, so a later resume re-fetches it — no data is lost or skipped.
+        if self.external_stop_requested().await? {
+            info!(job_id = %self.job_id, "Job paused or cancelled externally, stopping processing");
+            if let Err(e) = self.source.cleanup_after_job().await {
+                warn!("Failed to cleanup after external stop: {:?}", e);
+            }
+            return Ok(None);
+        }
+
         let next_chunk_fut = self.get_next_chunk();
         let next_commit_fut = self.do_commit();
 
@@ -654,6 +666,17 @@ impl Job {
     async fn complete_commit(&self) -> Result<(), Error> {
         let mut model = self.model.lock().await;
         model.unpause(self.context.clone()).await
+    }
+
+    /// True when the row is no longer this worker's to process — the status is no longer
+    /// `running` (an external pause/cancel), the lease was cleared or reassigned, or the row is
+    /// gone. Reads straight from the DB so an API-side pause/cancel is picked up between chunks.
+    async fn external_stop_requested(&self) -> Result<bool, Error> {
+        let our_lease = { self.model.lock().await.lease_id.clone() };
+        match JobModel::fetch_status_and_lease(self.job_id, &self.context.db).await? {
+            Some((status, lease_id)) => Ok(status != "running" || lease_id != our_lease),
+            None => Ok(true),
+        }
     }
 
     fn shutdown_guard(&self) -> Result<(), Error> {

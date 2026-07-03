@@ -598,6 +598,108 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIsNone(batch_import.backoff_until)
         self.assertEqual(batch_import.status_message, "Resumed by user")
 
+    def test_pause_clears_lease_and_backoff(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=BatchImport.Status.RUNNING,
+            lease_id="worker-lease-uuid",
+            leased_until=datetime.now(tz=UTC) + timedelta(minutes=30),
+            backoff_attempt=3,
+            backoff_until=datetime.now(tz=UTC) + timedelta(minutes=5),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/pause")
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+
+    @parameterized.expand(
+        [
+            ("from_running", BatchImport.Status.RUNNING),
+            ("from_paused", BatchImport.Status.PAUSED),
+        ]
+    )
+    def test_cancel_moves_to_terminal_and_clears_lease(self, _name, initial_status):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=initial_status,
+            lease_id="worker-lease-uuid",
+            leased_until=datetime.now(tz=UTC) + timedelta(minutes=30),
+            backoff_attempt=4,
+            backoff_until=datetime.now(tz=UTC) + timedelta(minutes=5),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/cancel")
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.CANCELLED)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+
+    @parameterized.expand(
+        [
+            ("completed", BatchImport.Status.COMPLETED),
+            ("failed", BatchImport.Status.FAILED),
+            ("cancelled", BatchImport.Status.CANCELLED),
+        ]
+    )
+    def test_cancel_rejects_terminal_states(self, _name, initial_status):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=initial_status,
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/cancel")
+
+        self.assertEqual(response.status_code, 400)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, initial_status)
+
+    def test_can_create_import_after_cancelling_stuck_running_import(self):
+        """Cancelling a stuck running import must free the org's single-import slot."""
+        stuck_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=BatchImport.Status.RUNNING,
+            lease_id="worker-lease-uuid",
+        )
+
+        self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{stuck_import.id}/cancel")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
     @parameterized.expand(
         [
             (

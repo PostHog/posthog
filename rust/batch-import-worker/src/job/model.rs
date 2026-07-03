@@ -47,6 +47,7 @@ pub enum JobStatus {
     Paused,
     Failed,
     Completed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +187,25 @@ impl JobModel {
                 .fetch_one(pool)
                 .await?;
         Ok(count)
+    }
+
+    /// Read the current `status` and `lease_id` for a job straight from the DB. The worker uses
+    /// this to notice an external pause/cancel (issued via the API) between chunks, so it can stop
+    /// promptly instead of only when its next lease-scoped write fails. Returns `None` if the row
+    /// no longer exists.
+    pub async fn fetch_status_and_lease(
+        id: Uuid,
+        pool: &PgPool,
+    ) -> Result<Option<(String, Option<String>)>, Error> {
+        let row = sqlx::query(r#"SELECT status, lease_id FROM posthog_batchimport WHERE id = $1"#)
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+
+        match row {
+            Some(row) => Ok(Some((row.try_get("status")?, row.try_get("lease_id")?))),
+            None => Ok(None),
+        }
     }
 
     /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
@@ -384,6 +404,7 @@ impl Display for JobStatus {
             JobStatus::Paused => write!(f, "paused"),
             JobStatus::Failed => write!(f, "failed"),
             JobStatus::Completed => write!(f, "completed"),
+            JobStatus::Cancelled => write!(f, "cancelled"),
         }
     }
 }

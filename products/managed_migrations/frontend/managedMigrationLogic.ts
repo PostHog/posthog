@@ -61,6 +61,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         editManagedMigration: (id: string | null) => ({ id }),
         pauseMigration: (id: string) => ({ id }),
         resumeMigration: (id: string) => ({ id }),
+        cancelMigration: (id: string) => ({ id }),
         startPolling: true,
         stopPolling: true,
     }),
@@ -235,6 +236,17 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 lemonToast.error(error?.message || 'Failed to resume migration')
             }
         },
+        cancelMigration: async ({ id }) => {
+            try {
+                const projectId = ApiConfig.getCurrentProjectId()
+                // nosemgrep: prefer-codegen-api
+                await api.create(`api/projects/${projectId}/managed_migrations/${id}/cancel/`)
+                lemonToast.success('Migration cancelled successfully')
+                actions.loadMigrations()
+            } catch (error: any) {
+                lemonToast.error(error?.message || 'Failed to cancel migration')
+            }
+        },
         loadMigrationsSuccess: () => {
             const hasActiveMigrations = values.migrations.some(
                 (migration: ManagedMigration) =>
@@ -259,6 +271,17 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         },
     })),
     selectors({
+        // The single active import that occupies the org's one-import-at-a-time slot (running, or
+        // running-but-not-yet-claimed). Used to disable create/resume so the user gets a clear
+        // reason up front instead of a failing toast from the backend guard.
+        activeMigration: [
+            (s) => [s.migrations],
+            (migrations: ManagedMigration[]): ManagedMigration | null =>
+                migrations.find(
+                    (migration) =>
+                        migration.display_status === 'running' || migration.display_status === 'waiting_to_start'
+                ) ?? null,
+        ],
         breadcrumbs: [
             (_, p) => [p.managedMigrationId],
             (managedMigrationId: string | null): Breadcrumb[] => [

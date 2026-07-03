@@ -1,4 +1,10 @@
-export type ManagedMigrationStatus = 'paused' | 'completed' | 'running' | 'failed' | 'waiting_to_start'
+export type ManagedMigrationStatus =
+    | 'paused'
+    | 'completed'
+    | 'running'
+    | 'failed'
+    | 'cancelled'
+    | 'waiting_to_start'
 
 export interface BaseManagedMigration {
     id: string

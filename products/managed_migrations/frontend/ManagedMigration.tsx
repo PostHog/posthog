@@ -28,6 +28,7 @@ const STATUS_COLORS = {
     running: 'primary',
     completed: 'success',
     paused: 'danger',
+    cancelled: 'muted',
     waiting_to_start: 'muted',
 } as const
 
@@ -77,8 +78,12 @@ function AmplitudeImportOptions({
 }
 
 export function ManagedMigration(): JSX.Element {
-    const { managedMigration } = useValues(managedMigrationLogic)
+    const { managedMigration, activeMigration } = useValues(managedMigrationLogic)
     const { setManagedMigrationValue } = useActions(managedMigrationLogic)
+
+    const importDisabledReason = activeMigration
+        ? 'Another import is already running for this organization. Pause or cancel it before starting a new one.'
+        : undefined
 
     return (
         <Form logic={managedMigrationLogic} formKey="managedMigration" enableFormOnSubmit className="space-y-4">
@@ -87,7 +92,12 @@ export function ManagedMigration(): JSX.Element {
                     name="New managed migration"
                     resourceType={{ type: 'managed_migration', forceIcon: <IconSort /> }}
                     actions={
-                        <LemonButton type="primary" htmlType="submit" size="small">
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            size="small"
+                            disabledReason={importDisabledReason}
+                        >
                             Import Data
                         </LemonButton>
                     }
@@ -269,7 +279,7 @@ export function ManagedMigration(): JSX.Element {
                 )}
 
                 <div className="flex justify-end">
-                    <LemonButton type="primary" htmlType="submit">
+                    <LemonButton type="primary" htmlType="submit" disabledReason={importDisabledReason}>
                         Import Data
                     </LemonButton>
                 </div>
@@ -279,8 +289,12 @@ export function ManagedMigration(): JSX.Element {
 }
 
 export function ManagedMigrations(): JSX.Element {
-    const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
-    const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
+    const { managedMigrationId, migrations, migrationsLoading, activeMigration } = useValues(managedMigrationLogic)
+    const { pauseMigration, resumeMigration, cancelMigration } = useActions(managedMigrationLogic)
+
+    const newMigrationDisabledReason = activeMigration
+        ? 'Another import is already running for this organization. Pause or cancel it before starting a new one.'
+        : undefined
 
     const calculateProgress = (
         migration: ManagedMigrationData
@@ -315,9 +329,10 @@ export function ManagedMigrations(): JSX.Element {
                         actions={
                             <LemonButton
                                 data-attr="new-managed-migration"
-                                to={urls.managedMigrationNew()}
+                                to={newMigrationDisabledReason ? undefined : urls.managedMigrationNew()}
                                 type="primary"
                                 size="small"
+                                disabledReason={newMigrationDisabledReason}
                             >
                                 New migration
                             </LemonButton>
@@ -479,27 +494,59 @@ export function ManagedMigrations(): JSX.Element {
                                 title: 'Actions',
                                 key: 'actions',
                                 render: (_: any, migration: ManagedMigrationData) => {
-                                    if (migration.display_status === 'running') {
+                                    const isActive =
+                                        migration.display_status === 'running' ||
+                                        migration.display_status === 'waiting_to_start'
+                                    if (isActive) {
                                         return (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                onClick={() => pauseMigration(migration.id)}
-                                                loading={migrationsLoading}
-                                            >
-                                                Pause
-                                            </LemonButton>
+                                            <div className="flex gap-2">
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    onClick={() => pauseMigration(migration.id)}
+                                                    loading={migrationsLoading}
+                                                >
+                                                    Pause
+                                                </LemonButton>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    status="danger"
+                                                    size="small"
+                                                    onClick={() => cancelMigration(migration.id)}
+                                                    loading={migrationsLoading}
+                                                >
+                                                    Cancel
+                                                </LemonButton>
+                                            </div>
                                         )
                                     } else if (migration.display_status === 'paused') {
+                                        // Another import already holds the org's single slot, so resuming
+                                        // this one would be rejected — disable it with a clear reason.
+                                        const resumeDisabledReason =
+                                            activeMigration && activeMigration.id !== migration.id
+                                                ? 'Another import is already running for this organization. Pause or cancel it first.'
+                                                : undefined
                                         return (
-                                            <LemonButton
-                                                type="primary"
-                                                size="small"
-                                                onClick={() => resumeMigration(migration.id)}
-                                                loading={migrationsLoading}
-                                            >
-                                                Resume
-                                            </LemonButton>
+                                            <div className="flex gap-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    size="small"
+                                                    onClick={() => resumeMigration(migration.id)}
+                                                    loading={migrationsLoading}
+                                                    disabledReason={resumeDisabledReason}
+                                                >
+                                                    Resume
+                                                </LemonButton>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    status="danger"
+                                                    size="small"
+                                                    onClick={() => cancelMigration(migration.id)}
+                                                    loading={migrationsLoading}
+                                                >
+                                                    Cancel
+                                                </LemonButton>
+                                            </div>
                                         )
                                     }
                                     return null
