@@ -9,11 +9,14 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
+import { type ContextOnboardingStepId, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { TeamType } from '~/types'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
@@ -69,6 +72,7 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
     const { isCloudOrDev } = useWizardCommand()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { reportContextOnboardingInstallModeSelected } = useActions(eventUsageLogic)
     const [mode, setMode] = useState<InstallMode>('cloud')
     const offerCloud = cloudRunEnabled && isCloudOrDev
     // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked and
@@ -122,7 +126,10 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
                 <LemonSegmentedButton
                     fullWidth
                     value={effectiveMode}
-                    onChange={(value) => setMode(value)}
+                    onChange={(value) => {
+                        reportContextOnboardingInstallModeSelected(value)
+                        setMode(value)
+                    }}
                     options={[
                         {
                             value: 'cloud',
@@ -389,6 +396,7 @@ export function SourcesStepInner({
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { reportContextOnboardingSourceToggled } = useActions(eventUsageLogic)
 
     const autocaptureOn = !currentTeam?.autocapture_opt_out
     const replayOn = !!currentTeam?.session_recording_opt_in
@@ -397,6 +405,13 @@ export function SourcesStepInner({
     // Every source here collects through the posthog-js SDK; ingested_event is our proxy for it being
     // installed and sending. Until then, turned-on sources read as "Needs install".
     const sdkInstalled = !!currentTeam?.ingested_event
+
+    // Report and write together so every switch flip lands in the v2 funnel (GROW-89) alongside the
+    // team patch it caused. `toggle` names the switch — a card can carry several.
+    const toggleSource = (productKey: ProductKey, toggle: string, enabled: boolean, patch: Partial<TeamType>): void => {
+        reportContextOnboardingSourceToggled(productKey, toggle, enabled)
+        updateCurrentTeam(patch)
+    }
 
     const sources: ToolSource[] = [
         {
@@ -407,13 +422,17 @@ export function SourcesStepInner({
                     label: 'Autocapture events',
                     description: 'Clicks, pageviews, and inputs captured automatically.',
                     checked: autocaptureOn,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_opt_out: !checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.PRODUCT_ANALYTICS, 'autocapture', checked, {
+                            autocapture_opt_out: !checked,
+                        }),
                 },
                 {
                     label: 'Heatmaps',
                     description: 'Aggregate clicks, scrolls, and mouse movement.',
                     checked: !!currentTeam?.heatmaps_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ heatmaps_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.PRODUCT_ANALYTICS, 'heatmaps', checked, { heatmaps_opt_in: checked }),
                 },
             ],
         },
@@ -424,18 +443,27 @@ export function SourcesStepInner({
                 {
                     label: 'Record sessions',
                     checked: replayOn,
-                    onChange: (checked) => updateCurrentTeam({ session_recording_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'session_recording', checked, {
+                            session_recording_opt_in: checked,
+                        }),
                 },
                 {
                     label: 'Console logs',
                     checked: !!currentTeam?.capture_console_log_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ capture_console_log_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'console_logs', checked, {
+                            capture_console_log_opt_in: checked,
+                        }),
                     disabled: !replayOn,
                 },
                 {
                     label: 'Network performance',
                     checked: !!currentTeam?.capture_performance_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ capture_performance_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.SESSION_REPLAY, 'network_performance', checked, {
+                            capture_performance_opt_in: checked,
+                        }),
                     disabled: !replayOn,
                 },
             ],
@@ -448,7 +476,10 @@ export function SourcesStepInner({
                     label: 'Capture exceptions',
                     description: 'Errors and stack traces as they happen.',
                     checked: !!currentTeam?.autocapture_exceptions_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_exceptions_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.ERROR_TRACKING, 'exception_autocapture', checked, {
+                            autocapture_exceptions_opt_in: checked,
+                        }),
                 },
             ],
         },
@@ -460,7 +491,10 @@ export function SourcesStepInner({
                     label: 'Web vitals',
                     description: 'Load times and layout shifts from real users.',
                     checked: !!currentTeam?.autocapture_web_vitals_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_web_vitals_opt_in: checked }),
+                    onChange: (checked) =>
+                        toggleSource(ProductKey.WEB_ANALYTICS, 'web_vitals', checked, {
+                            autocapture_web_vitals_opt_in: checked,
+                        }),
                 },
             ],
             extra: (
@@ -512,7 +546,7 @@ export function SourcesStepInner({
 // ---- Shell ---------------------------------------------------------------------------------------
 
 interface StepDef {
-    id: string
+    id: ContextOnboardingStepId
     title: string
     Content: (props: { onContinue: () => void }) => JSX.Element
     skippable?: boolean
@@ -546,6 +580,12 @@ const CARD_CLASSES =
 export function ContextOnboarding(): JSX.Element {
     const { completeContextOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
+    const {
+        reportContextOnboardingStarted,
+        reportContextOnboardingStepViewed,
+        reportContextOnboardingStepCompleted,
+        reportContextOnboardingStepSkipped,
+    } = useActions(eventUsageLogic)
     // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
     // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
     const [stepIndex, setStepIndex] = useState(() => {
@@ -557,6 +597,18 @@ export function ContextOnboarding(): JSX.Element {
     const isFirst = stepIndex === 0
     const isLast = stepIndex === STEPS.length - 1
 
+    // Funnel (GROW-89): `started` fires once per fresh entry — a ?step= resume (refresh, OAuth
+    // callback) is a continuation, not a new start. `step viewed` fires for every step shown,
+    // including the one this mounts on.
+    useOnMountEffect(() => {
+        if (stepIndex === 0) {
+            reportContextOnboardingStarted()
+        }
+    })
+    useEffect(() => {
+        reportContextOnboardingStepViewed(STEPS[stepIndex].id)
+    }, [stepIndex, reportContextOnboardingStepViewed])
+
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
     const goToStep = (index: number): void => {
@@ -567,7 +619,7 @@ export function ContextOnboarding(): JSX.Element {
         })
     }
 
-    const goNext = (): void => {
+    const advance = (): void => {
         if (isLast) {
             // Marks onboarding complete (credits the sources turned on) and navigates out, so
             // sceneLogic doesn't bounce the user back into onboarding.
@@ -575,6 +627,17 @@ export function ContextOnboarding(): JSX.Element {
             return
         }
         goToStep(stepIndex + 1)
+    }
+    // Leaving a step forward is either completing it (Continue / the step's own primary action,
+    // e.g. a queued cloud run or a plan pick) or skipping it — reported separately so the funnel
+    // can tell drop-off from opt-out.
+    const completeStep = (): void => {
+        reportContextOnboardingStepCompleted(step.id)
+        advance()
+    }
+    const skipStep = (): void => {
+        reportContextOnboardingStepSkipped(step.id)
+        advance()
     }
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))
 
@@ -614,7 +677,7 @@ export function ContextOnboarding(): JSX.Element {
 
             {/* Scrollable middle: fade edges + hover scrollbar so tall steps don't hard-crop. */}
             <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 min-h-0" contentClassName="px-1">
-                <step.Content onContinue={goNext} />
+                <step.Content onContinue={completeStep} />
             </ScrollableShadows>
 
             {/* Pinned footer — omitted when the step has neither Skip nor a footer Continue (it supplies
@@ -622,7 +685,7 @@ export function ContextOnboarding(): JSX.Element {
             {(step.skippable || !step.hideContinue) && (
                 <div className="shrink-0 flex items-center justify-between gap-2">
                     {step.skippable ? (
-                        <LemonButton type="tertiary" size="small" onClick={goNext}>
+                        <LemonButton type="tertiary" size="small" onClick={skipStep}>
                             Skip for now
                         </LemonButton>
                     ) : (
@@ -633,7 +696,7 @@ export function ContextOnboarding(): JSX.Element {
                             type="primary"
                             status="alt"
                             sideIcon={<IconArrowRight />}
-                            onClick={goNext}
+                            onClick={completeStep}
                             loading={isLast && isCompleting}
                         >
                             {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}

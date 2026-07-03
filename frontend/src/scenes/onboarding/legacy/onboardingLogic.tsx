@@ -595,7 +595,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 products.push(ProductKey.SURVEYS)
             }
             for (const productKey of products) {
-                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
+                // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
+                // so dashboards can split the flows without a rename (GROW-89).
+                eventUsageLogic.actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so

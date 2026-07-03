@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -51,7 +52,14 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             sdksLogic,
             ['selectedSDK'],
         ],
-        actions: [integrationsLogic, ['loadIntegrations'], activeCloudRunLogic, ['setActiveCloudRun']],
+        actions: [
+            integrationsLogic,
+            ['loadIntegrations'],
+            activeCloudRunLogic,
+            ['setActiveCloudRun'],
+            eventUsageLogic,
+            ['reportContextOnboardingCloudRunQueued'],
+        ],
     })),
     actions({
         setSelectedRepository: (repository: string | null) => ({ repository }),
@@ -145,6 +153,8 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 // teamLogic's currentProjectId can be the '@current' placeholder pre-load; by kickoff
                 // time the team is loaded, so this is a plain numeric coercion in practice.
                 actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId))
+                // Frontend side of the kickoff, pairing with the backend `task_run_created` (GROW-89).
+                actions.reportContextOnboardingCloudRunQueued({ taskId: task_id, runId: run_id, repository })
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null
