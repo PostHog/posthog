@@ -69,6 +69,11 @@ describe('formatAggregationAxisValue', () => {
             currency: 'USD' as CurrencyCode,
             expected: 'USD $94.02',
         },
+        {
+            candidate: 1000,
+            filters: { aggregationAxisFormat: 'numeric', aggregationAxisPrefix: '1' },
+            expected: '11,000',
+        },
         { candidate: 0.8709423, filters: {}, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 2 }, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 3 }, expected: '0.871' },

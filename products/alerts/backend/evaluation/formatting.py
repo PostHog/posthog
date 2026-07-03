@@ -107,8 +107,13 @@ def format_aggregation_value(
         case _:  # NUMERIC or unset
             formatted = _human_friendly_number(value, decimal_places, min_decimal_places)
 
-    # Skip the prefix when the formatted value already starts with it (e.g. currency format "$" + prefix "$" → "$$").
-    effective_prefix = "" if (prefix and formatted.startswith(prefix)) else (prefix or "")
+    # Skip the prefix only for currency format, where the symbol is already embedded in the formatted value
+    # (e.g. currency "$" + prefix "$" → "$$"). Other formats keep their prefix even if it shares a leading char.
+    effective_prefix = (
+        ""
+        if (axis_format == AggregationAxisFormat.CURRENCY and prefix and formatted.startswith(prefix))
+        else (prefix or "")
+    )
     return f"{effective_prefix}{formatted}{postfix or ''}"
 
 
