@@ -194,7 +194,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         >
                                             Health
                                             <LemonBadge
-                                                size="small"
+                                                size="xsmall"
                                                 content={triggerBadgeContent}
                                                 status={triggerBadgeStatus}
                                             />
