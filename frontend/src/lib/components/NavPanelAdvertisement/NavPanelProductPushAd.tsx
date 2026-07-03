@@ -36,7 +36,7 @@ export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     Hoggie: HedgehogMegaphone,
     accentColor: 'var(--color-accent)',
     tagline:
-        "We think your organization would get a lot out of this product — it works with the data you're already sending. Give it a try!",
+        "We think your organization would get a lot out of this product - it works with the data you're already sending. Give it a try!",
 }
 
 // One entry per pushable product (see BLESSED_PRODUCT_ORDER / FALLBACK_PRODUCT_ORDER in
@@ -47,30 +47,30 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         Hoggie: HedgehogChartHog,
         accentColor: 'var(--color-product-product-analytics-light)',
         tagline:
-            'Funnels, trends, and retention — understand exactly what users do in your product, with the events you already send.',
+            'Insights, funnels, trends, and retention - understand exactly what users do in your product, with the events you already send.',
     },
     [ProductKey.WEB_ANALYTICS]: {
         Hoggie: HedgehogCursorHog,
         accentColor: 'var(--color-product-web-analytics-light)',
         tagline:
-            'Visitors, pageviews, and conversions on one simple dashboard. Like GA, without the pain — and no extra setup.',
+            'Visitors, pageviews, and conversions on one simple dashboard. Like GA, without the pain - and no extra setup, ready for you to use.',
     },
     [ProductKey.SESSION_REPLAY]: {
         Hoggie: HedgehogDirector,
         accentColor: 'var(--color-product-session-replay-light)',
         tagline:
-            'Lights, camera, action — watch real users move through your product and see exactly where they get stuck.',
+            'Lights, camera, action - watch real users move through your product and see exactly where they get stuck.',
     },
     [ProductKey.ERROR_TRACKING]: {
         Hoggie: HedgehogPanic,
         accentColor: 'var(--color-product-error-tracking-light)',
         tagline:
-            'Catch exceptions before your users tweet about them — errors grouped, triaged, and linked to the sessions that hit them.',
+            'Catch exceptions before your users tweet about them - errors grouped, triaged, and linked to the sessions that hit them.',
     },
     [ProductKey.FEATURE_FLAGS]: {
         Hoggie: HedgehogTrafficController,
         accentColor: 'var(--color-product-feature-flags-light)',
-        tagline: 'Ship to 1% before you ship to everyone. Roll out, target, and roll back — no redeploys needed.',
+        tagline: 'Ship to 1% before you ship to everyone. Roll out, target, and roll back - no redeploys needed.',
     },
     [ProductKey.EXPERIMENTS]: {
         Hoggie: HedgehogExperiment,
@@ -87,14 +87,13 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         Hoggie: HedgehogCodeBubble,
         accentColor: 'var(--color-product-data-warehouse-light)',
         tagline:
-            'Query everything with SQL — your product events plus warehouse sources like Stripe, HubSpot, and Postgres.',
+            'Query everything with SQL - your product events plus warehouse sources like Stripe, HubSpot, and Postgres.',
     },
-    // AI_OBSERVABILITY is the frontend enum name for the 'llm_analytics' product key
     [ProductKey.AI_OBSERVABILITY]: {
         Hoggie: HedgehogRoboHog,
         accentColor: 'var(--color-product-llm-analytics-light)',
         tagline:
-            "Traces, costs, and latency for every LLM call — know what your AI is doing, and what it's costing you.",
+            "Traces, costs, and latency for every LLM call - know what your AI is doing, and what it's costing you.",
     },
     [ProductKey.LLM_CLUSTERS]: {
         Hoggie: HedgehogPuzzle,
@@ -114,7 +113,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     [ProductKey.LOGS]: {
         Hoggie: HedgehogNoirHog,
         accentColor: 'var(--color-product-logs-light)',
-        tagline: 'Search every log line alongside your product data — no mystery goes unsolved.',
+        tagline: 'Search every log line alongside your product data - no mystery goes unsolved.',
     },
     [ProductKey.WORKFLOWS]: {
         Hoggie: HedgehogWorkflows,
