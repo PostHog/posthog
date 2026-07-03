@@ -33,12 +33,6 @@ _USAGE = {"model": "claude-haiku-4-5", "prompt_tokens": 100, "completion_tokens"
 _SOURCE = DataWarehouseSavedQueryColumnAnnotation.DescriptionSource
 
 
-@pytest.fixture(autouse=True)
-def _mock_capture_enrichment_event():
-    with patch.object(enrich, "capture_enrichment_event") as mock:
-        yield mock
-
-
 def _team() -> Team:
     return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
 

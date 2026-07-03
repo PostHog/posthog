@@ -29,7 +29,6 @@ from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
-    capture_enrichment_event,
     collapse_untrusted,
     enrichment_enabled,
     generate_json_completion,
@@ -62,12 +61,6 @@ ROW_SAMPLE_LIMIT = 3
 
 # The Temporal workflow that runs this enrichment (registered by the data-modeling temporal worker).
 ENRICH_VIEW_WORKFLOW_NAME = "data-modeling-enrich-view-semantics"
-
-# Product-analytics events — query these to track view-enrichment volume, LLM cost, and errors.
-EVENT_STARTED = "data modeling view enrichment started"
-EVENT_COMPLETED = "data modeling view enrichment completed"
-EVENT_LLM_CALL = "data modeling view enrichment llm call"
-EVENT_ERROR = "data modeling view enrichment error"
 
 # An annotation's column_name is a varchar(400); a column whose name doesn't fit can't be stored, so skip it.
 _MAX_COLUMN_NAME_LENGTH: int = DataWarehouseSavedQueryColumnAnnotation._meta.get_field("column_name").max_length or 400
@@ -179,7 +172,7 @@ def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]
     columns = getattr(response, "columns", None) or []
     results = getattr(response, "results", None) or []
     rows: list[dict[str, str]] = []
-    for row in results[:ROW_SAMPLE_LIMIT]:
+    for row in results:
         rows.append({str(col): str(value)[:MAX_SAMPLE_VALUE_CHARS] for col, value in zip(columns, row)})
     return rows
 
@@ -286,7 +279,9 @@ def build_bounded_view_enrichment_prompt(
 ) -> str:
     """Build the view prompt, capping the unbounded free-text inputs and trimming columns to fit the window."""
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
-    query_definition = query_definition[:MAX_VIEW_DEFINITION_CHARS]
+    if len(query_definition) > MAX_VIEW_DEFINITION_CHARS:
+        # Signal the cut so the model treats the SQL as partial, not the whole definition.
+        query_definition = query_definition[:MAX_VIEW_DEFINITION_CHARS] + "\n-- […] view definition truncated"
 
     def builder(shown_columns: list[dict[str, Any]], needing: list[str]) -> str:
         return build_view_enrichment_prompt(
@@ -313,14 +308,8 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         .get(id=team_id)
     )
 
-    event_props: dict[str, Any] = {"saved_query_id": str(saved_query_id)}
-
-    def emit_completed(status: str, **props: Any) -> None:
-        capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
-
     def skip(reason: str) -> dict[str, Any]:
         log.info("view_enrichment.skipped", reason=reason)
-        emit_completed("skipped", reason=reason)
         return {"status": "skipped", "reason": reason}
 
     if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
@@ -355,7 +344,6 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         return skip("unchanged")
 
     log.info("view_enrichment.started", columns_total=len(all_columns))
-    capture_enrichment_event(team, EVENT_STARTED, {**event_props, "columns_total": len(all_columns)})
 
     column_names = {column["name"] for column in all_columns}
     columns = all_columns[:MAX_COLUMNS_PER_TABLE]
@@ -404,26 +392,10 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         except Exception as e:
             capture_exception(e)
             log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
-            capture_enrichment_event(team, EVENT_ERROR, {**event_props, "error": str(e), "stage": "llm_call"})
-            capture_enrichment_event(
-                team,
-                EVENT_LLM_CALL,
-                {
-                    **event_props,
-                    "success": False,
-                    "error": str(e),
-                    "columns_requested": len(columns_needing_description),
-                },
-            )
             # Don't store the hash — the next trigger retries.
-            emit_completed("partial", ai_annotations=0, llm_called=True, llm_error=True)
             return {"status": "partial", "ai_annotations": 0, "error": "llm_failed"}
 
-        capture_enrichment_event(
-            team,
-            EVENT_LLM_CALL,
-            {**event_props, "success": True, "columns_requested": len(columns_needing_description), **usage},
-        )
+        log.info("view_enrichment.llm_call", columns_requested=len(columns_needing_description), **usage)
 
         generated_columns = generated.get("columns") or {}
         if isinstance(generated_columns, dict):
@@ -450,9 +422,11 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
 
     # Store the hash via queryset update() — bypasses post_save so it never re-triggers the signal.
     DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
-    log.info("view_enrichment.done", ai=ai_count, stale_deleted=len(stale))
-    emit_completed(
-        "done", ai_annotations=ai_count, llm_called=bool(columns_needing_description or view_needs_description)
+    log.info(
+        "view_enrichment.done",
+        ai=ai_count,
+        stale_deleted=len(stale),
+        llm_called=bool(columns_needing_description or view_needs_description),
     )
     return {"status": "done", "ai_annotations": ai_count}
 
