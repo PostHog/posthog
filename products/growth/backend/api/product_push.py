@@ -1,7 +1,7 @@
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -82,7 +82,7 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 "the campaign's product, the response is 204 so the promo isn't shown there.",
             )
         ],
-        responses={200: ProductPushCampaignSerializer, 204: None},
+        responses={200: ProductPushCampaignSerializer, 204: None, 404: None},
     )
     @action(detail=False, methods=["GET"])
     def active(self, request: Request, **kwargs) -> Response:
@@ -97,8 +97,8 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             except ValueError:
                 raise ValidationError({"team_id": "Must be an integer team id."})
             team = Team.objects.filter(id=team_id, organization=self.organization).only("id", "project_id").first()
-            if team is None:
-                raise ValidationError({"team_id": "Must be a team belonging to this organization."})
+            if team is None or not self.user_access_control.check_access_level_for_object(team, "member"):
+                raise NotFound({"team_id": "Team not found."})
             if project_uses_product(team.project_id, campaign.product_key):
                 return Response(status=status.HTTP_204_NO_CONTENT)
 

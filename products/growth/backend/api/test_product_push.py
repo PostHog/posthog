@@ -7,11 +7,16 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.project import Project
 
 from products.growth.backend.models import ProductPushCampaign
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    AccessControl = None
 
 
 class TestProductPushCampaignAPI(APIBaseTest):
@@ -66,8 +71,40 @@ class TestProductPushCampaignAPI(APIBaseTest):
 
         assert self.client.get(self._url() + f"?team_id={self.team.id}").status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(self._url() + f"?team_id={other_team.id}").status_code == status.HTTP_200_OK
-        assert self.client.get(self._url() + "?team_id=99999999").status_code == status.HTTP_400_BAD_REQUEST
+        assert self.client.get(self._url() + "?team_id=99999999").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(self._url() + "?team_id=nope").status_code == status.HTTP_400_BAD_REQUEST
+
+    @freeze_time("2026-07-03T12:00:00Z")
+    def test_restricted_team_returns_404_same_as_nonexistent(self) -> None:
+        """Inaccessible teams should be indistinguishable from nonexistent ones."""
+        if AccessControl is None:
+            self.skipTest("EE not available")
+
+        started_at = timezone.now() - timedelta(days=3)
+        ProductPushCampaign.objects.create(
+            organization=self.organization,
+            product_key="session_replay",
+            status=ProductPushCampaign.Status.ACTIVE,
+            started_at=started_at,
+            ends_at=started_at + timedelta(days=30),
+        )
+        _, restricted_team = Project.objects.create_with_team(
+            initiating_user=None, organization=self.organization, name="restricted project"
+        )
+        # Make the team private (inaccessible to regular members)
+        AccessControl.objects.create(
+            team=restricted_team, resource="project", resource_id=str(restricted_team.id), access_level="none"
+        )
+        # Demote the user to member so RBAC applies
+        OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+
+        response = self.client.get(self._url() + f"?team_id={restricted_team.id}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            "Restricted teams should return 404, same as nonexistent teams"
+        )
 
     @freeze_time("2026-07-03T12:00:00Z")
     def test_non_member_cannot_read_another_orgs_campaign(self) -> None:
