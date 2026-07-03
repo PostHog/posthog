@@ -66,10 +66,10 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="api_secret",
