@@ -566,6 +566,7 @@ SIZE_EXEMPT_EXTENSIONS = {
     ".rst",
     ".snap",
     ".ambr",
+    ".storyshot",
     ".svg",
     ".png",
     ".jpg",
@@ -576,9 +577,12 @@ SIZE_EXEMPT_EXTENSIONS = {
     ".lock",
 }
 
+# __snapshots__/ deliberately has no directory-wide exemption: snapshot
+# artifacts are covered by extension (.snap/.ambr/.storyshot), so an
+# executable file placed under a snapshots dir still counts toward the
+# ceiling — same reasoning as the extension allowlists below.
 _SIZE_EXEMPT_PATH_RE = re.compile(
-    r"(?:^|/)__snapshots__/"
-    r"|(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
