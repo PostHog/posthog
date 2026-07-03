@@ -8,8 +8,10 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 Add the `stamphog` label to a non-draft PR.
 The GitHub Action runs the agent and posts an approval or comment.
 On approval the label stays so it's visible which PRs were stamphog'd.
-On a substantive non-approval (`REFUSE`/`ESCALATE`) the label is removed so it
-can be re-applied once the feedback is addressed.
+Only a substantive non-approval (`REFUSE`/`ESCALATE`) removes the label, so it
+can be re-applied once the feedback is addressed; every other outcome —
+including a crashed run that produced no verdict — keeps the label and retries
+on the next push.
 If the review agent can't reach its LLM backend (credentials, credit, or
 outage) it returns `ERROR` and **keeps** the label — a transient infra failure
 must not silently drop labels across every queued PR. The review retries on the
@@ -46,16 +48,6 @@ Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 "stamphog" label added to PR
   │
   ▼
-Wait for in-flight bot reviews
-  - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
-    reviewing and swap it for a verdict reaction minutes later; stamphog is
-    triggered at the same moment, so an 👀 at fetch time is a race, not a
-    lasting state
-  - Polls until allowlisted-bot 👀 reactions clear (up to 5 min); if one
-    remains, verdict is WAIT — label kept, next push retries
-  - Human 👀 reactions are not waited on — the LLM refuses over them instead
-  │
-  ▼
 Prerequisites (hard gate)
   - Not draft, no merge conflicts
   - No outstanding "changes requested" reviews
@@ -85,6 +77,21 @@ Tier classification
   - T0-deterministic: docs/tests/config only
   - T1-agent: eligible for review (sub-classified by risk)
   - T2-never: caught by deny-list
+  │
+  ▼
+Wait for in-flight bot reviews (skipped when gates already denied)
+  - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
+    reviewing and swap it for a verdict reaction minutes later; stamphog is
+    triggered at the same moment, so an 👀 at fetch time is a race, not a
+    lasting state
+  - Polls until allowlisted-bot 👀 reactions clear (up to 5 min); if one
+    remains, verdict is WAIT — label kept, next push retries
+  - Bot 👀 older than ~45 min is a crashed reviewer, not an in-flight one —
+    ignored, so a wedged bot can't stall every review (reactions never
+    expire and humans can't remove another app's reaction)
+  - Human 👀 reactions are not waited on — the LLM refuses over them instead
+  - If the wait refetched the PR, classification and gates re-run on the
+    fresh data before the LLM sees it
   │
   ▼
 LLM Review
