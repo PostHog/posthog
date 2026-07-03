@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql_queries.utils.interval_specs import UnsupportedIntervalError, get_interval_func, get_trunc_func
+from posthog.interval_specs import UnsupportedIntervalError, get_interval_func, get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.schema_enums import PersonsOnEventsMode
 

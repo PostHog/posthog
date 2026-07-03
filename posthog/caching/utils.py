@@ -5,7 +5,7 @@ from typing import Any, Optional, Union
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.utils.interval_specs import INTERVAL_SPECS
+from posthog.interval_specs import INTERVAL_SPECS
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter

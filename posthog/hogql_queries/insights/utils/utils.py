@@ -17,8 +17,8 @@ from posthog.hogql import ast
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.utils.interval_specs import get_trunc_func
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
+from posthog.interval_specs import get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
 
 
