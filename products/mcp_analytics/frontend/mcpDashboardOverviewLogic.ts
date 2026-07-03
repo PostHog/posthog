@@ -373,6 +373,14 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     }
 }
 
+// Merge the dashboard's active filters with a doubled comparison window's date range.
+// Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
+// the tile-parity the reload test asserts. Keep the two loaders reading from here so the
+// window/filter plumbing can't drift between them.
+function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: KpiWindow): HogQLFilters {
+    return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
+}
+
 function parseRows(rawRows: unknown[][]): BucketRow[] {
     return rawRows.map((r) => ({
         bucket: String(r[0]),
@@ -477,10 +485,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
-                        filters: {
-                            ...values.queryFilters,
-                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
-                        },
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
@@ -494,16 +499,18 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
                     const { interval, timezone } = values
                     const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
-                    // Boundary is the selected period's start in the team timezone — make it a
-                    // tz-aware DateTime so the split lands on the same instant ClickHouse buckets on.
+                    // Split the doubled window at the selected period's start. currentStartBucket is
+                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
+                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
+                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
+                    // would equalize the halves but desync Users from the other tiles, so don't.)
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
-                        filters: {
-                            ...values.queryFilters,
-                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
-                        },
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const row = (response?.results as unknown[][])?.[0] ?? []

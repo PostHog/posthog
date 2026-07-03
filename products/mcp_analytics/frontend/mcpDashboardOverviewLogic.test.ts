@@ -450,6 +450,29 @@ describe('mcpDashboardOverviewLogic', () => {
         // at the top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
+        // The users query returns a single [current_users, prior_users] row; loadUsers maps
+        // column 0 → value, column 1 → previousValue, and derives the delta. Pins that column
+        // mapping and the deltaPct wiring — a swap or a dropped delta would slip past the other
+        // tests, which only ever see empty results.
+        it('maps the users query columns to the current/prior metric', async () => {
+            mockApi.query.mockImplementation(async (node: any) =>
+                typeof node?.query === 'string' && node.query.includes('current_users')
+                    ? ({ results: [[42, 30]] } as any)
+                    : ({ results: [] } as any)
+            )
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.users).toEqual({
+                value: 42,
+                previousValue: 30,
+                deltaPct: 40,
+                sparkline: [],
+                goodDirection: 'up',
+            })
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
