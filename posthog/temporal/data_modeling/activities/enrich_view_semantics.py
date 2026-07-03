@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any
 
-import posthoganalytics
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
@@ -14,8 +13,6 @@ from products.data_modeling.backend.facade.api import enrich_view_semantics_sync
 # Write-only (no Kafka `log_entries`): internal background activity, not a user-facing sync. The temporal
 # worker's global structlog config still merges workflow_id/run_id/attempt/task_queue onto every line.
 logger = get_write_only_logger(__name__)
-
-EVENT_ERROR = "data modeling view enrichment error"
 
 
 @dataclasses.dataclass
@@ -37,8 +34,8 @@ async def enrich_view_semantics_activity(inputs: EnrichViewSemanticsInputs) -> d
                 inputs.team_id, inputs.saved_query_id
             )
         except Exception as e:
-            # Surface unexpected failures (DB errors, etc.) to Sentry, structured logs, and product
-            # analytics — all keyed by saved_query_id/team_id — then re-raise so Temporal retries.
+            # Surface unexpected failures (DB errors, etc.) to Sentry and structured logs — keyed by
+            # saved_query_id/team_id — then re-raise so Temporal retries.
             capture_exception(e)
             logger.exception(
                 "view_enrichment.activity_failed",
@@ -46,17 +43,4 @@ async def enrich_view_semantics_activity(inputs: EnrichViewSemanticsInputs) -> d
                 saved_query_id=inputs.saved_query_id,
                 error=str(e),
             )
-            try:
-                posthoganalytics.capture(
-                    distinct_id=f"team-{inputs.team_id}",
-                    event=EVENT_ERROR,
-                    properties={
-                        "team_id": inputs.team_id,
-                        "saved_query_id": inputs.saved_query_id,
-                        "error": str(e),
-                    },
-                    groups={"project": str(inputs.team_id)},
-                )
-            except Exception as capture_error:
-                capture_exception(capture_error)
             raise

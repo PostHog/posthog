@@ -67,8 +67,7 @@ def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = None
     if inputs.update_node:
         with transaction.atomic():
-            # select_related avoids a second round-trip on node.saved_query in _view_enrichment_needed;
-            # of=("self",) keeps the FOR UPDATE lock on the node row only, not the joined saved_query.
+            # of=("self",) + select_related: skip the extra node.saved_query query without locking the joined row.
             node = (
                 Node.objects.select_for_update(of=("self",))
                 .select_related("saved_query")
