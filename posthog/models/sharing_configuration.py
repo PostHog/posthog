@@ -258,14 +258,10 @@ class SharingConfiguration(models.Model):
         )
 
     def effective_execution_user(self) -> "User | None":
-        """The principal that queries triggered by this share's public link execute as.
-
-        Anonymous viewers run the underlying queries with the access of the shared artifact's
-        creator (one uniform principal per artifact — a shared dashboard renders every tile as
-        the dashboard's creator). This way, revoking the creator's access to e.g. an
-        access-controlled warehouse table propagates to already-published links on their next
-        refresh. Fail-closed: returns None when the creator was deleted or deactivated, and for
-        recordings, which never execute HogQL through the shared context.
+        """
+        Public-link queries execute as the artifact's creator
+        (a shared dashboard renders every tile as the dashboard's creator).
+        Returns None when the creator is deleted or deactivated.
         """
         target = self.insight or self.dashboard or self.notebook
         creator = target.created_by if target is not None else None
@@ -274,7 +270,7 @@ class SharingConfiguration(models.Model):
         return creator
 
     def shared_artifact_kind(self) -> str:
-        """Human-readable kind of the shared artifact, for viewer-facing copy on public pages."""
+        """Human-readable kind of the shared artifact, for viewer-facing copy."""
         if self.dashboard_id:
             return "dashboard"
         if self.insight_id:

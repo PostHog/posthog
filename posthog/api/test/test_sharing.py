@@ -16,8 +16,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.schema import CacheMissResponse
-
 from posthog.api.sharing import (
     SHARING_RESOURCE_EDIT_CHECKS,
     _assert_every_shareable_resource_is_gated,
@@ -1601,73 +1599,6 @@ class TestSharedCohortInlining(APIBaseTest):
         assert "created_by" not in widget_data
 
 
-class TestSharedExecutionPrincipal(APIBaseTest):
-    trends_query = {
-        "kind": "InsightVizNode",
-        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-    }
-
-    def setUp(self):
-        super().setUp()
-        self.creator = User.objects.create_and_join(self.organization, "creator@posthog.com", None)
-        self.client.logout()
-
-    def _shared_config(self, case: str) -> tuple[SharingConfiguration, User | None]:
-        if case == "insight runs as the insight creator":
-            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
-            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), self.creator
-        if case == "dashboard runs every tile as the dashboard creator":
-            dashboard = Dashboard.objects.create(team=self.team, created_by=self.creator)
-            tile_insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.user)
-            DashboardTile.objects.create(dashboard=dashboard, insight=tile_insight)
-            return SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True), self.creator
-        if case == "deleted creator falls back to userless execution":
-            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=None)
-            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
-        if case == "deactivated creator falls back to userless execution":
-            self.creator.is_active = False
-            self.creator.save()
-            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
-            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
-        raise AssertionError(f"Unknown case: {case}")
-
-    @parameterized.expand(
-        [
-            ("insight runs as the insight creator",),
-            ("dashboard runs every tile as the dashboard creator",),
-            ("deleted creator falls back to userless execution",),
-            ("deactivated creator falls back to userless execution",),
-        ]
-    )
-    def test_shared_render_executes_queries_as_artifact_creator(self, case: str):
-        config, expected_user = self._shared_config(case)
-
-        with patch(
-            "posthog.caching.calculate_results.process_query_dict",
-            return_value=CacheMissResponse(cache_key="irrelevant"),
-        ) as process_query_mock:
-            response = self.client.get(f"/shared/{config.access_token}.json")
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert process_query_mock.call_count >= 1
-        assert all(call.kwargs["user"] == expected_user for call in process_query_mock.call_args_list)
-
-    def test_sharing_token_api_refresh_executes_as_creator(self):
-        insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
-        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
-
-        with patch(
-            "posthog.caching.calculate_results.process_query_dict",
-            return_value=CacheMissResponse(cache_key="irrelevant"),
-        ) as process_query_mock:
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={config.access_token}"
-            )
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert process_query_mock.call_args.kwargs["user"] == self.creator
-
-
 def _warehouse_access_control_flag(key: str, *args, **kwargs) -> bool:
     return key == "hogql-warehouse-access-control"
 
@@ -1797,6 +1728,16 @@ class TestSharedWarehouseDenialMessage(APIBaseTest):
             f"?sharing_access_token={config.access_token}&refresh=blocking"
         )
 
+    def test_shared_dashboard_renders_with_creator_access(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self._refresh_via_token(config)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert not response.json().get("result_error")
+
     @parameterized.expand(
         [
             ("insight",),
@@ -1808,6 +1749,11 @@ class TestSharedWarehouseDenialMessage(APIBaseTest):
         if kind == "insight":
             config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
         else:
+            # The tile is authored by a member who is NOT denied - the denial proves the
+            # dashboard creator's access governs the whole link, not the tile author's.
+            tile_author = User.objects.create_and_join(self.organization, "tile-author@posthog.com", None)
+            self.insight.created_by = tile_author
+            self.insight.save()
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
@@ -1817,9 +1763,21 @@ class TestSharedWarehouseDenialMessage(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert f"The {kind} owner doesn't have access to table `governed_view`." in str(response.json())
 
-    def test_denial_with_deleted_creator_worded_the_same(self):
-        self.insight.created_by = None
-        self.insight.save()
+    @parameterized.expand(
+        [
+            ("deleted",),
+            ("deactivated",),
+        ]
+    )
+    def test_denial_when_creator_is_gone_worded_the_same(self, case: str):
+        # No access-control rule needed: a gone creator falls back to userless execution,
+        # which fails closed on every warehouse table under the flag.
+        if case == "deleted":
+            self.insight.created_by = None
+            self.insight.save()
+        else:
+            self.user.is_active = False
+            self.user.save()
         config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
 
         response = self._refresh_via_token(config)

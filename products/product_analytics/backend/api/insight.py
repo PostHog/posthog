@@ -1138,10 +1138,8 @@ class InsightSerializer(InsightBasicSerializer):
                 view = self.context.get("view")
                 request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
                 if request_user is None and is_shared:
-                    # Anonymous shared views execute as the shared artifact's creator (resolved by
-                    # the sharing layer), so the creator's access control governs the public link.
-                    # The view's UserAccessControl is deliberately not reused here — it belongs to
-                    # the anonymous requester; downstream builds one for the creator when needed.
+                    # Anonymous shared views execute as the shared artifact's creator, so the
+                    # creator's access control governs the public link.
                     request_user = self.context.get("shared_execution_user")
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(

@@ -706,8 +706,8 @@ def _compute_inline_query_results_for_shared_notebook(
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use. Queries run as ``execution_user`` — the shared
-    artifact's creator (see ``SharingConfiguration.effective_execution_user``).
+    stale — the same throttle dashboards use. Queries run as ``execution_user``, the notebook's
+    creator.
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline

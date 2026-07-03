@@ -750,8 +750,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             try:
                 sharing_configuration = (
                     SharingConfiguration.objects.select_related(
-                        # The execution principal (artifact creator) is resolved on every
-                        # token-authenticated request; preload it to keep tile refreshes query-free.
+                        # Preload the artifact creator, resolved on every token-authenticated request
                         "insight__created_by",
                         "dashboard__created_by",
                         "notebook__created_by",
