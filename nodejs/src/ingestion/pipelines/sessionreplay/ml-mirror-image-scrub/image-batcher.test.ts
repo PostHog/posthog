@@ -5,8 +5,11 @@ import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ScrubClient } from './scrub-client'
 
-function msg(partition: number, offset: number, team: number, bytes: Buffer, keyOverride?: string): Message {
-    const ref = keyOverride ?? imageRef(team, hashImageBytes(bytes))
+// A fake 32-hex team pseudonym (real ones come from pseudonymize(); the consumer just treats it as opaque).
+const pt = (n: number): string => String(n).padStart(32, '0')
+
+function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
+    const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(bytes))
     return {
         topic: 'session_replay_image_scrub',
         partition,
@@ -17,14 +20,14 @@ function msg(partition: number, offset: number, team: number, bytes: Buffer, key
 }
 
 class FakeStore {
-    public writes: { teamId: number; images: ScrubbedImage[] }[] = []
+    public writes: ScrubbedImage[][] = []
     public failNext = false
     // eslint-disable-next-line @typescript-eslint/require-await
-    async writeTeam(teamId: number, images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
+    async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
         if (this.failNext) {
             throw new Error('s3 down')
         }
-        this.writes.push({ teamId, images })
+        this.writes.push(images)
         return { shard: 'shard', bytes: images.reduce((n, i) => n + i.bytes.length, 0) }
     }
 }
@@ -49,14 +52,15 @@ const options = {
 }
 
 describe('ImageBatcher', () => {
-    it('scrubs a batch, writes one shard per team, and stores offsets after the flush', async () => {
+    it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
 
-        await batcher.handleBatch([msg(0, 0, 1, Buffer.from('a')), msg(0, 1, 2, Buffer.from('b'))], 1)
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(2), Buffer.from('b'))], 1)
 
-        expect(store.writes.map((w) => w.teamId).sort()).toEqual([1, 2]) // one shard per team
+        expect(store.writes).toHaveLength(1) // one shard for the whole flush, not one per team
+        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)]) // both teams in it
         expect(offsets.stored).toBe(1) // committed only after the write landed
     })
 
@@ -71,8 +75,8 @@ describe('ImageBatcher', () => {
         )
 
         // key claims a hash that doesn't match the value bytes
-        const forged = imageRef(1, hashImageBytes(Buffer.from('other')))
-        await batcher.handleBatch([msg(0, 0, 1, Buffer.from('a'), forged)], 1)
+        const forged = imageRef(pt(1), hashImageBytes(Buffer.from('other')))
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), forged)], 1)
 
         expect(store.writes).toHaveLength(0)
     })
@@ -83,7 +87,7 @@ describe('ImageBatcher', () => {
         const offsets = new FakeOffsets()
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
 
-        await expect(batcher.handleBatch([msg(0, 0, 1, Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
         expect(offsets.stored).toBe(0) // uncommitted → the window replays
     })
 
@@ -100,7 +104,7 @@ describe('ImageBatcher', () => {
             0
         )
 
-        await expect(batcher.handleBatch([msg(0, 0, 1, Buffer.from('a'))], 1)).rejects.toThrow()
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow()
         expect(offsets.stored).toBe(0) // uncommitted → the window replays instead of livelocking
         expect(store.writes).toHaveLength(0)
     })

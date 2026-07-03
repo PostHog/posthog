@@ -1,5 +1,5 @@
-/** Accumulates scrubbed images across Kafka batches and flushes one shard + parquet index per team per
- *  time/size threshold — mirrors BlockMetadataBatcher's store-offsets-only-after-a-successful-write model. */
+/** Accumulates scrubbed images across Kafka batches and flushes one shard + parquet index per flush (spanning
+ *  many teams) on a time/size threshold — mirrors BlockMetadataBatcher's store-offsets-only-after-a-successful-write model. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
@@ -100,7 +100,7 @@ export class ImageBatcher {
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()
-        return { teamId: parsed.teamId, hash: parsed.hash, bytes }
+        return { pseudoTeam: parsed.pseudoTeam, hash: parsed.hash, bytes }
     }
 
     private shouldFlush(nowMs: number): boolean {
@@ -111,24 +111,14 @@ export class ImageBatcher {
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
-    /** Write buffered images (grouped into one shard + index per team), then store the consumed offsets.
-     *  Throws (without storing offsets, keeping the buffer) if a write fails, so the window replays. */
+    /** Write buffered images as one shard + index for the whole flush (pseudo_team lives in the index rows),
+     *  then store the consumed offsets. Throws (without storing offsets, keeping the buffer) if the write
+     *  fails, so the window replays. */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
-            const byTeam = new Map<number, ScrubbedImage[]>()
-            for (const image of this.buffer) {
-                const images = byTeam.get(image.teamId)
-                if (images) {
-                    images.push(image)
-                } else {
-                    byTeam.set(image.teamId, [image])
-                }
-            }
-            for (const [teamId, images] of byTeam) {
-                const { bytes } = await this.store.writeTeam(teamId, images)
-                ImageScrubConsumerMetrics.observeShard(images.length, bytes)
-            }
+            const { bytes } = await this.store.writeShard(this.buffer)
+            ImageScrubConsumerMetrics.observeShard(this.buffer.length, bytes)
             this.buffer = []
             this.bufferBytes = 0
         }
