@@ -32,6 +32,13 @@ DEPENDENCY_ECOSYSTEMS: dict[str, dict[str, frozenset[str]]] = {
         "manifests": frozenset({"gemfile"}),
         "lockfiles": frozenset({"gemfile.lock"}),
     },
+    # No composer usage in-repo today; listed so the deny/suppression sets
+    # stay a superset of DISMISS_TIME_LOCKFILES and a future composer.json
+    # doesn't arrive ungated.
+    "php": {
+        "manifests": frozenset({"composer.json"}),
+        "lockfiles": frozenset({"composer.lock"}),
+    },
     "rust": {
         "manifests": frozenset({"cargo.toml"}),
         "lockfiles": frozenset({"cargo.lock"}),
