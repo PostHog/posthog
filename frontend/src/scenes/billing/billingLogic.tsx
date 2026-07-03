@@ -312,7 +312,7 @@ export const billingLogic = kea<billingLogicType>([
         billing: [
             null as BillingType | null,
             {
-                loadBilling: async (_: void, breakpoint) => {
+                loadBilling: async (payload: { discardIfSuperseded: boolean } | void, breakpoint) => {
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
@@ -320,9 +320,12 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.get(
                         'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                     )
-                    // Concurrent limit saves each trigger a refresh; discard superseded responses so a
-                    // stale one can't overwrite newer state.
-                    breakpoint()
+                    // Concurrent limit saves each trigger a refresh; those opt in to discarding superseded
+                    // responses so a stale one can't overwrite newer state. Discarding stays opt-in because
+                    // `asyncActions.loadBilling()` awaiters rely on fresh state once the promise resolves.
+                    if (payload?.discardIfSuperseded) {
+                        breakpoint()
+                    }
 
                     return parseBillingResponse(response)
                 },
@@ -552,7 +555,8 @@ export const billingLogic = kea<billingLogicType>([
                 const limits: BillingLimits = await api.update('api/billing', body)
                 lemonToast.success(successMessage)
                 actions.updateBillingLimitSuccess(productType, limits)
-                actions.loadBilling() // background refresh of usage-derived fields; never gates the editors
+                // Background refresh of usage-derived fields; never gates the editors.
+                actions.loadBilling({ discardIfSuperseded: true })
             } catch (error) {
                 posthog.captureException(error)
                 lemonToast.error(`${errorMessage} Please try again or contact support.`)

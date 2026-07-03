@@ -732,6 +732,22 @@ describe('mergeLimitsForProduct', () => {
         )
     })
 
+    it('a response that omits a limit map leaves that map untouched', () => {
+        const limitMapArb = fc.dictionary(fc.constantFrom<string>(...PRODUCTS), fc.nat({ max: 1000 }))
+        fc.assert(
+            fc.property(limitMapArb, limitMapArb, fc.constantFrom(...PRODUCTS), (custom, next, product) => {
+                const billing: BillingType = {
+                    ...billingJson,
+                    custom_limits_usd: custom,
+                    next_period_custom_limits_usd: next,
+                }
+                const merged = mergeLimitsForProduct(billing, product, {})!
+                expect(merged.custom_limits_usd).toEqual(custom)
+                expect(merged.next_period_custom_limits_usd).toEqual(next)
+            })
+        )
+    })
+
     it('returns null billing unchanged', () => {
         expect(mergeLimitsForProduct(null, 'surveys', { custom_limits_usd: { surveys: 1 } })).toBeNull()
     })

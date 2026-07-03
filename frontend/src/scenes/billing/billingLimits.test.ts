@@ -127,6 +127,45 @@ describe('billing limits', () => {
         await expectLogic(billingLogic).toFinishAllListeners()
     })
 
+    it('a stale background refresh cannot clobber a newer save', async () => {
+        let releaseFirstRefresh: () => void = () => {}
+        const gate = new Promise<void>((resolve) => (releaseFirstRefresh = resolve))
+        let refreshes = 0
+        useMocks({
+            get: {
+                '/api/billing': async () => {
+                    refreshes += 1
+                    if (refreshes === 1) {
+                        await gate // the first refresh responds last, with data from before B's save
+                        return [
+                            200,
+                            {
+                                ...billingPayload(),
+                                custom_limits_usd: { product_analytics: 100, session_replay: 200 },
+                            },
+                        ]
+                    }
+                    return [200, billingPayload()]
+                },
+            },
+        })
+
+        await expectLogic(billingLogic, () =>
+            billingLogic.actions.updateBillingLimit(productA.type, 100)
+        ).toDispatchActions(['updateBillingLimitSuccess']) // refresh 1 starts, gated
+        await expectLogic(billingLogic, () =>
+            billingLogic.actions.updateBillingLimit(productB.type, 300)
+        ).toDispatchActions(['updateBillingLimitSuccess', 'loadBillingSuccess']) // refresh 2 lands
+
+        releaseFirstRefresh()
+        await expectLogic(billingLogic).toFinishAllListeners()
+
+        expect(billingLogic.values.billing?.custom_limits_usd).toEqual({
+            product_analytics: 100,
+            session_replay: 300,
+        })
+    })
+
     it('removing the next-period limit clears it for that product only', async () => {
         expect(logicB.values.billingLimitNextPeriod).toBe(100)
 

@@ -727,6 +727,16 @@ const withLimit = (
 }
 
 /**
+ * A response that omits a whole limit map carries no information about it — keep the current one.
+ * A present map is authoritative for the product's key (key absent from it = no limit).
+ */
+const mergeLimitMap = (
+    current: Record<string, number | null> | undefined,
+    key: string,
+    response: Record<string, number | null> | undefined
+): Record<string, number | null> => (response ? withLimit(current, key, response[key]) : (current ?? {}))
+
+/**
  * Pure per-key merge of a limits PATCH response for one product into billing state.
  * Merging only the saved product's key keeps concurrent saves for different products
  * commutative under any response arrival order — a response never overwrites another
@@ -742,15 +752,11 @@ export function mergeLimitsForProduct(
     return (
         billing && {
             ...billing,
-            custom_limits_usd: withLimit(
-                billing.custom_limits_usd,
-                productType,
-                limits.custom_limits_usd?.[productType]
-            ),
-            next_period_custom_limits_usd: withLimit(
+            custom_limits_usd: mergeLimitMap(billing.custom_limits_usd, productType, limits.custom_limits_usd),
+            next_period_custom_limits_usd: mergeLimitMap(
                 billing.next_period_custom_limits_usd,
                 productType,
-                limits.next_period_custom_limits_usd?.[productType]
+                limits.next_period_custom_limits_usd
             ),
         }
     )
