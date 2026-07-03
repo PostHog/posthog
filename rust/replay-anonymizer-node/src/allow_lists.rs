@@ -1,7 +1,9 @@
 //! Case-insensitive allow lists of text words and URL path segments kept verbatim by the scrubbers.
 //! Mirrors `anonymize/allow-lists.ts`.
 
-use std::collections::HashSet;
+// The lookups run once per word token of every text node; ahash beats SipHash on short strings and
+// the sets are built from operator-controlled config, so hash-DoS resistance buys nothing here.
+use ahash::AHashSet;
 
 fn has_upper_ascii(s: &str) -> bool {
     s.bytes().any(|b| b.is_ascii_uppercase())
@@ -22,8 +24,8 @@ fn ascii_lowercase(s: &str) -> String {
 
 #[derive(Debug, Default)]
 pub struct AllowLists {
-    text: HashSet<String>,
-    url: HashSet<String>,
+    text: AHashSet<String>,
+    url: AHashSet<String>,
 }
 
 impl AllowLists {

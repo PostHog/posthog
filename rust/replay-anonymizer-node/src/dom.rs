@@ -198,40 +198,50 @@ fn classify_tag(tag: &str) -> TagKind {
 
 fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
     let mut changed = false;
-    let names: Vec<String> = attrs.keys().map(|k| k.to_string()).collect();
+    // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
+    // helpers that need `&mut Object` (blur inserts sibling keys, css re-reads by key) defer their
+    // attr names, which most elements don't have. Each attr is scrubbed independently, so running
+    // the deferred ones after the loop produces the same result as the original in-order pass.
+    let mut deferred: Vec<String> = Vec::new();
 
-    for name in names {
-        if kind == TagKind::Media && is_media_src_attr(&name) {
+    for (name, value) in attrs.iter_mut() {
+        let name: &str = name.as_ref();
+        if kind == TagKind::Media && is_media_src_attr(name) {
             continue;
         }
         // Inlined rendered pixels (`rr_dataURL`): blur the image, on any tag.
-        if name == INLINE_IMAGE_ATTR {
-            changed |= blur_inline_image_attr(ctx, attrs, &name);
+        if name == INLINE_IMAGE_ATTR || name == "style" {
+            deferred.push(name.to_string());
             continue;
         }
         // Only string attribute values are scrubbed.
-        let Some(value) = attrs.get(name.as_str()).and_then(as_str) else {
+        let Some(current) = as_str(value) else {
             continue;
         };
-        let result = if is_url_attr(&name) {
-            scrub_url(ctx.allow, value)
-        } else if name == "style" {
-            changed |= scrub_css_images(ctx, attrs, &name);
-            continue;
-        } else if is_user_text_attr(&name) {
-            scrub_text(ctx.allow, value)
-        } else if is_data_attr(&name) {
-            if data_attr_looks_sensitive(value) {
-                scrub_text(ctx.allow, value)
+        let result = if is_url_attr(name) {
+            scrub_url(ctx.allow, current)
+        } else if is_user_text_attr(name) {
+            scrub_text(ctx.allow, current)
+        } else if is_data_attr(name) {
+            if data_attr_looks_sensitive(current) {
+                scrub_text(ctx.allow, current)
             } else {
-                redact_emails(value)
+                redact_emails(current)
             }
         } else {
             continue;
         };
         if let Some(v) = result {
-            attrs.insert(name.into(), string_value(v));
+            *value = string_value(v);
             changed = true;
+        }
+    }
+
+    for name in deferred {
+        if name == INLINE_IMAGE_ATTR {
+            changed |= blur_inline_image_attr(ctx, attrs, &name);
+        } else {
+            changed |= scrub_css_images(ctx, attrs, &name);
         }
     }
 

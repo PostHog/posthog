@@ -8902,6 +8902,7 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "base64 0.22.1",
  "flate2",

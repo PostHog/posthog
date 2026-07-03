@@ -28,11 +28,20 @@ pub fn skip_ws(bytes: &[u8], mut pos: usize) -> usize {
 }
 
 /// `start` must be at an opening quote; returns the position just past the closing quote.
-/// String content dominates replay payload bytes, so the scan jumps between the only two bytes that
-/// matter (`\\` and `"`) with memchr rather than walking byte-at-a-time.
+/// DOM JSON is mostly 5-20 byte strings, where memchr's per-call setup costs more than the scan
+/// itself — so the first bytes are walked directly, with memchr jumps for the long tail (blobs,
+/// base64 bodies).
 pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&b'"'));
     let mut pos = start + 1;
+    let fast_end = (pos + 24).min(bytes.len());
+    while pos < fast_end {
+        match bytes[pos] {
+            b'"' => return Ok(pos + 1),
+            b'\\' => pos += 2, // skip the escape and its payload byte
+            _ => pos += 1,
+        }
+    }
     while pos < bytes.len() {
         let Some(i) = memchr::memchr2(b'\\', b'"', &bytes[pos..]) else {
             break;
@@ -41,12 +50,15 @@ pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
         if bytes[at] == b'"' {
             return Ok(at + 1);
         }
-        pos = at + 2; // skip the escape and its payload byte
+        pos = at + 2;
     }
     Err(ScanError("unterminated string"))
 }
 
 /// `start` must be at `open`; returns the position just past the matching `close`.
+/// Stays bytewise between strings: `skip_string` already jumps string content, so the structural
+/// gaps left here are a handful of bytes — too short for memchr's per-call setup to pay off
+/// (measured: memchr3 here costs ~20% on bracket-dense mousemove payloads).
 pub fn skip_balanced(bytes: &[u8], start: usize, open: u8, close: u8) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&open));
     let mut depth: usize = 0;
@@ -273,9 +285,9 @@ pub fn is_array(bytes: &[u8], span: Span) -> bool {
     bytes.get(span.0) == Some(&b'[')
 }
 
-/// Decode a JSON string span (including its quotes) into a Rust `String`, handling all JSON escapes
-/// including surrogate pairs.
-pub fn unescape(bytes: &[u8], span: Span) -> Result<String> {
+/// Decode a JSON string span (including its quotes), handling all JSON escapes including surrogate
+/// pairs. Escape-free strings (the overwhelming majority) borrow the input — zero copy.
+pub fn unescape<'b>(bytes: &'b [u8], span: Span) -> Result<std::borrow::Cow<'b, str>> {
     let raw = bytes
         .get(span.0..span.1)
         .ok_or(ScanError("string span out of range"))?;
@@ -285,7 +297,7 @@ pub fn unescape(bytes: &[u8], span: Span) -> Result<String> {
     let inner = &raw[1..raw.len() - 1];
     if !inner.contains(&b'\\') {
         return std::str::from_utf8(inner)
-            .map(str::to_string)
+            .map(std::borrow::Cow::Borrowed)
             .map_err(|_| ScanError("invalid utf-8 in string"));
     }
     let mut out = Vec::with_capacity(inner.len());
@@ -337,7 +349,9 @@ pub fn unescape(bytes: &[u8], span: Span) -> Result<String> {
             _ => return Err(ScanError("bad escape")),
         }
     }
-    String::from_utf8(out).map_err(|_| ScanError("invalid utf-8 in string"))
+    String::from_utf8(out)
+        .map(std::borrow::Cow::Owned)
+        .map_err(|_| ScanError("invalid utf-8 in string"))
 }
 
 fn hex4(bytes: &[u8], at: usize) -> Result<u16> {

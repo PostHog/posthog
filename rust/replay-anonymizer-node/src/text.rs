@@ -103,25 +103,50 @@ pub fn scrub_text(allow: &AllowLists, input: &str) -> Option<String> {
 }
 
 fn tokenize_scrub(allow: &AllowLists, text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut changed = false;
-    let mut it = text.char_indices().peekable();
-    while let Some(&(start, c)) = it.peek() {
-        if is_word_char(c) {
-            let mut end = start;
-            while let Some(&(i, ch)) = it.peek() {
-                if is_word_char(ch) {
-                    end = i + ch.len_utf8();
-                    it.next();
-                } else {
+    let mut i = 0usize;
+    while i < bytes.len() {
+        // Non-word run: find its end bytewise (ASCII fast path) and copy it in one slice push.
+        let run_start = i;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b < 0x80 {
+                if is_ascii_word_byte(b) {
                     break;
                 }
+                i += 1;
+            } else {
+                let c = next_char(text, i);
+                if is_word_char(c) {
+                    break;
+                }
+                i += c.len_utf8();
             }
-            emit_word(allow, &text[start..end], &mut out, &mut changed);
-        } else {
-            out.push(c);
-            it.next();
         }
+        out.push_str(&text[run_start..i]);
+        if i >= bytes.len() {
+            break;
+        }
+        // Word run.
+        let word_start = i;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b < 0x80 {
+                if !is_ascii_word_byte(b) {
+                    break;
+                }
+                i += 1;
+            } else {
+                let c = next_char(text, i);
+                if !is_word_char(c) {
+                    break;
+                }
+                i += c.len_utf8();
+            }
+        }
+        emit_word(allow, &text[word_start..i], &mut out, &mut changed);
     }
     if changed {
         Some(out)
@@ -130,7 +155,16 @@ fn tokenize_scrub(allow: &AllowLists, text: &str) -> Option<String> {
     }
 }
 
+fn next_char(text: &str, at: usize) -> char {
+    text[at..].chars().next().expect("at is a char boundary")
+}
+
 // A "word" is a maximal run of word chars: Unicode letters/numbers, `_`, `'`, `’`.
+// The byte test is the ASCII projection of `is_word_char` (`’` is non-ASCII, handled per-char).
+fn is_ascii_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'\''
+}
+
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '\'' || c == '\u{2019}'
 }

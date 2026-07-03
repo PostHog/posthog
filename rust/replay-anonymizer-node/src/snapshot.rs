@@ -285,7 +285,7 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
         match span {
             None => Ok(None),
             Some(s) if scan::is_string(inner, s) => scan::unescape(inner, s)
-                .map(Some)
+                .map(|c| Some(c.into_owned()))
                 .map_err(|e| non_snapshot(e.0)),
             Some(_) => Err(non_snapshot(format!("{name} is not a string"))),
         }
@@ -293,7 +293,7 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
 
     Ok(Scanned::Envelope(ScannedEnvelope {
         items,
-        session_id,
+        session_id: session_id.into_owned(),
         window_id: opt_string(window_id, "$window_id")?,
         snapshot_source: opt_string(snapshot_source, "$snapshot_source")?,
         snapshot_library: opt_string(lib, "$lib")?,

@@ -164,7 +164,7 @@ fn has_duplicate_keys(obj: &Object<'_>) -> bool {
         }
         false
     } else {
-        let mut seen = std::collections::HashSet::with_capacity(n);
+        let mut seen = ahash::AHashSet::with_capacity(n);
         obj.keys().any(|k| !seen.insert(k.as_ref()))
     }
 }
@@ -204,7 +204,21 @@ pub fn max_bracket_depth(json: &[u8]) -> usize {
         match json[pos] {
             b'"' => {
                 pos += 1;
-                while pos < json.len() {
+                // Bytewise prefix before memchr, same rationale as `scan::skip_string`: most DOM
+                // strings are shorter than memchr's per-call setup is worth.
+                let fast_end = (pos + 24).min(json.len());
+                let mut closed = false;
+                while pos < fast_end {
+                    match json[pos] {
+                        b'"' => {
+                            closed = true;
+                            break;
+                        }
+                        b'\\' => pos += 2,
+                        _ => pos += 1,
+                    }
+                }
+                while !closed && pos < json.len() {
                     let Some(i) = memchr::memchr2(b'\\', b'"', &json[pos..]) else {
                         pos = json.len();
                         break;
