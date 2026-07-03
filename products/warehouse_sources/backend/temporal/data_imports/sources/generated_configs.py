@@ -1863,7 +1863,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
