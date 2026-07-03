@@ -616,12 +616,15 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertLess(len(results), len(unfiltered["results"]))
 
-    def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
+    def _run_log_attribute_filter(
+        self, operator: PropertyOperator, mode: PropertyGroupsMode, *, exclude_attributes: bool = False
+    ) -> list[dict]:
         query = LogsQuery(
             dateRange=DateRange(date_from="2025-12-14T00:00:00Z", date_to="2025-12-18T03:00:00Z"),
             limit=2000,
             serviceNames=[],
             severityLevels=[],
+            excludeAttributes=exclude_attributes,
             filterGroup=PropertyGroupFilter(
                 type=FilterLogicalOperator.AND_,
                 values=[
@@ -664,6 +667,18 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The "= F" filter must match the 1000 logtag="F" rows — not return nothing.
         self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
         self.assertEqual(len(exact_results), 1000)
+
+    @freeze_time("2025-12-18T03:00:00Z")
+    def test_log_attribute_value_filter_with_excluded_attributes(self):
+        # excludeAttributes replaces the selected `attributes` column with an empty `map()`. Aliasing that
+        # placeholder back to "attributes" would shadow the table column a value-match log_attribute filter
+        # reads, so resolution fails and the row query 500s — while logs-count (no such alias) stays fine.
+        # The filter must still be applied server-side (1000 rows), with the attribute maps returned empty.
+        results = self._run_log_attribute_filter(
+            PropertyOperator.EXACT, PropertyGroupsMode.OPTIMIZED, exclude_attributes=True
+        )
+        self.assertEqual(len(results), 1000)
+        self.assertTrue(all(r["attributes"] == {} for r in results))
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
