@@ -10,7 +10,8 @@ from products.uptime.backend.sql import (
 )
 
 # Single-shot migration that sets up the Kafka -> MV -> sharded table pipeline used by
-# rust/uptime-pinger.
+# rust/uptime-pinger. Ping volume is tiny (one row per monitor per interval), so the
+# whole pipeline lives on the main cluster's data nodes rather than the ingestion layer.
 operations = [
     run_sql_with_exceptions(
         SHARDED_UPTIME_PINGS_TABLE_SQL(),
@@ -18,11 +19,11 @@ operations = [
     ),
     run_sql_with_exceptions(
         DISTRIBUTED_UPTIME_PINGS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         WRITABLE_UPTIME_PINGS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         KAFKA_UPTIME_PINGS_TABLE_SQL(),
