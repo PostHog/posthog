@@ -148,19 +148,27 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     },
     "deps_toolchain": {
         # All path-only — these are literal filenames, not title words.
+        # Manifests (package.json, pyproject.toml, tsconfig, Cargo.toml,
+        # go.mod) deliberately don't hard-deny: without a lockfile change
+        # they cannot pull in third-party code, and 69-80% of manifest-only
+        # denials merged unchanged. The residual risk — manifest "scripts"/
+        # lifecycle hooks execute in CI — is guarded by the reviewer prompt
+        # (see the dependency-manifest rules in reviewer.py), and such PRs
+        # are kept out of the T0 fast path (see is_allow_listed_only usage).
+        # requirements.txt stays: it pins installed code directly, no
+        # lockfile involved. .nvmrc/.tool-versions stay: they change the
+        # runtime for every CI job. Makefile/Dockerfile stay: they execute.
         "paths": [
-            r"package\.json",
-            r"requirements\.txt",
-            r"pyproject\.toml",
             "pnpm-lock",
             "package-lock",
             r"yarn\.lock",
             r"uv\.lock",
-            r"Cargo\.toml",
-            r"go\.mod",
+            r"cargo\.lock",
+            r"go\.sum",
+            r"poetry\.lock",
+            r"requirements[-\w]*\.(txt|in)",
             "Makefile",
             "Dockerfile",
-            "tsconfig",
             r"\.tool-versions",
             r"\.nvmrc",
         ],
@@ -485,6 +493,38 @@ def has_dependency_changes(files: list[str]) -> bool:
     }
     dep_files_lower = {d.lower() for d in dep_files}
     return any(Path(f).name.lower() in dep_files_lower for f in files)
+
+
+_LOCKFILE_NAMES = DISMISS_TIME_LOCKFILES | frozenset({"go.sum"})
+
+# setup.py/setup.cfg/Pipfile/Gemfile execute code at install/build time even
+# though no lockfile pairs with them in this repo — they need the same
+# reviewer scrutiny as the lockfile-paired manifests.
+_DEP_MANIFEST_NAMES = frozenset(
+    {"package.json", "pyproject.toml", "cargo.toml", "go.mod", "setup.py", "setup.cfg", "pipfile", "gemfile"}
+)
+
+
+def is_dependency_manifest(path: str) -> bool:
+    name = Path(path).name.lower()
+    if name in _DEP_MANIFEST_NAMES:
+        return True
+    return name.startswith("tsconfig") and name.endswith(".json")
+
+
+def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
+    """Manifest files changed with no lockfile in the change set.
+
+    Such a change cannot install new third-party code (CI installs are
+    frozen-lockfile), so it passes the deny-list — but manifest scripts/hooks
+    execute in CI, so the reviewer prompt gets these paths and must REFUSE if
+    scripts changed. Any lockfile in the change set suppresses the flag: the
+    lockfile itself hard-denies, which forces the stronger human-review path.
+    """
+    names = {Path(f).name.lower() for f in files}
+    if names & _LOCKFILE_NAMES:
+        return []
+    return sorted(f for f in files if is_dependency_manifest(f))
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:

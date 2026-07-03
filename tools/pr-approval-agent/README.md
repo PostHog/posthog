@@ -158,13 +158,21 @@ Deny-listed categories where even a small diff can have high blast radius:
 | **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, .github/pr-deploy, bin/deploy, deploy.sh, iam, cloudflare, etc.                          |
 | **billing**        | billing, payment, stripe, invoice, pricing                                                                                                    |
 | **public_api**     | openapi, api_schema, swagger, public_api                                                                                                      |
-| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc.                                                  |
+| **deps_toolchain** | lockfiles (pnpm-lock, uv.lock, Cargo.lock, go.sum, …), requirements.txt, Makefile, Dockerfile, .nvmrc                                         |
 
 Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
 `subscription` (means scheduled insight deliveries here, not payments),
 `routing` (every match was app-level DRF routing, never infra), and the bare word `deploy`
 (matches deploy-timing docs and unrelated code); narrow literals `bin/deploy`, `deploy.sh`,
 and `.github/pr-deploy` cover real deployment artifacts instead.
+Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml,
+go.mod) don't hard-deny either: without a lockfile change they can't pull in
+third-party code (CI installs are frozen-lockfile). Three guards cover the
+residual risk that manifest scripts/hooks execute in CI: a deterministic scan
+of the manifest's diff hard-denies edits to known scripts/lifecycle/build
+keys (see `manifest_risk.py` — fails closed if the diff can't be read),
+manifest PRs are kept out of the T0 fast path, and the reviewer prompt must
+REFUSE on execution-bearing changes the scan can't name.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching

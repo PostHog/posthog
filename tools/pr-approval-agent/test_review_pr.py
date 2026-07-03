@@ -251,6 +251,50 @@ def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.parametrize(
+    "manifest",
+    [
+        pytest.param("frontend/package.json", id="package-json"),
+        pytest.param("common/esbuilder/tsconfig.json", id="tsconfig"),
+        pytest.param("setup.cfg", id="setup-cfg"),
+    ],
+)
+def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch, manifest: str) -> None:
+    # Manifests are .json/.cfg so the allow-list would classify them T0 and
+    # skip the reviewer entirely — making the scripts/hooks REFUSE guard dead
+    # code for exactly the files it exists to check. They must land T1.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda *a: [])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": manifest, "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T1-agent"
+    assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
+
+
+def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The deterministic scan is the first line against scripts/hook edits —
+    # when it fires, the PR must land T2-never rather than the LLM-only path.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda paths, *a: list(paths))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": "frontend/package.json", "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T2-never"
+    assert "deps_toolchain" in pipeline.classification["deny_categories"]
+    assert pipeline.classification["manifest_script_changes"] == ["frontend/package.json"]
+
+
+@pytest.mark.parametrize(
     "files, expected_flags",
     [
         pytest.param(
