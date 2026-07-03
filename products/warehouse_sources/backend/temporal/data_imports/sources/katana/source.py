@@ -79,8 +79,9 @@ Generate an API key in Katana under **Settings > API** (an active API access add
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # A revoked/invalid key surfaces as a requests HTTPError from `raise_for_status()`. Retrying
-            # can't fix a credential problem, so stop the sync. Match the stable status + base host.
+            # A revoked/invalid key surfaces as a requests HTTPError raised by `_request_page` with a
+            # scrubbed URL. Retrying can't fix a credential problem, so stop the sync. Match the stable
+            # status + base host (the scrubbed URL keeps this prefix free of the key).
             "401 Client Error: Unauthorized for url: https://api.katanamrp.com": "Your Katana API key is invalid or has been revoked. Generate a new key under Settings > API in Katana, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.katanamrp.com": "Your Katana API key is missing access to this data. Check the key's permissions in Katana, then reconnect.",
         }
