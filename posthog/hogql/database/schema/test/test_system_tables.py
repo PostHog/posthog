@@ -316,6 +316,14 @@ def _create_error_tracking_assignment_rule(team: Team, label: str):
     )
 
 
+def _create_error_tracking_bypass_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingBypassRule
+
+    return ErrorTrackingBypassRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
 def _create_error_tracking_suppression_rule(team: Team, label: str):
     from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
@@ -651,6 +659,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_modeling_endpoint_versions", _create_endpoint_version),
     ("data_modeling_endpoints", _create_endpoint),
     ("error_tracking_assignment_rules", _create_error_tracking_assignment_rule),
+    ("error_tracking_bypass_rules", _create_error_tracking_bypass_rule),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),

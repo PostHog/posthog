@@ -632,6 +632,37 @@ def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
     assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
+    # The COUNT query hits BigQuery's job-metadata race; it must be retried and yield the real
+    # count, not swallowed into the catch-all that returns 0 and captures error-tracking noise.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = [NotFound("404 Not found: Job proj:US.job_abc123"), iter([[123]])]
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 123
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+    mock_capture.assert_not_called()
+
+
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
@@ -666,26 +697,30 @@ def test_bigquery_get_query_row_filters_compose_with_incremental():
 
 
 @pytest.mark.parametrize(
-    "field_type,last_value,expected_clause,offset_present",
+    "field_type,column_bq_type,last_value,expected_clause,offset_present",
     [
         # DATETIME columns are timezone-naive — a tz-aware literal can't be cast and BigQuery rejects it
         # with "Could not cast literal ... to type DATETIME". On the first incremental sync the cursor
         # defaults to the 1970-01-01 UTC initial value, whose isoformat carries a '+00:00' offset; for a
         # DATETIME field the literal must be naive.
-        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
+        (IncrementalFieldType.DateTime, "DATETIME", None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
         # A tz-aware value carried over from a previous sync is also rendered naive for DATETIME fields.
         (
             IncrementalFieldType.DateTime,
+            "DATETIME",
             parser.parse("2024-03-11T09:26:04+00:00"),
             "WHERE `cursor` > '2024-03-11T09:26:04'",
             False,
         ),
         # TIMESTAMP columns are timezone-aware, so the offset must be preserved in the literal.
-        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
+        (IncrementalFieldType.Timestamp, "TIMESTAMP", None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
     ],
 )
-def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
+def test_bigquery_get_query_datetime_cursor_timezone_offset(
+    field_type, column_bq_type, last_value, expected_clause, offset_present
+):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type=column_bq_type)]
     sql, _ = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
@@ -695,6 +730,36 @@ def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_val
     )
     assert expected_clause in sql
     assert ("+00:00" in sql) is offset_present
+
+
+@pytest.mark.parametrize(
+    "field_type,last_value,expected_clause",
+    [
+        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01'"),
+        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01'"),
+        (
+            IncrementalFieldType.DateTime,
+            parser.parse("2024-03-11T09:26:04+00:00"),
+            "WHERE `cursor` > '2024-03-11'",
+        ),
+    ],
+)
+def test_bigquery_get_query_date_column_with_datetime_cursor(field_type, last_value, expected_clause):
+    # A column retyped to DATE in BigQuery after discovery still carries a DateTime/Timestamp cursor
+    # here, whose datetime-shaped literal ("1970-01-01T00:00:00") BigQuery refuses to cast to DATE
+    # ("Could not cast literal ... to type DATE"). The literal must follow the column's live type.
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type="DATE")]
+    sql, _ = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=last_value,
+        bq_table=bq_table,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
+    )
+    assert expected_clause in sql
+    assert "T00:00:00" not in sql
+    assert "+00:00" not in sql
 
 
 @pytest.mark.parametrize(
@@ -1128,11 +1193,80 @@ def test_validate_bigquery_credentials_reports_unexpected_errors():
                 "permission for 'projects/some-project'"
             )
         ),
+        # Storage Read API stream-read denial — the session can be created but the account lacks
+        # `bigquery.readsessions.getData`. `str(PermissionDenied)` is "there was an error operating
+        # on '.../streams/...': the user does not have 'bigquery.readsessions.getData' permission for
+        # '...'", which neither the "Access Denied:" / "403 request failed" nor the readsessions.create
+        # keys cover.
+        str(
+            PermissionDenied(
+                "there was an error operating on 'projects/some-project/locations/us/sessions/sess/"
+                "streams/strm': the user does not have 'bigquery.readsessions.getData' permission for "
+                "'projects/some-project/locations/us/sessions/sess/streams/strm'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error,expected_key,expected_word",
+    [
+        # Overwriting a PostHog temp table — denied with bigquery.tables.update on the table.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
+                    "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.update",
+            "write access",
+        ),
+        # Creating a PostHog temp table — denied with bigquery.tables.create on the dataset.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Dataset prj:ds: Permission bigquery.tables.create denied on dataset "
+                    "prj:ds (or it may not exist)."
+                )
+            ),
+            "bigquery.tables.create",
+            "create",
+        ),
+    ],
+)
+def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
+    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
+    # write-specific key match. external_data_job surfaces the first matching key's message, so the
+    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
+    # access to fix a write/create failure.
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == expected_key
+    assert friendly is not None
+    assert expected_word in friendly
+
+
+def test_job_create_denial_surfaces_job_permission_guidance():
+    # A bigquery.jobs.create denial also contains "Access Denied:", so both keys match.
+    # external_data_job surfaces the first matching key's message, so the job-creation key must sit
+    # above "Access Denied:" — otherwise the customer is told to grant read access to fix a failure
+    # that read access can't resolve.
+    observed_error = str(
+        Forbidden(
+            "POST https://bigquery.googleapis.com/bigquery/v2/projects/p/jobs?prettyPrint=false: "
+            "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.jobs.create"
+    assert friendly is not None
+    assert "run query jobs" in friendly
 
 
 @pytest.mark.parametrize(
@@ -1567,3 +1701,23 @@ def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error)
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert "un-applied upsert data that is not fresh enough" not in other_error
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def test_bigquery_resources_exceeded_is_non_retryable():
+    """A `resourcesExceeded` query failure exceeds a worker's memory deterministically (heavy sorts /
+    analytic OVER() clauses over a large table or view), so retrying the identical temp-table copy in
+    `_run_destination_query_with_job_retry` always fails — it must be recognised as non-retryable
+    rather than retried on every attempt."""
+    error_msg = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=us-central1&prettyPrint=false: Resources exceeded during query "
+            "execution: The query could not be executed in the allotted memory. Peak usage: 122% of limit."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)

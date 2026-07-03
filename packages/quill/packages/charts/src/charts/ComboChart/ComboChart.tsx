@@ -1,16 +1,19 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
+import { applyOuterStackCaps, bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    LINE_STROKE_WIDTH,
     drawAxes,
+    resolveAxisLineColor,
     drawBarHighlight,
     drawBars,
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
+    type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
@@ -89,7 +92,9 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -181,15 +186,22 @@ function ComboChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
+            // nor lines paint over the baseline where they meet the axis.
             if (showGrid) {
-                const categoryTicks = computeVisibleXLabels(
-                    drawLabels,
-                    (label) => bandCenter(comboScales, label),
-                    xTickFormatter
-                ).map((entry) => entry.x)
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                // In the axis-line style only the value-axis grid guides reading; category lines
+                // through the band gaps are noise (line charts never draw them either).
+                const categoryTicks = showAxisLines
+                    ? []
+                    : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
+                          (entry) => entry.x
+                      )
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -204,6 +216,14 @@ function ComboChartInner<Meta = unknown>({
                 stackedData: barStackedData,
                 topStackedKeyByAxis,
             })
+            // Stacked cap rounding is re-resolved per band from the laid-out rects, so breakdown
+            // and diverging stacks round their actual outer segments.
+            applyOuterStackCaps(
+                barLayers.flatMap((layer) => layer.bars.map((bar) => ({ bar, yAxisId: layer.series.yAxisId }))),
+                comboScales,
+                false,
+                barLayout
+            )
             for (const { series: s, bars } of barLayers) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
@@ -221,7 +241,18 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+            }
         },
         [
             seriesTypeOf,
@@ -232,6 +263,7 @@ function ComboChartInner<Meta = unknown>({
             barStackedData,
             topStackedKeyByAxis,
             barCornerRadius,
+            smooth,
         ]
     )
 
@@ -273,6 +305,7 @@ function ComboChartInner<Meta = unknown>({
                   }).hits
                 : null
 
+            const hoveredBars: { series: ResolvedSeries; bar: BarRect }[] = []
             for (const s of barSeries) {
                 if (barHits && !barHits.has(s.key)) {
                     continue
@@ -291,6 +324,16 @@ function ComboChartInner<Meta = unknown>({
                 if (!bar) {
                     continue
                 }
+                hoveredBars.push({ series: s, bar })
+            }
+            // Match the static layer's per-band cap resolution so highlights round the same corners.
+            applyOuterStackCaps(
+                hoveredBars.map((h) => ({ bar: h.bar, yAxisId: h.series.yAxisId })),
+                comboScales,
+                false,
+                barLayout
+            )
+            for (const { series: s, bar } of hoveredBars) {
                 const barColor = barColorAt(s, bar.dataIndex)
                 const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
                 drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)

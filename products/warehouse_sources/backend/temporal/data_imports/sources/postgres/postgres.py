@@ -228,7 +228,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 #     exhausted or every backend was busy. A slot frees the moment another session returns one.
 # Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
+#
+# Supavisor also surfaces a backend socket that closed mid-session — after the client authenticated
+# — as "Internal error (authenticated): :closed", where ":closed" is the Erlang gen_tcp reason for a
+# peer-closed socket (its DbHandler lost the backend connection to an idle cull, restart, or
+# failover). There's no error code here, so match the full phrase including the ":closed" reason: a
+# fresh reconnect re-establishes a new session — the same transient class. Matching only the
+# "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
+# could be a permanent pooler/protocol failure that should surface immediately, not be retried.
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
+    "edbhandlerexited",
+    "echeckoutretries",
+    "internal error (authenticated): :closed",
+)
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many

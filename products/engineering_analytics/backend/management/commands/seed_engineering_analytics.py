@@ -66,6 +66,9 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
+# Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
+# placeholders (a real source stores the repo in job_inputs at connect time).
+SEED_REPOSITORY = "PostHog/posthog"
 # Default prefix is non-trivial on purpose: it proves the product resolves the real
 # per-team table name rather than assuming the bare ``github_*`` names.
 DEFAULT_PREFIX = "eng_analytics_seed"
@@ -366,10 +369,17 @@ class Command(BaseCommand):
                 status=ExternalDataSource.Status.COMPLETED,
                 source_type=ExternalDataSourceType.GITHUB,
                 prefix=prefix,
+                job_inputs={"repository": SEED_REPOSITORY},
             )
+        update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
-            source.save(update_fields=["prefix", "updated_at"])
+            update_fields.append("prefix")
+        if (source.job_inputs or {}).get("repository") != SEED_REPOSITORY:
+            source.job_inputs = {**(source.job_inputs or {}), "repository": SEED_REPOSITORY}
+            update_fields.append("job_inputs")
+        if update_fields:
+            source.save(update_fields=[*update_fields, "updated_at"])
         return source
 
     def _upsert_schema_table(
