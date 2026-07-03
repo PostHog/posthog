@@ -827,9 +827,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 sharing_configuration = (
                     SharingConfiguration.objects.select_related(
                         "dashboard",
+                        "dashboard__created_by",
                         "insight",
+                        "insight__created_by",
                         "recording",
                         "notebook",
+                        "notebook__created_by",
                         "interviewee_context",
                         "interviewee_context__topic",
                     )

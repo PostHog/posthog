@@ -1624,11 +1624,12 @@ class TestSharedExecutionPrincipal(APIBaseTest):
         if case == "deleted creator falls back to userless execution":
             insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=None)
             return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
-        # deactivated creator falls back to userless execution
-        self.creator.is_active = False
-        self.creator.save()
-        insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
-        return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
+        if case == "deactivated creator falls back to userless execution":
+            self.creator.is_active = False
+            self.creator.save()
+            insight = Insight.objects.create(team=self.team, query=self.trends_query, created_by=self.creator)
+            return SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True), None
+        raise AssertionError(f"Unknown case: {case}")
 
     @parameterized.expand(
         [

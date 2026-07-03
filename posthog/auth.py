@@ -748,9 +748,17 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(
-                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
-                ).get(access_token=sharing_access_token, enabled=True)
+                sharing_configuration = (
+                    SharingConfiguration.objects.select_related(
+                        # The execution principal (artifact creator) is resolved on every
+                        # token-authenticated request; preload it to keep tile refreshes query-free.
+                        "insight__created_by",
+                        "dashboard__created_by",
+                        "notebook__created_by",
+                    )
+                    .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+                    .get(access_token=sharing_access_token, enabled=True)
+                )
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
