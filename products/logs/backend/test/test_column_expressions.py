@@ -109,6 +109,10 @@ class TestColumnToExpr(SimpleTestCase):
             ("nested_aggregate", "upper(toString(sum(1)))"),
             ("subquery", "(SELECT 1)"),
             ("placeholder", "{cursor}"),
+            # Row-multiplying functions would expand a per-row column into many rows — a low-friction DoS.
+            ("array_join_row_multiplier", "arrayJoin(range(1000000000))"),
+            ("array_join_case_insensitive", "ARRAYJOIN([1, 2, 3])"),
+            ("nested_array_join", "toString(arrayJoin(range(10)))"),
         ]
     )
     def test_non_scalar_expressions_are_rejected(self, _name, text):

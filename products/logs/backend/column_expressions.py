@@ -48,6 +48,13 @@ def parse_shorthand(text: str) -> ast.Expr | None:
     return path_to_expr(source, path)
 
 
+# ClickHouse functions that emit more than one row per input row. They have no place in a per-row
+# custom column: a reader could submit e.g. `arrayJoin(range(1000000000))` and force the logs query
+# to expand every matching row into billions, a low-friction availability hit. Matched case-insensitively.
+# Mirrors posthog.hogql.database.schema.util.where_clause_extractor._ROW_MULTIPLYING_FUNCTIONS.
+_ROW_MULTIPLYING_FUNCTIONS = {"arrayjoin"}
+
+
 class _ScalarValidator(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         raise ValueError("Custom columns cannot contain subqueries")
@@ -61,11 +68,13 @@ class _ScalarValidator(TraversingVisitor):
     def visit_call(self, node: ast.Call) -> None:
         if find_hogql_aggregation(node.name) is not None:
             raise ValueError(f"Custom columns must be per-row: aggregation {node.name!r} is not allowed")
+        if node.name.lower() in _ROW_MULTIPLYING_FUNCTIONS:
+            raise ValueError(f"Custom columns must be per-row: {node.name!r} can multiply rows and is not allowed")
         super().visit_call(node)
 
 
 def _validate_scalar(expr: ast.Expr) -> None:
-    """Reject subqueries, aggregations, and unresolved placeholders anywhere in `expr`.
+    """Reject subqueries, aggregations, row-multiplying functions, and unresolved placeholders anywhere in `expr`.
 
     Scalar function calls, field access, arithmetic, conditionals, and constants all
     pass. This is an AST check — the expression is never inspected as a string.
