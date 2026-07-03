@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { harnessLogo } from './dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
@@ -19,8 +19,8 @@ import {
     buildKPIs,
     buildKpiWindow,
     buildToolDailySeries,
-    categorizeHarness,
     deltaPct,
+    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     normalizeBucket,
     pickNotableSessions,
@@ -49,50 +49,44 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('categorizeHarness', () => {
-        it.each([
-            ['claude-code/1.0.0', 'Claude Code'],
-            ['claude-code cli', 'Claude Code'],
-            ['claude-code claude-desktop', 'Claude Desktop'],
-            ['claude-code claude-vscode', 'Claude Code (VS Code)'],
-            ['claude-code sdk-ts', 'Claude Agent SDK'],
-            ['claude-ai', 'Claude.ai'],
-            ['anthropic/claudeai', 'Claude.ai'],
-            ['cowork', 'Cowork'],
-            ['claude-design', 'Claude Design'],
-            ['claude-user', 'Claude.ai'],
-            ['openai-mcp', 'OpenAI'],
-            ['openai-mcp chatgpt', 'ChatGPT'],
-            ['openai-mcp agent builder', 'OpenAI Agent Builder'],
-            ['openai-mcp responses api', 'OpenAI Responses API'],
-            ['cursor/0.42', 'Cursor'],
-            ['cursor darwin arm64', 'Cursor'],
-            ['codex-cli', 'OpenAI Codex'],
-            // Raw clientInfo.name tokens the harness coalesce now surfaces from
-            // mcp_session_client_name (these clients send no useful User-Agent).
-            ['codex-mcp-client', 'OpenAI Codex'],
-            ['cursor-vscode', 'Cursor'],
-            ['opencode', 'opencode'],
-            ['Lovable MCP Client', 'Lovable'],
-            ['linear-agent', 'Linear'],
-            ['@librechat/api-client', 'LibreChat'],
-            ['pi-client', 'Pi'],
-            ['antigravity-client', 'Antigravity'],
-            ['coderabbit', 'CodeRabbit'],
-            ['notion-mcp-client', 'Notion'],
-            ['replit-agent-mcp-client', 'Replit'],
-            ['windsurf', 'Windsurf'],
-            ['claude-code sdk-cli', 'Claude Agent SDK'],
-            ['claude-code sdk-py', 'Claude Agent SDK'],
-            ['visual studio code', 'VS Code'],
-            ['something-nobody-knows', 'Other'],
-            ['', 'Other'],
-        ])('maps %s -> %s', (raw, expected) => {
-            expect(categorizeHarness(raw)).toBe(expected)
-        })
+    describe('harnessLogo', () => {
+        // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
+        // If the backend renames or adds a label, update this list to keep it in sync
+        // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
+        const EXPECTED_HARNESS_LABELS = [
+            'Claude Desktop',
+            'Claude Code (VS Code)',
+            'Claude Agent SDK',
+            'Claude Code',
+            'Claude.ai',
+            'Anthropic API',
+            'Cowork',
+            'Claude Design',
+            'ChatGPT',
+            'OpenAI Agent Builder',
+            'OpenAI Responses API',
+            'OpenAI',
+            'OpenAI Codex',
+            'Cursor',
+            'VS Code',
+            'Windsurf',
+            'Replit',
+            'Lovable',
+            'Manus',
+            'CodeRabbit',
+            'Notion',
+            'Linear',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+            'Poke',
+            'opencode',
+            'Kiro',
+            'Desktop Commander',
+        ]
 
-        it('strips the "(via mcp-remote …)" suffix before matching', () => {
-            expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
+        it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
+            expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
         })
 
         it.each([
@@ -233,6 +227,43 @@ describe('mcpDashboardOverviewLogic', () => {
                 successes: [0, 0, 0],
                 errors: [0, 0, 0],
             })
+        })
+
+        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
+        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
+        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
+        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            const rows: ActivityRow[] = [
+                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
+                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
+            ]
+            const result = buildDailyActivity(rows, bucketKeys)
+            expect(result.labels).toHaveLength(bucketKeys.length)
+            expect(result.successes).toHaveLength(bucketKeys.length)
+            expect(result.errors).toHaveLength(bucketKeys.length)
+            expect(result.successes).toEqual([0, 5, 0])
+        })
+    })
+
+    describe('lastBucketIsInProgress', () => {
+        const tz = 'UTC'
+        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
+
+        it('flags the tail when the last bucket is the interval containing now', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
+        })
+
+        it('leaves the tail solid when the window ends in the past', () => {
+            const now = dayjs.tz('2026-07-05 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
+        })
+
+        it('does not dash when there is no segment to dash', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
+            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
         })
     })
 

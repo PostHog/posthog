@@ -1,15 +1,15 @@
-import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
-    KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '../config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
@@ -50,11 +50,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Controls which teams route email sends to the dedicated email queue.
-    // Supports team IDs, percentage rollout, or both.
-    // Examples: '' (disabled), '123,456' (specific teams), '*:0.1' (10% of traffic),
-    //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
-    CDP_EMAIL_QUEUE_ROUTING: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -95,12 +90,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
-    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
-    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
-    // (cheap), so flipping this on/off is purely a worker-side decision —
-    // rollback is a single env-var change with no SQL revert needed.
-    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
-
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -123,8 +112,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
     CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: CdpProducerName
-    CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: string
-    CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: CdpProducerName
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
 
@@ -143,7 +130,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
-    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
     // Cyclotron Node (node postgres job queue)
@@ -185,7 +171,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_EMAIL_QUEUE_ROUTING: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -220,16 +205,14 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
 
-        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
-
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default: detect self-loops and emit metrics without blocking.
-        // Valid values: 'disabled' | 'warn'. A blocking 'enforce' mode will be added in a
-        // follow-up PR once cdp_self_loop_guard_total production data is in.
+        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
+        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
+        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
         CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
@@ -254,8 +237,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
         CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
-        CDP_BATCH_HOGFLOW_REQUESTS_TOPIC: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
-        CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
@@ -281,7 +262,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
         CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
 
         // Cyclotron Node

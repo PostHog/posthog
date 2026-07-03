@@ -32,11 +32,10 @@ import pytz
 import pymssql
 import structlog
 
-from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 

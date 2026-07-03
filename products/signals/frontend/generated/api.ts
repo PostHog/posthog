@@ -10,8 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CommitDiffResponseApi,
+    EditReportRequestApi,
+    EditReportResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
+    EmitReportRequestApi,
+    EmitReportResponseApi,
+    FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -19,6 +24,7 @@ import type {
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalReportArtefactLogUpdateApi,
+    PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -26,7 +32,9 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMemberApi,
     ScoutMetadataApi,
+    ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -38,6 +46,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
+    SignalScoutManualRunApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -45,8 +54,11 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsScoutMembersListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
+    SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -174,6 +186,28 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+/**
+ * Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — supply only the ones you want to change; at least one is required. Every other report field (status, weights, judgments) is managed by the signals pipeline and cannot be set here. Returns the full updated report.
+ * @summary Edit a report's title or summary
+ */
+export const signalsReportsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalReportContentUpdateApi?: PatchedSignalReportContentUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalReportContentUpdateApi),
     })
 }
 
@@ -446,6 +480,44 @@ export const signalsScoutConfigUpdate = async (
     })
 }
 
+export const getSignalsScoutConfigDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * @summary Delete a scout config
+ */
+export const signalsScoutConfigDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsScoutConfigDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/run/`
+}
+
+/**
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * @summary Run a scout now
+ */
+export const signalsScoutConfigRun = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutManualRunApi> => {
+    return apiMutator<SignalScoutManualRunApi>(getSignalsScoutConfigRunUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/sync/`
 }
@@ -461,6 +533,37 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutMembersListUrl = (projectId: string, params?: SignalsScoutMembersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/members/`
+}
+
+/**
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * @summary List project members for reviewer routing
+ */
+export const signalsScoutMembersList = async (
+    projectId: string,
+    params?: SignalsScoutMembersListParams,
+    options?: RequestInit
+): Promise<ScoutMemberApi[]> => {
+    return apiMutator<ScoutMemberApi[]>(getSignalsScoutMembersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -563,6 +666,28 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/edit-report/`
+}
+
+/**
+ * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * @summary Edit an existing report for a run
+ */
+export const signalsScoutEditReport = async (
+    projectId: string,
+    runId: string,
+    editReportRequestApi: EditReportRequestApi,
+    options?: RequestInit
+): Promise<EditReportResponseApi> => {
+    return apiMutator<EditReportResponseApi>(getSignalsScoutEditReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(editReportRequestApi),
+    })
+}
+
 export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
@@ -601,6 +726,28 @@ export const signalsScoutRunsEmissionReports = async (
     })
 }
 
+export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-report/`
+}
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const signalsScoutEmitReport = async (
+    projectId: string,
+    runId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsScoutEmitReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
+    })
+}
+
 export const getSignalsScoutEmitSignalUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-signal/`
 }
@@ -620,6 +767,116 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsEmissionsBatchUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/emissions/batch/`
+}
+
+/**
+ * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
+ * @summary List emitted findings for many runs at once
+ */
+export const signalsScoutRunsEmissionsBatch = async (
+    projectId: string,
+    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsBatchUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsRecentEmissionsUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/emissions/recent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/emissions/recent/`
+}
+
+/**
+ * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).
+ * @summary List recent emitted findings across all runs
+ */
+export const signalsScoutRunsRecentEmissions = async (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsRecentEmissionsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsEmissionReportsBatchUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/emissions/reports/batch/`
+}
+
+/**
+ * Batched form of the per-run emission-reports endpoint. For every finding the requested runs emitted, resolve the inbox `SignalReport` (if any) its signal grouped into — all in a single ClickHouse round-trip rather than one query per run, which is what made the findings page slow to open. `report` is null when a finding hasn't grouped yet, was de-duplicated, or its signal was deleted. Strictly team-scoped — run ids belonging to another team contribute no rows.
+ * @summary List the inbox reports many runs' findings linked to
+ */
+export const signalsScoutRunsEmissionReportsBatch = async (
+    projectId: string,
+    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
+    options?: RequestInit
+): Promise<ScoutEmissionReportLinkApi[]> => {
+    return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsBatchUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsFindingsSummaryUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/findings/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/findings/summary/`
+}
+
+/**
+ * Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — the total count, the number of distinct scouts behind them, and the latest emission time. Backs the 'Scout findings' callout so it renders from one query instead of the client paging through the whole runs window. Counts only runs that emitted at least one finding (`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent 120 emitted runs so the count matches what the findings list renders. Strictly team-scoped.
+ * @summary Summarise recently emitted findings across the fleet
+ */
+export const signalsScoutRunsFindingsSummary = async (
+    projectId: string,
+    params?: SignalsScoutRunsFindingsSummaryParams,
+    options?: RequestInit
+): Promise<FleetFindingsSummaryApi> => {
+    return apiMutator<FleetFindingsSummaryApi>(getSignalsScoutRunsFindingsSummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

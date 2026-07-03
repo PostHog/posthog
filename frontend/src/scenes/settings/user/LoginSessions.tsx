@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconLaptop, IconLeave } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { UserAuthSessionApi } from '~/generated/core/api.schemas'
@@ -119,7 +119,7 @@ export function LoginSessions(): JSX.Element {
                 ]}
                 emptyState={
                     <div className="flex items-center gap-4 py-4">
-                        <DetectiveHog className="w-16 h-16" />
+                        <HedgehogMagnifyingGlass className="w-16 h-16" />
                         <div>
                             <div className="flex items-center gap-2 font-semibold">
                                 <IconLaptop className="text-xl text-secondary" />

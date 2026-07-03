@@ -434,7 +434,7 @@ class TestInstanceSettings(APIBaseTest):
 
         self.assertEqual(self._instance_setting_logs().count(), initial_count)
 
-    @patch("posthog.api.instance_settings.is_impersonated_session", return_value=True)
+    @patch("posthog.api.instance_settings.is_impersonated", return_value=True)
     def test_update_logs_impersonation(self, _mock_is_impersonated):
         response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)

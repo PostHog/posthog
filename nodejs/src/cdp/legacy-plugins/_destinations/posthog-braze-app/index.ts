@@ -1,8 +1,8 @@
 import crypto from 'crypto'
 
+import { FetchResponse } from '~/common/utils/request'
 import { ProcessedPluginEvent, Properties, RetryError } from '~/plugin-scaffold'
 
-import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export type FetchBraze = (

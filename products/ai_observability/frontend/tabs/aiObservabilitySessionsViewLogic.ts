@@ -1,17 +1,56 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { DataTableNode, HogQLQuery, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
-import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
+import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
 import type { aiObservabilitySessionsViewLogicType } from './aiObservabilitySessionsViewLogicType'
 
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
+
+const SESSIONS_PAGE_SIZE = 50
+
+export interface SessionListRow {
+    sessionId: string
+    distinctId: string
+    traces: number
+    totalCost: number
+    totalLatency: number
+    errors: number
+    lastSeen: string
+}
+
+function buildSessionsQuery(sessionsSort: SortState, offset: number): string {
+    return sessionsQueryTemplate
+        .replace('__ORDER_BY__', sessionsSort.column)
+        .replace('__ORDER_DIRECTION__', sessionsSort.direction)
+        .replace('__LIMIT__', String(SESSIONS_PAGE_SIZE))
+        .replace('__OFFSET__', String(offset))
+}
+
+function parseSessionsResponse(response: { columns?: unknown[]; results?: unknown[] }): SessionListRow[] {
+    const columns = (response.columns ?? []) as string[]
+    const at = (name: string): number => columns.indexOf(name)
+    const rows = (response.results ?? []) as unknown[][]
+    return rows.map((row) => ({
+        sessionId: String(row[at('session_id')] ?? ''),
+        distinctId: String(row[at('distinct_id')] ?? ''),
+        traces: Number(row[at('traces')] ?? 0),
+        totalCost: Number(row[at('total_cost')] ?? 0),
+        totalLatency: Number(row[at('total_latency')] ?? 0),
+        errors: Number(row[at('errors')] ?? 0),
+        lastSeen: String(row[at('last_seen')] ?? ''),
+    }))
+}
 
 export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySessionsViewLogic']),
@@ -19,273 +58,148 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
     connect(() => ({
         values: [
             aiObservabilitySharedLogic,
-            ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+            ['activeTab', 'dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            llmSessionTitleLazyLoaderLogic,
+            ['getSessionTitle'],
         ],
-        actions: [
-            aiObservabilitySharedLogic,
-            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
-        ],
+        actions: [llmSessionTitleLazyLoaderLogic, ['ensureSessionTitleLoaded']],
     })),
 
     actions({
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),
-        toggleSessionExpanded: (sessionId: string) => ({ sessionId }),
-        toggleTraceExpanded: (traceId: string) => ({ traceId }),
-        toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
-        loadSessionTraces: (sessionId: string) => ({ sessionId }),
-        loadSessionTracesSuccess: (sessionId: string, traces: LLMTrace[]) => ({ sessionId, traces }),
-        loadSessionTracesFailure: (sessionId: string, error: Error) => ({ sessionId, error }),
-        loadFullTrace: (traceId: string) => ({ traceId }),
-        loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
-        loadFullTraceFailure: (traceId: string, error: Error) => ({ traceId, error }),
+        selectSession: (sessionId: string | null) => ({ sessionId }),
+        loadSessions: (payload?: { refresh?: RefreshType }) => ({ refresh: payload?.refresh }),
+        loadSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({ sessions, hasMoreSessions }),
+        loadSessionsFailure: true,
+        loadMoreSessions: true,
+        loadMoreSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({
+            sessions,
+            hasMoreSessions,
+        }),
+        loadMoreSessionsFailure: true,
     }),
 
     reducers({
+        sessions: [
+            [] as SessionListRow[],
+            {
+                loadSessionsSuccess: (_, { sessions }) => sessions,
+                loadMoreSessionsSuccess: (state, { sessions }) => [...state, ...sessions],
+            },
+        ],
+        sessionsLoading: [
+            false,
+            {
+                loadSessions: () => true,
+                loadSessionsSuccess: () => false,
+                loadSessionsFailure: () => false,
+            },
+        ],
+        moreSessionsLoading: [
+            false,
+            {
+                loadSessions: () => false,
+                loadMoreSessions: () => true,
+                loadMoreSessionsSuccess: () => false,
+                loadMoreSessionsFailure: () => false,
+            },
+        ],
+        hasMoreSessions: [
+            false,
+            {
+                loadSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
+                loadMoreSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
+                loadSessionsFailure: () => false,
+            },
+        ],
+        selectedSessionId: [
+            null as string | null,
+            {
+                selectSession: (_, { sessionId }) => sessionId,
+            },
+        ],
         sessionsSort: [
             { column: 'last_seen', direction: 'DESC' } as SortState,
             {
                 setSessionsSort: (_, { column, direction }): SortState => ({ column, direction }),
             },
         ],
-
-        expandedSessionIds: [
-            new Set<string>() as Set<string>,
-            {
-                toggleSessionExpanded: (state, { sessionId }) => {
-                    const newSet = new Set(state)
-
-                    if (newSet.has(sessionId)) {
-                        newSet.delete(sessionId)
-                    } else {
-                        newSet.add(sessionId)
-                    }
-
-                    return newSet
-                },
-                setDates: () => new Set<string>(),
-                setPropertyFilters: () => new Set<string>(),
-                setShouldFilterTestAccounts: () => new Set<string>(),
-                applyUrlState: () => new Set<string>(),
-            },
-        ],
-
-        expandedTraceIds: [
-            new Set<string>() as Set<string>,
-            {
-                toggleTraceExpanded: (state, { traceId }) => {
-                    const newSet = new Set(state)
-
-                    if (newSet.has(traceId)) {
-                        newSet.delete(traceId)
-                    } else {
-                        newSet.add(traceId)
-                    }
-
-                    return newSet
-                },
-                setDates: () => new Set<string>(),
-                setPropertyFilters: () => new Set<string>(),
-                setShouldFilterTestAccounts: () => new Set<string>(),
-                applyUrlState: () => new Set<string>(),
-            },
-        ],
-
-        expandedGenerationIds: [
-            new Set<string>() as Set<string>,
-            {
-                toggleGenerationExpanded: (state, { uuid }) => {
-                    const newSet = new Set(state)
-
-                    if (newSet.has(uuid)) {
-                        newSet.delete(uuid)
-                    } else {
-                        newSet.add(uuid)
-                    }
-
-                    return newSet
-                },
-                setDates: () => new Set<string>(),
-                setPropertyFilters: () => new Set<string>(),
-                setShouldFilterTestAccounts: () => new Set<string>(),
-                applyUrlState: () => new Set<string>(),
-            },
-        ],
-
-        sessionTraces: [
-            {} as Record<string, LLMTrace[]>,
-            {
-                loadSessionTracesSuccess: (state, { sessionId, traces }) => ({
-                    ...state,
-                    [sessionId]: traces,
-                }),
-                setDates: () => ({}),
-                setPropertyFilters: () => ({}),
-                setShouldFilterTestAccounts: () => ({}),
-                applyUrlState: () => ({}),
-            },
-        ],
-
-        fullTraces: [
-            {} as Record<string, LLMTrace>,
-            {
-                loadFullTraceSuccess: (state, { traceId, trace }) => ({
-                    ...state,
-                    [traceId]: trace,
-                }),
-                setDates: () => ({}),
-                setPropertyFilters: () => ({}),
-                setShouldFilterTestAccounts: () => ({}),
-                applyUrlState: () => ({}),
-            },
-        ],
-
-        loadingSessionTraces: [
-            new Set<string>() as Set<string>,
-            {
-                loadSessionTraces: (state, { sessionId }) => new Set(state).add(sessionId),
-                loadSessionTracesSuccess: (state, { sessionId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(sessionId)
-                    return newSet
-                },
-                loadSessionTracesFailure: (state, { sessionId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(sessionId)
-                    return newSet
-                },
-            },
-        ],
-
-        loadingFullTraces: [
-            new Set<string>() as Set<string>,
-            {
-                loadFullTrace: (state, { traceId }) => new Set(state).add(traceId),
-                loadFullTraceSuccess: (state, { traceId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(traceId)
-                    return newSet
-                },
-                loadFullTraceFailure: (state, { traceId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(traceId)
-                    return newSet
-                },
-            },
-        ],
-
-        sessionTracesErrors: [
-            new Set<string>() as Set<string>,
-            {
-                loadSessionTracesFailure: (state, { sessionId }) => new Set(state).add(sessionId),
-                loadSessionTracesSuccess: (state, { sessionId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(sessionId)
-                    return newSet
-                },
-                setDates: () => new Set<string>(),
-                setPropertyFilters: () => new Set<string>(),
-                setShouldFilterTestAccounts: () => new Set<string>(),
-                applyUrlState: () => new Set<string>(),
-            },
-        ],
-
-        fullTracesErrors: [
-            new Set<string>() as Set<string>,
-            {
-                loadFullTraceFailure: (state, { traceId }) => new Set(state).add(traceId),
-                loadFullTraceSuccess: (state, { traceId }) => {
-                    const newSet = new Set(state)
-                    newSet.delete(traceId)
-                    return newSet
-                },
-                setDates: () => new Set<string>(),
-                setPropertyFilters: () => new Set<string>(),
-                setShouldFilterTestAccounts: () => new Set<string>(),
-                applyUrlState: () => new Set<string>(),
-            },
-        ],
     }),
 
-    listeners(({ actions, values }) => ({
-        toggleSessionExpanded: async ({ sessionId }) => {
-            if (
-                values.expandedSessionIds.has(sessionId) &&
-                !values.sessionTraces[sessionId] &&
-                !values.loadingSessionTraces.has(sessionId)
-            ) {
-                actions.loadSessionTraces(sessionId)
+    listeners(({ actions, values }) => {
+        let loadSessionsRequestId = 0
+        let loadMoreSessionsRequestId = 0
+
+        const preloadSessionTitles = (sessions: SessionListRow[]): void => {
+            for (const session of sessions) {
+                actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
             }
-        },
+        }
 
-        loadSessionTraces: async ({ sessionId }) => {
-            const dateFrom = values.dateFilter.dateFrom || undefined
-            const dateTo = values.dateFilter.dateTo || undefined
-
-            const tracesQuerySource: TracesQuery = {
-                kind: NodeKind.TracesQuery,
-                dateRange: {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                },
-                properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: '$ai_session_id',
-                        operator: PropertyOperator.Exact,
-                        value: sessionId,
-                    },
-                ],
-            }
-
-            try {
-                const response = await api.query(tracesQuerySource)
-
-                if (response.results) {
-                    actions.loadSessionTracesSuccess(sessionId, response.results)
+        return {
+            loadSessions: async ({ refresh }) => {
+                const requestId = ++loadSessionsRequestId
+                // A first-page reload supersedes any pagination request already in flight.
+                loadMoreSessionsRequestId++
+                const source = values.sessionsQuery.source as HogQLQuery
+                try {
+                    // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
+                    const response = await api.query(source, { refresh })
+                    if (requestId !== loadSessionsRequestId) {
+                        return
+                    }
+                    if (values.sessionsQuery.source !== source) {
+                        actions.loadSessionsFailure()
+                        return
+                    }
+                    const sessions = parseSessionsResponse(response)
+                    actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+                } catch {
+                    if (requestId === loadSessionsRequestId) {
+                        actions.loadSessionsFailure()
+                    }
                 }
-            } catch (error) {
-                console.error('Error loading traces for session:', error)
-                actions.loadSessionTracesFailure(sessionId, error as Error)
-            }
-        },
-
-        toggleTraceExpanded: async ({ traceId }) => {
-            if (
-                values.expandedTraceIds.has(traceId) &&
-                !values.fullTraces[traceId] &&
-                !values.loadingFullTraces.has(traceId)
-            ) {
-                actions.loadFullTrace(traceId)
-            }
-        },
-
-        loadFullTrace: async ({ traceId }) => {
-            const dateFrom = values.dateFilter.dateFrom || undefined
-            const dateTo = values.dateFilter.dateTo || undefined
-
-            const traceQuery: TraceQuery = {
-                kind: NodeKind.TraceQuery,
-                traceId,
-                dateRange: {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                },
-            }
-
-            try {
-                const response = await api.query(traceQuery)
-
-                if (response.results && response.results[0]) {
-                    actions.loadFullTraceSuccess(traceId, response.results[0])
+            },
+            loadMoreSessions: async () => {
+                if (!values.hasMoreSessions) {
+                    actions.loadMoreSessionsFailure()
+                    return
                 }
-            } catch (error) {
-                console.error('Error loading full trace:', error)
-                actions.loadFullTraceFailure(traceId, error as Error)
-            }
-        },
-    })),
+                const requestId = ++loadMoreSessionsRequestId
+                const source = values.sessionsQuery.source as HogQLQuery
+                const offset = values.sessions.length
+                try {
+                    const response = await api.query({
+                        ...source,
+                        query: buildSessionsQuery(values.sessionsSort, offset),
+                    })
+                    if (requestId !== loadMoreSessionsRequestId) {
+                        return
+                    }
+                    if (values.sessionsQuery.source !== source || values.sessions.length !== offset) {
+                        actions.loadMoreSessionsFailure()
+                        return
+                    }
+                    const sessions = parseSessionsResponse(response)
+                    actions.loadMoreSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+                } catch {
+                    if (requestId === loadMoreSessionsRequestId) {
+                        actions.loadMoreSessionsFailure()
+                    }
+                }
+            },
+            // Pre-load titles for the whole list (batched + deduped), so each row shows
+            // its name and re-selecting a listed session never re-queries its title.
+            loadSessionsSuccess: ({ sessions }) => {
+                preloadSessionTitles(sessions)
+            },
+            loadMoreSessionsSuccess: ({ sessions }) => {
+                preloadSessionTitles(sessions)
+            },
+        }
+    }),
 
     selectors({
         sessionsQuery: [
@@ -303,15 +217,11 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
-                const query = sessionsQueryTemplate
-                    .replace('__ORDER_BY__', sessionsSort.column)
-                    .replace('__ORDER_DIRECTION__', sessionsSort.direction)
-
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
-                        query,
+                        query: buildSessionsQuery(sessionsSort, 0),
                         filters: {
                             dateRange: {
                                 date_from: dateFilter.dateFrom || null,
@@ -337,7 +247,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                     ],
                     showDateRange: true,
                     showReload: true,
-                    showSearch: true,
                     showPropertyFilter: [
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
@@ -346,11 +255,40 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         TaxonomicFilterGroupType.HogQLExpression,
                     ],
                     showTestAccountFilters: true,
-                    showExport: true,
                     showColumnConfigurator: true,
-                    allowSorting: true,
                 }
             },
         ],
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sessionsQuery: (_sessionsQuery, previousSessionsQuery: DataTableNode | undefined) => {
+            if (previousSessionsQuery === undefined || values.activeTab !== 'sessions') {
+                return
+            }
+            actions.loadSessions()
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/ai-observability/sessions/:id': ({ id }) => {
+            if (id && id !== values.selectedSessionId) {
+                actions.selectSession(id)
+            }
+        },
+        '/ai-observability/sessions': () => {
+            if (values.selectedSessionId) {
+                actions.selectSession(null)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        selectSession: ({ sessionId }) => {
+            const search = router.values.searchParams
+            return sessionId
+                ? combineUrl(urls.aiObservabilitySession(sessionId), search).url
+                : combineUrl(urls.aiObservabilitySessions(), search).url
+        },
+    })),
 ])

@@ -19,6 +19,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.sentiment_evaluations import (
+    EMPTY_SENTIMENT_EVALUATION_LOOKUP,
+    SentimentEvaluationLookup,
+    get_generation_sentiment_lookup_ids,
+    get_sentiment_for_generation,
+    load_generation_sentiment_evaluations_for_traces,
+)
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -38,6 +45,7 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
     "total_cost": "totalCost",
     "events": "events",
     "trace_name": "traceName",
+    "sentiment": "sentiment",
 }
 
 
@@ -82,7 +90,18 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
 
         columns: list[str] = query_result.columns or []
-        results = self._map_results(columns, query_result.results)
+        sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
+        if self.query.includeSentiment and query_result.results:
+            sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
+                team=self.team,
+                trace_ids=[self.query.traceId],
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                query_type="TraceQuerySentimentEvaluations",
+            )
+
+        results = self._map_results(columns, query_result.results, sentiment_lookup)
 
         return TraceQueryResponse(
             columns=columns,
@@ -185,7 +204,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 5,
+            "schema_version": 9,
         }
 
     @cached_property
@@ -228,27 +247,38 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         return ast.And(exprs=where_exprs)
 
-    def _map_event(self, event_tuple: tuple) -> LLMTraceEvent:
+    def _map_event(self, event_tuple: tuple, sentiment_lookup: SentimentEvaluationLookup) -> LLMTraceEvent:
         event_uuid, event_name, event_timestamp, event_properties, *heavy = event_tuple
         heavy_columns = dict(zip(("input", "output", "output_choices", "input_state", "output_state", "tools"), heavy))
+        event_id = str(event_uuid)
+        properties = merge_heavy_properties(event_properties, heavy_columns)
         generation: dict[str, Any] = {
-            "id": str(event_uuid),
+            "id": event_id,
             "event": event_name,
             "createdAt": event_timestamp.isoformat(),
-            "properties": merge_heavy_properties(event_properties, heavy_columns),
+            "properties": properties,
         }
+        sentiment_lookup_ids = get_generation_sentiment_lookup_ids(event_id, event_name, properties)
+        sentiment = get_sentiment_for_generation(sentiment_lookup, sentiment_lookup_ids)
+        if sentiment is not None:
+            generation["sentiment"] = sentiment
         return LLMTraceEvent.model_validate(generation)
 
-    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
+    def _map_trace(
+        self, result: dict[str, Any], created_at: datetime, sentiment_lookup: SentimentEvaluationLookup
+    ) -> LLMTrace:
         generations = []
         for event_tuple in result["events"]:
-            generations.append(self._map_event(event_tuple))
+            generations.append(self._map_event(event_tuple, sentiment_lookup))
 
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
             "events": generations,
         }
+        sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
+        if sentiment is not None:
+            trace_dict["sentiment"] = sentiment
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key) or None
             trace_dict[raw_key] = raw
@@ -262,7 +292,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
         return trace
 
-    def _map_results(self, columns: list[str], query_results: list) -> list[LLMTrace]:
+    def _map_results(
+        self, columns: list[str], query_results: list, sentiment_lookup: SentimentEvaluationLookup
+    ) -> list[LLMTrace]:
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
@@ -277,6 +309,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             if first_timestamp > date_to or last_timestamp < date_from:
                 continue
 
-            traces.append(self._map_trace(result, first_timestamp))
+            traces.append(self._map_trace(result, first_timestamp, sentiment_lookup))
 
         return traces

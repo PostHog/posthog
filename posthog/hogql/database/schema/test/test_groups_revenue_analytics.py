@@ -16,7 +16,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.test.persons import create_group_type_mapping
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
@@ -182,10 +182,10 @@ class TestGroupsRevenueAnalyticsMixin(RevenueAnalyticsTestBase):
 
     def _setup_join(self):
         # Create some mappings
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

@@ -10,7 +10,6 @@ import orjson
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
@@ -25,6 +24,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
@@ -455,7 +455,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="created",
@@ -492,7 +492,7 @@ class EventDefinitionViewSet(
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="changed",
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
 
@@ -512,7 +512,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=instance_id,
             scope="EventDefinition",
             activity="deleted",

@@ -76,7 +76,6 @@ export function SubscriptionScene(): JSX.Element {
     const {
         subscription,
         subscriptionLoading,
-        deliveriesEnabled,
         deliveriesPage,
         deliveriesPageLoading,
         deliveringSubscriptionId,
@@ -109,24 +108,22 @@ export function SubscriptionScene(): JSX.Element {
                             <SubscriptionSummary sub={subscription} />
                         </div>
                     ) : null}
-                    {deliveriesEnabled ? (
-                        <SubscriptionDeliveryHistory
-                            deliveriesPage={deliveriesPage}
-                            deliveriesPageLoading={deliveriesPageLoading}
-                            loadDeliveriesPage={loadDeliveriesPage}
-                            deliveryStatusFilter={deliveryStatusFilter}
-                            onDeliveryStatusFilterChange={setDeliveryStatusFilter}
-                            onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
-                            testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
-                            onDeliveryFeedback={
-                                subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
-                                    ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
-                                    : undefined
-                            }
-                            deliveryFeedback={deliveryFeedback}
-                            recentlyThankedDeliveries={recentlyThankedDeliveries}
-                        />
-                    ) : null}
+                    <SubscriptionDeliveryHistory
+                        deliveriesPage={deliveriesPage}
+                        deliveriesPageLoading={deliveriesPageLoading}
+                        loadDeliveriesPage={loadDeliveriesPage}
+                        deliveryStatusFilter={deliveryStatusFilter}
+                        onDeliveryStatusFilterChange={setDeliveryStatusFilter}
+                        onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
+                        testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
+                        onDeliveryFeedback={
+                            subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
+                                ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
+                                : undefined
+                        }
+                        deliveryFeedback={deliveryFeedback}
+                        recentlyThankedDeliveries={recentlyThankedDeliveries}
+                    />
                 </div>
             )}
         </SceneContent>

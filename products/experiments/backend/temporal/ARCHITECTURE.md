@@ -46,7 +46,7 @@ sequenceDiagram
 
     Worker->>Workflow: wrap execute (latency + finished counter)
     Workflow->>Activity: discover all metrics, stamp query_to once
-    Workflow->>Activity: per metric (fan-out, concurrency 10)
+    Workflow->>Activity: per metric (worker pool of 4, 1 attempt each, requeue on transient failure)
     Worker->>Activity: wrap execute (latency + success/failure counters)
     Activity->>Result: upsert recalc-fingerprinted row
     Activity->>DB: merge metric_errors on failure
@@ -118,8 +118,19 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## Performance notes
 
-- **Concurrency cap of 4.** The workflow fans out per-metric calc activities under `asyncio.Semaphore(MAX_CONCURRENT_METRICS=4)`. Each activity runs one blocking ClickHouse query; without the cap, a 50-metric experiment would saturate the worker's connection pool and starve other work on the queue. The cap is 4 (not higher) because these offline queries share the org's `app:query:per-org` ClickHouse budget (default 20, halved/quartered under cluster load) with the org's live queries; staying at 4 keeps a single run under the budget even when it drops to 5, avoiding `ClickHouseAtCapacity` throttling.
-- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` on the calc activity, with `RetryPolicy(maximum_attempts=5, initial_interval=5s, backoff_coefficient=2.0, maximum_interval=60s)`. The exponential backoff (5s → 10s → 20s → 40s, jittered by Temporal) absorbs transient `ClickHouseAtCapacity`/`ConcurrencyLimitExceeded` throttling so a metric that hits backpressure retries in a later, quieter load window instead of failing the run. We deliberately don't set a heartbeat timeout — the activity has no progress hooks inside the ClickHouse query, so the heartbeat couldn't fire mid-query anyway; `start_to_close_timeout` is the real per-attempt ceiling.
+- **Worker pool of 4, retries owned by the workflow.** The workflow runs `MAX_CONCURRENT_METRICS=4` worker coroutines that drain a shared requeue queue, rather than firing all metrics under a semaphore. The cap is 4 (not higher) because these offline queries share the org's `app:query:per-org` ClickHouse budget (default 20, halved/quartered under cluster load) with the org's live queries; staying at 4 keeps a single run under the budget even when it drops to 5, avoiding `ClickHouseAtCapacity` throttling.
+
+  Crucially, the calc activity runs with `RetryPolicy(maximum_attempts=1)`: the workflow owns retries, not Temporal. Why: a single `execute_activity(..., retry_policy=...)` await does not resolve until the whole retry chain finishes (Temporal handles backoff at the service level and the workflow stays suspended). With the old `asyncio.Semaphore` + `maximum_attempts=5`, a failing metric held its concurrency slot for the entire ~75s backoff chain (5s, 10s, 20s, 40s), starving healthy metrics queued behind it and wrecking perceived load time when several metrics failed. Note this was a _workflow-level_ semaphore problem; Temporal frees the _worker_ activity slot during backoff, so the starvation was self-inflicted by the semaphore, not by Temporal's concurrency.
+
+  Now: each worker pulls a metric, runs one attempt, and frees its slot the moment that attempt returns or raises. A transient failure (the activity raises) requeues the metric at the **back** of the queue with a `not_before` backoff delay, so a waiting metric runs before the failed one's next attempt. A permanent failure (`StatisticError`/`ZeroDivisionError`, returned with `success=False`, never raised) is terminal on the first trip. A metric is marked failed only after `MAX_METRIC_ATTEMPTS=3` trips. This is the standard Temporal "start N, launch more as each completes" pattern (the `splitmerge-selector` shape), with requeue-on-failure layered on top.
+
+  The `_backoff` helper computes `5s * 2^(attempts-1)` capped at 60s (5s, 10s, 20s, 40s, 60s, ...). At the current `MAX_METRIC_ATTEMPTS=3` only the first two legs are ever reached: a metric requeues after attempt 1 (5s) and after attempt 2 (10s), then attempt 3 is final and never requeues. The formula stays generic so raising the cap extends the schedule without code changes.
+
+  The loop is deterministic for replay: all time comes from `temporalio.workflow.now()` and waits use `temporalio.workflow.sleep()`; workers block on `wait_condition` rather than busy-spinning; and the single-threaded asyncio model guarantees no interleaving between dequeue and the in-flight counter bump.
+
+- **`is_final_attempt` is passed by the workflow.** Because the activity runs `maximum_attempts=1`, it can't infer "last try" from `activity.info().attempt` (always 1). The workflow's requeue loop knows the real attempt count and passes `is_final_attempt` as an activity argument. The activity persists a transient failure (FAILED row + `metric_errors`) only on the final attempt, so a metric still being retried stays in its loading/dim state on the frontend instead of flashing an error that may yet resolve.
+
+- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` on the calc activity is the real per-attempt ceiling. We deliberately don't set a heartbeat timeout: the activity has no progress hooks inside the ClickHouse query, so the heartbeat couldn't fire mid-query anyway.
 - **No saved-metric snapshot.** Each calc activity that processes a saved/shared metric re-queries the M2M through-model to resolve the metric definition. For a 5–10 metric experiment this is fine; for larger experiments the per-call query starts to add up. Tracked as a deferred optimization (snapshot resolved metric dicts on the recalc row at discovery time).
 
 ## What this doc doesn't cover

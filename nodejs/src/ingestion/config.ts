@@ -14,14 +14,14 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
-import type { PostgresRouterConfig } from '~/utils/db/postgres'
-import { isDevEnv, isProdEnv } from '~/utils/env-utils'
+} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -78,7 +78,16 @@ export type KafkaConsumerBaseConfig = Pick<
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export type IngestionLane = 'main' | 'overflow' | 'turbo' | 'historical' | 'async'
+/**
+ * Real-time lanes process live events and share `main`'s processing-time SLO.
+ * Delayed lanes process backfilled or async events on their own timeline. The
+ * distinction is load-bearing for processing-time logic like dedup, so the lane
+ * type is derived from these two sets to keep the categorization in one place.
+ */
+export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo', 'team2'] as const
+export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
+
+export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null

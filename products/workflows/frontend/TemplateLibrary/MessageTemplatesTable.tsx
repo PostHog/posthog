@@ -3,9 +3,9 @@ import './MessageTemplatesGrid.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
 import { IconTrash } from '@posthog/icons'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -37,7 +37,7 @@ export function MessageTemplatesTable(): JSX.Element {
                     action={() => {
                         router.actions.push(urls.workflowsLibraryTemplateNew())
                     }}
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
             )}

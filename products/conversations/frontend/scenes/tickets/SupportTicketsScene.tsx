@@ -50,10 +50,13 @@ import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
+    type AITriageFilterValue,
     type Ticket,
     type TicketSlaState,
     type TicketStatus,
     type TicketTagsMatch,
+    aiTriageFilterOptions,
+    aiTriageProcessingLabel,
     aiTriageResultLabel,
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
@@ -333,7 +336,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     return (
                         <span className="flex items-center gap-1 text-xs">
                             <Spinner className="text-sm" />
-                            Processing
+                            {aiTriageProcessingLabel}
                         </span>
                     )
                 }
@@ -426,6 +429,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         priorityFilter,
         channelFilter,
         slaFilter,
+        aiTriageResultFilter,
         assigneeFilter,
         tagsFilter,
         tagsMatch,
@@ -440,6 +444,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setPriorityFilter,
         setChannelFilter,
         setSlaFilter,
+        setAiTriageResultFilter,
         setAssigneeFilter,
         setTagsFilter,
         setTagsMatch,
@@ -447,6 +452,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setDateRange,
         loadTickets,
     } = useActions(logic)
+    const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
@@ -586,6 +592,47 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
                     </LemonButton>
                 </LemonDropdown>
+                {aiEnabled && (
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {aiTriageFilterOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={aiTriageResultFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = aiTriageResultFilter.includes(option.key)
+                                                ? aiTriageResultFilter.filter(
+                                                      (r: AITriageFilterValue) => r !== option.key
+                                                  )
+                                                : [...aiTriageResultFilter, option.key]
+                                            setAiTriageResultFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {aiTriageResultFilter.length === 0
+                                ? 'All AI results'
+                                : aiTriageResultFilter.length === 1
+                                  ? aiTriageFilterOptions.find((o) => o.key === aiTriageResultFilter[0])?.label
+                                  : `${aiTriageResultFilter.length} AI results`}
+                        </LemonButton>
+                    </LemonDropdown>
+                )}
                 <LemonDropdown
                     closeOnClickInside={false}
                     overlay={

@@ -1,10 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
+import { isCloud } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { isCloud } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
 
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'

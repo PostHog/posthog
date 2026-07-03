@@ -1,8 +1,8 @@
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '~/types'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { createReadOnlyProcessGroupsStep } from './readonly-process-groups-step'
 

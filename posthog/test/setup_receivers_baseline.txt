@@ -45,8 +45,6 @@ post_delete:posthog.models.file_system.file_system_view_log._drop_view_logs_when
 post_delete:posthog.models.oauth._block_cimd_url_on_application_delete
 post_delete:posthog.models.organization.clean_up_alert_subscriptions_on_membership_removal
 post_delete:posthog.models.organization.sync_billing_on_membership_removal
-post_delete:posthog.models.person.util.person_deleted
-post_delete:posthog.models.person.util.person_distinct_id_deleted
 post_delete:posthog.models.product_intent.product_intent._invalidate_product_intents_on_delete
 post_delete:posthog.models.remote_config.product_tour_deleted
 post_delete:posthog.models.remote_config.site_function_changed
@@ -99,8 +97,6 @@ post_save:posthog.models.file_system.file_system_mixin.FileSystemSyncMixin.__ini
 post_save:posthog.models.file_system.user_product_list.access_control_created
 post_save:posthog.models.organization.cache_organization_session_age
 post_save:posthog.models.organization.sync_billing_on_membership_save
-post_save:posthog.models.person.util.person_created
-post_save:posthog.models.person.util.person_distinct_id_created
 post_save:posthog.models.product_intent.product_intent._invalidate_product_intents_on_save
 post_save:posthog.models.remote_config.error_tracking_suppression_rule_saved
 post_save:posthog.models.remote_config.feature_flag_saved

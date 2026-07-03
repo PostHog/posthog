@@ -5,6 +5,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
@@ -17,6 +18,7 @@ from posthog.models import Organization, Team
 from products.feature_flags.backend.api.feature_flag import (
     _is_enforce_feature_flag_write_scope_enabled,
     _scope_audit_identity,
+    assert_feature_flag_write_scope,
 )
 
 
@@ -74,6 +76,61 @@ class TestScopeAuditIdentity(TestCase):
         assert _scope_audit_identity(None) is None
 
 
+class TestEnforcementMessageByTokenType(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "personal_api_key",
+                _make(
+                    PersonalAPIKeyAuthentication,
+                    personal_api_key=SimpleNamespace(scopes=["survey:write"], id="pak_1", label="key"),
+                ),
+                True,
+            ),
+            (
+                "oauth_access_token",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="survey:write", id=7)),
+                False,
+            ),
+            (
+                "id_jag_access_token",
+                _make(IDJagAccessTokenAuthentication, scopes=["survey:write"]),
+                False,
+            ),
+            (
+                "project_secret_api_key",
+                _make(
+                    ProjectSecretAPIKeyAuthentication,
+                    project_secret_api_key=SimpleNamespace(scopes=["survey:write"], id=3),
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_only_personal_api_keys_get_the_settings_page_guidance(self, _name, authenticator, expects_settings_link):
+        request = SimpleNamespace(successful_authenticator=authenticator, user=SimpleNamespace(id=1))
+        with patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        ):
+            with self.assertRaises(PermissionDenied) as caught:
+                assert_feature_flag_write_scope(
+                    request,
+                    action="survey.update.targeting_flag_filters",
+                    resource_scope="survey:write",
+                    team_id=1,
+                )
+
+        message = str(caught.exception.detail)
+        assert "`feature_flag:write`" in message
+        if expects_settings_link:
+            assert "/settings/user-api-keys" in message
+            assert "personal API key" in message
+        else:
+            assert "/settings/user-api-keys" not in message
+            assert "personal API key" not in message
+
+
 class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
     def test_gate_evaluates_against_target_team_org_not_actor_org(self):
         # A user whose current org differs from the org owning the target team must be
@@ -83,7 +140,7 @@ class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
         request = SimpleNamespace(user=self.user)
 
         with patch(
-            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            "products.feature_flags.backend.api.feature_flag.feature_enabled_or_false",
             return_value=True,
         ) as mock_feature_enabled:
             result = _is_enforce_feature_flag_write_scope_enabled(request, team_id=other_team.id)
@@ -112,7 +169,7 @@ class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
     def test_gate_returns_feature_enabled_result(self):
         request = SimpleNamespace(user=self.user)
         with patch(
-            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            "products.feature_flags.backend.api.feature_flag.feature_enabled_or_false",
             return_value=False,
         ):
             assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=self.team.id) is False

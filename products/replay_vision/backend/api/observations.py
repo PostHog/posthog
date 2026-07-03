@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
@@ -147,6 +148,33 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User who triggered an on-demand observation; null for scheduled observations.",
     )
+    distinct_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Distinct id of the person in the recorded session (the subject being watched); null if unknown.",
+    )
+    recording_subject_email = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Email of the person in the recorded session (the subject being watched, not the user who triggered "
+            "the observation), captured at scan time. Null when the session had no identified person."
+        ),
+    )
+    previous_observation_id = serializers.SerializerMethodField(
+        help_text="Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.",
+    )
+    next_observation_id = serializers.SerializerMethodField(
+        help_text="Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.",
+    )
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_previous_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
+        return (self.context.get("neighbors") or {}).get("previous")
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_next_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
+        return (self.context.get("neighbors") or {}).get("next")
 
     class Meta:
         model = ReplayObservation
@@ -161,6 +189,10 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_result",
             "triggered_by",
             "triggered_by_user",
+            "distinct_id",
+            "recording_subject_email",
+            "previous_observation_id",
+            "next_observation_id",
             "started_at",
             "completed_at",
             "created_at",
@@ -265,7 +297,7 @@ OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status"
 
 # JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
-_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS
+_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
 
 
 _MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
@@ -279,6 +311,9 @@ class _ObservationOrderByFilter(OrderByFilter):
     def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
         if key in OBSERVATION_ORDER_FIELDS:
             return self._order_plain(qs, key, descending)
+        if key == "recording_subject_email":
+            # Nullable column — keep unidentified subjects out of the way regardless of direction.
+            return self._order_nulls_last(qs, "recording_subject_email", descending)
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
             score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
@@ -338,11 +373,16 @@ class ReplayObservationFilter(django_filters.FilterSet):
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
     )
+    recording_subject = django_filters.CharFilter(
+        field_name="recording_subject_email",
+        lookup_expr="icontains",
+        help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
+    )
     order_by = _ObservationOrderByFilter(
         help_text=(
-            "Sort observations by created_at, started_at, completed_at, status, result_score, result_verdict, "
-            "or scanner_version. Prefix with `-` for descending. JSONB-backed keys (result_*, scanner_version) "
-            "sort nulls last regardless of direction."
+            "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
+            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
+            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
         ),
     )
 
@@ -391,8 +431,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 required=False,
                 enum=ordering_enum(_ALL_ORDER_KEYS),
                 description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: "
-                    "result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending."
+                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+                    "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
+                    "scanner_version. Prefix with `-` for descending."
                 ),
             )
         ]
@@ -518,6 +559,31 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             queryset = queryset.filter(session_id=session_id)
         return queryset
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
+        return Response(self.get_serializer(observation, context=context).data)
+
+    @staticmethod
+    def _observation_neighbors(observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
+        # Newest-first list order, so the newer sibling is "previous" and the older one is "next".
+        siblings = ReplayObservation.objects.filter(
+            team_id=observation.team_id, scanner_id=observation.scanner_id
+        ).values_list("id", flat=True)
+        # Tie-break on id to mirror the list's (-created_at, id) order, so same-timestamp siblings aren't skipped.
+        return {
+            "previous": siblings.filter(
+                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
+            )
+            .order_by("created_at", "-id")
+            .first(),
+            "next": siblings.filter(
+                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
+            )
+            .order_by("-created_at", "id")
+            .first(),
+        }
+
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
         raise NotFound()
@@ -534,10 +600,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        response = StreamingHttpResponse(
-            stream_observation_progress(observation),
-            content_type=ServerSentEventRenderer.media_type,
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

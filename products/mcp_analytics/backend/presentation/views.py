@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import Any, cast
 
 from django.db.models import QuerySet
+from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -21,14 +23,26 @@ from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionIntentSerializer,
+    MCPSessionListQuerySerializer,
     MCPSessionSerializer,
     MCPToolCallSerializer,
 )
+
+
+def _parse_detail_date_from(raw: str | None) -> datetime | None:
+    """Parse the optional session-start bound for detail queries (an absolute ISO timestamp).
+
+    Returns None on missing or unparseable input so the logic layer falls back to its default
+    lookback rather than 400-ing — the bound is only a scan-pruning hint, never a filter.
+    """
+    return parse_datetime(raw) if raw else None
 
 
 class MCPAnalyticsPagination(LimitOffsetPagination):
@@ -42,8 +56,8 @@ class MCPSessionPagination(LimitOffsetPagination):
     logic layer over-fetching one row rather than a count query.
     """
 
-    default_limit = 100
-    max_limit = 500
+    default_limit = MCP_SESSION_LIST_DEFAULT_LIMIT
+    max_limit = MCP_SESSION_LIST_MAX_LIMIT
 
     def get_paginated_response(self, data: Any, *, has_next: bool = False) -> Response:
         return Response({"results": data, "has_next": has_next})
@@ -157,51 +171,49 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # (a plain manager) so .none() can't trip a team-scoped manager's guard.
         return MCPAnalyticsSubmission.objects.none()
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=MCPSessionListQuerySerializer,
+        responses={200: OpenApiResponse(response=MCPSessionSerializer(many=True))},
         operation_id="mcp_analytics_sessions_list",
         description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
-        parameters=[
-            OpenApiParameter(
-                name="search",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
-            ),
-            OpenApiParameter(
-                name="order_by",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Sort column. Allowed: session_id, session_start, session_end, "
-                    "duration_seconds, tool_call_count, mcp_client_name, distinct_id. "
-                    "Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
-                ),
-            ),
-        ],
-        responses={200: MCPSessionSerializer(many=True)},
     )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        params = request.validated_query_data
+        page = api.list_mcp_sessions(
+            self.team,
+            limit=params["limit"],
+            offset=params["offset"],
+            search=params["search"],
+            order_by=params["order_by"],
+            date_from=params.get("date_from") or None,
+            date_to=params.get("date_to") or None,
+        )
+        serializer = self.get_serializer(page.results, many=True)
         # Instantiate the concrete class (not self.pagination_class()) so the typed
         # get_paginated_response(has_next=...) is visible to the type checker.
-        paginator = MCPSessionPagination()
-        limit = paginator.get_limit(request) or paginator.default_limit
-        offset = paginator.get_offset(request)
-        search = request.query_params.get("search", "")
-        order_by = request.query_params.get("order_by", "")
-        page = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
-        serializer = self.get_serializer(page.results, many=True)
-        return paginator.get_paginated_response(serializer.data, has_next=page.has_next)
+        return MCPSessionPagination().get_paginated_response(serializer.data, has_next=page.has_next)
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_tool_calls",
         description="List all $mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the event scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
         responses={200: MCPToolCallSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")
     def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
-        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
+        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""), date_from=date_from)
         serializer = MCPToolCallSerializer(tool_calls, many=True)
         # has_next is always false: this returns the whole (capped) call list, not a page.
         # The field exists because the viewset's paginator shapes the response schema.
@@ -215,6 +227,18 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the stored summary."
         ),
         request=None,
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the intent scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
         responses={200: MCPSessionIntentSerializer},
     )
     @action(detail=True, methods=["post"], url_path="generate_intent")
@@ -222,8 +246,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         session_id = str(pk or "")
         if not session_id:
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
         try:
-            intent = api.generate_session_intent(self.team, session_id=session_id)
+            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=date_from)
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent generation is unavailable (LLM not configured)."},

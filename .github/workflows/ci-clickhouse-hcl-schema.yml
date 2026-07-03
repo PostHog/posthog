@@ -28,16 +28,22 @@ permissions:
     packages: read
 
 env:
-    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-f9490b7
-    # has the modifier-aware diff (chschema #59) so the guard compares ALIAS/
-    # MATERIALIZED/DEFAULT columns. Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-f9490b7' }}
+    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-deff440
+    # has `introspect -exclude` (#79) for the live gate, retains file()/heredoc query
+    # refs (#68/#69) so a query authored as file("sql/x.sql") compares equal to its
+    # golden and the modifier-aware diff (#59), and fixes the layer-order drop of
+    # dictionaries/views (#80). Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-deff440' }}
 
 jobs:
     ops-hcl-guard:
         name: Validate + diff OPS HCL against golden dumps
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # Informational only while the declarative-HCL pilot stabilizes: the guard
+        # runs and reports drift, but a failure must not block PRs. Remove once the
+        # OPS/LOGS managed set is trusted and we want it enforced.
+        continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -51,5 +57,5 @@ jobs:
             - name: Pull hclexp image
               run: docker pull "$HCLEXP_IMAGE"
 
-            - name: OPS schema guard (validate + drift)
-              run: bash posthog/clickhouse/hcl/ops/check.sh
+            - name: HCL schema guard (validate + drift)
+              run: bash posthog/clickhouse/hcl/check.sh

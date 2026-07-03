@@ -37,12 +37,13 @@ from .cache import (
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .services.attachments import build_content_with_images, is_valid_image, save_file_to_uploaded_media
-from .support_slack import (
-    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
-    SUPPORT_SLACK_MAX_IMAGE_BYTES,
-    get_support_slack_bot_token,
+from .services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    build_content_with_images,
+    is_valid_image,
+    save_file_to_uploaded_media,
 )
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -229,12 +230,12 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
             content_length_header = response.headers.get("Content-Length")
             if content_length_header:
                 try:
-                    if int(content_length_header) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+                    if int(content_length_header) > CONVERSATIONS_MAX_IMAGE_BYTES:
                         logger.warning(
                             "🖼️ slack_file_download_too_large_from_header",
                             url=next_url,
                             content_length=int(content_length_header),
-                            max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                            max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                         )
                         return None
                 except ValueError:
@@ -242,13 +243,13 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
                         "🖼️ slack_file_download_invalid_content_length", url=next_url, value=content_length_header
                     )
                     return None
-            payload = response.read(SUPPORT_SLACK_MAX_IMAGE_BYTES + 1)
-            if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+            payload = response.read(CONVERSATIONS_MAX_IMAGE_BYTES + 1)
+            if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
                 logger.warning(
                     "🖼️ slack_file_download_too_large_from_body",
                     url=next_url,
                     bytes_read=len(payload),
-                    max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
+                    max_allowed=CONVERSATIONS_MAX_IMAGE_BYTES,
                 )
                 return None
             logger.debug("🖼️ slack_file_download_succeeded", url=next_url, bytes_read=len(payload))

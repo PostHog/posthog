@@ -160,7 +160,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
+    use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
 
@@ -174,20 +174,17 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
+            options: Options::default(),
             adjusted_timestamp: Some(Utc::now()),
             result,
             details,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         }
     }
 

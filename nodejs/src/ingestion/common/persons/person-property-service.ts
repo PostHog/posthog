@@ -1,6 +1,6 @@
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
+import { defaultRetryConfig, promiseRetry } from '~/common/utils/retries'
 import { InternalPerson } from '~/types'
-import { defaultRetryConfig, promiseRetry } from '~/utils/retries'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'

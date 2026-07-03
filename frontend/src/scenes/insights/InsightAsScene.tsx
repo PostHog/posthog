@@ -15,6 +15,7 @@ import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
+import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
@@ -85,6 +86,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 ) : (
                     <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
+
+                <InsightRetentionBanner insightProps={insightProps} />
 
                 {isDataVisualizationNode(query) && insightLoading ? (
                     // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).

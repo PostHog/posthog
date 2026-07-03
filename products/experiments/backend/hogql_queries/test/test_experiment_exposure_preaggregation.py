@@ -27,7 +27,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     _get_insert_settings,
     ensure_precomputed,
 )
-from products.experiments.backend.hogql_queries.base_query_utils import get_experiment_date_range
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -61,7 +61,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
             experiment.exposure_criteria
         )
-        date_range = get_experiment_date_range(experiment, self.team, None)
+        as_of = experiment.end_date or datetime.now(UTC)
+        date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
@@ -70,7 +71,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             multiple_variant_handling=multiple_variant_handling,
             variants=[v["key"] for v in feature_flag.variants],
             date_range_query=QueryDateRange(
-                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=datetime.now()
+                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=as_of
             ),
             entity_key=get_entity_key(feature_flag.filters.get("aggregation_group_type_index")),
             metric=metric,

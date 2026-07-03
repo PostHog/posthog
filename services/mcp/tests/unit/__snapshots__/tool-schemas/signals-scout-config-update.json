@@ -14,9 +14,9 @@
             "type": "string"
         },
         "run_interval_minutes": {
-            "description": "Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+            "description": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
             "maximum": 43200,
-            "minimum": 10,
+            "minimum": 30,
             "type": "number"
         }
     },

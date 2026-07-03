@@ -1,5 +1,5 @@
+import { Limiter } from '~/common/utils/token-bucket'
 import { RedisPool } from '~/types'
-import { Limiter } from '~/utils/token-bucket'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionFilter } from './session-filter'
@@ -15,7 +15,7 @@ jest.mock('./metrics', () => ({
     },
 }))
 
-jest.mock('~/utils/token-bucket')
+jest.mock('~/common/utils/token-bucket')
 
 describe('SessionFilter', () => {
     let sessionFilter: SessionFilter

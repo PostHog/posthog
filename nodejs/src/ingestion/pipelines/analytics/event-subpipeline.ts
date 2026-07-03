@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
@@ -22,7 +23,6 @@ import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framewo
 import { isDropResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { TeamManager } from '~/utils/team-manager'
 
 import {
     AsyncOutput,

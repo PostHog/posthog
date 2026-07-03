@@ -561,59 +561,92 @@ export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool
     },
 })
 
-export const posthogAgentApplicationsRevisionsSkillsUpdateV1 = defineNativeTool({
-    id: '@posthog/agent-applications-revisions-skills-update',
+// Skills are authored in the llma-skill store (the canonical source) and an
+// agent *references* them — there is no inline skill authoring. An agent's
+// skills are `skill_refs` resolved into the bundle at freeze. Find/author store
+// skills with `@posthog/llm-skills-search` / `@posthog/llm-skills-create`, then
+// attach them with `@posthog/agent-applications-revisions-skill-refs-set`.
+export const posthogAgentApplicationsRevisionsSkillRefsSetV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-skill-refs-set',
     description:
-        "Upsert one skill in a draft revision. Body shape `{ description, body, files? }`. `description` is the model-facing 'when to load' hint surfaced in the skill index. `body` is the skill markdown. `files[]` is optional companion docs (path relative to `skills/<id>/files/`). Skill id is the URL path.",
+        "Set the complete list of store-skill references on a draft revision (full replace). Each ref is `{ from_template, alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's materialized under in the bundle (`skills/<alias>/`), `version` optionally pins a published version (omit to pin the latest at freeze). At freeze the referenced skills are resolved and baked into the bundle. Find skills with `@posthog/llm-skills-search`; author a new one with `@posthog/llm-skills-create`. Draft-only.",
     args: Type.Object({
         project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
-        skill_id: Type.String({ description: 'Skill slug (lowercase alphanumeric, hyphens, underscores).' }),
-        description: Type.String({ description: 'Short summary the model uses to decide when to load.' }),
-        body: Type.String({ description: 'Skill markdown body.' }),
-        files: Type.Optional(
-            Type.Array(Type.Object({ path: Type.String(), content: Type.String() }), {
-                description: 'Optional companion files. path is relative to `skills/<id>/files/`.',
-            })
+        skill_refs: Type.Array(
+            Type.Object({
+                from_template: Type.String({ description: 'Skill name in the llma-skill store to pin.' }),
+                alias: Type.String({
+                    description:
+                        'Bundle folder the skill is materialized under (lowercase letters, digits, hyphens, underscores); unique within the revision.',
+                }),
+                version: Type.Optional(
+                    Type.Integer({ description: 'Pinned published version. Omit to pin the latest at freeze.' })
+                ),
+            }),
+            { description: 'The complete set of references; replaces any existing ones.' }
         ),
     }),
-    returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
+    returns: Type.Record(Type.String(), Type.Unknown()),
     requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PUT',
-            path: projectPath(
-                args.project_id,
-                `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`
-            ),
-            body: { description: args.description, body: args.body, files: args.files ?? [] },
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/skill_refs/`),
+            body: { skill_refs: args.skill_refs },
         })
     },
 })
 
-export const posthogAgentApplicationsRevisionsSkillsDestroyV1 = defineNativeTool({
-    id: '@posthog/agent-applications-revisions-skills-destroy',
-    description: 'Delete one skill (body + every companion file). Draft-only.',
+export const posthogLlmSkillsSearchV1 = defineNativeTool({
+    id: '@posthog/llm-skills-search',
+    description:
+        'Search the llma-skill store for reusable skills in this project. Returns name, description, version, category per match. Use to find a skill to attach to an agent (via `@posthog/agent-applications-revisions-skill-refs-set`) before authoring a new one.',
     args: Type.Object({
         project_id: ProjectIdArg,
-        ...agentRefFields,
-        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
-        skill_id: Type.String({ description: 'Skill slug.' }),
+        search: Type.Optional(
+            Type.String({ description: 'Free-text search over name + description. Omit to list all skills.' })
+        ),
     }),
-    returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
-    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
+    returns: Type.Object({ results: Type.Array(Type.Record(Type.String(), Type.Unknown())) }),
+    requires: { provider: { id: 'posthog', scopes: ['llm_skill:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const id = await resolveApplicationId(ctx, args)
+        const data = await callPosthogApi<ListResponse<Record<string, unknown>>>(ctx, {
+            method: 'GET',
+            path: projectPath(args.project_id, '/llm_skills/'),
+            query: args.search ? { search: args.search } : undefined,
+        })
+        return { results: data.results }
+    },
+})
+
+export const posthogLlmSkillsCreateV1 = defineNativeTool({
+    id: '@posthog/llm-skills-create',
+    description:
+        'Author a new skill in the llma-skill store — the canonical place skills live. Provide `name` (stable id across versions), `description` (when-to-load hint shown in the agent skill index), `body` (SKILL.md markdown), and optional `files` (companion docs). Returns the created skill. Attach it to an agent with `@posthog/agent-applications-revisions-skill-refs-set`.',
+    args: Type.Object({
+        project_id: ProjectIdArg,
+        name: Type.String({ description: 'Skill name — stable identifier across versions.' }),
+        description: Type.String({ description: 'When-to-load hint shown in the agent skill index.' }),
+        body: Type.String({ description: 'SKILL.md markdown body.' }),
+        files: Type.Optional(
+            Type.Array(Type.Object({ path: Type.String(), content: Type.String() }), {
+                description: 'Optional companion files (path relative to the skill folder).',
+            })
+        ),
+    }),
+    returns: Type.Record(Type.String(), Type.Unknown()),
+    requires: { provider: { id: 'posthog', scopes: ['llm_skill:write'] } },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
         return callPosthogApi(ctx, {
-            method: 'DELETE',
-            path: projectPath(
-                args.project_id,
-                `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`
-            ),
+            method: 'POST',
+            path: projectPath(args.project_id, '/llm_skills/'),
+            body: { name: args.name, description: args.description, body: args.body, files: args.files ?? [] },
         })
     },
 })

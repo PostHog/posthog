@@ -1,12 +1,14 @@
 import json
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from django.http import HttpResponse, StreamingHttpResponse
 
 import httpx
 import structlog
 
+from posthog.api.streaming import sse_streaming_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -19,6 +21,7 @@ logger = structlog.get_logger(__name__)
 
 UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
+REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
 # JSON-RPC error codes used by per-tool approval enforcement. -32000..-32099 is
 # the implementation-defined server-error range; we deliberately use distinct
@@ -28,6 +31,83 @@ TOOL_NEEDS_APPROVAL_CODE = -32001
 TOOL_DISABLED_CODE = -32002
 BATCH_REJECTED_CODE = -32000
 METHOD_NOT_FOUND_CODE = -32601
+
+
+def _normalized_origin(url: str) -> tuple[str, str, int | None] | None:
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        if parsed.scheme == "https":
+            port = 443
+        elif parsed.scheme == "http":
+            port = 80
+    return parsed.scheme, (parsed.hostname or "").lower(), port
+
+
+def validated_same_origin_redirect_url(original_url: str, response: httpx.Response) -> str | None:
+    """Return a safe redirect target for MCP URL canonicalization, or None.
+
+    MCP servers commonly redirect `/mcp` to `/mcp/`. Retrying with credentials is
+    only safe when the redirect stays on exactly the same origin; SSRF-safe is
+    not the same as credential-safe.
+    """
+    if response.status_code not in REDIRECT_STATUS_CODES:
+        return None
+
+    location = response.headers.get("location")
+    if not location:
+        return None
+
+    redirect_url = urljoin(original_url, location)
+    original_origin = _normalized_origin(original_url)
+    redirect_origin = _normalized_origin(redirect_url)
+    if not original_origin or not redirect_origin or original_origin != redirect_origin:
+        logger.warning(
+            "Upstream MCP redirect rejected: target is cross-origin",
+            original_url=original_url,
+            redirect_url=redirect_url,
+        )
+        return None
+
+    allowed, reason = is_url_allowed(redirect_url)
+    if not allowed:
+        logger.warning(
+            "Upstream MCP redirect rejected by SSRF protection",
+            original_url=original_url,
+            redirect_url=redirect_url,
+            reason=reason,
+        )
+        return None
+
+    return redirect_url
+
+
+def send_mcp_request_with_same_origin_redirect(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str],
+    content: bytes | None = None,
+    stream: bool = False,
+) -> tuple[httpx.Response, str]:
+    request_kwargs: dict[str, Any] = {"headers": headers}
+    if content is not None:
+        request_kwargs["content"] = content
+
+    upstream_request = client.build_request(method, url, **request_kwargs)
+    upstream_response = client.send(upstream_request, stream=stream)
+
+    redirect_url = validated_same_origin_redirect_url(url, upstream_response)
+    if not redirect_url:
+        return upstream_response, url
+
+    upstream_response.close()
+    redirected_request = client.build_request(method, redirect_url, **request_kwargs)
+    return client.send(redirected_request, stream=stream), redirect_url
 
 
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
@@ -293,13 +373,14 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
 
     client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
     try:
-        upstream_request = client.build_request(
+        upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
+            client,
             "POST",
             installation.url,
             content=body,
             headers=headers,
+            stream=True,
         )
-        upstream_response = client.send(upstream_request, stream=True)
     except httpx.ConnectError:
         client.close()
         logger.warning("Upstream MCP server unreachable", url=installation.url)
@@ -334,7 +415,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if upstream_response.status_code >= 400:
         logger.warning(
             "Upstream MCP server returned error",
-            url=installation.url,
+            url=upstream_url,
             status_code=upstream_response.status_code,
             response_body=upstream_response.text[:500] if upstream_response.text else "",
         )
@@ -362,21 +443,8 @@ def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) ->
 
 def _build_sse_response(upstream_response: httpx.Response, client: httpx.Client) -> StreamingHttpResponse:
     stream = _stream_upstream(upstream_response, client)
-
-    if SERVER_GATEWAY_INTERFACE == "ASGI":
-        astream = SyncIterableToAsync(stream)
-        response = StreamingHttpResponse(
-            streaming_content=astream,
-            content_type="text/event-stream",
-        )
-    else:
-        response = StreamingHttpResponse(
-            streaming_content=stream,
-            content_type="text/event-stream",
-        )
-
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
+    astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+    response = sse_streaming_response(astream, endpoint="mcp_store_proxy")
 
     upstream_session_id = upstream_response.headers.get("mcp-session-id")
     if upstream_session_id:

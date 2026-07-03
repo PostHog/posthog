@@ -5,31 +5,31 @@ import { Counter, Gauge } from 'prom-client'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformationResult } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { OverflowOutput } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { IngestionLane } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
-import { TopHog } from '~/ingestion/framework/tophog'
-import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
-import { PluginEvent } from '~/plugin-scaffold'
-import { HealthCheckResult, PluginServerService } from '~/types'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
+import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
+} from '~/common/utils/event-ingestion-restrictions'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { MainLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { IngestionLane } from '~/ingestion/config'
+import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { TopHog } from '~/ingestion/framework/tophog'
+import { PluginEvent } from '~/plugin-scaffold'
+import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { CymbalClient } from './cymbal'
 import {
@@ -181,6 +181,7 @@ export class ErrorTrackingConsumer {
                 bucketCapacity: config.overflowBucketCapacity,
                 replenishRate: config.overflowBucketReplenishRate,
                 statefulEnabled: config.statefulOverflowEnabled,
+                overflowType: 'errortracking',
             })
         }
 
@@ -188,6 +189,7 @@ export class ErrorTrackingConsumer {
         if (config.lane === 'overflow' && config.statefulOverflowEnabled) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'errortracking',
             })
         }
 

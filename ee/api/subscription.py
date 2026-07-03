@@ -32,7 +32,7 @@ from posthog.constants import (
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
 )
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -43,7 +43,12 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
+from products.exports.backend.models.subscription import (
+    Subscription,
+    SubscriptionDelivery,
+    attribute_subscription_saves,
+    unsubscribe_using_token,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -605,7 +610,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
-        instance: Subscription = super().create(validated_data)
+        with attribute_subscription_saves(get_request_analytics_properties(request)):
+            instance: Subscription = super().create(validated_data)
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -675,6 +681,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        analytics_props = get_request_analytics_properties(request)
 
         if is_delete:
             with slo_operation(
@@ -692,11 +699,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "resource_type": instance.resource_type,
                 },
             ):
-                instance = super().update(instance, validated_data)
+                with attribute_subscription_saves(analytics_props):
+                    instance = super().update(instance, validated_data)
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
-        instance = super().update(instance, validated_data)
+        with attribute_subscription_saves(analytics_props):
+            instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         if dashboard_export_insight_ids:
@@ -1001,6 +1010,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             distinct_id=str(request.user.distinct_id),
             event="subscription_test_delivery_scheduled",
             properties={
+                **get_request_analytics_properties(request),
                 "subscription_id": subscription.id,
                 "team_id": subscription.team_id,
                 "target_type": subscription.target_type,

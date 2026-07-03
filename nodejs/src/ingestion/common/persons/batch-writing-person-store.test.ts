@@ -8,11 +8,11 @@ import {
     personPropertyKeyUpdateCounter,
 } from '~/common/persons/metrics'
 import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/utils/db/error'
-import { PostgresRouter } from '~/utils/db/postgres'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'

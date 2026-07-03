@@ -7,6 +7,10 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { GeoIPService } from '~/common/utils/geoip'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
@@ -21,10 +25,6 @@ import type {
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import { PostgresRouter } from './utils/db/postgres'
-import { GeoIPService } from './utils/geoip'
-import { PubSub } from './utils/pubsub'
-import { TeamManager } from './utils/team-manager'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -142,11 +142,12 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
-    cdpBatchHogFlow?: boolean
+    cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
+    cdpCyclotronWorkerEmailLegacyPg?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean

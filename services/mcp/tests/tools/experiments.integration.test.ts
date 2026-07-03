@@ -27,6 +27,7 @@ describe('Experiments', { concurrent: false }, () => {
         cohorts: [],
     }
     const createdExperiments: number[] = []
+    const createdHoldouts: number[] = []
 
     // Helper function to track created experiments and their feature flags
     const trackExperiment = (experiment: any): void => {
@@ -35,6 +36,12 @@ describe('Experiments', { concurrent: false }, () => {
         }
         if (experiment.feature_flag?.id) {
             createdResources.featureFlags.push(experiment.feature_flag.id)
+        }
+    }
+
+    const trackHoldout = (holdout: any): void => {
+        if (holdout?.id) {
+            createdHoldouts.push(holdout.id)
         }
     }
 
@@ -50,6 +57,11 @@ describe('Experiments', { concurrent: false }, () => {
     const resumeTool = GENERATED_TOOLS['experiment-resume']!()
     const resetTool = GENERATED_TOOLS['experiment-reset']!()
     const shipVariantTool = GENERATED_TOOLS['experiment-ship-variant']!()
+    const holdoutCreateTool = GENERATED_TOOLS['experiment-holdouts-create']!()
+    const holdoutListTool = GENERATED_TOOLS['experiment-holdouts-list']!()
+    const holdoutRetrieveTool = GENERATED_TOOLS['experiment-holdouts-retrieve']!()
+    const holdoutUpdateTool = GENERATED_TOOLS['experiment-holdouts-partial-update']!()
+    const holdoutDeleteTool = GENERATED_TOOLS['experiment-holdouts-destroy']!()
     const getResultsTool = getExperimentResultsTool()
 
     beforeAll(async () => {
@@ -73,6 +85,19 @@ describe('Experiments', { concurrent: false }, () => {
             }
         }
         createdExperiments.length = 0
+
+        // Clean up holdouts (after experiments, which may reference them)
+        for (const holdoutId of createdHoldouts) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/projects/${TEST_PROJECT_ID}/experiment_holdouts/${holdoutId}/`,
+                })
+            } catch {
+                // Ignore cleanup failures
+            }
+        }
+        createdHoldouts.length = 0
 
         // Clean up associated feature flags
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
@@ -1324,6 +1349,102 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(shipped.end_date).toBeTruthy()
             expect(shipped.conclusion).toBe('won')
+        })
+    })
+
+    describe('experiment-holdouts tools', () => {
+        it('should create a holdout and normalize its variant key', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-create'),
+                description: 'Created via MCP integration test',
+                filters: [{ rollout_percentage: 10, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            expect(holdout.id).toBeTruthy()
+            expect(holdout.filters).toHaveLength(1)
+            expect(holdout.filters[0].rollout_percentage).toBe(10)
+            // The server rewrites `variant` to `holdout-{id}` regardless of what the agent sends.
+            expect(holdout.filters[0].variant).toBe(`holdout-${holdout.id}`)
+        })
+
+        it('should reject an empty filters array', async () => {
+            await expect(
+                holdoutCreateTool.handler(context, {
+                    name: generateUniqueKey('holdout-empty'),
+                    filters: [],
+                } as any)
+            ).rejects.toThrow()
+        })
+
+        it('should reject a rollout_percentage outside 0-100', async () => {
+            await expect(
+                holdoutCreateTool.handler(context, {
+                    name: generateUniqueKey('holdout-bad-pct'),
+                    filters: [{ rollout_percentage: 150, properties: [] }],
+                } as any)
+            ).rejects.toThrow()
+        })
+
+        it('should list holdouts including a freshly created one', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-list'),
+                filters: [{ rollout_percentage: 20, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const listResult = await holdoutListTool.handler(context, {})
+            const holdouts = parseToolResponse(listResult)
+            const found = holdouts.results.find((h: any) => h.id === holdout.id)
+            expect(found).toBeTruthy()
+        })
+
+        it('should retrieve a holdout by ID', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-get'),
+                filters: [{ rollout_percentage: 30, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const retrieveResult = await holdoutRetrieveTool.handler(context, { id: holdout.id })
+            const retrieved = parseToolResponse(retrieveResult)
+            expect(retrieved.id).toBe(holdout.id)
+            expect(retrieved.filters[0].rollout_percentage).toBe(30)
+        })
+
+        it('should update a holdout rollout percentage', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-update'),
+                filters: [{ rollout_percentage: 10, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+            trackHoldout(holdout)
+
+            const updateResult = await holdoutUpdateTool.handler(context, {
+                id: holdout.id,
+                filters: [{ rollout_percentage: 25, properties: [] }],
+            } as any)
+            const updated = parseToolResponse(updateResult)
+            expect(updated.filters[0].rollout_percentage).toBe(25)
+            expect(updated.filters[0].variant).toBe(`holdout-${holdout.id}`)
+        })
+
+        it('should delete a holdout', async () => {
+            const createResult = await holdoutCreateTool.handler(context, {
+                name: generateUniqueKey('holdout-delete'),
+                filters: [{ rollout_percentage: 15, properties: [] }],
+            } as any)
+            const holdout = parseToolResponse(createResult)
+
+            await holdoutDeleteTool.handler(context, { id: holdout.id })
+
+            const listResult = await holdoutListTool.handler(context, {})
+            const holdouts = parseToolResponse(listResult)
+            const found = holdouts.results.find((h: any) => h.id === holdout.id)
+            expect(found).toBeFalsy()
         })
     })
 })

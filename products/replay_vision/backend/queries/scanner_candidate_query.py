@@ -17,6 +17,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
+from products.replay_vision.backend.temporal.constants import (
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
+)
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -32,6 +38,32 @@ DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 # Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
 _MAX_SESSION_ID_LENGTH = 128
+
+
+def eligibility_predicates() -> list[ast.Expr]:
+    # Mirror the scan-time eligibility gate (fetch_session_events) on the same ClickHouse aggregates the scan reads, so
+    # too-short/idle/long recordings never become candidates and the volume estimate counts the same eligible set. The
+    # scan still re-checks these authoritatively; this only spares the wasted observation + metadata fetch each rejected
+    # recording would otherwise cost.
+    duration = ast.Field(chain=["duration"])
+    active_seconds = ast.Field(chain=["active_seconds"])
+    return [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=duration,
+            right=ast.Constant(value=MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=active_seconds,
+            right=ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=active_seconds,
+            right=ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+        ),
+    ]
 
 
 @dataclass(frozen=True)
@@ -76,8 +108,9 @@ class ScannerCandidateQuery:
         inner_query.offset = None
         inner_query.after = None
 
-        # Sampling in the inner HAVING drops un-sampled sessions before outer aggregation.
-        extra_having: list[ast.Expr] = []
+        # Drop recordings the scan would reject anyway (too short / too idle / too long) before they become candidates,
+        # then sample the rest — all in the inner HAVING, before outer aggregation.
+        extra_having: list[ast.Expr] = eligibility_predicates()
         if (sampling := self._sampling_predicate()) is not None:
             extra_having.append(sampling)
 

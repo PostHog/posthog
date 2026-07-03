@@ -42,7 +42,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
-from products.tasks.backend.metrics import observe_task_run_created
+from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +58,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
+        ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
@@ -73,6 +74,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
+        # HogDesk — the internal support desk client. Tasks it creates from a
+        # ticket's Code chat carry this origin (previously "support_queue", which
+        # collided with the conversations support pipeline).
+        HOGDESK = "hogdesk", "HogDesk"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -155,6 +160,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
             models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
+            models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
         ]
 
     def __str__(self):
@@ -252,11 +259,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        # Use .all() which respects prefetch_related cache, then sort in Python
-        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
-        runs = list(self.runs.all())
+        runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
-            return max(runs, key=lambda r: r.created_at)
+            return max(runs, key=lambda r: (r.created_at, r.id))
         return None
 
     def _assign_task_number(self) -> None:
@@ -336,11 +341,15 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime_adapter: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
+        wizard_config: dict | None = None,
+        pending_user_message: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -354,7 +363,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
+            RuntimeAdapter,
             get_pr_authorship_mode,
+            get_provider_for_runtime_adapter,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -445,6 +456,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if model:
             extra_state["model"] = model
 
+        # The model's runtime adapter and the provider derived from it. The agent server can't route
+        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
+        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
+        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
+        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        if runtime_adapter:
+            extra_state["runtime_adapter"] = runtime_adapter
+            provider = get_provider_for_runtime_adapter(runtime_adapter)
+            if provider is not None:
+                extra_state["provider"] = provider.value
+            if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
+                initial_permission_mode = "auto"
+
+        if reasoning_effort:
+            extra_state["reasoning_effort"] = reasoning_effort
+
         # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
         # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
         if ai_stage:
@@ -469,6 +496,17 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # origin-aware default.
         if inactivity_timeout_seconds is not None:
             extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
+
+        # Marks this as a cloud setup-wizard run: the workflow runs the wizard in the sandbox before
+        # the agent (see run_wizard activity / TaskProcessingContext.wizard_config).
+        if wizard_config is not None:
+            extra_state["wizard_config"] = wizard_config
+
+        # The first message handed to the agent once its server is ready (forward_pending_user_message
+        # reads it from run state). Without it a background run boots the agent idle — it never gets a
+        # prompt and just sits there while relay_sandbox_events waits for events that never come.
+        if pending_user_message:
+            extra_state["pending_user_message"] = pending_user_message
 
         return task, extra_state
 
@@ -539,14 +577,18 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime_adapter: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        wizard_config: dict | None = None,
+        pending_user_message: str | None = None,
     ) -> "Task":
-        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+        from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
         task, extra_state = Task._build_task(
             team=team,
@@ -563,27 +605,48 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             internal=internal,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
             model=model,
+            reasoning_effort=reasoning_effort,
             initial_permission_mode=initial_permission_mode,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            wizard_config=wizard_config,
+            pending_user_message=pending_user_message,
         )
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
+        run_extra_state = dict(extra_state or {})
+        if start_workflow:
+            # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
+            # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
+            run_extra_state["pending_dispatch"] = {
+                "create_pr": create_pr,
+                "posthog_mcp_scopes": posthog_mcp_scopes,
+                "user_id": user_id,
+                "slack_thread_context": _normalize_slack_context(slack_thread_context),
+            }
+
+        task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
 
         if start_workflow:
             # Defer the fire-and-forget workflow start until the creating transaction commits.
             # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
             # workflow's first activity can read the TaskRun before its row is visible and fail.
             # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
-            # are unaffected.
+            # are unaffected. If the callback is lost (process recycled in the commit->callback
+            # window, or an earlier on_commit hook raising), the run stays QUEUED — the periodic
+            # reconciler re-dispatches it from the persisted pending_dispatch above.
             run_id = str(task_run.id)
             team_id = task.team.id
             task_id = str(task.id)
-            transaction.on_commit(
-                lambda: execute_task_processing_workflow(
+
+            observe_task_run_dispatch_callback(task_run, phase="scheduled")
+
+            def _dispatch() -> None:
+                observe_task_run_dispatch_callback(task_run, phase="fired")
+                execute_task_processing_workflow(
                     task_id=task_id,
                     run_id=run_id,
                     team_id=team_id,
@@ -592,7 +655,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                     slack_thread_context=slack_thread_context,
                     posthog_mcp_scopes=posthog_mcp_scopes,
                 )
-            )
+
+            transaction.on_commit(_dispatch)
 
         return task
 
@@ -790,6 +854,12 @@ class TaskRun(models.Model):
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
+            models.Index(fields=["task", "-created_at", "-id"], name="task_run_task_created_idx"),
+            models.Index(
+                fields=["team", "stage", "task"],
+                name="task_run_team_stage_task_idx",
+                condition=models.Q(stage__isnull=False),
+            ),
         ]
 
     def __str__(self):
@@ -832,23 +902,21 @@ class TaskRun(models.Model):
 
         state = self.state or {}
         prior_snapshot_external_id = state.get("snapshot_external_id")
+        prior_snapshot_kind = state.get("snapshot_kind")
+        prior_snapshot_mount_path = state.get("snapshot_mount_path")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
-        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
-            state.pop("snapshot_external_id", None)
         self.state = state
 
         logger.info(
             "prepare_for_cloud_handoff",
             run_id=str(self.id),
             task_id=str(self.task_id),
-            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
             prior_snapshot_external_id=prior_snapshot_external_id,
-            stripped_snapshot_external_id=(
-                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
-            ),
+            prior_snapshot_kind=prior_snapshot_kind,
+            prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
         self.save(

@@ -8,7 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'Hash properties',
     description:
         'Hashes sensitive fields with SHA256 using a salt. This helps protect user privacy while maintaining data consistency.',
-    icon_url: '/static/hedgehog/police-hog.png',
+    icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/police_hog_b9b79e7c20.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `

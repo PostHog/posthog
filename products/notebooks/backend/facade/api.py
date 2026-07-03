@@ -15,12 +15,15 @@ lives in ``facade.collab``.
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from .. import logic
+from .. import logic, markdown_migration
 from ..models import Notebook
 from . import contracts
 
 if TYPE_CHECKING:
+    from posthog.models import User
     from posthog.rbac.user_access_control import UserAccessControl
+
+MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
@@ -78,6 +81,12 @@ def get_notebook_activity_summary(team_id: int, limit: int) -> contracts.Noteboo
             for row in recent
         ],
     )
+
+
+def get_markdown_notebook_migration_stats(
+    team_id: int | None = None,
+) -> contracts.MarkdownNotebookMigrationStats:
+    return markdown_migration.get_markdown_notebook_migration_stats(team_id)
 
 
 # --- Access control ---
@@ -150,6 +159,23 @@ def create_notebook(
         visibility=visibility,
     )
     return _to_notebook_data(notebook)
+
+
+def migrate_notebooks_to_markdown(
+    *,
+    user: "User",
+    team_id: int | None = None,
+    dry_run: bool = True,
+    batch_size: int | None = None,
+    max_previews: int = 5,
+) -> contracts.MarkdownNotebookMigrationResult:
+    return markdown_migration.migrate_notebooks_to_markdown(
+        user=user,
+        team_id=team_id,
+        dry_run=dry_run,
+        batch_size=batch_size,
+        max_previews=max_previews,
+    )
 
 
 # --- Resource links (groups, accounts) ---

@@ -246,6 +246,11 @@ function CollapsibleBreakdownSection({
                                                                             metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
+                                                                            retryDisabledReason={
+                                                                                isRecalculating
+                                                                                    ? 'Recalculation in progress'
+                                                                                    : undefined
+                                                                            }
                                                                         />
                                                                     )}
                                                                 </td>
@@ -591,11 +596,18 @@ export function MetricRowGroup({
         useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isRecalculating, isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
-    // On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
-    // exposures) — same as the manual reload. The legacy flow retries the single metric in place.
+    /**
+     * Dim the stale value in place while a non-cold recalc refreshes this metric; block clicks on it.
+     */
+    const recalculatingClassName = isMetricRecalculating(metric.uuid) ? 'opacity-40 pointer-events-none' : ''
+
+    /**
+     * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
+     * exposures), same as the manual reload. The legacy flow retries the single metric in place.
+     */
     const handleRetry = (): void => {
         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
             triggerRecalculation()
@@ -713,8 +725,11 @@ export function MetricRowGroup({
         })
     }
 
-    // Skeleton-with-variants while results compute: keeps the final row layout so data fills in place
-    if (!error && (isLoading || exposuresLoading)) {
+    /**
+     * Skeleton-with-variants only when there's no result yet. A metric that already has a value renders
+     * its result, dimmed while recalculating, so a refresh never flashes the skeleton over real data.
+     */
+    if (!result && !error && (isLoading || exposuresLoading)) {
         const skeletonVariantKeys = variants.length > 0 ? variants.map((variant) => variant.key) : ['control']
         const bg = isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
 
@@ -787,7 +802,10 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={noResultStateStyle}>
+                <tr
+                    className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
+                    style={noResultStateStyle}
+                >
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -822,6 +840,7 @@ export function MetricRowGroup({
                             error={error}
                             query={debugQuery}
                             onRetry={handleRetry}
+                            retryDisabledReason={isRecalculating ? 'Recalculation in progress' : undefined}
                         />
                     </td>
                 </tr>
@@ -892,7 +911,10 @@ export function MetricRowGroup({
                 )}
 
             {/* Baseline row */}
-            <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
+            <tr
+                className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
+                style={FIXED_HEIGHT_STYLE}
+            >
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
@@ -1022,7 +1044,7 @@ export function MetricRowGroup({
                 return (
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
-                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                        className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
                         style={FIXED_HEIGHT_STYLE}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}

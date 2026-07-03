@@ -22,11 +22,9 @@ from posthog.hogql.parser import parse_select
 from posthog.models import EventDefinition, PropertyDefinition
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):

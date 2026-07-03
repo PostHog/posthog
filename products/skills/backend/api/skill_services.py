@@ -104,14 +104,23 @@ def get_skill_by_name_from_db(
     skill_name: str,
     version: int | None = None,
     version_id: str | None = None,
+    *,
+    include_archived: bool = False,
 ) -> LLMSkill | None:
     queryset = get_active_skill_queryset(team).filter(name=skill_name)
 
     if version_id is not None:
-        queryset = queryset.filter(id=version_id)
+        # `include_archived` honours a pin to one immutable version row even after
+        # the skill was archived (soft-deleted across all versions) — so a frozen
+        # agent's fork can still re-freeze against the exact version it shipped.
+        rows = (
+            LLMSkill.objects.filter(team=team, name=skill_name, id=version_id)
+            if include_archived
+            else queryset.filter(id=version_id)
+        )
         if version is not None:
-            queryset = queryset.filter(version=version)
-        return queryset.order_by("created_at", "id").first()
+            rows = rows.filter(version=version)
+        return rows.order_by("created_at", "id").first()
 
     if version is None:
         return queryset.filter(is_latest=True).order_by("-version", "-created_at", "-id").first()

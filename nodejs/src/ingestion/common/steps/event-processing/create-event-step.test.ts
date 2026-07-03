@@ -2,11 +2,11 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { EVENTS_OUTPUT } from '~/common/outputs'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '~/types'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
 

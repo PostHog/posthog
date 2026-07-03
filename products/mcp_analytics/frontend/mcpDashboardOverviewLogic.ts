@@ -13,11 +13,8 @@ import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } f
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
-import { categorizeHarness } from './dashboard/harnessRegistry'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
-
-export { categorizeHarness }
 
 export interface DateFilter {
     dateFrom: string | null
@@ -31,8 +28,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
 //
-// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
-// legacy `mcp_tool_call` alias, so matching both names would double-count it.
+// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -284,6 +280,10 @@ function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
     return d.startOf(interval)
 }
 
+// The one format for bucket keys — must match ClickHouse dateTrunc's DateTime output so the
+// zero-fill join and the in-progress-tail comparison line up. Change it here, nowhere else.
+const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
 // Every bucket key across the resolved window [start, end] at the active interval, formatted to
 // match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
 // zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
@@ -295,15 +295,31 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     let cursor = startOfBucket(start, interval)
     // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
     for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format('YYYY-MM-DD HH:mm:ss'))
+        keys.push(cursor.format(BUCKET_FORMAT))
         cursor = cursor.add(1, interval)
     }
     return keys
 }
 
+// True when the final bucket is the current, still-running interval (open-ended window), so the
+// chart can dash that segment as "in progress" rather than letting the partial period read as data
+// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
+    }
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
+}
+
 export function normalizeBucket(raw: unknown, timezone: string): string {
     const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+    return s ? dayjs(s).tz(timezone).format(BUCKET_FORMAT) : ''
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
@@ -336,7 +352,7 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(interval).format('YYYY-MM-DD HH:mm:ss'),
+        currentStartBucket: start.startOf(interval).format(BUCKET_FORMAT),
     }
 }
 
@@ -588,6 +604,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.dateFilter, s.timezone, s.interval],
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
                 buildBucketKeys(dateFilter, timezone, interval),
+        ],
+        // Whether the activity chart's final bucket is the current, still-running interval — the
+        // chart dashes that segment so a partial period doesn't read as a drop in tool calls.
+        activityIncompleteTail: [
+            (s) => [s.bucketKeys, s.timezone, s.interval],
+            (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(bucketKeys, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],

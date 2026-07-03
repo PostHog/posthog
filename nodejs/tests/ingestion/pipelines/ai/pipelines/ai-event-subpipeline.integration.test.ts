@@ -9,6 +9,7 @@ import {
     PERSON_MERGE_EVENTS_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { newPipelineBuilder } from '~/ingestion/framework/builders'
@@ -26,7 +27,6 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
 
 const team = createTestTeam()
 const message = createTestMessage()

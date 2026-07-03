@@ -11,7 +11,7 @@ from posthog.models.filters import AnyFilter
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
+from posthog.queries.util import TIME_IN_SECONDS, get_start_of_interval_sql
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
@@ -70,7 +70,10 @@ class QueryDateRange:
         if self._earliest_timestamp_fallback:
             return self._earliest_timestamp_fallback
 
-        return get_earliest_timestamp(self._team.pk)
+        # Imported here to avoid a circular import at module load (timestamp_utils pulls in HogQL).
+        from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+
+        return get_earliest_timestamp_unfiltered(self._team)
 
     @property
     def date_from_param(self) -> datetime:

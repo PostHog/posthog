@@ -2,6 +2,7 @@ import type { Series } from '@posthog/quill-charts'
 
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 
 export interface BuildTrendsPieSeriesOpts<R> {
@@ -10,7 +11,7 @@ export interface BuildTrendsPieSeriesOpts<R> {
     /** True when the result should be excluded from rendering. */
     getHidden?: (r: R, index: number) => boolean
     /** Optional label override per result — used to format breakdown values. */
-    getLabel?: (r: R, index: number) => string
+    getLabel?: (r: R) => string
 }
 
 /** Maps the kea-side `IndexedTrendResult` list to hog-charts `Series<TrendsSeriesMeta>[]`,
@@ -24,7 +25,7 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
 ): Series<TrendsSeriesMeta>[] {
     return results.map((r, index) => {
         const excluded = opts.getHidden ? opts.getHidden(r, index) : false
-        const label = opts.getLabel ? opts.getLabel(r, index) : (r.label ?? '')
+        const label = opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label)
         return {
             // Match the line/bar adapters — keying by `${r.id}` lets the click handler resolve
             // back to the source IndexedTrendResult without stashing it on meta.

@@ -8,6 +8,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { insightsModel } from '~/models/insightsModel'
@@ -234,6 +237,47 @@ describe('insightDataLogic', () => {
                     loadPriority: 1,
                 }).mount()
             }).toMatchValues({ query: updatedCachedQuery })
+        })
+
+        // On a dashboard tile, `setQuery` is shared with insightVizDataLogic, whose listener calls
+        // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
+        // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
+        // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const staleCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: staleCachedQuery })
         })
     })
 
@@ -469,6 +513,35 @@ describe('insightDataLogic', () => {
                 .toDispatchActions(['renameInsightSuccess'])
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips the PATCH when the query is unchanged from the saved insight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(baseQuery)
+            }).toFinishAllListeners()
+
+            expect(patchSpy).not.toHaveBeenCalled()
+        })
+
+        it('skips the PATCH while this insight is being edited in the insight scene', async () => {
+            // Editing an insight opened from a dashboard reuses the tile's keyed logic, which wired
+            // persistDisplayOptions as props.setQuery. The scene must persist only via explicit save.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightLogicRef: { logic: { key: Insight42 } } },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
         })
     })
 })

@@ -1,11 +1,15 @@
-from django.db import IntegrityError
+from uuid import uuid4
+
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestRoleCrossOrgAuthorization(APILicensedTest):
@@ -179,6 +183,38 @@ class TestRoleAPI(APILicensedTest):
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(res.json()["code"], "unique")
+
+    def test_listing_roles_does_not_scale_queries_with_member_count(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        def add_members(count: int) -> None:
+            for _ in range(count):
+                user = User.objects.create_and_join(self.organization, f"member-{uuid4()}@posthog.com", None)
+                membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+                RoleMembership.objects.create(role=role, user=user, organization_member=membership)
+
+        def members_for_role(response) -> list:
+            return next(r["members"] for r in response.json()["results"] if r["id"] == str(role.id))
+
+        # Warm up per-process caches (instance settings etc.) so they don't skew the counts below.
+        self.client.get("/api/organizations/@current/roles")
+
+        add_members(2)
+        with CaptureQueriesContext(connection) as few_members:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(members_for_role(res)), 2)
+
+        add_members(4)
+        with CaptureQueriesContext(connection) as more_members:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(members_for_role(res)), 6)
+
+        # Constant query count as members grow: the social-auth/2FA lookups are prefetched, not N+1.
+        self.assertEqual(len(few_members.captured_queries), len(more_members.captured_queries))
 
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

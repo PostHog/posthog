@@ -210,6 +210,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             projectTreeLogicKey,
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
+        // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
+        restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
@@ -282,6 +284,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             await api.fileSystem.move(action.item.id, newPath)
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
+                            if (action.item.type === 'dashboard') {
+                                // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
+                                // dashboard-specific event in the generic move path — a deliberate altitude
+                                // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
+                                // mounts only in the tree arm, so emitting there would miss control-arm moves and
+                                // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
+                                // post-move analytics hook) once we agree on a solution / the experiment ends.
+                                // method/count + undo net-out deferred.
+                                eventUsageLogic.actions.reportDashboardMovedToFolder({
+                                    fromDepth: splitPath(oldPath).length,
+                                    toDepth: splitPath(newPath).length,
+                                    fromUnfiled: oldPath.startsWith('Unfiled/'),
+                                    toUnfiled: newPath.startsWith('Unfiled/'),
+                                })
+                            }
                             lemonToast.success('Item moved successfully', {
                                 button: {
                                     label: 'Undo',
@@ -426,6 +443,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                               ?.actions.expandProjectFolder(folder)
                                                       }
                                                   }
+                                                  // Signal non-sidebar consumers (the dashboards tree) to refetch.
+                                                  actions.restoredItems()
                                                   const restoreCountsByType = new Map<string, number>()
                                                   for (const entry of undoableEntries) {
                                                       restoreCountsByType.set(
@@ -567,9 +586,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    const newState = {
-                        ...state,
-                        [folder]: state[folder].filter((item) => item.id !== savedItem.id),
+                    const newState = { ...state }
+                    // The parent folder may not be loaded into the store yet (folders load lazily); only
+                    // prune it when it's present — otherwise state[folder] is undefined and .filter throws.
+                    if (newState[folder]) {
+                        newState[folder] = newState[folder].filter((item) => item.id !== savedItem.id)
                     }
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {

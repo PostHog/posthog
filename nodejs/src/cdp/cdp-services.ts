@@ -2,17 +2,16 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { getRedisHost } from '~/utils/db/redis'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { getRedisHost } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { PostgresRouter } from '../utils/db/postgres'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
 import {
-    BatchHogflowRequestsOutput,
     PrecalculatedPersonPropertiesOutput,
     PrefilteredEventsOutput,
     WarehouseSourceWebhooksOutput,
@@ -51,7 +50,6 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
-    | BatchHogflowRequestsOutput
     | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -146,7 +144,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
-        | 'CDP_EMAIL_QUEUE_ROUTING'
         | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -159,8 +156,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >
@@ -405,7 +400,6 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
             selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },

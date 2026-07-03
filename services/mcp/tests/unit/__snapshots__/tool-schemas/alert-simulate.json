@@ -68,6 +68,43 @@
                             },
                             "required": ["evaluation"],
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                },
+                                "funnel_step": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
+                                },
+                                "metric": {
+                                    "enum": ["conversion_from_start", "conversion_from_previous"],
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "default": "FunnelsAlertConfig",
+                                    "enum": ["FunnelsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["metric"],
+                            "type": "object"
                         }
                     ],
                     "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."

@@ -1,4 +1,4 @@
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { BatchPipeline, OkResultWithContext } from './batch-pipeline.interface'
 import { isOkResult } from './results'

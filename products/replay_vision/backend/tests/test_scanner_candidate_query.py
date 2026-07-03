@@ -11,6 +11,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
@@ -18,6 +19,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
 )
+from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -136,6 +138,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @staticmethod
     def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
+        # Default to an eligibility-passing recording (>= MIN_ACTIVE active seconds) so tests exercising the watermark /
+        # settle / sampling dimensions aren't incidentally dropped by the eligibility filter; override per-test as needed.
+        kwargs.setdefault("active_milliseconds", 30_000)
         produce_replay_summary(
             team_id=team_id,
             session_id=session_id,
@@ -170,7 +175,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         self._produce(
             team.id,
             "just-after-watermark",
-            last_swept_at,
+            # >= 15s long so it clears the duration eligibility bound; session_end is still just past the watermark.
+            last_swept_at - dt.timedelta(seconds=14),
             last_swept_at + dt.timedelta(seconds=1),
         )
 
@@ -344,6 +350,37 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert [r.session_id for r in results] == ["long"]
 
     @pytest.mark.django_db
+    def test_excludes_recordings_the_scan_would_mark_ineligible(self, team) -> None:
+        # Recordings the scan rejects as too short / too idle / too long are dropped before becoming candidates (the
+        # scan re-checks them authoritatively). All four end before the settle bound, so settle isn't the reason.
+        sb = _NOW - SETTLE_INTERVAL
+
+        def produce(session_id: str, start: dt.datetime, duration_s: int, active_ms: int) -> None:
+            self._produce(
+                team.id, session_id, start, start + dt.timedelta(seconds=duration_s), active_milliseconds=active_ms
+            )
+
+        produce("too-short", sb - dt.timedelta(minutes=10), 10, 10_000)  # 10s wall < 15s min duration
+        produce("too-idle", sb - dt.timedelta(minutes=12), 60, 5_000)  # 5s active < 10s min active
+        produce("too-long", sb - dt.timedelta(minutes=80), 4200, 3_700_000)  # 3700s active > 3600s max active
+        produce("eligible", sb - dt.timedelta(minutes=20), 60, 30_000)  # 60s wall, 30s active
+
+        results = {r.session_id for r in self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))}
+        assert results == {"eligible"}
+
+    @pytest.mark.django_db
+    def test_volume_estimate_counts_only_eligible_recordings(self, team) -> None:
+        # The estimate shares eligibility_predicates() with the candidate query, so the forecast counts the same
+        # eligible set the sweep selects instead of over-counting recordings the scan would reject.
+        recent = _NOW - dt.timedelta(days=2)
+        self._produce(team.id, "too-short", recent, recent + dt.timedelta(seconds=10), active_milliseconds=10_000)
+        self._produce(team.id, "eligible", recent, recent + dt.timedelta(seconds=60), active_milliseconds=30_000)
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
         # test_account_filters are exclusion-style — the operator picks the accounts to drop.
         team.test_account_filters = [
@@ -355,10 +392,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             }
         ]
         team.save(update_fields=["test_account_filters"])
-        from posthog.models.person import Person
-
-        Person.objects.create(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
-        Person.objects.create(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
+        create_person(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
+        create_person(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
 
         self._produce(
             team.id,

@@ -1,11 +1,12 @@
 from datetime import timedelta
 from typing import Literal
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, resolve_ceiling
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -15,7 +16,7 @@ POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 
-McpScopePreset = Literal["read_only", "full", "signals_scout"]
+McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
 
 
@@ -32,6 +33,16 @@ INTERNAL_SCOPES: list[str] = [
 # preset — unrelated `full`/`read_only` task tokens must never carry scout write access.
 SCOUT_INTERNAL_SCOPES: list[str] = [
     "signal_scout_internal:write",
+]
+
+
+# The scout report channel (emit_report / edit_report). Held separate from
+# `SCOUT_INTERNAL_SCOPES` and added ONLY for the `signals_scout_reports` posture, so a scout
+# carries it only when its skill opted into the report tools via `allowed_tools`. A baseline
+# scout's token never carries this scope, so the MCP server strips the report tools from its
+# toolset entirely — they can't bleed into a run that didn't opt in.
+SCOUT_REPORT_SCOPES: list[str] = [
+    "signal_scout_report:write",
 ]
 
 
@@ -77,7 +88,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
 
 
 def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
@@ -85,17 +96,23 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        elif scopes == "signals_scout":
+        elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
             # artifacts a finding can produce (e.g. a notebook). Both extra sets are added
             # ONLY here (not via the global `INTERNAL_SCOPES`), so unrelated `full`/`read_only`
-            # task tokens never carry them. `has_write_scopes("signals_scout")` also reports
-            # True so the MCP server doesn't enable read-only mode, which would otherwise strip
-            # the agent's own internal-write tools (`signal_scout_internal:write` is annotated
-            # as not-read-only).
+            # task tokens never carry them. `has_write_scopes(...)` also reports True so the MCP
+            # server doesn't enable read-only mode, which would otherwise strip the agent's own
+            # internal-write tools (`signal_scout_internal:write` is annotated as not-read-only).
+            #
+            # `signals_scout_reports` is the same posture plus the report-channel scope, granted
+            # only to a scout whose skill opted into emit_report/edit_report. A baseline scout
+            # gets `signals_scout` (no report scope), so the MCP server strips the report tools.
             scout_internal = list(SCOUT_INTERNAL_SCOPES) if include_internal_scopes else []
-            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *SCOUT_USER_WRITE_SCOPES]
+            scout_report = (
+                list(SCOUT_REPORT_SCOPES) if (scopes == "signals_scout_reports" and include_internal_scopes) else []
+            )
+            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *scout_report, *SCOUT_USER_WRITE_SCOPES]
         else:
             # "read_only": reads + shared internal scopes only — no scout write scope.
             resolved = [*MCP_READ_SCOPES, *internal]
@@ -111,7 +128,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
-        return scopes in ("full", "signals_scout")
+        return scopes in ("full", "signals_scout", "signals_scout_reports")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
@@ -163,6 +180,21 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
+def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scopes: list[str]) -> str:
+    token_value = generate_random_oauth_access_token(None)
+
+    OAuthAccessToken.objects.create(
+        user=user,
+        application=app,
+        token=token_value,
+        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        scope=" ".join(dict.fromkeys(scopes)),
+        scoped_teams=[team_id],
+    )
+
+    return token_value
+
+
 def create_oauth_access_token_for_user(
     user,
     team_id: int,
@@ -173,15 +205,25 @@ def create_oauth_access_token_for_user(
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_sandbox_oauth_app(application)
-    token_value = generate_random_oauth_access_token(None)
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 
-    OAuthAccessToken.objects.create(
-        user=user,
-        application=app,
-        token=token_value,
-        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
-        scope=" ".join(resolved),
-        scoped_teams=[team_id],
+
+def get_wizard_app() -> OAuthApplication:
+    return _get_oauth_app_for_client_id(
+        settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID, "PostHog Wizard", get_instance_region()
     )
 
-    return token_value
+
+def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
+    """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
+
+    Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
+    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
+    """
+    app = get_wizard_app()
+
+    ceiling = resolve_ceiling(app.ceiling_scopes)
+    if ceiling is None or len(ceiling) == 0:
+        raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
+
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))

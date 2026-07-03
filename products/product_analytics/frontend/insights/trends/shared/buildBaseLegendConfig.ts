@@ -16,7 +16,7 @@ export function buildBaseLegendConfig({
 }): ChartLegendConfig {
     return {
         show,
-        position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
+        position: (legendPosition ?? 'right') as ChartLegendConfig['position'],
         interactive: canEditInsight && !inSharedMode,
     }
 }

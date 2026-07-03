@@ -2,12 +2,27 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { defaultConfig } from '~/common/config/config'
+import { KAFKA_INGESTION_WARNINGS } from '~/common/config/kafka-topics'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
+import { GeoIPService } from '~/common/utils/geoip'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import {
@@ -27,22 +42,7 @@ import {
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
-import { defaultConfig } from '../../src/config/config'
-import { KAFKA_INGESTION_WARNINGS } from '../../src/config/kafka-topics'
-import {
-    createCookielessRedisConnectionConfig,
-    createIngestionRedisConnectionConfig,
-} from '../../src/config/redis-pools'
-import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
-import { PostgresRouter } from '../../src/utils/db/postgres'
-import { createRedisPoolFromConfig } from '../../src/utils/db/redis'
-import { parseRawClickHouseEvent } from '../../src/utils/event'
-import { GeoIPService } from '../../src/utils/geoip'
-import { parseJSON } from '../../src/utils/json-parse'
-import { PubSub } from '../../src/utils/pubsub'
-import { TeamManager } from '../../src/utils/team-manager'
-import { UUIDT } from '../../src/utils/utils'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { ensureKafkaTopics } from './kafka'

@@ -111,9 +111,6 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
-        // Not yet in .github/rust-images.yml — no production Depot/chart image build.
-        "cohort-event-shuffler",
-        "cohort-stream-processor",
     ]
     .into();
 

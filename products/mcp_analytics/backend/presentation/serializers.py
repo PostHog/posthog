@@ -5,6 +5,12 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 MAX_GOAL_LENGTH = 500
 MAX_SUMMARY_LENGTH = 5_000
 
+# Single source of truth for session-list pagination bounds. Referenced by the query serializer
+# (which enforces + advertises them in the OpenAPI spec, so the MCP Zod schema inherits the same
+# limits) and by MCPSessionPagination for its response envelope.
+MCP_SESSION_LIST_DEFAULT_LIMIT = 100
+MCP_SESSION_LIST_MAX_LIMIT = 500
+
 
 class MCPAnalyticsSubmissionSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this submission.")
@@ -136,6 +142,57 @@ class MCPToolCallSerializer(serializers.Serializer):
     )
     duration_ms = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Duration of the tool call in milliseconds when captured."
+    )
+
+
+class MCPSessionListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+    )
+    order_by = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, "
+            "tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. "
+            "Defaults to '-session_start' (newest sessions first)."
+        ),
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Start of the window to aggregate sessions over. PostHog date string — relative "
+            "(e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=MCP_SESSION_LIST_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=MCP_SESSION_LIST_MAX_LIMIT,
+        help_text=(
+            f"Maximum number of sessions to return per page. Defaults to {MCP_SESSION_LIST_DEFAULT_LIMIT}; "
+            f"values above {MCP_SESSION_LIST_MAX_LIMIT} are rejected."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "Number of sessions to skip before returning results. Combine with limit to page through "
+            "sessions; the response's has_next flag indicates whether more remain."
+        ),
     )
 
 

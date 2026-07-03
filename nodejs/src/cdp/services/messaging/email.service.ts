@@ -3,10 +3,10 @@ import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'

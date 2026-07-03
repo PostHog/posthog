@@ -8,8 +8,8 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from requests.exceptions import HTTPError, Timeout
 
-from posthog.temporal.data_imports.sources.snapchat_ads.settings import EndpointType
-from posthog.temporal.data_imports.sources.snapchat_ads.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import EndpointType
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
     SNAPCHAT_DATE_FORMAT,
     SnapchatAdsAPIError,
     SnapchatAdsPaginator,

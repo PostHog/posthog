@@ -1,8 +1,8 @@
+import { BackgroundRefresher } from '~/common/utils/background-refresher'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
-import { BackgroundRefresher } from '~/utils/background-refresher'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { logger } from '~/utils/logger'
 
 import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
@@ -59,13 +59,20 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         {
             capture_console_log_opt_in: boolean
             session_recording_retention_period: RetentionPeriod
+            is_ai_training_opted_in: boolean
         } & Pick<Team, 'id' | 'api_token'>
     >(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period
-            FROM posthog_team
-            WHERE session_recording_opt_in = true
+            SELECT
+                t.id,
+                t.api_token,
+                t.capture_console_log_opt_in,
+                t.session_recording_retention_period,
+                COALESCE(o.is_ai_training_opted_in, false) AS is_ai_training_opted_in
+            FROM posthog_team t
+            LEFT JOIN posthog_organization o ON o.id = t.organization_id
+            WHERE t.session_recording_opt_in = true
         `,
         [],
         'fetchTeamTokensWithRecordings'
@@ -76,6 +83,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             acc[row.api_token] = {
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
+                aiTrainingOptedIn: row.is_ai_training_opted_in,
             }
             return acc
         },

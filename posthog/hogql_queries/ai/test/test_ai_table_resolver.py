@@ -3,7 +3,38 @@ from unittest.mock import Mock, patch
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError, query_ai_events
+from posthog.hogql_queries.ai.ai_table_resolver import (
+    AIEventsExpiredError,
+    AIEventsNotFoundError,
+    is_ai_events_enabled,
+    query_ai_events,
+)
+
+
+class TestIsAiEventsEnabled:
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.feature_enabled_or_false", return_value=True)
+    def test_returns_true_when_flag_enabled(self, mock_flag):
+        team = Mock(id=123, organization_id="org_abc")
+        assert is_ai_events_enabled(team) is True
+        mock_flag.assert_called_once_with(
+            "ai-events-table-rollout",
+            "123",
+            groups={"organization": "org_abc"},
+            group_properties={"organization": {"id": "org_abc"}},
+            send_feature_flag_events=False,
+        )
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.feature_enabled_or_false", return_value=False)
+    def test_returns_false_when_flag_disabled(self, mock_flag):
+        team = Mock(id=456, organization_id="org_xyz")
+        assert is_ai_events_enabled(team) is False
+        mock_flag.assert_called_once_with(
+            "ai-events-table-rollout",
+            "456",
+            groups={"organization": "org_xyz"},
+            group_properties={"organization": {"id": "org_xyz"}},
+            send_feature_flag_events=False,
+        )
 
 
 class TestQueryAiEvents:

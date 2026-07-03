@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -8,7 +9,6 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { parseJSON } from '~/utils/json-parse'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
@@ -283,6 +283,7 @@ describe('SessionBatchRecorder', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
         },
         message: {
             distinct_id: distinctId,
@@ -341,7 +342,7 @@ describe('SessionBatchRecorder', () => {
             expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
         })
 
-        it('should process and flush a single session and track offsets', async () => {
+        it('should process and flush a single session', async () => {
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -351,10 +352,6 @@ describe('SessionBatchRecorder', () => {
             ])
 
             await recorder.record(message)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
-            })
 
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -386,12 +383,7 @@ describe('SessionBatchRecorder', () => {
 
             for (const message of messages) {
                 await recorder.record(message)
-                expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
-                })
             }
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledTimes(2)
 
             await recorder.flush()
 
@@ -1288,10 +1280,6 @@ describe('SessionBatchRecorder', () => {
             ])
 
             const bytesWritten = await recorder.record(message)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
-            })
             expect(recorder.size).toBe(bytesWritten)
 
             recorder.discardPartition(999)
@@ -1774,35 +1762,6 @@ describe('SessionBatchRecorder', () => {
             expect(mockWriter.writeSession).not.toHaveBeenCalled()
         })
 
-        it('should track offsets for rate limited events', async () => {
-            recorder = new SessionBatchRecorder(
-                mockOffsetManager,
-                mockStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                1
-            )
-
-            const messages = [
-                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], { offset: 100 }),
-                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], { offset: 101 }),
-                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], { offset: 102 }),
-            ]
-
-            for (const message of messages) {
-                await recorder.record(message)
-            }
-
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 100 })
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 101 })
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 102 })
-        })
-
         it('should rate limit sessions independently', async () => {
             recorder = new SessionBatchRecorder(
                 mockOffsetManager,
@@ -2104,7 +2063,6 @@ describe('SessionBatchRecorder', () => {
             const bytesWritten = await recorder.record(message)
 
             expect(bytesWritten).toBe(0)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 42 })
         })
 
         it('should drop messages when session key changes between calls', async () => {
@@ -2140,7 +2098,6 @@ describe('SessionBatchRecorder', () => {
 
             expect(bytes1).toBeGreaterThan(0)
             expect(bytes2).toBe(0)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 1 })
         })
     })
 
@@ -2183,21 +2140,6 @@ describe('SessionBatchRecorder', () => {
             expect(bytesWritten).toBe(0)
             expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
             expect(mockSessionFilter.isBlocked).toHaveBeenCalledWith(1, 'session1')
-        })
-
-        it('should track offset when new session is blocked', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-            mockSessionFilter.isBlocked.mockResolvedValue(true)
-
-            const message = createMessage(
-                'session1',
-                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
-                { partition: 1, offset: 42 }
-            )
-
-            await recorder.record(message)
-
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 42 })
         })
 
         it('should allow new session when not blocked', async () => {

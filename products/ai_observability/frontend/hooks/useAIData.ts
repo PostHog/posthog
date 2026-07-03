@@ -32,12 +32,12 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     const cached = eventId ? aiDataCache[eventId] : undefined
     const loading = eventId ? isEventLoading(eventId) : false
 
-    // Only fire the loader when a real fetch is possible — we need trace coordinates to
-    // look the heavy props up via TraceQuery.
+    // Only fire the loader when a real fetch is possible and a heavy prop is missing.
     const canFetch = !!traceId && !!timestamp
+    const shouldFetch = canFetch && (input == null || output == null)
 
     useEffect(() => {
-        if (!eventId || cached || loading || !canFetch) {
+        if (!eventId || cached || loading || !shouldFetch) {
             return
         }
 
@@ -49,7 +49,7 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
             traceId,
             timestamp,
         })
-    }, [cached, loading, canFetch, loadAIDataForEvent, eventId, input, output, tools, traceId, timestamp])
+    }, [cached, loading, canFetch, loadAIDataForEvent, eventId, input, output, tools, traceId, timestamp, shouldFetch])
 
     if (!eventId) {
         return {
@@ -65,6 +65,6 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
         input: cached?.input ?? input,
         output: cached?.output ?? output,
         tools: cached?.tools ?? tools,
-        isLoading: canFetch && (loading || !cached),
+        isLoading: shouldFetch && (loading || !cached),
     }
 }
