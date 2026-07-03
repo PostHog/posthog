@@ -1252,7 +1252,8 @@ class FreshBooksSourceConfig(config.Config):
 
 @config.config
 class FreshcallerSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
