@@ -291,11 +291,14 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const gridRef = useRef<HTMLDivElement>(null)
+
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
+    const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
+
+    const hasExtraMarginTop = useFeatureFlag('MAX_HOMEPAGE_CAPABILITIES', 'control')
 
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
@@ -445,7 +448,10 @@ function IdleGrid(): JSX.Element {
             data-attr="homepage-grid"
             // Fills the fixed-height swap container (see HomepageInput) so the recents grid and the
             // capability cards are always the same height. Only shown at @xl+ where columns sit in a row.
-            className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full"
+            className={cn(
+                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full',
+                hasExtraMarginTop && 'mt-2'
+            )}
             tabIndex={-1}
             onFocus={(e) => {
                 // Only auto-highlight when focused via keyboard (ArrowDown from input)
