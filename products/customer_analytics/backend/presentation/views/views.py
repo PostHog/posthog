@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from typing import cast
+from uuid import UUID
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -827,9 +828,38 @@ class AccountNotesViewSet(
                 required=False,
                 description="Full-text search across note title and content, plus substring match on account name.",
             ),
+            OpenApiParameter(
+                name="account_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notes linked to this account.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.INT,
+                many=True,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notes created by these user IDs (repeat the param per user).",
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # The generated client serializes the array as a single comma-joined value; accept that
+        # and the repeated-param form alike.
+        created_by_ids = [
+            int(part)
+            for value in request.query_params.getlist("created_by")
+            for part in value.split(",")
+            if part.isdigit()
+        ]
+        account_id: UUID | None = None
+        if raw_account_id := request.query_params.get("account_id"):
+            try:
+                account_id = UUID(raw_account_id)
+            except ValueError:
+                raise ValidationError({"account_id": "Must be a valid UUID."})
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_account_notes_for_view(
@@ -838,6 +868,8 @@ class AccountNotesViewSet(
                 offset=offset,
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
+                account_id=account_id,
+                created_by_ids=created_by_ids or None,
             ),
             AccountNoteSerializer,
         )
