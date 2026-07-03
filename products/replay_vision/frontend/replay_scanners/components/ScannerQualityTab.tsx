@@ -1,9 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType, Link, Spinner } from '@posthog/lemon-ui'
-import { BarChart, ReferenceLine } from '@posthog/quill-charts'
+import { IconChevronDown, IconChevronRight, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
+import { BarChart, useChartLayout } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
@@ -14,13 +23,16 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays } from '../../utils/labelStats'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import { versionTag } from './ScannerObservationsTable'
 
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string }[] = [
     { value: 'unrated', label: 'Unrated' },
@@ -32,6 +44,57 @@ const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string
     applied: { type: 'success', label: 'Applied' },
     dismissed: { type: 'muted', label: 'Dismissed' },
     superseded: { type: 'muted', label: 'Superseded' },
+}
+
+/** The pane-labeled prompt diff plus the model's rationale, shared by the current card and history entries. */
+function SuggestionDetails({
+    suggestion,
+    beforeLabel,
+    isDarkModeOn,
+}: {
+    suggestion: ReplayScannerPromptSuggestionApi
+    beforeLabel: string
+    isDarkModeOn: boolean
+}): JSX.Element {
+    return (
+        <>
+            {suggestion.base_prompt ? (
+                <div className="border rounded overflow-hidden">
+                    <div className="flex border-b bg-surface-secondary text-xs font-medium">
+                        <div className="flex-1 px-3 py-1.5 border-r">{beforeLabel}</div>
+                        <div className="flex-1 px-3 py-1.5">Suggested prompt</div>
+                    </div>
+                    <MonacoDiffEditor
+                        original={suggestion.base_prompt}
+                        modified={suggestion.suggested_prompt}
+                        language="markdown"
+                        theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                        options={{
+                            readOnly: true,
+                            renderSideBySide: true,
+                            useInlineViewWhenSpaceIsLimited: false,
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            folding: false,
+                            renderOverviewRuler: false,
+                            scrollBeyondLastLine: false,
+                            diffAlgorithm: 'advanced',
+                        }}
+                    />
+                </div>
+            ) : (
+                <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {suggestion.suggested_prompt}
+                </div>
+            )}
+            {suggestion.rationale && (
+                <div>
+                    <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
+                    <p className="text-sm text-muted m-0">{suggestion.rationale}</p>
+                </div>
+            )}
+        </>
+    )
 }
 
 function SuggestionMeta({ suggestion }: { suggestion: ReplayScannerPromptSuggestionApi }): JSX.Element {
@@ -57,6 +120,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         suggestionHistoryLoading,
     } = useValues(logic)
     const { generateSuggestion, applySuggestion, dismissSuggestion, loadSuggestionHistory } = useActions(logic)
+    const { isDarkModeOn } = useValues(themeLogic)
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -105,31 +169,11 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     } else {
         body = (
             <div className="space-y-3">
-                {currentSuggestion.rationale && <p className="text-sm m-0">{currentSuggestion.rationale}</p>}
-                {currentSuggestion.base_prompt ? (
-                    <div className="border rounded overflow-hidden">
-                        <MonacoDiffEditor
-                            original={currentSuggestion.base_prompt}
-                            modified={currentSuggestion.suggested_prompt}
-                            language="markdown"
-                            options={{
-                                readOnly: true,
-                                renderSideBySide: true,
-                                useInlineViewWhenSpaceIsLimited: false,
-                                wordWrap: 'on',
-                                lineNumbers: 'off',
-                                folding: false,
-                                renderOverviewRuler: false,
-                                scrollBeyondLastLine: false,
-                                diffAlgorithm: 'advanced',
-                            }}
-                        />
-                    </div>
-                ) : (
-                    <div className="border rounded bg-surface-secondary p-2 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto">
-                        {currentSuggestion.suggested_prompt}
-                    </div>
-                )}
+                <SuggestionDetails
+                    suggestion={currentSuggestion}
+                    beforeLabel={`Current prompt (v${currentSuggestion.scanner_version})`}
+                    isDarkModeOn={isDarkModeOn}
+                />
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
                     <div className="flex items-center gap-2">
@@ -195,6 +239,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
+                    icon={historyOpen ? <IconChevronDown /> : <IconChevronRight />}
                     onClick={() => {
                         const next = !historyOpen
                         setHistoryOpen(next)
@@ -204,7 +249,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     }}
                     data-attr="vision-quality-suggestion-history-toggle"
                 >
-                    {historyOpen ? 'Hide past recommendations' : 'Past recommendations'}
+                    Past recommendations
                 </LemonButton>
                 {historyOpen &&
                     (suggestionHistoryLoading ? (
@@ -218,17 +263,16 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             {pastSuggestions.map((suggestion) => {
                                 const tag = SUGGESTION_STATUS_TAGS[suggestion.status]
                                 return (
-                                    <div key={suggestion.id} className="border rounded p-2 space-y-1">
+                                    <div key={suggestion.id} className="border rounded p-3 space-y-3">
                                         <div className="flex flex-wrap items-center gap-2">
                                             {tag && <LemonTag type={tag.type}>{tag.label}</LemonTag>}
                                             <SuggestionMeta suggestion={suggestion} />
                                         </div>
-                                        {suggestion.rationale && (
-                                            <p className="text-xs text-muted m-0">{suggestion.rationale}</p>
-                                        )}
-                                        <div className="font-mono text-xs whitespace-pre-wrap max-h-24 overflow-y-auto text-muted">
-                                            {suggestion.suggested_prompt}
-                                        </div>
+                                        <SuggestionDetails
+                                            suggestion={suggestion}
+                                            beforeLabel={`Prompt then (v${suggestion.scanner_version})`}
+                                            isDarkModeOn={isDarkModeOn}
+                                        />
                                     </div>
                                 )
                             })}
@@ -237,6 +281,33 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             </div>
         </div>
     )
+}
+
+interface VersionBadgePosition {
+    version: number
+    label: string
+    x: number
+}
+
+/** Reads band-center pixels from the chart context and reports them up: the chart shell clips
+ *  overlays (overflow-hidden), so the badges themselves render as a sibling row below the chart. */
+function VersionBadgeBridge({
+    markers,
+    onPositions,
+}: {
+    markers: { version: number; label: string }[]
+    onPositions: (positions: VersionBadgePosition[]) => void
+}): null {
+    const { scales } = useChartLayout()
+    useEffect(() => {
+        onPositions(
+            markers.flatMap((marker) => {
+                const x = scales.x(marker.label)
+                return x !== undefined && isFinite(x) ? [{ ...marker, x }] : []
+            })
+        )
+    }, [markers, scales, onPositions])
+    return null
 }
 
 type ChartMode = 'session' | 'rating'
@@ -258,6 +329,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
     const theme = useMemo(() => buildTheme(), [])
     const [mode, setMode] = useState<ChartMode>('session')
+    const [badgePositionsRaw, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
+    // Bail on identical positions so the measure->report->render loop settles instead of cycling.
+    const setBadgePositions = useCallback((next: VersionBadgePosition[]) => {
+        setBadgePositionsRaw((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+    }, [])
+    const badgePositions = mode === 'session' ? badgePositionsRaw : []
     const chart = useMemo(
         () =>
             labelStats
@@ -265,7 +342,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 : null,
         [labelStats, mode]
     )
-    // Prompt-version change markers only make sense on the session-day axis.
+    // Prompt-version markers only make sense on the session-day axis; rendered as badges under the dates.
     const versionMarkers = useMemo(
         () =>
             mode === 'session' && labelStats && chart
@@ -306,27 +383,38 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                     thumbs down should trend down.
                 </div>
             ) : (
-                <div className="h-48 flex flex-col">
-                    <BarChart
-                        labels={chart.labels}
-                        series={[
-                            { key: 'up', label: 'Thumbs up', color: getColorVar('success'), data: chart.up },
-                            { key: 'down', label: 'Thumbs down', color: getColorVar('danger'), data: chart.down },
-                        ]}
-                        config={{ showGrid: false, barLayout: 'stacked' }}
-                        theme={theme}
-                    >
-                        {versionMarkers.map((marker) => (
-                            <ReferenceLine
-                                key={marker.version}
-                                value={marker.label}
-                                orientation="vertical"
-                                variant="marker"
-                                label={`v${marker.version}`}
-                            />
-                        ))}
-                    </BarChart>
-                </div>
+                <>
+                    <div className="h-48 flex flex-col">
+                        <BarChart
+                            labels={chart.labels}
+                            series={[
+                                { key: 'up', label: 'Thumbs up', color: getColorVar('success'), data: chart.up },
+                                { key: 'down', label: 'Thumbs down', color: getColorVar('danger'), data: chart.down },
+                            ]}
+                            config={{ showGrid: false, barLayout: 'stacked' }}
+                            theme={theme}
+                        >
+                            <VersionBadgeBridge markers={versionMarkers} onPositions={setBadgePositions} />
+                        </BarChart>
+                    </div>
+                    {badgePositions.length > 0 && (
+                        <div className="relative h-5">
+                            {badgePositions.map((badge) => (
+                                <Tooltip
+                                    key={badge.version}
+                                    title={`Prompt v${badge.version} active from ${badge.label}`}
+                                >
+                                    <div
+                                        className="absolute top-0 inline-flex items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted"
+                                        style={{ left: badge.x, transform: 'translateX(-50%)' }}
+                                    >
+                                        v{badge.version}
+                                    </div>
+                                </Tooltip>
+                            ))}
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )
@@ -338,8 +426,10 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
  */
 export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = scannerQualityLogic({ scannerId })
-    const { observations, observationsLoading, total, page, ratedFilter } = useValues(logic)
-    const { setPage, setRatedFilter, labelChanged } = useActions(logic)
+    const { observations, observationsLoading, total, page, ratedFilter, sort } = useValues(logic)
+    const { setPage, setRatedFilter, setSort, labelChanged } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const scannerType = scanner?.scanner_type
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
@@ -365,6 +455,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     </div>
                 </Link>
             ),
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
         {
             title: 'Scanner got it right?',
@@ -392,9 +483,28 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             ),
         },
         {
+            title: 'Version',
+            key: 'version',
+            render: (_, obs) => {
+                const tag = versionTag(obs.scanner_snapshot?.scanner_version, scanner?.scanner_version)
+                if (!tag) {
+                    return <span className="text-muted">—</span>
+                }
+                return (
+                    <Tooltip title={tag.tooltip}>
+                        <LemonTag type={tag.type} className="font-mono">
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            },
+            sorter: true,
+        },
+        {
             title: 'Created',
             key: 'created_at',
             render: (_, obs) => <TZLabel time={obs.created_at} />,
+            sorter: true,
         },
         {
             title: '',
@@ -458,6 +568,9 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                         onForward: () => setPage(page + 1),
                         onBackward: () => setPage(page - 1),
                     }}
+                    sorting={sort}
+                    onSort={(next) => setSort(next)}
+                    useURLForSorting={false}
                     nouns={['observation', 'observations']}
                     emptyState={
                         <div className="p-6 text-center text-muted">
