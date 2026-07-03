@@ -121,7 +121,7 @@ def get_rows(
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None and resume.offset else 0
+    offset = resume.offset if resume is not None and resume.offset is not None else 0
     if offset:
         logger.debug(f"Picqer: resuming {endpoint} from offset {offset}")
 
