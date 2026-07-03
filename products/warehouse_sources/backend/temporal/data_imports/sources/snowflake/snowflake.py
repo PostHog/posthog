@@ -19,7 +19,6 @@ import structlog
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from snowflake.connector.util_text import construct_hostname
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -267,8 +266,10 @@ class SnowflakeImplementation(
                 "user": config.auth_type.user,
             }
 
-        # construct_hostname is what the connector itself uses to derive the host from `account`.
-        log_connection_open(db_host=construct_hostname(None, config.account_id), via="vendor_https")
+        # Mirrors the connector's own host derivation for the common account-id formats.
+        # Deliberately not importing the connector's private `construct_hostname` — a rename
+        # there would crash every Snowflake sync at import time just to feed a log field.
+        log_connection_open(db_host=f"{config.account_id}.snowflakecomputing.com", via="vendor_https")
         with snowflake.connector.connect(
             account=config.account_id,
             warehouse=config.warehouse,

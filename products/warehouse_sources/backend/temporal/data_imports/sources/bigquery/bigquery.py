@@ -281,7 +281,9 @@ def bigquery_client(
     )
     # `_connection.API_BASE_URL` is the endpoint the client will actually call (it honors
     # api_endpoint overrides and universe-domain hosts), so the logged host can't drift.
-    api_base_url = client._connection.API_BASE_URL or ""
+    # It's a private attribute, so read it fail-soft: a library rename must degrade the log
+    # field, not crash the sync.
+    api_base_url: str = getattr(getattr(client, "_connection", None), "API_BASE_URL", None) or "bigquery.googleapis.com"
     log_connection_open(
         db_host=urlparse(api_base_url).hostname or api_base_url,
         via="vendor_https",
