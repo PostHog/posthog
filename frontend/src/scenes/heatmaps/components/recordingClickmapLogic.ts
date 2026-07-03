@@ -1,0 +1,226 @@
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { RefObject } from 'react'
+
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
+import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ElementsEventType } from '~/toolbar/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { elementsStatsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import type {
+    ElementStatsResponseApi,
+    ElementsStatsRetrieveParams,
+} from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import type { recordingClickmapLogicType } from './recordingClickmapLogicType'
+
+export interface ClickmapBox {
+    top: number
+    left: number
+    width: number
+    height: number
+    count: number
+}
+
+export type RecordingClickmapLogicProps = {
+    iframeRef?: RefObject<HTMLIFrameElement | null>
+}
+
+const CLICKMAP_STATS_LIMIT = 500
+
+function currentUrlProperty(href: string, isPattern: boolean): Record<string, unknown> {
+    return isPattern
+        ? {
+              key: '$current_url',
+              value: `^${href.split('*').map(escapeUnescapedRegex).join('.*')}$`,
+              operator: PropertyOperator.Regex,
+              type: PropertyFilterType.Event,
+          }
+        : {
+              key: '$current_url',
+              value: href,
+              operator: PropertyOperator.Exact,
+              type: PropertyFilterType.Event,
+          }
+}
+
+export function buildElementStatsParams(
+    href: string,
+    isPattern: boolean,
+    commonFilters: { date_from?: string | null; date_to?: string | null },
+    dataAttributes: string[]
+): ElementsStatsRetrieveParams {
+    return {
+        properties: JSON.stringify([currentUrlProperty(href, isPattern)]),
+        date_from: commonFilters.date_from,
+        date_to: commonFilters.date_to,
+        paginate_response: true,
+        include: '$autocapture',
+        limit: CLICKMAP_STATS_LIMIT,
+        data_attributes: dataAttributes.join(','),
+    } as unknown as ElementsStatsRetrieveParams
+}
+
+export function computeClickmapBoxes(
+    statsRows: ElementStatsResponseApi['results'],
+    snapshotDocument: Document,
+    snapshotWindow: { scrollX: number; scrollY: number } | null,
+    dataAttributes: string[]
+): ClickmapBox[] {
+    const pageElements = collectAllElementsDeep('*', snapshotDocument) as HTMLElement[]
+    const domIndex = buildDOMIndex(pageElements)
+    const countsByElement = new Map<HTMLElement, number>()
+    for (const row of statsRows) {
+        const match = matchEventToElementUsingIndex(
+            row as unknown as ElementsEventType,
+            dataAttributes,
+            false,
+            domIndex
+        )
+        if (match) {
+            countsByElement.set(match.element, (countsByElement.get(match.element) ?? 0) + row.count)
+        }
+    }
+
+    const scrollX = snapshotWindow?.scrollX ?? 0
+    const scrollY = snapshotWindow?.scrollY ?? 0
+    const boxes: ClickmapBox[] = []
+    countsByElement.forEach((count, element) => {
+        const rect = element.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+            boxes.push({
+                top: rect.top + scrollY,
+                left: rect.left + scrollX,
+                width: rect.width,
+                height: rect.height,
+                count,
+            })
+        }
+    })
+    return boxes.sort((a, b) => b.count - a.count)
+}
+
+export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
+    path(['scenes', 'heatmaps', 'components', 'recordingClickmapLogic']),
+    props({} as RecordingClickmapLogicProps),
+    connect(() => ({
+        values: [
+            heatmapDataLogic({ context: 'in-app' }),
+            ['href', 'hrefMatchType', 'commonFilters'],
+            teamLogic,
+            ['currentTeam'],
+            projectLogic,
+            ['currentProjectId'],
+        ],
+        actions: [
+            heatmapsBrowserLogic,
+            ['onIframeLoad'],
+            heatmapDataLogic({ context: 'in-app' }),
+            ['setHref', 'setCommonFilters'],
+        ],
+    })),
+    actions({
+        setClickmapEnabled: (enabled: boolean) => ({ enabled }),
+        maybeLoadElementStats: true,
+        recomputeClickmap: true,
+        setClickmapBoxes: (boxes: ClickmapBox[]) => ({ boxes }),
+    }),
+    reducers({
+        clickmapEnabled: [
+            true,
+            {
+                setClickmapEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        clickmapBoxes: [
+            [] as ClickmapBox[],
+            {
+                setClickmapBoxes: (_, { boxes }) => boxes,
+                setClickmapEnabled: (state, { enabled }) => (enabled ? state : []),
+                setHref: () => [],
+            },
+        ],
+    }),
+    loaders(({ values }) => ({
+        elementStats: [
+            null as ElementStatsResponseApi | null,
+            {
+                loadElementStats: async (_, breakpoint) => {
+                    await breakpoint(150)
+                    const params = buildElementStatsParams(
+                        values.href,
+                        values.hrefMatchType === 'pattern',
+                        values.commonFilters,
+                        values.wantedDataAttributes
+                    )
+                    const response = await elementsStatsRetrieve(String(values.currentProjectId), params)
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+    })),
+    selectors({
+        wantedDataAttributes: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => Array.from(new Set(['data-attr', ...(currentTeam?.data_attributes ?? [])])),
+        ],
+        highestClickCount: [
+            (s) => [s.clickmapBoxes],
+            (clickmapBoxes) => clickmapBoxes.reduce((max, box) => Math.max(max, box.count), 0),
+        ],
+    }),
+    listeners(({ actions, values, props }) => ({
+        setClickmapEnabled: ({ enabled }) => {
+            posthog.capture('in-app heatmap clickmap toggled', { enabled })
+            if (enabled) {
+                actions.maybeLoadElementStats()
+            }
+        },
+        maybeLoadElementStats: () => {
+            if (values.clickmapEnabled && values.href) {
+                actions.loadElementStats()
+            }
+        },
+        setHref: () => actions.maybeLoadElementStats(),
+        setCommonFilters: () => actions.maybeLoadElementStats(),
+        onIframeLoad: () => {
+            if (values.elementStats) {
+                actions.recomputeClickmap()
+            } else {
+                actions.maybeLoadElementStats()
+            }
+        },
+        loadElementStatsSuccess: () => actions.recomputeClickmap(),
+        recomputeClickmap: async (_, breakpoint) => {
+            await breakpoint(50)
+            const iframe = props.iframeRef?.current
+            const snapshotDocument = iframe?.contentDocument
+            const statsRows = values.elementStats?.results
+            if (!snapshotDocument?.body || !statsRows?.length) {
+                actions.setClickmapBoxes([])
+                return
+            }
+
+            const boxes = computeClickmapBoxes(
+                statsRows,
+                snapshotDocument,
+                iframe?.contentWindow ?? null,
+                values.wantedDataAttributes
+            )
+            posthog.capture('in-app heatmap clickmap rendered', {
+                stats_rows: statsRows.length,
+                matched_elements: boxes.length,
+            })
+            actions.setClickmapBoxes(boxes)
+        },
+    })),
+])

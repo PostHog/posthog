@@ -3,6 +3,7 @@ import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { RecordingClickmapOverlay } from 'scenes/heatmaps/components/RecordingClickmapOverlay'
 
 export function FixedReplayHeatmapBrowser({
     iframeRef,
@@ -24,6 +25,7 @@ export function FixedReplayHeatmapBrowser({
                         style={{ width: widthOverride, height: heightOverride }}
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
+                        <RecordingClickmapOverlay iframeRef={iframeRef} />
                         <iframe
                             id="heatmap-iframe"
                             ref={iframeRef}
@@ -32,7 +34,9 @@ export function FixedReplayHeatmapBrowser({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: widthOverride, height: heightOverride }}
                             srcDoc={replayIframeData?.html}
-                            sandbox=""
+                            // allow-same-origin (without allow-scripts, so the snapshot stays inert)
+                            // lets the app measure the snapshot's elements for the clickmap overlay
+                            sandbox="allow-same-origin"
                             onLoad={onIframeLoad}
                             allow=""
                         />
