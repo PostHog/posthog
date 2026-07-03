@@ -54,9 +54,10 @@ class TestFlagVersionSync(BaseTest):
     def test_cohort_condition_change_bumps_versions_of_flags_reaching_it(self):
         edited = self._create_cohort("edited", _person_filters("a@a.com"))
         parent = self._create_cohort("parent", _cohort_filters(edited.pk))
-        # Not referenced directly by any flag, so `_flags_referencing_cohort` can't
-        # pre-warm it via `direct_ids` — it's only resolved by the point-query fallback
-        # inside `get_cohort_ids`'s nested-cohort expansion.
+        # flag_deeply_nested -> grandparent -> parent -> edited forces the multi-hop
+        # dependency traversal (get_all_cohort_dependencies' queue must expand parent,
+        # then discover edited on a later iteration) -- the single-level parent case
+        # above only does one hop.
         grandparent = self._create_cohort("grandparent", _cohort_filters(parent.pk))
         static_parent = self._create_cohort("static-parent", _cohort_filters(edited.pk), is_static=True)
         unrelated = self._create_cohort("unrelated", _person_filters("b@b.com"))
@@ -68,6 +69,12 @@ class TestFlagVersionSync(BaseTest):
         # doesn't alter how flags referencing them evaluate.
         flag_behind_static = self._create_flag("behind-static", static_parent.pk)
         flag_unrelated = self._create_flag("unrelated", unrelated.pk)
+        # FeatureFlag.objects already excludes soft-deleted rows, but the candidate
+        # query relies on that exclusion to keep deleted flags out of local
+        # evaluation's payload semantics -- pin it so a manager change can't
+        # silently start bumping deleted flags' versions.
+        flag_deleted = self._create_flag("deleted", edited.pk)
+        FeatureFlag.objects_including_soft_deleted.filter(pk=flag_deleted.pk).update(deleted=True)
         # Legacy rows can have a NULL version; the bump must produce 1, not NULL.
         FeatureFlag.objects.filter(pk=flag_nested.pk).update(version=None)
 
@@ -79,16 +86,19 @@ class TestFlagVersionSync(BaseTest):
         flag_deeply_nested.refresh_from_db()
         flag_behind_static.refresh_from_db()
         flag_unrelated.refresh_from_db()
+        flag_deleted.refresh_from_db()
         assert flag_direct.version == 2
         assert flag_nested.version == 1
         assert flag_deeply_nested.version == 2
         assert flag_behind_static.version == 1
         assert flag_unrelated.version == 1
+        assert flag_deleted.version == 1
 
         # Every bump writes a flag-history entry whose version change matches the row —
         # version_history reconstruction breaks on versions with no (or a mismatched) entry.
         assert _updated_entries(flag_behind_static) == []
         assert _updated_entries(flag_unrelated) == []
+        assert _updated_entries(flag_deleted) == []
         for flag, before, after in ((flag_direct, 1, 2), (flag_nested, None, 1)):
             (entry,) = _updated_entries(flag)
             detail = entry.detail
