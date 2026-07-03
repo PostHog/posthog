@@ -84,7 +84,6 @@ fn main() {
             println!("SKIP {label}: {path} missing — run the Node bench first to dump it");
             continue;
         };
-        // `preserve_order` keeps the fixture's real (JSON.stringify insertion) key order.
         let message: serde_json::Value = serde_json::from_slice(&bytes).expect("parse dump");
         let mut lines: Vec<Vec<u8>> = Vec::new();
         let mut items: Vec<serde_json::Value> = Vec::new();

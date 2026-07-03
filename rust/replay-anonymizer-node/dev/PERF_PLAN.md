@@ -76,6 +76,23 @@ outer work), medium 8.8 ms. The remaining profile is dominated by
 `scrub_text` + `skip_string` + emission — i.e. genuine scrub work; we are near the floor for this
 contract on M4.
 
+## Producer byte order (capture) — the walker is now order-independent
+
+Capture deserializes every replay payload into `serde_json::Value` (BTreeMap) and re-serializes it,
+so **real prod messages have alphabetized keys at every level** — `childNodes` before `tagName`/
+`type` in every node. The walker's original routing pre-scans budget-busted on that order and
+declined everything big; `walk_node` now walks in document order, defers the small order-sensitive
+members as spans, emits children optimistically (splicing the rare script/style discovery), and
+tree-redoes odd node shapes locally — no pre-scans, order-independent, faster than the pre-scan
+design on both orders. The bench fixtures are serde-sorted (prod-accurate); the static test
+fixtures keep insertion order, so the differential pins both.
+
+Two follow-ups this surfaced: (1) the vendored MLHog v2 walk goes **quadratic on prod byte order**
+(203 ms vs 29 on the same fixture) — its production labeling pipeline is likely paying this today;
+(2) capture could keep `snapshot_data` as `Box<RawValue>` and byte-splice the arrays instead of
+materializing Values — saving capture CPU on every replay payload *and* restoring SDK-native key
+order for all consumers.
+
 ## Remaining TS-side work (from the framework audit)
 
 Nothing on the `useRustAnonymizer` path parses the Kafka payload in TS anymore. What's left, by cost:

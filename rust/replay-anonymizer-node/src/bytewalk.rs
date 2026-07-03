@@ -43,6 +43,16 @@ const MAX_OBJECT_KEYS: usize = 32;
 /// Marker: this event must be handled by the parse instead.
 struct Fallback;
 
+/// Emit a deferred member's key (with its quotes) plus separators into `out`.
+fn emit_deferred_key(bytes: &[u8], key: Span, emitted: &mut usize, out: &mut Vec<u8>) {
+    if *emitted > 0 {
+        out.push(b',');
+    }
+    *emitted += 1;
+    out.extend_from_slice(&bytes[key.0 - 1..key.1 + 1]);
+    out.push(b':');
+}
+
 /// First 8 bytes of a key as a comparable word (shorter keys zero-padded).
 #[inline]
 fn key_prefix(key: &[u8]) -> u64 {
@@ -341,82 +351,254 @@ impl<'c, 'a> Walker<'c, 'a> {
             .and_then(|n| (n.fract() == 0.0 && (0.0..=u8::MAX as f64).contains(&n)).then_some(n as u8)))
     }
 
-    /// One serialized rrweb node (mirrors `dom::walk_node`).
+    /// One serialized rrweb node (mirrors `dom::walk_node`), order-independently: capture's
+    /// serde round-trip alphabetizes keys, putting `tagName`/`type` AFTER the `childNodes` subtree,
+    /// so pre-scanning for them would re-skip every subtree at every level (O(depth x size) — the
+    /// profiled 3x collapse). Instead the walk defers the small order-sensitive members as spans
+    /// (scalars, `textContent`, the `attributes` object) and emits them once the routing fields are
+    /// known — output key order may differ from the input, which the contract (semantic JSON)
+    /// permits. `childNodes` is too big to defer, so children emit optimistically as parent=Other;
+    /// the rare late script/style discovery splices that segment (those subtrees are tiny), and
+    /// shapes the assumptions can't hold for redo the node through the tree scrub locally.
     fn walk_node(&mut self, start: usize, parent: ParentKind, out: &mut Vec<u8>) -> Option<usize> {
         let bytes = self.bytes;
         if bytes.get(start) != Some(&b'{') {
             // Non-object nodes are left untouched by the tree walk.
             return self.copy_value(start, out);
         }
-        let node_type = self.find_uint_member(start, b"type").ok()?;
-        match node_type {
-            Some(NODE_ELEMENT) => {
-                // `tagName` sits before `childNodes` in rrweb output, so this pre-scan is cheap.
-                let kind = match self.find_member(start, b"tagName").ok()? {
-                    Some(span) if scan::is_string(bytes, span) => {
-                        classify_tag(&scan::unescape(bytes, span).ok()?)
-                    }
-                    _ => classify_tag(""),
-                };
-                let child_parent = match kind {
-                    TagKind::Script => ParentKind::Script,
-                    TagKind::Style => ParentKind::Style,
-                    TagKind::Media | TagKind::Other => ParentKind::Other,
-                };
-                self.walk_object(start, out, &mut |w, key, vstart, out| {
-                    match &w.bytes[key.0..key.1] {
-                        b"attributes" => w.walk_attrs(vstart, kind, out),
-                        b"childNodes" => w.walk_array(vstart, out, &mut |w, pos, out| {
-                            w.walk_node(pos, child_parent, out)
-                        }),
-                        _ => w.copy_value(vstart, out),
-                    }
-                })
-            }
-            Some(NODE_DOCUMENT) => self.walk_object(start, out, &mut |w, key, vstart, out| {
-                match &w.bytes[key.0..key.1] {
-                    b"childNodes" => w.walk_array(vstart, out, &mut |w, pos, out| {
-                        w.walk_node(pos, ParentKind::Other, out)
-                    }),
-                    _ => w.copy_value(vstart, out),
-                }
-            }),
-            Some(NODE_TEXT) => {
-                // Script content is code — never touched (emit the whole node verbatim).
-                if parent == ParentKind::Script {
-                    return self.copy_value(start, out);
-                }
-                let is_style = self
-                    .find_member(start, b"isStyle")
-                    .ok()?
-                    .map(|s| self.bytes.get(s.0..s.1) == Some(b"true"))
-                    .unwrap_or(false);
-                let styled = parent == ParentKind::Style || is_style;
-                self.walk_object(start, out, &mut |w, key, vstart, out| {
-                    match &w.bytes[key.0..key.1] {
-                        b"textContent" if styled => w.scrub_string_value(vstart, out, |w, s| {
-                            css::rewrite(w.ctx, s)
-                        }),
-                        b"textContent" => {
-                            w.scrub_string_value(vstart, out, |w, s| scrub_text(w.ctx.allow, s))
-                        }
-                        _ => w.copy_value(vstart, out),
-                    }
-                })
-            }
-            Some(NODE_COMMENT) | Some(NODE_CDATA) => {
-                self.walk_object(start, out, &mut |w, key, vstart, out| {
-                    match &w.bytes[key.0..key.1] {
-                        b"textContent" => {
-                            w.scrub_string_value(vstart, out, |w, s| scrub_text(w.ctx.allow, s))
-                        }
-                        _ => w.copy_value(vstart, out),
-                    }
-                })
-            }
-            // DocumentType or unknown: nothing to scrub.
-            _ => self.copy_value(start, out),
+        if self.depth >= MAX_WALK_DEPTH {
+            return None;
         }
+        self.depth += 1;
+        let base = self.seen.len();
+        let node_mark = out.len();
+        let changed_before = self.changed;
+        let result = self.walk_node_inner(base, start, parent, node_mark, changed_before, out);
+        self.seen.truncate(base);
+        self.depth -= 1;
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn walk_node_inner(
+        &mut self,
+        base: usize,
+        start: usize,
+        parent: ParentKind,
+        node_mark: usize,
+        changed_before: bool,
+        out: &mut Vec<u8>,
+    ) -> Option<usize> {
+        let bytes = self.bytes;
+        out.push(b'{');
+        let mut emitted = 0usize;
+        // Deferred member spans (key span, value span).
+        let mut ty_m: Option<(Span, Span)> = None;
+        let mut tag_m: Option<(Span, Span)> = None;
+        let mut is_style_m: Option<(Span, Span)> = None;
+        let mut text_m: Option<(Span, Span)> = None;
+        let mut attrs_m: Option<(Span, Span)> = None;
+        // childNodes: emitted range in `out` + source span, for the rare late splice.
+        let mut children: Option<((usize, usize), Span, Span)> = None;
+
+        let mut pos = start + 1;
+        let mut first = true;
+        let end = loop {
+            pos = scan::skip_ws(bytes, pos);
+            if bytes.get(pos) == Some(&b'}') {
+                break pos + 1;
+            }
+            if !first {
+                if bytes.get(pos) != Some(&b',') {
+                    return None;
+                }
+                pos = scan::skip_ws(bytes, pos + 1);
+            }
+            first = false;
+            if bytes.get(pos) != Some(&b'"') {
+                return None;
+            }
+            let key_end = scan::skip_string(bytes, pos).ok()?;
+            let key = (pos + 1, key_end - 1);
+            let raw_key = &bytes[key.0..key.1];
+            if raw_key.contains(&b'\\') {
+                return None;
+            }
+            let prefix = key_prefix(raw_key);
+            if self.seen[base..].iter().any(|(prior, prior_prefix)| {
+                *prior_prefix == prefix
+                    && prior.1 - prior.0 == raw_key.len()
+                    && (raw_key.len() <= 8 || &bytes[prior.0..prior.1] == raw_key)
+            }) {
+                return None;
+            }
+            self.seen.push((key, prefix));
+            pos = scan::skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return None;
+            }
+            let vstart = scan::skip_ws(bytes, pos + 1);
+            match raw_key {
+                b"type" | b"tagName" | b"isStyle" | b"textContent" | b"attributes" => {
+                    let vspan = scan::locate_value(bytes, vstart).ok()?;
+                    let slot = match raw_key {
+                        b"type" => &mut ty_m,
+                        b"tagName" => &mut tag_m,
+                        b"isStyle" => &mut is_style_m,
+                        b"textContent" => &mut text_m,
+                        _ => &mut attrs_m,
+                    };
+                    *slot = Some((key, vspan));
+                    pos = vspan.1;
+                }
+                b"childNodes" if bytes.get(vstart) == Some(&b'[') => {
+                    if emitted > 0 {
+                        out.push(b',');
+                    }
+                    emitted += 1;
+                    out.extend_from_slice(&bytes[key.0 - 1..key_end]);
+                    out.push(b':');
+                    let seg_start = out.len();
+                    let vend = self.walk_array(vstart, out, &mut |w, p, o| {
+                        w.walk_node(p, ParentKind::Other, o)
+                    })?;
+                    children = Some(((seg_start, out.len()), (key.0 - 1, key_end), (vstart, vend)));
+                    pos = vend;
+                }
+                _ => {
+                    if emitted > 0 {
+                        out.push(b',');
+                    }
+                    emitted += 1;
+                    out.extend_from_slice(&bytes[key.0 - 1..key_end]);
+                    out.push(b':');
+                    pos = self.copy_value(vstart, out)?;
+                }
+            }
+        };
+
+        // Routing fields resolved; decide how the deferred members are treated.
+        let ty = ty_m.and_then(|(_, v)| {
+            scan::parse_number(bytes, v)
+                .and_then(|n| (n.fract() == 0.0 && (0.0..=255.0).contains(&n)).then_some(n as u8))
+        });
+        let kind = match tag_m {
+            Some((_, v)) if scan::is_string(bytes, v) => {
+                classify_tag(&scan::unescape(bytes, v).ok()?)
+            }
+            _ => classify_tag(""),
+        };
+        let node_changed = self.changed != changed_before;
+
+        match ty {
+            Some(NODE_ELEMENT) => {
+                if let (TagKind::Script, Some((seg, _, src))) = (kind, children) {
+                    // Script content is code — the tree leaves the children untouched.
+                    let verbatim = &bytes[src.0..src.1];
+                    out.splice(seg.0..seg.1, verbatim.iter().copied());
+                }
+                if let (TagKind::Style, Some((seg, _, src))) = (kind, children) {
+                    // Style children are CSS text: rebuild that segment with the style parent.
+                    let mut tmp = Vec::with_capacity(src.1 - src.0);
+                    self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
+                        w.walk_node(p, ParentKind::Style, o)
+                    })?;
+                    out.splice(seg.0..seg.1, tmp.iter().copied());
+                }
+                // Attributes with the real tag kind (media blur vs plain scrubs).
+                if let Some((key, v)) = attrs_m {
+                    emit_deferred_key(bytes, key, &mut emitted, out);
+                    self.walk_attrs(v.0, kind, out)?;
+                }
+                for m in [ty_m, tag_m, is_style_m, text_m] {
+                    if let Some((key, v)) = m {
+                        emit_deferred_key(bytes, key, &mut emitted, out);
+                        out.extend_from_slice(&bytes[v.0..v.1]);
+                    }
+                }
+            }
+            Some(NODE_TEXT) if parent == ParentKind::Script => {
+                // The tree never touches script text nodes: undo and re-emit verbatim.
+                out.truncate(node_mark);
+                out.extend_from_slice(&bytes[start..end]);
+                self.changed = changed_before;
+                return Some(end);
+            }
+            Some(NODE_TEXT) | Some(NODE_COMMENT) | Some(NODE_CDATA) => {
+                if children.map(|(seg, ..)| seg.0 != seg.1).unwrap_or(false) && node_changed {
+                    // A text-ish node with scrubbed childNodes has no tree equivalent: redo.
+                    return self.redo_node(start, end, parent, node_mark, out);
+                }
+                let styled = ty == Some(NODE_TEXT)
+                    && (parent == ParentKind::Style
+                        || is_style_m
+                            .map(|(_, v)| bytes.get(v.0..v.1) == Some(b"true"))
+                            .unwrap_or(false));
+                if let Some((key, v)) = text_m {
+                    emit_deferred_key(bytes, key, &mut emitted, out);
+                    if styled {
+                        self.scrub_string_value(v.0, out, |w, s| css::rewrite(w.ctx, s))?;
+                    } else {
+                        self.scrub_string_value(v.0, out, |w, s| scrub_text(w.ctx.allow, s))?;
+                    }
+                }
+                for m in [ty_m, tag_m, is_style_m, attrs_m] {
+                    if let Some((key, v)) = m {
+                        emit_deferred_key(bytes, key, &mut emitted, out);
+                        out.extend_from_slice(&bytes[v.0..v.1]);
+                    }
+                }
+            }
+            Some(NODE_DOCUMENT) => {
+                if attrs_m.is_some() {
+                    // The tree ignores document attributes but still scrubs the children — no
+                    // optimistic emission matches that; let the tree do this node.
+                    return self.redo_node(start, end, parent, node_mark, out);
+                }
+                // Children stay as walked (documents parent as Other); scalars verbatim.
+                for m in [ty_m, tag_m, is_style_m, text_m] {
+                    if let Some((key, v)) = m {
+                        emit_deferred_key(bytes, key, &mut emitted, out);
+                        out.extend_from_slice(&bytes[v.0..v.1]);
+                    }
+                }
+            }
+            // DocumentType/unknown/incompatible shapes: the tree scrubs nothing here. If the
+            // optimistic walk changed anything, put the original bytes back; the deferred members
+            // re-emit verbatim either way.
+            _ => {
+                out.truncate(node_mark);
+                out.extend_from_slice(&bytes[start..end]);
+                self.changed = changed_before;
+                return Some(end);
+            }
+        }
+        out.push(b'}');
+        Some(end)
+    }
+
+    /// Node-local tree fallback: parse just this node's span, scrub it with the real parent kind,
+    /// and serialize it over whatever the optimistic walk emitted. Rare (odd node shapes).
+    fn redo_node(
+        &mut self,
+        start: usize,
+        end: usize,
+        parent: ParentKind,
+        node_mark: usize,
+        out: &mut Vec<u8>,
+    ) -> Option<usize> {
+        use simd_json::prelude::Writable;
+        out.truncate(node_mark);
+        let span = &self.bytes[start..end];
+        crate::json::reject_if_too_deep(span, "node").ok()?;
+        let mut scratch = span.to_vec();
+        let mut value = crate::json::parse_untrusted(&mut scratch).ok()?;
+        let changed = crate::dom::walk_node(self.ctx, &mut value, parent);
+        self.changed |= changed;
+        let mut serialized = Vec::with_capacity(span.len());
+        value.write(&mut serialized).ok()?;
+        out.extend_from_slice(&serialized);
+        Some(end)
     }
 
     /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).

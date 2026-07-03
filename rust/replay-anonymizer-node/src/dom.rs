@@ -117,7 +117,7 @@ pub fn scrub_mutation_adds(ctx: &Ctx<'_>, adds: &mut Vec<Value<'_>>) -> bool {
     changed
 }
 
-fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind) -> bool {
+pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind) -> bool {
     let Some(obj) = as_object_mut(node) else {
         return false;
     };
