@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
@@ -142,6 +142,21 @@ class TestQueryDateRange(APIBaseTest):
             now=now,
         )
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-06-15T23:59:59.999999Z"))
+
+    def test_exclude_incomplete_periods_clips_in_project_timezone(self):
+        # now=2021-08-25T02:00Z is still Aug 24 19:00 in US/Pacific (PDT, UTC-7),
+        # so the clip must land at the end of Aug 23 Pacific, not Aug 24.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        now = parser.isoparse("2021-08-25T02:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d", excludeIncompletePeriods=True),
+            interval=IntervalType.DAY,
+            now=now,
+        )
+        expected = datetime(2021, 8, 23, 23, 59, 59, 999999, tzinfo=ZoneInfo("US/Pacific"))
+        self.assertEqual(query_date_range.date_to().isoformat(), expected.isoformat())
 
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
