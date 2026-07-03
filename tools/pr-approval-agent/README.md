@@ -173,6 +173,10 @@ of the manifest's diff hard-denies edits to known scripts/lifecycle/build
 keys (see `manifest_risk.py` — fails closed if the diff can't be read),
 manifest PRs are kept out of the T0 fast path, and the reviewer prompt must
 REFUSE on execution-bearing changes the scan can't name.
+Manifest/lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS`
+table in `gates.py` (the single source the deny patterns and helpers derive
+from): a Cargo.lock bump hard-denies on its own but doesn't silence the
+scripts guard on an unrelated package.json edit in the same PR.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching
