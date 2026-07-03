@@ -32,7 +32,9 @@ describe('refreshOAuthTokens', () => {
     it.each([400, 401, 403, 404])('treats %s as expected auth-expiry: analytics only, no exception', async (status) => {
         mockFetch.mockResolvedValueOnce({ ok: false, status, json: async () => ({}) })
 
-        await expect(refreshOAuthTokens('https://app', 'client', 'refresh')).rejects.toThrow(`Refresh failed: ${status}`)
+        await expect(refreshOAuthTokens('https://app', 'client', 'refresh')).rejects.toThrow(
+            `Refresh failed: ${status}`
+        )
 
         expect(toolbarPosthogJS.capture).toHaveBeenCalledWith(
             'toolbar token refresh',
@@ -45,7 +47,9 @@ describe('refreshOAuthTokens', () => {
     it.each([500, 502, 503])('still reports %s to error tracking', async (status) => {
         mockFetch.mockResolvedValueOnce({ ok: false, status, json: async () => ({}) })
 
-        await expect(refreshOAuthTokens('https://app', 'client', 'refresh')).rejects.toThrow(`Refresh failed: ${status}`)
+        await expect(refreshOAuthTokens('https://app', 'client', 'refresh')).rejects.toThrow(
+            `Refresh failed: ${status}`
+        )
 
         expect(captureToolbarException).toHaveBeenCalledWith(expect.any(Error), 'token_refresh')
     })
