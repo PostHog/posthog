@@ -1,12 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
-import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { buildAnalyticsTestIngester } from '~/tests/helpers/analytics-consumer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {
@@ -18,7 +15,6 @@ import {
     waitForClickHouseKafkaConsumer,
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
 import { InternalPerson } from '~/types'
@@ -35,32 +31,18 @@ jest.mock('~/common/utils/token-bucket', () => {
 
 jest.mock('~/common/utils/logger')
 
+// The analytics consumer builds its Kafka consumer internally at scope start; mock the factory
+// so the test harness can capture the batch handler instead of connecting to a broker.
+jest.mock('~/common/kafka/consumer', () => ({
+    ...jest.requireActual('~/common/kafka/consumer'),
+    createKafkaConsumer: jest.fn(),
+}))
+
 describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
     'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',
     (prefetchConfig) => {
         const testWithTeamIngester = createTestWithTeamIngester(prefetchConfig, (infra, kafkaProducer) => {
-            const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(infra.config, {
-                postgres: infra.postgres,
-                redisPool: infra.redisPool,
-                teamManager: infra.teamManager,
-                groupTypeManager: infra.groupTypeManager,
-                groupRepository: infra.groupRepository,
-                personRepository: infra.personRepository,
-                cookielessManager: infra.cookielessManager,
-                outputs,
-                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                aiSubpipelineFactory: createAiEventSubpipeline,
-                hogTransformer: createHogTransformerService(infra.config, {
-                    geoipService: infra.geoipService,
-                    postgres: infra.postgres,
-                    pubSub: infra.pubSub,
-                    encryptedFields: infra.encryptedFields,
-                    integrationManager: infra.integrationManager,
-                    monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
-                    teamManager: infra.teamManager,
-                }),
-            })
+            const ingester = buildAnalyticsTestIngester(infra, kafkaProducer)
             jest.spyOn(infra.groupRepository, 'fetchGroup')
             jest.spyOn(infra.groupRepository, 'insertGroup')
             jest.spyOn(infra.groupRepository, 'updateGroup')

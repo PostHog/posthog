@@ -40,7 +40,7 @@ export interface AnalyticsTestConsumer {
  */
 export async function startAnalyticsTestConsumer(
     infra: IngestionTestInfra,
-    mockProducer: KafkaProducerWrapper,
+    kafkaProducer: KafkaProducerWrapper,
     overrides?: Partial<AnalyticsConsumerConfig>
 ): Promise<AnalyticsTestConsumer> {
     let capturedHandler: ((messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> }>) | undefined
@@ -53,7 +53,10 @@ export async function startAnalyticsTestConsumer(
         isHealthy: () => new HealthCheckResultOk(),
     }))
 
-    const outputs = createTestIngestionOutputs(mockProducer) as unknown as AnalyticsOutputs
+    // The producer may be a mock (unit tests read via mockProducerObserver) or a real one
+    // (e2e tests read the produced events back through ClickHouse).
+    const outputs = createTestIngestionOutputs(kafkaProducer) as unknown as AnalyticsOutputs
+    const monitoringOutputs = createTestMonitoringOutputs(kafkaProducer)
 
     const config: AnalyticsConsumerConfig = {
         ...infra.config,
@@ -77,10 +80,7 @@ export async function startAnalyticsTestConsumer(
             .add(
                 'hogTransformer',
                 new HogTransformerComponent(() =>
-                    createHogTransformerService(infra.config, {
-                        ...infra,
-                        monitoringOutputs: createTestMonitoringOutputs(mockProducer),
-                    })
+                    createHogTransformerService(infra.config, { ...infra, monitoringOutputs })
                 )
             )
             .add('outputs', passthrough(outputs))
@@ -99,5 +99,39 @@ export async function startAnalyticsTestConsumer(
         container,
         consumer,
         stop,
+    }
+}
+
+/**
+ * Adapter that fits `createTestWithTeamIngester`'s `IngesterLike` contract (sync build, then
+ * `start()`), while driving the analytics consumer through the harness above. `start()` boots
+ * the scope and captures the batch handler; `handleKafkaBatch` delegates to it. E2e test files
+ * must `jest.mock('~/common/kafka/consumer')` so the harness can capture the handler.
+ */
+export interface AnalyticsIngesterAdapter {
+    start(): Promise<void>
+    stop(): Promise<void>
+    handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<unknown> }>
+}
+
+export function buildAnalyticsTestIngester(
+    infra: IngestionTestInfra,
+    kafkaProducer: KafkaProducerWrapper,
+    overrides?: Partial<AnalyticsConsumerConfig>
+): AnalyticsIngesterAdapter {
+    let started: AnalyticsTestConsumer | undefined
+    return {
+        async start() {
+            started = await startAnalyticsTestConsumer(infra, kafkaProducer, overrides)
+        },
+        stop: async () => {
+            await started?.stop()
+        },
+        handleKafkaBatch: (messages: Message[]) => {
+            if (!started) {
+                throw new Error('buildAnalyticsTestIngester: call start() before handleKafkaBatch()')
+            }
+            return started.handleKafkaBatch(messages)
+        },
     }
 }
