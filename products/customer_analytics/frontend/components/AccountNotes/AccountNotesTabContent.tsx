@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { LemonInput, LemonInputSelect, LemonLabel, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
+import { IconChevronDown, IconX } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -23,12 +25,11 @@ export function AccountNotesTabContent(): JSX.Element {
         accountNotesResponseLoading,
         search,
         createdByFilter,
+        createdByCurrentUser,
         accountFilter,
-        accountOptions,
-        accountOptionsResponseLoading,
         pagination,
     } = useValues(accountNotesLogic)
-    const { setSearch, setCreatedByFilter, setAccountFilter, setAccountSearch } = useActions(accountNotesLogic)
+    const { setSearch, setCreatedByFilter, setCreatedByCurrentUser, reportFilterChange } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     const hasFilters = !!search || createdByFilter.length > 0 || accountFilter !== null
@@ -38,7 +39,7 @@ export function AccountNotesTabContent(): JSX.Element {
             title: 'Title',
             dataIndex: 'title',
             width: '100%',
-            render: function Render(title, note) {
+            render: function Render(_, note) {
                 // Plain click opens the note in the side panel (keeping the list mounted);
                 // the href stays so cmd/ctrl-click opens the full notebook page in a new tab.
                 return (
@@ -54,7 +55,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             selectNotebook(note.short_id)
                         }}
                     >
-                        {title || 'Untitled'}
+                        {note.title || 'Untitled'}
                     </Link>
                 )
             },
@@ -62,7 +63,7 @@ export function AccountNotesTabContent(): JSX.Element {
         {
             title: 'Account',
             dataIndex: 'account_name',
-            render: function Render(accountName, note) {
+            render: function Render(_, note) {
                 return (
                     <Link
                         data-attr="account-note-account"
@@ -72,7 +73,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             posthog.capture(AccountsEvents.NotesTabAccountClicked, { account_id: note.account_id })
                         }}
                     >
-                        {accountName}
+                        {note.account_name}
                     </Link>
                 )
             },
@@ -108,53 +109,34 @@ export function AccountNotesTabContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Search</LemonLabel>
-                    <LemonInput
-                        type="search"
-                        placeholder="Search notes"
-                        onChange={setSearch}
-                        value={search}
-                        size="small"
-                        className="min-w-64"
-                        data-attr="account-notes-search"
-                    />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Created by</LemonLabel>
-                    <div className="min-w-64">
-                        <MemberSelectMultiple
-                            idKey="id"
-                            value={createdByFilter}
-                            onChange={(users) => setCreatedByFilter(users.map((user) => user.id))}
-                        />
-                    </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Account</LemonLabel>
-                    <LemonInputSelect
-                        mode="single"
-                        className="min-w-64"
-                        placeholder="All accounts"
-                        value={accountFilter ? [accountFilter.id] : []}
-                        options={accountOptions}
-                        loading={accountOptionsResponseLoading}
-                        disableFiltering
-                        singleValueAsSnack
-                        onInputChange={setAccountSearch}
-                        onChange={(values) => {
-                            const id = values[0]
-                            if (!id) {
-                                setAccountFilter(null)
-                                return
-                            }
-                            const option = accountOptions.find((candidate) => candidate.key === id)
-                            setAccountFilter({ id, name: option?.label ?? id })
-                        }}
-                        data-attr="account-notes-account-filter"
-                    />
-                </div>
+            <div className="flex flex-wrap gap-2 items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search notes"
+                    onChange={setSearch}
+                    value={search}
+                    size="small"
+                    className="min-w-64"
+                    data-attr="account-notes-search"
+                />
+                <AccountPicker />
+                <CreatedByPicker
+                    value={createdByFilter}
+                    onChange={(userIds) => {
+                        setCreatedByFilter(userIds)
+                        reportFilterChange('created_by')
+                    }}
+                />
+                <LemonCheckbox
+                    checked={createdByCurrentUser}
+                    onChange={(value) => {
+                        setCreatedByCurrentUser(value)
+                        reportFilterChange('my_notes')
+                    }}
+                    label="My notes"
+                    info="Shortcut for Created by: you — notes you created"
+                    data-attr="account-notes-my-notes-filter"
+                />
             </div>
             {accountNotesResponse === null ? (
                 // Dedicated initial-load state (mirrors AccountOpportunitiesExpansion); the
@@ -174,6 +156,131 @@ export function AccountNotesTabContent(): JSX.Element {
                             : "No account notes yet. Create notes from an account's Notes tab."
                     }
                     nouns={['note', 'notes']}
+                />
+            )}
+        </div>
+    )
+}
+
+function CreatedByPicker({ value, onChange }: { value: number[]; onChange: (userIds: number[]) => void }): JSX.Element {
+    const buttonLabel =
+        value.length === 0
+            ? 'Created by anyone'
+            : value.length === 1
+              ? 'Created by 1 person'
+              : `Created by ${value.length} people`
+    return (
+        <div className="flex gap-1 items-center" data-attr="account-notes-created-by-filter">
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="p-2 min-w-64">
+                        <MemberSelectMultiple
+                            idKey="id"
+                            value={value}
+                            onChange={(users) => onChange(users.map((user) => user.id))}
+                        />
+                    </div>
+                }
+            >
+                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    {buttonLabel}
+                </LemonButton>
+            </LemonDropdown>
+            {value.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconX />}
+                    onClick={() => onChange([])}
+                    tooltip="Clear created-by filter"
+                />
+            )}
+        </div>
+    )
+}
+
+function AccountPicker(): JSX.Element {
+    const { accountFilter, accountSearch, accountOptions, accountOptionsResponseLoading } = useValues(accountNotesLogic)
+    const { setAccountFilter, setAccountSearch, reportFilterChange } = useActions(accountNotesLogic)
+    const [showPopover, setShowPopover] = useState(false)
+
+    const selectAccount = (account: { id: string; name: string } | null): void => {
+        setShowPopover(false)
+        setAccountFilter(account)
+        reportFilterChange('account')
+    }
+
+    return (
+        <div className="flex gap-1 items-center" data-attr="account-notes-account-filter">
+            <LemonDropdown
+                closeOnClickInside={false}
+                visible={showPopover}
+                placement="bottom-start"
+                actionable
+                onVisibilityChange={(visible) => {
+                    setShowPopover(visible)
+                    if (!visible && accountSearch) {
+                        setAccountSearch('')
+                    }
+                }}
+                overlay={
+                    <div className="max-w-100 space-y-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search accounts"
+                            autoFocus
+                            value={accountSearch}
+                            onChange={setAccountSearch}
+                            fullWidth
+                        />
+                        <ul className="space-y-px max-h-80 overflow-y-auto">
+                            <li>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    active={accountFilter === null}
+                                    onClick={() => selectAccount(null)}
+                                >
+                                    All accounts
+                                </LemonButton>
+                            </li>
+                            {accountOptions.map((option) => (
+                                <li key={option.key}>
+                                    <LemonButton
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        active={accountFilter?.id === option.key}
+                                        onClick={() => selectAccount({ id: option.key, name: option.label })}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                </li>
+                            ))}
+                            {accountOptionsResponseLoading ? (
+                                <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                            ) : accountOptions.length === 0 ? (
+                                <div className="p-2 text-secondary italic truncate border-t">
+                                    {accountSearch ? 'No matches' : 'No accounts'}
+                                </div>
+                            ) : null}
+                        </ul>
+                    </div>
+                }
+            >
+                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    {accountFilter ? accountFilter.name : 'All accounts'}
+                </LemonButton>
+            </LemonDropdown>
+            {accountFilter !== null && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconX />}
+                    onClick={() => selectAccount(null)}
+                    tooltip="Clear account filter"
                 />
             )}
         </div>
