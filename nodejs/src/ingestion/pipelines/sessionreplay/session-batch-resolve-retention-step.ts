@@ -1,5 +1,3 @@
-import { Message } from 'node-rdkafka'
-
 import { logger } from '~/common/utils/logger'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
@@ -28,11 +26,7 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * the consumer's offset tracking picks up on the next drain.
  */
 export function createResolveRetentionStep<
-    T extends {
-        message: Pick<Message, 'partition' | 'offset'>
-        team: TeamForReplay
-        headers: SessionReplayHeaders
-    } & SessionBatchContext,
+    T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
 >(retentionService: RetentionService): BatchProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
     return async function resolveRetentionStep(values) {
         // Reuse retention already resolved for sessions still in this cycle's (unflushed) recorder;

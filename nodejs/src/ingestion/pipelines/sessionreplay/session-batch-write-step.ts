@@ -14,6 +14,6 @@ import { SessionBatchContext } from './session-batch-context'
  */
 export function createWriteStep<T extends SessionBatchContext>(): ProcessingStep<T, SessionBlockMetadata[]> {
     return async function writeStep(batchContext) {
-        return ok(await batchContext.sessionBatchRecorder.flushToStorage())
+        return ok(await batchContext.sessionBatchRecorder.flush())
     }
 }

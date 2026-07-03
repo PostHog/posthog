@@ -47,7 +47,7 @@ export interface SessionBatchFactoryConfig {
  * │                                                      ── steps resolve retention/keys, then fold
  * │                                                         events into the recorder
  * └── flush (on size/age trigger)
- *     ├── write          → recorder.flushToStorage()     ── S3 write + metadata
+ *     ├── write          → recorder.flush()     ── S3 write + metadata
  *     ├── commitOffsets  → offsetManager.commit()        ── commit the offsets tracked so far
  *     └── recordMetrics  → SessionBatchMetrics           ── flush counters off the block metadata
  * ```

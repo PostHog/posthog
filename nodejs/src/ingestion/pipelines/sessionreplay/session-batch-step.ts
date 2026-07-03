@@ -12,7 +12,9 @@ import { SessionBatchFactory } from './sessions/session-batch-factory'
 export function createCreateSessionBatchStep(
     sessionBatchFactory: SessionBatchFactory
 ): ProcessingStep<BeforeAccumulationInput, BeforeAccumulationOutput<SessionBatchContext>> {
-    return function createSessionBatchStep(input) {
-        return Promise.resolve(ok({ batchContext: { ...input, sessionBatchRecorder: sessionBatchFactory.create() } }))
+    return function createSessionBatchStep(batchContext) {
+        return Promise.resolve(
+            ok({ batchContext: { ...batchContext, sessionBatchRecorder: sessionBatchFactory.create() } })
+        )
     }
 }

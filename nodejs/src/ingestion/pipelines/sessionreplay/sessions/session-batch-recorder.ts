@@ -273,7 +273,7 @@ export class SessionBatchRecorder {
      *
      * @throws If the write fails
      */
-    public async flushToStorage(): Promise<SessionBlockMetadata[]> {
+    public async flush(): Promise<SessionBlockMetadata[]> {
         logger.info('🔁', 'session_batch_recorder_flushing', {
             sessions: this.sessions.size,
             totalSize: this._size,
