@@ -341,7 +341,7 @@ function VersionBadgeBridge({
     markers,
     onPositions,
 }: {
-    markers: { version: number; label: string }[]
+    markers: Omit<VersionBadgePosition, 'x'>[]
     onPositions: (positions: VersionBadgePosition[]) => void
 }): null {
     const { scales } = useChartLayout()
