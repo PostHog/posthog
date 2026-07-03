@@ -3143,8 +3143,8 @@ class TestExperimentService(APIBaseTest):
             ("stopped",),
             ("already_frozen",),
             ("group_aggregated",),
-            ("missing_flag",),
             ("deleted_flag",),
+            ("no_groups",),
         ]
     )
     def test_freeze_exposure_guards_raise(self, state: str):
@@ -3164,11 +3164,14 @@ class TestExperimentService(APIBaseTest):
             flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
             flag.save()
             experiment.refresh_from_db()
-        elif state == "missing_flag":
-            experiment.feature_flag = None
         elif state == "deleted_flag":
             flag = experiment.feature_flag
             flag.deleted = True
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "no_groups":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "groups": []}
             flag.save()
             experiment.refresh_from_db()
 

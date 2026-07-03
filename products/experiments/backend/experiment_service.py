@@ -1703,6 +1703,10 @@ class ExperimentService:
             raise ValidationError("Experiment's feature flag has been deleted.")
         if flag.aggregation_group_type_index is not None:
             raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
+        # Without release conditions there is nothing to narrow: the transform would be a no-op and
+        # the frozen state (derived from the per-group key) could never be detected.
+        if not (flag.filters or {}).get("groups"):
+            raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
