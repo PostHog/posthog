@@ -68,6 +68,7 @@ from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
+    validate_forecast_horizon_and_width,
 )
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
@@ -1049,6 +1050,14 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
+        return value
+
+    def validate_forecast_config(self, value):
+        # Shape is already validated by ForecastConfigField.to_internal_value; only bounds remain.
+        try:
+            validate_forecast_horizon_and_width(ForecastConfig.model_validate(value))
+        except ValueError as e:
+            raise serializers.ValidationError(str(e))
         return value
 
 
