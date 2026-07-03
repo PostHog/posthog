@@ -1,6 +1,7 @@
 import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
+import { Component } from '~/ingestion/common/scopes'
 
 import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'
 
@@ -134,5 +135,20 @@ export class TopHog {
         yield* this.summingTrackers.values()
         yield* this.maxTrackers.values()
         yield* this.averageTrackers.values()
+    }
+}
+
+/**
+ * Owns a `TopHog` metric registry's lifetime as a scope entry. `start()`
+ * constructs the registry and begins its periodic flush; `stop()` clears the
+ * flush timer and drains any remaining metrics.
+ */
+export class TopHogComponent implements Component<TopHog> {
+    constructor(private readonly options: TopHogRequiredConfig & Partial<TopHogOptionalConfig>) {}
+
+    start(): Promise<{ value: TopHog; stop: () => Promise<void> }> {
+        const topHog = new TopHog(this.options)
+        topHog.start()
+        return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
     }
 }
