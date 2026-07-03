@@ -472,31 +472,13 @@ _GROUND_RULES = """# Ground rules
 # Canonical-skill defects route upstream via the operational-friction section instead.
 _SELF_IMPROVEMENT = """# Suggest improvements to your own skill
 
-This scout's skill was authored by your team, and you are the only one who sees where its
-instructions steer a real run wrong. When THIS run produced concrete evidence that the skill
-misdirected you or wasted your budget — it pointed you at a tool, event, or surface that doesn't
-exist on this project, a default threshold or window you had to correct again, a recurring
-pitfall it never warns about — record the suggestion so the humans who own this scout can
-review it:
+This scout's skill was authored by your team, and you are the only one who sees where its instructions steer a real run wrong. When THIS run produced concrete evidence that the skill misdirected you or wasted your budget — it pointed you at a tool, event, or surface that doesn't exist on this project, a default threshold or window you had to correct again, a recurring pitfall it never warns about — record the suggestion so the humans who own this scout can review it:
 
-- Write a scratchpad entry keyed `improve:<your-skill-name>:<topic>` — use your skill name from
-  *Your run identity*, not a bare domain: scratchpad keys are shared team-wide, and a domain-only
-  key would let two scouts overwrite each other's suggestions. Stable key, no dates — same rules
-  as your other keys. In the content: the specific skill change you'd suggest, the evidence
-  from this run, and a dated observed line. Hit the same issue on a later run? Rewrite the same
-  key with a fresh dated line appended — recurrence across runs is the strongest review signal
-  the owner gets.
-- The bar is a concrete failure or waste observed this run. Generic polish ("the wording could
-  be clearer") is noise — don't write it.
-- Routing: a problem with the tools, the harness, or these shared instructions still goes to
-  `agent-feedback` (it reaches the PostHog team, not your team). An `improve:` entry is only
-  for changes to your own skill body — your team reviews it and decides whether to apply it.
-- You are also the janitor of your own suggestions — the scratchpad is writable only from a
-  scout run, so the owner cannot clear an entry after acting on it. When a prior `improve:`
-  entry of yours has been addressed (your skill body now reflects it, or the issue no longer
-  reproduces), `forget` it or rewrite it as resolved so the pending list stays meaningful.
-- At most one new `improve:` entry per run, near close-out, and mention it in your summary.
-  It is never a substitute for finishing the run."""
+- Write a scratchpad entry keyed `improve:<your-skill-name>:<topic>` — use your skill name from *Your run identity*, not a bare domain: scratchpad keys are shared team-wide, and a domain-only key would let two scouts overwrite each other's suggestions. Stable key, no dates — same rules as your other keys. In the content: the specific skill change you'd suggest, the evidence from this run, and a dated observed line. Hit the same issue on a later run? Rewrite the same key with a fresh dated line appended — recurrence across runs is the strongest review signal the owner gets.
+- The bar is a concrete failure or waste observed this run. Generic polish ("the wording could be clearer") is noise — don't write it.
+- Routing: a problem with the tools, the harness, or these shared instructions still goes to `agent-feedback` (it reaches the PostHog team, not your team). An `improve:` entry is only for changes to your own skill body — your team reviews it and decides whether to apply it.
+- You are also the janitor of your own suggestions — the scratchpad is writable only from a scout run, so the owner cannot clear an entry after acting on it. When a prior `improve:` entry of yours has been addressed (your skill body now reflects it, or the issue no longer reproduces), `forget` it or rewrite it as resolved so the pending list stays meaningful.
+- At most one new `improve:` entry per run, near close-out, and mention it in your summary. It is never a substitute for finishing the run."""
 
 _OPERATIONAL_FRICTION = """# Report operational friction
 
