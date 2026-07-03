@@ -80,6 +80,20 @@ class ReplaceFilters(CloningVisitor):
             )
         return node
 
+    def _skip_unbounded_date_placeholder(self, placeholder: str) -> ast.Constant:
+        """When a date-range bound is absent, the placeholder's wrapping comparison is turned into a
+        no-op. That only works when the placeholder sits directly in a comparison; if it's nested
+        (e.g. inside a function call) there's nothing to skip, so raise instead of indexing an empty
+        stack."""
+        if not self.compare_operations:
+            raise QueryError(
+                f"The `{{{placeholder}}}` placeholder must be used directly in a comparison "
+                f"(e.g. `timestamp > {{{placeholder}}}`), not nested inside a function call, "
+                f"when the date range is not set."
+            )
+        self.compare_operations[-1].skip = True
+        return ast.Constant(value=True)
+
     def visit_placeholder(self, node):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
@@ -185,11 +199,8 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
             if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+                return self._skip_unbounded_date_placeholder("filters.dateRange.from")
 
             assert self.filters is not None
 
@@ -204,14 +215,10 @@ class ReplaceFilters(CloningVisitor):
 
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+                return self._skip_unbounded_date_placeholder("filters.dateRange.from")
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
             if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+                return self._skip_unbounded_date_placeholder("filters.dateRange.to")
 
             assert self.filters is not None
 
@@ -225,8 +232,7 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+                return self._skip_unbounded_date_placeholder("filters.dateRange.to")
 
         if node.chain and node.chain[0] == "filters":
             chain_str = ".".join(str(c) for c in node.chain)

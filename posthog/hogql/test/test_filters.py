@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -324,6 +326,31 @@ class TestFilters(BaseTest):
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    @parameterized.expand(
+        [
+            ("filters.dateRange.from",),
+            ("filters.dateRange.to",),
+        ]
+    )
+    def test_date_range_placeholder_nested_in_function_without_date_range_raises(self, placeholder: str):
+        # A nested placeholder has no wrapping comparison to turn into a no-op, so an absent date
+        # range must raise a descriptive error rather than an uncaught IndexError.
+        select = self._parse_select(f"SELECT toStartOfDay({{{placeholder}}}) FROM events")
+
+        with self.assertRaisesMessage(QueryError, f"The `{{{placeholder}}}` placeholder must be used directly"):
+            replace_filters(select, HogQLFilters(), self.team)
+
+    def test_date_range_placeholder_nested_in_function_with_date_range_resolves(self):
+        select = replace_filters(
+            self._parse_select("SELECT toStartOfDay({filters.dateRange.from}) FROM events"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT toStartOfDay(toDateTime('2020-02-02 00:00:00.000000')) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
