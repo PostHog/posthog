@@ -23,6 +23,7 @@ from posthog.caching.utils import (
     ThresholdMode,
     cache_target_age as _cache_target_age,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.queries.property_values import (
@@ -62,7 +63,16 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     def _calculate_event(self) -> PropertyValuesQueryResponse:
         if self._use_property_values_table:
-            return self._calculate_event_from_table()
+            try:
+                return self._calculate_event_from_table()
+            except Exception as e:
+                # The aggregated-values table is an optional read-path optimization behind a flag.
+                # If it's unavailable (e.g. the aux cluster is unreachable in a region), fall back
+                # to the events scan rather than 500ing the property-value picker mid-edit.
+                capture_exception(e)
+        return self._calculate_event_from_events_scan()
+
+    def _calculate_event_from_events_scan(self) -> PropertyValuesQueryResponse:
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,

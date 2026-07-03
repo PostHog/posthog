@@ -403,3 +403,17 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
         ):
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         assert results == []
+
+    def test_table_read_failure_falls_back_to_events_scan(self):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventScanValue"})
+        flush_persons_and_events()
+
+        with (
+            self._flag_on(),
+            patch(
+                "posthog.hogql_queries.property_values_query_runner.get_event_property_values_from_aggregated_table",
+                side_effect=Exception("aux cluster unreachable"),
+            ),
+        ):
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert {r.name for r in results} == {"EventScanValue"}

@@ -88,6 +88,9 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             }
         },
         loadPrimaryPropertiesFailure: ({ errorObject }) => {
+            // This is a non-critical auxiliary lookup: consumers fall back to core taxonomy defaults
+            // when an override is missing, so we only report the error and never surface a toast.
+            // The global kea-loaders toast is suppressed via ERROR_FILTER_ALLOW_LIST in initKea.ts.
             posthog.captureException(errorObject, { action: 'load-primary-properties' })
         },
     })),
