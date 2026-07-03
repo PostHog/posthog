@@ -24,8 +24,10 @@ def capture_prior_status_for_pr_close(
     **kwargs: Any,
 ) -> None:
     """Stash the row's prior status so post_save can tell a real transition from a no-op edit."""
-    if instance.pk is None:
-        instance._prior_status_for_pr_close = None
+    # UUIDModel PKs carry a Python-side default, so pk is set at construction, never None — use
+    # _state.adding to tell an unsaved row (no prior status) from an update.
+    if instance._state.adding:
+        instance._prior_status_for_pr_close = None  # type: ignore[attr-defined]
         return
 
     update_fields = kwargs.get("update_fields")
