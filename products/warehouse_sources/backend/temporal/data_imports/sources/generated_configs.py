@@ -1663,7 +1663,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
