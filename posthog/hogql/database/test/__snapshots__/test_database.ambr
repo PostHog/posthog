@@ -24,7 +24,7 @@
       SELECT groups.group_type_index AS index, groups.group_key AS key 
       FROM groups 
       WHERE equals(groups.team_id, 420) 
-      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email)), events__some_field.events__some_field___key) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(if(notEquals(toJSONString(events.person_properties.^email), %(hogql_val_0)s), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(startsWith(dynamicType(events.person_properties.email), %(hogql_val_1)s), replaceOne(toString(events.person_properties.email), %(hogql_val_2)s, %(hogql_val_3)s), toString(events.person_properties.email)))), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
@@ -54,7 +54,7 @@
       SELECT groups.group_type_index AS index, groups.group_key AS key 
       FROM groups 
       WHERE equals(groups.team_id, 420) 
-      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email))), events__some_field.events__some_field___key) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(if(notEquals(toJSONString(events.person_properties.^email), %(hogql_val_0)s), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(startsWith(dynamicType(events.person_properties.email), %(hogql_val_1)s), replaceOne(toString(events.person_properties.email), %(hogql_val_2)s, %(hogql_val_3)s), toString(events.person_properties.email))))), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''

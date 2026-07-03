@@ -167,7 +167,7 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   JOIN
-    (SELECT nullIf(nullIf(events.properties.`$current_url`, ''), 'null') AS `properties___$current_url`,
+    (SELECT events.properties.`$current_url` AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
@@ -217,7 +217,7 @@
   WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id,
                                                                (SELECT events.`$session_id` AS `$session_id`
                                                                 FROM events_json AS events
-                                                                WHERE and(equals(events.team_id, 99999), like(events.properties.`$current_url`, '%example.com%')))))
+                                                                WHERE and(equals(events.team_id, 99999), and(like(events.properties.`$current_url`, '%example.com%'), isNotNull(events.properties.`$current_url`))))))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -266,7 +266,7 @@
          any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
   JOIN
-    (SELECT nullIf(nullIf(events.properties.`$current_url`, ''), 'null') AS `properties___$current_url`,
+    (SELECT events.properties.`$current_url` AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)

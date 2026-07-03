@@ -41,7 +41,7 @@
 # ---
 # name: TestFormula.test_aggregated_one_without_events[new_events_schema.1]
   '''
-  SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.`session not here`), NULL, toString(e.properties.`session not here`)), 'Float64')), 0) AS total
+  SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^`session not here`), '{}'), toJSONString(e.properties.^`session not here`), if(isNull(e.properties.`session not here`), NULL, if(startsWith(dynamicType(e.properties.`session not here`), 'DateTime'), replaceOne(toString(e.properties.`session not here`), ' ', 'T'), toString(e.properties.`session not here`)))), 'Float64')), 0) AS total
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session error'))
   ORDER BY 1 DESC
@@ -61,7 +61,7 @@
 # ---
 # name: TestFormula.test_aggregated_one_without_events[new_events_schema]
   '''
-  SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total
+  SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
   ORDER BY 1 DESC
@@ -187,9 +187,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -233,9 +233,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -356,8 +356,8 @@
        (SELECT avg(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -396,8 +396,8 @@
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -653,7 +653,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(0) AS breakdown_value
            FROM events_json AS e
@@ -699,7 +699,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(999932324) AS breakdown_value
            FROM events_json AS e
@@ -755,7 +755,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(999932324) AS breakdown_value
            FROM events_json AS e
@@ -811,7 +811,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   toString(0) AS breakdown_value
            FROM events_json AS e
@@ -983,9 +983,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1046,9 +1046,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(e__person.`properties___$some_prop`), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1201,9 +1201,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -1247,9 +1247,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -1385,9 +1385,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session end'))
            GROUP BY day_start,
@@ -1431,9 +1431,9 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+          (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.location), NULL, toString(e.properties.location))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(startsWith(dynamicType(e.properties.location), 'DateTime'), replaceOne(toString(e.properties.location), ' ', 'T'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -1503,7 +1503,7 @@
 # ---
 # name: TestFormula.test_formula_with_hogql_math_no_matching_events[new_events_schema.1]
   '''
-  SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total
+  SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
   ORDER BY 1 DESC
@@ -1523,7 +1523,7 @@
 # ---
 # name: TestFormula.test_formula_with_hogql_math_no_matching_events[new_events_schema]
   '''
-  SELECT ifNull(accurateCastOrNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 'Float64'), 0) AS total
+  SELECT ifNull(accurateCastOrNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 'Float64'), 0) AS total
   FROM events_json AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'nonexistent_event_that_has_no_data'))
   ORDER BY 1 DESC
@@ -1750,7 +1750,7 @@
     (SELECT avg(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+       (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -1781,7 +1781,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+       (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -1874,7 +1874,7 @@
     (SELECT avg(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(avg(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+       (SELECT ifNull(avg(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -1905,7 +1905,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT ifNull(sum(accurateCastOrNull(if(isNull(e.properties.xyz), NULL, toString(e.properties.xyz)), 'Float64')), 0) AS total,
+       (SELECT ifNull(sum(accurateCastOrNull(if(notEquals(toJSONString(e.properties.^xyz), '{}'), toJSONString(e.properties.^xyz), if(isNull(e.properties.xyz), NULL, if(startsWith(dynamicType(e.properties.xyz), 'DateTime'), replaceOne(toString(e.properties.xyz), ' ', 'T'), toString(e.properties.xyz)))), 'Float64')), 0) AS total,
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC'))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC'))), equals(e.event, 'session start'))

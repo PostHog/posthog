@@ -112,9 +112,9 @@
             value,
             count() AS count
      FROM
-       (SELECT [tuple('zero_duration_recording_count_in_period', if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, toString(events.properties.zero_duration_recording_count_in_period)))] AS kv
+       (SELECT [tuple('zero_duration_recording_count_in_period', if(notEquals(toJSONString(events.properties.^zero_duration_recording_count_in_period), '{}'), toJSONString(events.properties.^zero_duration_recording_count_in_period), if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, if(startsWith(dynamicType(events.properties.zero_duration_recording_count_in_period), 'DateTime'), replaceOne(toString(events.properties.zero_duration_recording_count_in_period), ' ', 'T'), toString(events.properties.zero_duration_recording_count_in_period)))))] AS kv
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), ifNull(notEquals(if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, toString(events.properties.zero_duration_recording_count_in_period)), ''), 1))) ARRAY
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), ifNull(notEquals(if(notEquals(toJSONString(events.properties.^zero_duration_recording_count_in_period), '{}'), toJSONString(events.properties.^zero_duration_recording_count_in_period), if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, if(startsWith(dynamicType(events.properties.zero_duration_recording_count_in_period), 'DateTime'), replaceOne(toString(events.properties.zero_duration_recording_count_in_period), ' ', 'T'), toString(events.properties.zero_duration_recording_count_in_period)))), ''), 1))) ARRAY
      JOIN (kv).1 AS key,
           (kv).2 AS value
      WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))

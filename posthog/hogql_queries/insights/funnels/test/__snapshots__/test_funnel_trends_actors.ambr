@@ -186,7 +186,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
+                  [ifNull(toString(e.properties.`$browser`), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -241,7 +241,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
+                  [ifNull(toString(e.properties.`$browser`), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -296,7 +296,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2,
-                  [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
+                  [ifNull(toString(e.properties.`$browser`), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN

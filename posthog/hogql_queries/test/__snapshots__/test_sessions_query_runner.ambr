@@ -385,7 +385,7 @@
   WHERE and(globalIn(sessions.session_id,
                        (SELECT DISTINCT events.`$session_id` AS `$session_id`
                         FROM events_json AS events
-                        WHERE and(equals(events.team_id, 99999), equals(events.properties.`$current_url`, 'https://example.com/pricing'), greater(events.timestamp, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'))))), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
+                        WHERE and(equals(events.team_id, 99999), and(equals(events.properties.`$current_url`, 'https://example.com/pricing'), isNotNull(events.properties.`$current_url`)), greater(events.timestamp, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'))))), less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')))
   ORDER BY sessions.session_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

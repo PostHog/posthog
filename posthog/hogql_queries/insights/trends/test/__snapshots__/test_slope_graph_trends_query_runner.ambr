@@ -165,7 +165,7 @@
         FROM
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(isNull(e.properties.plan), NULL, toString(e.properties.plan))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^plan), '{}'), toJSONString(e.properties.^plan), if(isNull(e.properties.plan), NULL, if(startsWith(dynamicType(e.properties.plan), 'DateTime'), replaceOne(toString(e.properties.plan), ' ', 'T'), toString(e.properties.plan))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
            GROUP BY day_start,
@@ -422,7 +422,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(isNull(e.properties.plan), NULL, toString(e.properties.plan)), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(notEquals(toJSONString(e.properties.^plan), '{}'), toJSONString(e.properties.^plan), if(isNull(e.properties.plan), NULL, if(startsWith(dynamicType(e.properties.plan), 'DateTime'), replaceOne(toString(e.properties.plan), ' ', 'T'), toString(e.properties.plan)))), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -772,7 +772,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(isNull(e.properties.plan), NULL, toString(e.properties.plan)), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(if(notEquals(toJSONString(e.properties.^plan), '{}'), toJSONString(e.properties.^plan), if(isNull(e.properties.plan), NULL, if(startsWith(dynamicType(e.properties.plan), 'DateTime'), replaceOne(toString(e.properties.plan), ' ', 'T'), toString(e.properties.plan)))), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
