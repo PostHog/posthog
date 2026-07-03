@@ -944,6 +944,9 @@ describe('infiniteListLogic', () => {
             pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
                 name: '$browser',
             })
+            // Guards against default-pin seeding turning the first togglePin into an
+            // unpin, which would make the dedupe assertions pass vacuously.
+            expect(pinnedLogic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', '$browser'])
         }
 
         const mountSuggestedList = (): ReturnType<typeof infiniteListLogic.build> => {
@@ -963,30 +966,29 @@ describe('infiniteListLogic', () => {
         const pinnedValues = (results: unknown[]): unknown[] =>
             results.filter((item) => hasPinnedContext(item)).map((item) => item._pinnedContext.value)
 
-        it('shows an item that is both recent and pinned once, under recents', () => {
-            seedRecentAndPins()
-            const listLogic = mountSuggestedList()
+        it.each([
+            { description: 'in the idle prefix', searchQuery: '', expectedPinned: ['$browser'] },
+            { description: 'in search matches', searchQuery: 'current', expectedPinned: [] },
+        ])(
+            'shows an item that is both recent and pinned once, under recents: $description',
+            async ({ searchQuery, expectedPinned }) => {
+                seedRecentAndPins()
+                const listLogic = mountSuggestedList()
 
-            const results = listLogic.values.items.results
-            expect(pinnedValues(results)).toEqual(['$browser'])
-            expect(
-                results.filter((item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url')
-            ).toHaveLength(1)
-        })
+                if (searchQuery) {
+                    listLogic.actions.setSearchQuery(searchQuery)
+                    await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
+                }
 
-        it('dedupes search matches the same way', async () => {
-            seedRecentAndPins()
-            const listLogic = mountSuggestedList()
-
-            listLogic.actions.setSearchQuery('current')
-            await expectLogic(listLogic).toDispatchActions(['setSearchQuery'])
-
-            const results = listLogic.values.items.results
-            expect(pinnedValues(results)).toEqual([])
-            expect(
-                results.filter((item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url')
-            ).toHaveLength(1)
-        })
+                const results = listLogic.values.items.results
+                expect(pinnedValues(results)).toEqual(expectedPinned)
+                expect(
+                    results.filter(
+                        (item) => hasRecentContext(item) && item._recentContext.sourceValue === '$current_url'
+                    )
+                ).toHaveLength(1)
+            }
+        )
     })
 
     describe('contextFilteredRecentItems', () => {

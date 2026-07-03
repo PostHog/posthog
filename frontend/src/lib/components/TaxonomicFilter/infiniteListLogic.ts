@@ -87,6 +87,8 @@ function recentItemMatchesSearch(
     return false
 }
 
+// The two key builders must stay format-aligned: recent and pinned rows dedupe
+// against each other only because both produce `sourceGroupType::value`.
 function recentSourceKey(item: TaxonomicDefinitionTypes): string | null {
     return hasRecentContext(item) && item._recentContext.sourceValue != null
         ? `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`
@@ -103,7 +105,7 @@ function withoutPinnedDuplicatesOfRecents(
     pinnedItems: TaxonomicDefinitionTypes[],
     recentItems: TaxonomicDefinitionTypes[]
 ): TaxonomicDefinitionTypes[] {
-    const recentKeys = new Set(recentItems.map(recentSourceKey).filter(Boolean))
+    const recentKeys = new Set(recentItems.map(recentSourceKey).filter((key): key is string => key != null))
     if (recentKeys.size === 0) {
         return pinnedItems
     }
@@ -845,7 +847,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const pinnedPrefix = !searchQuery
+                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    : []
 
                 const dedupeKeys = new Set<string>()
                 const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
