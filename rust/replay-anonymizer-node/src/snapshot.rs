@@ -125,11 +125,48 @@ pub struct SnapshotMeta {
     pub events: Vec<EventMeta>,
 }
 
+/// Which implementation produced the output. Both are differential-tested identical, so routing is
+/// free to choose per message; the label feeds the canary metrics that tune the routing threshold.
+/// Deliberately not part of [`SnapshotMeta`]: the differential tests assert meta equality across
+/// paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Stream,
+    Tree,
+}
+
+impl Route {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Route::Stream => "stream",
+            Route::Tree => "tree",
+        }
+    }
+}
+
+/// Options for the anonymize entry points. `Default` is the production configuration.
+#[derive(Debug, Clone, Copy)]
+pub struct AnonymizeOpts {
+    /// Route snapshot-dominated messages through the tree path (one SIMD parse of everything beats
+    /// streaming's scan+parse duplication when most bytes get parsed anyway). The differential
+    /// tests turn this off so the streaming path is the one being exercised.
+    pub adaptive_routing: bool,
+}
+
+impl Default for AnonymizeOpts {
+    fn default() -> Self {
+        Self {
+            adaptive_routing: true,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AnonymizedMessage {
     /// Scrubbed JSONL: one `["<windowId>",<event>]\n` line per valid event, in input order.
     pub lines: Vec<u8>,
     pub meta: SnapshotMeta,
+    pub route: Route,
 }
 
 /// Anonymize a decompressed replay Kafka payload (`{"distinct_id": ..., "data": "<event json>"}`).
@@ -144,10 +181,18 @@ pub fn anonymize_kafka_payload(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
+    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default())
+}
+
+pub fn anonymize_kafka_payload_opts(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload);
+            return anonymize_kafka_payload_via_parse(allow, payload, opts);
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -164,9 +209,9 @@ pub fn anonymize_kafka_payload(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data(allow, &distinct_id, inner);
+        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts);
     }
-    anonymize_kafka_payload_via_parse(allow, payload)
+    anonymize_kafka_payload_via_parse(allow, payload, opts)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -240,6 +285,7 @@ fn scan_outer_envelope(payload: &[u8]) -> Option<(Span, Span)> {
 fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
+    opts: AnonymizeOpts,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -265,7 +311,7 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data(allow, distinct_id, &mut data_bytes)
+    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts)
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -276,15 +322,31 @@ pub fn anonymize_snapshot_data(
     distinct_id: &str,
     inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
+    anonymize_snapshot_data_opts(allow, distinct_id, inner, AnonymizeOpts::default())
+}
+
+pub fn anonymize_snapshot_data_opts(
+    allow: &AllowLists,
+    distinct_id: &str,
+    inner: &mut [u8],
+    opts: AnonymizeOpts,
+) -> SResult<AnonymizedMessage> {
     // JSON.parse on the TS side dies on pathological nesting too (stack overflow -> caught ->
     // received_non_snapshot_message); the guard keeps the recursive parse/walk off the thread stack.
     reject_if_too_deep(inner, "snapshot event json")
         .map_err(|e| Failure::new(FailKind::NonSnapshotMessage, e.to_string()))?;
     let ctx = Ctx::new(allow);
     match scan_envelope(inner)? {
-        Scanned::Envelope(env) => stream_events(&ctx, distinct_id, inner, env),
+        Scanned::Envelope(env) => {
+            if let Some(msg) = stream_events(&ctx, distinct_id, inner, env, opts)? {
+                return Ok(msg);
+            }
+            // Snapshot-dominated message: nothing was consumed before the abort, so the tree path
+            // re-reads (and now consumes) the intact buffer.
+            anonymize_via_tree_mut(&ctx, distinct_id, inner)
+        }
         // Escaped keys at the envelope level: only a real parse resolves them.
-        Scanned::NeedFullParse => anonymize_via_tree(&ctx, distinct_id, inner),
+        Scanned::NeedFullParse => anonymize_via_tree_mut(&ctx, distinct_id, inner),
     }
 }
 
@@ -531,6 +593,14 @@ struct Sink {
     console: [u32; 3], // info, warn, error
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
+    /// Whether an in-place parse has consumed a span yet — routing to the tree path is only sound
+    /// while the buffer is intact.
+    mutated: bool,
+    /// Copy-parse budget for early scrub events (real messages open with a small Meta event before
+    /// the full snapshot; consuming it in place would foreclose adaptive routing). Small events
+    /// parse from `scratch` until the budget runs out; everything after parses in place.
+    scratch_budget: usize,
+    scratch: Vec<u8>,
 }
 
 impl Sink {
@@ -545,6 +615,9 @@ impl Sink {
             events: Vec::new(),
             console: [0; 3],
             buffers: simd_json::Buffers::default(),
+            mutated: false,
+            scratch_budget: SCRATCH_BUDGET,
+            scratch: Vec::new(),
         }
     }
 
@@ -557,12 +630,15 @@ impl Sink {
     }
 }
 
+/// `None` means "route this message through the tree path instead" — only ever returned before any
+/// in-place parse has consumed a span, so the buffer is still intact for the tree run.
 fn stream_events(
     ctx: &Ctx<'_>,
     distinct_id: &str,
     inner: &mut [u8],
     env: ScannedEnvelope,
-) -> SResult<AnonymizedMessage> {
+    opts: AnonymizeOpts,
+) -> SResult<Option<AnonymizedMessage>> {
     let window_id = env.window_id.clone().unwrap_or_default();
     let mut sink = Sink::new(&window_id, env.items.1 - env.items.0);
 
@@ -582,13 +658,21 @@ fn stream_events(
             pos += 1;
         }
         first = false;
-        pos = process_event_at(ctx, inner, pos, &mut sink)?;
+        match process_event_at(ctx, inner, pos, &mut sink, opts)? {
+            EventStep::Next(p) => pos = p,
+            EventStep::UseTree => return Ok(None),
+        }
     }
 
-    finish(distinct_id, env, sink)
+    finish(distinct_id, env, sink, Route::Stream).map(Some)
 }
 
-fn finish(distinct_id: &str, env: ScannedEnvelope, sink: Sink) -> SResult<AnonymizedMessage> {
+fn finish(
+    distinct_id: &str,
+    env: ScannedEnvelope,
+    sink: Sink,
+    route: Route,
+) -> SResult<AnonymizedMessage> {
     if sink.events.is_empty() {
         return Err(Failure::new(
             FailKind::NoValidEvents,
@@ -599,6 +683,7 @@ fn finish(distinct_id: &str, env: ScannedEnvelope, sink: Sink) -> SResult<Anonym
     let end_ts = sink.events.iter().map(|e| e.ts).fold(f64::MIN, f64::max);
     Ok(AnonymizedMessage {
         lines: sink.lines,
+        route,
         meta: SnapshotMeta {
             distinct_id: distinct_id.to_string(),
             session_id: env.session_id,
@@ -756,6 +841,21 @@ fn scan_event_data(inner: &[u8], start: usize, es: &mut EventScan) -> SResult<us
     }
 }
 
+enum EventStep {
+    /// Continue with the next array item at this position.
+    Next(usize),
+    /// Abort streaming and route the whole message through the tree path.
+    UseTree,
+}
+
+/// A scrub-routed data span holding most of the message means the tree path's single SIMD parse of
+/// everything beats streaming's scan-then-parse duplication. Tuned from the canary's route-labelled
+/// duration metrics.
+const TREE_ROUTE_MIN_DATA_FRACTION: usize = 2; // data > inner.len() / 2
+
+/// How many scrub-routed bytes may copy-parse via scratch before switching to in-place parses.
+const SCRATCH_BUDGET: usize = 64 * 1024;
+
 /// Process the array item starting at (or after whitespace from) `item_pos`; returns the position
 /// just past the event.
 fn process_event_at(
@@ -763,12 +863,13 @@ fn process_event_at(
     inner: &mut [u8],
     item_pos: usize,
     sink: &mut Sink,
-) -> SResult<usize> {
+    opts: AnonymizeOpts,
+) -> SResult<EventStep> {
     let start = scan::skip_ws(inner, item_pos);
     // Non-object events fail SnapshotEventSchema and are silently skipped, like the TS parse step.
     if inner.get(start) != Some(&b'{') {
         let span = scan::locate_value(inner, start).map_err(|e| non_snapshot(e.0))?;
-        return Ok(span.1);
+        return Ok(EventStep::Next(span.1));
     }
 
     let (es, end) = scan_event(inner, start)?;
@@ -779,11 +880,11 @@ fn process_event_at(
     // re-serializing through a parse collapses or rejects them.
     if es.fallback || memchr::memchr2(b'\n', b'\r', &inner[span.0..span.1]).is_some() {
         process_event_via_tree(ctx, inner, span, sink)?;
-        return Ok(end);
+        return Ok(EventStep::Next(end));
     }
 
     let Some(ts) = valid_timestamp(es.ts.and_then(|s| scan::parse_number(inner, s))) else {
-        return Ok(end); // invalid/missing timestamp: the event is filtered out
+        return Ok(EventStep::Next(end)); // invalid/missing timestamp: the event is filtered out
     };
     let ty = es
         .ty
@@ -795,7 +896,7 @@ fn process_event_at(
     // type/source never routes to a scrubber) pass through byte-identical.
     let Some(data) = es.data else {
         pass_through(inner, span, ts, ty, None, sink);
-        return Ok(end);
+        return Ok(EventStep::Next(end));
     };
 
     let needs_parse = match ty {
@@ -807,7 +908,7 @@ fn process_event_at(
     };
     if !needs_parse {
         pass_through(inner, span, ts, ty, es.data_is_object.then_some(&es), sink);
-        return Ok(end);
+        return Ok(EventStep::Next(end));
     }
 
     // Incremental events only route to a scrubber for mutation/input/canvas sources.
@@ -821,22 +922,49 @@ fn process_event_at(
             Some(SOURCE_MUTATION) | Some(SOURCE_INPUT) | Some(SOURCE_CANVAS_MUTATION)
         ) {
             pass_through(inner, span, ts, ty, Some(&es), sink);
-            return Ok(end);
+            return Ok(EventStep::Next(end));
         }
     }
 
-    // Scrub route: parse the data span in place — simd-json only mutates within the span, and the
-    // splice reads only the disjoint prefix/suffix — then splice the re-serialized value back
-    // between the untouched surrounding bytes. The splice happens even when nothing changed:
-    // JSON.parse dedupes duplicate keys, so re-serializing from the parsed tree guarantees no
-    // shadowed duplicate content inside `data` survives in the raw bytes. Later events sit entirely
-    // past `end`, so the consumed span is never re-read.
+    // Adaptive routing: only while nothing has been consumed — the tree run re-reads the buffer.
+    // The scratch budget below keeps the buffer intact through the small Meta/input events that
+    // ordinarily precede a full snapshot, so the dominant case still aborts at zero cost.
+    if opts.adaptive_routing
+        && !sink.mutated
+        && (data.1 - data.0) > inner.len() / TREE_ROUTE_MIN_DATA_FRACTION
+    {
+        return Ok(EventStep::UseTree);
+    }
+
+    // Scrub route: parse the data span — in place for the bulk (simd-json only mutates within the
+    // span, and the splice reads only the disjoint prefix/suffix), via a bounded scratch copy for
+    // small early events (see `scratch_budget`) — then splice the re-serialized value back between
+    // the untouched surrounding bytes. The splice happens even when nothing changed: JSON.parse
+    // dedupes duplicate keys, so re-serializing from the parsed tree guarantees no shadowed
+    // duplicate content inside `data` survives in the raw bytes. Later events sit entirely past
+    // `end`, so a consumed span is never re-read.
+    let use_scratch = !sink.mutated && (data.1 - data.0) <= sink.scratch_budget;
+    if use_scratch {
+        sink.scratch_budget -= data.1 - data.0;
+    } else {
+        sink.mutated = true;
+    }
     let mut buffers = std::mem::take(&mut sink.buffers);
+    let mut scratch = std::mem::take(&mut sink.scratch);
     let result = (|| -> SResult<()> {
-        let (before, rest) = inner.split_at_mut(data.0);
-        let (data_bytes, after) = rest.split_at_mut(data.1 - data.0);
-        let prefix = &before[span.0..];
-        let suffix = &after[..span.1 - data.1];
+        let (prefix, data_bytes, suffix): (&[u8], &mut [u8], &[u8]) = if use_scratch {
+            scratch.clear();
+            scratch.extend_from_slice(&inner[data.0..data.1]);
+            (
+                &inner[span.0..data.0],
+                &mut scratch[..],
+                &inner[data.1..span.1],
+            )
+        } else {
+            let (before, rest) = inner.split_at_mut(data.0);
+            let (data_bytes, after) = rest.split_at_mut(data.1 - data.0);
+            (&before[span.0..], data_bytes, &after[..span.1 - data.1])
+        };
         let mut value = parse_untrusted_with_buffers(data_bytes, &mut buffers)
             .map_err(|e| non_snapshot(format!("event data: {e}")))?;
         route_data(ctx, ty, compressed, &mut value)
@@ -852,8 +980,10 @@ fn process_event_at(
         Ok(())
     })();
     sink.buffers = buffers;
+    scratch.clear();
+    sink.scratch = scratch;
     result?;
-    Ok(end)
+    Ok(EventStep::Next(end))
 }
 
 /// Emit a pass-through event: memcpy the span, derive meta from the scans.
@@ -1030,8 +1160,18 @@ pub fn anonymize_via_tree(
     inner: &[u8],
 ) -> SResult<AnonymizedMessage> {
     let mut buf = inner.to_vec();
+    anonymize_via_tree_mut(ctx, distinct_id, &mut buf)
+}
+
+/// [`anonymize_via_tree`] parsing the buffer in place (it is consumed).
+fn anonymize_via_tree_mut(
+    ctx: &Ctx<'_>,
+    distinct_id: &str,
+    inner: &mut [u8],
+) -> SResult<AnonymizedMessage> {
+    let inner_len = inner.len();
     let mut root =
-        parse_untrusted(&mut buf).map_err(|e| non_snapshot(format!("event json: {e}")))?;
+        parse_untrusted(inner).map_err(|e| non_snapshot(format!("event json: {e}")))?;
 
     let (session_id, window_id, snapshot_source, snapshot_library) = {
         let Some(obj) = as_object(&root) else {
@@ -1082,7 +1222,7 @@ pub fn anonymize_via_tree(
         .and_then(crate::json::as_array_mut)
         .expect("validated above");
 
-    let mut sink = Sink::new(window_id.as_deref().unwrap_or(""), inner.len());
+    let mut sink = Sink::new(window_id.as_deref().unwrap_or(""), inner_len);
     for event in items.iter_mut() {
         tree_event(ctx, event, &mut sink)?;
     }
@@ -1097,5 +1237,6 @@ pub fn anonymize_via_tree(
             snapshot_library,
         },
         sink,
+        Route::Tree,
     )
 }

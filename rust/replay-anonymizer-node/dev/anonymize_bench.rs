@@ -149,6 +149,10 @@ fn main() {
         .into_bytes();
 
         // Production streaming path: envelope scan + pass-through memcpy + per-data-span splice.
+        let route = {
+            let mut b = payload.clone();
+            anonymize_kafka_payload(&allow, &mut b).unwrap().route
+        };
         let stream = p50(3, n, || {
             let mut b = payload.clone();
             black_box(anonymize_kafka_payload(&allow, &mut b).unwrap());
@@ -202,9 +206,19 @@ fn main() {
             let mut b = bytes.clone();
             black_box(simd_json::to_borrowed_value(&mut b).unwrap());
         });
+        // Borrowed parse + the dedupe walk — isolates what JSON.parse-duplicate-key repair costs.
+        let borrowed_p_dedupe = p50(3, n, || {
+            let mut b = bytes.clone();
+            let mut v = simd_json::to_borrowed_value(&mut b).unwrap();
+            replay_anonymizer_node::json::dedupe_in_place(&mut v).unwrap();
+            black_box(v);
+        });
 
         println!("\n===== {label}: {mb:.1} MB =====");
-        println!("STREAM anonymize_kafka_payload       = {stream:.1} ms   (production byte path)");
+        println!(
+            "STREAM anonymize_kafka_payload       = {stream:.1} ms   (production byte path, routed: {})",
+            route.as_str()
+        );
         println!(
             "       inner only (no outer parse)   = {stream_inner:.1} ms   -> outer envelope parse ~= {:.1} ms",
             stream - stream_inner
@@ -221,6 +235,10 @@ fn main() {
         println!(
             "      borrowed parse only             = {borrowed_p:.1} ms  -> encode ~= {:.1} ms",
             borrowed_pe - borrowed_p
+        );
+        println!(
+            "      borrowed parse + dedupe         = {borrowed_p_dedupe:.1} ms  -> dedupe walk ~= {:.1} ms",
+            borrowed_p_dedupe - borrowed_p
         );
     }
 }

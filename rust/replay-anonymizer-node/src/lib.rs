@@ -30,7 +30,10 @@ pub mod value;
 pub use allow_lists::AllowLists;
 pub use context::Ctx;
 pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
-pub use snapshot::{anonymize_kafka_payload, AnonymizedMessage, FailKind, Failure};
+pub use snapshot::{
+    anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
+    FailKind, Failure, Route,
+};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]
@@ -94,7 +97,7 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
 
 /// The off-thread outcome: anonymized output, a classified failure (dlq/drop reason + detail), or an
 /// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
-type TaskOutcome = Result<Result<(Vec<u8>, String), (&'static str, String)>, String>;
+type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str, String)>, String>;
 
 fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     // One copy on the event loop: the buffer's bytes move into the task (they can't be borrowed
@@ -116,7 +119,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;
-                        Ok(Ok((out.lines, meta)))
+                        Ok(Ok((out.lines, meta, out.route.as_str())))
                     }
                     Err(f) => Ok(Err((f.kind.reason(), f.detail))),
                 }
@@ -140,10 +143,12 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 obj.set(cx, "lines", null)?;
                 let null = cx.null();
                 obj.set(cx, "meta", null)?;
+                let null = cx.null();
+                obj.set(cx, "route", null)?;
                 Ok(())
             };
             match result {
-                Ok(Ok((lines, meta))) => {
+                Ok(Ok((lines, meta, route))) => {
                     let failed = cx.boolean(false);
                     obj.set(&mut cx, "failed", failed)?;
                     let null = cx.null();
@@ -154,6 +159,8 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     obj.set(&mut cx, "lines", lines)?;
                     let meta = cx.string(meta);
                     obj.set(&mut cx, "meta", meta)?;
+                    let route = cx.string(route);
+                    obj.set(&mut cx, "route", route)?;
                 }
                 Ok(Err((reason, detail))) => set_failure(&mut cx, &obj, reason, detail)?,
                 // Fail closed: an unclassified error still drops the message.

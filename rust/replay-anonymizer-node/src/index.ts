@@ -59,6 +59,11 @@ export interface AnonymizeKafkaPayloadResult {
     lines: Buffer | null
     /** JSON-serialized {@link AnonymizeMeta}. */
     meta: string | null
+    /**
+     * Which implementation produced the output (differential-tested identical; the label feeds the
+     * canary metrics that tune the adaptive routing threshold).
+     */
+    route: 'stream' | 'tree' | null
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */

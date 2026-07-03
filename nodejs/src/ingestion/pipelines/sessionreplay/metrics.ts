@@ -53,12 +53,13 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
-    // ML mirror anonymize timing. `impl` is rust|ts so the flag rollout is a direct A/B, and `phase`
-    // separates the FFI round-trip cost (stringify+parse, on the event loop) from the scrub itself.
+    // ML mirror anonymize timing. `impl` is rust|ts so the flag rollout is a direct A/B, `phase`
+    // separates the FFI round-trip cost (stringify+parse, on the event loop) from the scrub itself,
+    // and `route` (stream|tree, rust only) feeds tuning of the adaptive routing threshold.
     private static readonly mlAnonymizeDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
-        help: 'Per-message ML mirror anonymize time in ms, by implementation and phase',
-        labelNames: ['impl', 'phase'],
+        help: 'Per-message ML mirror anonymize time in ms, by implementation, phase and route',
+        labelNames: ['impl', 'phase', 'route'],
         buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
     })
 
@@ -107,9 +108,10 @@ export class SessionRecordingIngesterMetrics {
     public static observeMlAnonymizeDuration(
         impl: 'rust' | 'ts',
         phase: 'stringify' | 'scrub' | 'parse' | 'total',
-        ms: number
+        ms: number,
+        route: 'stream' | 'tree' | '' = ''
     ): void {
-        this.mlAnonymizeDuration.labels(impl, phase).observe(ms)
+        this.mlAnonymizeDuration.labels(impl, phase, route).observe(ms)
     }
 
     public static incrementMlAnonymizeFailed(impl: 'rust' | 'ts'): void {
