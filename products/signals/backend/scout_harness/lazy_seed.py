@@ -315,8 +315,10 @@ def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canon
     as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
     list would.
 
-    Consumers: the config serializer's `scout_origin` field (`views._skill_info_for`) and the
-    prompt builder's self-improvement gate (`skill_loader.load_skill_for_run` → `prompt.py`).
+    Consumers: the config serializer's `scout_origin` field (`views._skill_info_for`), which is
+    metadata-only by design (one bulk query, no file contents), and — via the row-level
+    `scout_skill_row_origin` refinement below — the prompt builder's self-improvement gate
+    (`skill_loader.load_skill_for_run` → `prompt.py`).
     """
     is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
     return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
@@ -353,6 +355,31 @@ def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
         "files": sorted([(f.path, f.content, f.content_type) for f in files]),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
+    """Row-level refinement of `scout_skill_origin`: a *diverged* seeded row classifies as custom.
+
+    `publish_skill_version()` carries `metadata.seeded_by` (and the stale `canonical_hash`)
+    forward when a team edits a canonical scout in place, so the metadata-only check keeps
+    reading such a row as canonical. But a diverged row is team-owned in every way that matters
+    here — upstream sync already leaves it alone, so inviting `improve:` suggestions on it risks
+    no new divergence. Mirror `sync_canonical_skills`' decision: the row is diverged when its
+    content hash no longer matches the `canonical_hash` stamped at seed time. A seeded row with
+    no stored hash (pre-hash-tracking legacy) is unprovable either way; unlike the sync — whose
+    conservative move is to not overwrite — the conservative move for the prompt gate is to NOT
+    invite edits, so it stays canonical.
+
+    Hashing needs the row's file *contents*, so keep this on the per-run load path
+    (`skill_loader.load_skill_for_run`); the bulk config-list path stays on the metadata-only
+    `scout_skill_origin`.
+    """
+    if scout_skill_origin(skill.name, skill.metadata) == "custom":
+        return "custom"
+    stored_hash = (skill.metadata or {}).get("canonical_hash")
+    if stored_hash is None:
+        return "canonical"
+    return "custom" if _compute_row_hash(skill, list(skill.files.all())) != stored_hash else "canonical"
 
 
 def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:

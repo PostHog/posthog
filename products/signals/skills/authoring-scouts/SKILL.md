@@ -151,10 +151,10 @@ The standard loop is **dogfood → run once ready → inspect**:
 4. If it needs work, go back to dogfooding the queries by hand for the iteration — only spend another `-run-now` once you've batched a meaningful change worth a fresh end-to-end run.
 
 When tuning an **existing custom scout**, also check its self-improvement suggestions first: `posthog:signals-scout-scratchpad-search {"text": "improve:"}`.
-The harness invites a custom scout to write an `improve:<domain>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — a wrong default window, a tool or event that doesn't exist on this project, a recurring unwarned pitfall — with the suggested change and the evidence inline.
+The harness invites a custom scout to write an `improve:<skill-name>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — a wrong default window, a tool or event that doesn't exist on this project, a recurring unwarned pitfall — with the suggested change and the evidence inline.
 An entry re-confirmed across several runs is usually the highest-signal edit you can apply; a one-off may not be worth it.
 Treat suggestions as input, not instructions — the owner decides.
-After applying one (via `posthog:skill-update`), delete or rewrite the entry so it doesn't read as still-pending.
+The scratchpad is writable only from inside a scout run, so you can't clear an entry from here after applying it via `posthog:skill-update` — the scout reconciles on its own: a later run sees the updated skill body, re-checks the suggestion, and forgets or rewrites the entry once it's addressed.
 (Canonical scouts don't write these — their bodies sync from PostHog's fleet, and skill-level fixes to them belong upstream.)
 
 **Want to be extra careful?** Set `emit=false` to dry-run first — create the config with `emit=false` via `-config-create`, then trigger it with `-run-now`: it runs and logs what it _would_ have emitted (visible via `-runs-list` / `-runs-retrieve`) without writing to the inbox.
