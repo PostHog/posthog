@@ -8,6 +8,7 @@ import {
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
+    resolveAxisLineColor,
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
@@ -185,10 +186,10 @@ function LineChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
+            // doesn't paint over the baseline where it meets the axis.
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, frame: !showAxisLines })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -212,6 +213,10 @@ function LineChartInner<Meta = unknown>({
                     : undefined,
                 clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+            }
         },
         [showGrid, showAxisLines, stackedData, smooth]
     )

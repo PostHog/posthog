@@ -2,7 +2,7 @@ import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, ChartTheme, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -583,6 +583,20 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+/** Snap a coordinate to the nearest half-pixel so a 1px stroke fills exactly one pixel row/column.
+ *  Every axis-adjacent stroke — grid lines, axis baselines, tick marks — must share this rule, or
+ *  they land one pixel apart and visibly misalign. */
+function snapToPixel(coord: number): number {
+    return Math.round(coord) + 0.5
+}
+
+/** The stroke color for axis lines and tick marks — separate from `axisColor` (tick-label text)
+ *  so hosts can mute the lines without muting the labels. One place, so the precedence can't
+ *  drift between call sites. */
+export function resolveAxisLineColor(theme: ChartTheme): string | undefined {
+    return theme.axisLineColor ?? theme.axisColor ?? theme.gridColor
+}
+
 export interface DrawAxesOptions {
     axisColor?: string
 }
@@ -594,9 +608,10 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
     ctx.lineWidth = 1
     ctx.setLineDash([])
-    // +0.5 / -0.5 pixel snapping keeps the 1px strokes crisp and inside the plot rect (see drawGrid).
-    const axisX = Math.round(dimensions.plotLeft) + 0.5
-    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+    // snapToPixel matches drawGrid's tick snapping, so the bottom baseline coincides exactly with a
+    // zero-value grid line and with drawTickMarks' ticks.
+    const axisX = snapToPixel(dimensions.plotLeft)
+    const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
     // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
     // even when plotLeft/plotHeight are fractional.
     ctx.beginPath()
@@ -609,8 +624,56 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     ctx.stroke()
 }
 
+/** Length (px) of an axis tick mark, measured outward from the plot edge. */
+export const TICK_MARK_LENGTH = 4
+
+/** Pixel positions for canvas tick marks: `xs` tick below the plot's bottom edge, `ys` tick outside
+ *  the left or right plot edge (`offset` pushes stacked multi-axis gutters further outward). */
+export interface TickMarkCoords {
+    xs: number[]
+    ys: { y: number; side: 'left' | 'right'; offset: number }[]
+}
+
+/** Draws short tick marks extending outward from the plot edges, one per visible axis label.
+ *  Canvas-drawn with the same snapping as `drawAxes`/`drawGrid` so each tick continues its
+ *  axis/grid line exactly — a DOM overlay can't guarantee that across subpixel rounding. */
+export function drawTickMarks(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    coords: TickMarkCoords,
+    color?: string
+): void {
+    ctx.strokeStyle = color ?? 'rgba(0, 0, 0, 0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
+    ctx.beginPath()
+    for (const x of coords.xs) {
+        const tickX = snapToPixel(x)
+        ctx.moveTo(tickX, axisY)
+        ctx.lineTo(tickX, axisY + TICK_MARK_LENGTH)
+    }
+    for (const { y, side, offset } of coords.ys) {
+        const tickY = snapToPixel(y)
+        if (side === 'left') {
+            const edge = snapToPixel(dimensions.plotLeft - offset)
+            ctx.moveTo(edge - TICK_MARK_LENGTH, tickY)
+            ctx.lineTo(edge, tickY)
+        } else {
+            const edge = snapToPixel(dimensions.plotLeft + dimensions.plotWidth + offset)
+            ctx.moveTo(edge, tickY)
+            ctx.lineTo(edge + TICK_MARK_LENGTH, tickY)
+        }
+    }
+    ctx.stroke()
+}
+
 export interface DrawGridOptions {
     gridColor?: string
+    /** Draw the solid plot-edge baseline strokes framing the grid (both value-axis edges).
+     *  Defaults to true. Charts drawing their own axis lines pass false — the L-axis replaces the
+     *  near baseline, and the far one would read as a stray border. */
+    frame?: boolean
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
@@ -633,6 +696,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     const categoryTicks = options.categoryTicks ?? []
 
     const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const frame = options.frame ?? true
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
@@ -645,7 +709,13 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
 
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
-            const x = Math.round(yScale(tick)) + 0.5
+            const coord = yScale(tick)
+            // In axis-line (frameless) mode, skip grid lines hugging the left edge — they'd double
+            // up against the chart-drawn value-axis line. Framed grids keep their baseline gridline.
+            if (!frame && coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
+                continue
+            }
+            const x = snapToPixel(coord)
             ctx.beginPath()
             ctx.moveTo(x, dimensions.plotTop)
             ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
@@ -655,29 +725,38 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
             if (!isFinite(coord) || coord - dimensions.plotTop < AXIS_BASELINE_GAP) {
                 continue
             }
-            const y = Math.round(coord) + 0.5
+            const y = snapToPixel(coord)
             ctx.beginPath()
             ctx.moveTo(dimensions.plotLeft, y)
             ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
             ctx.stroke()
         }
-        const axisY = Math.round(dimensions.plotTop) + 0.5
-        ctx.beginPath()
-        ctx.moveTo(dimensions.plotLeft, axisY)
-        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
-        ctx.stroke()
-        // Far-edge snap uses `- 0.5` (mirror of the `+ 0.5` near edge above) so the
-        // closing stroke lands just inside `plotTop + plotHeight` and stays within the plot rect.
-        const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
-        ctx.beginPath()
-        ctx.moveTo(dimensions.plotLeft, closingY)
-        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
-        ctx.stroke()
+        if (frame) {
+            const axisY = snapToPixel(dimensions.plotTop)
+            ctx.beginPath()
+            ctx.moveTo(dimensions.plotLeft, axisY)
+            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+            ctx.stroke()
+            // snapToPixel (Math.round + 0.5) matches the value-tick gridlines and drawAxes' baseline,
+            // so a gridline or axis line at the plot bottom coincides exactly with this closing stroke
+            // instead of landing 1px apart and doubling.
+            const closingY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
+            ctx.beginPath()
+            ctx.moveTo(dimensions.plotLeft, closingY)
+            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, closingY)
+            ctx.stroke()
+        }
         return
     }
 
     for (const tick of valueTicks) {
-        const y = Math.round(yScale(tick)) + 0.5
+        const coord = yScale(tick)
+        // In axis-line (frameless) mode, skip grid lines hugging the bottom edge — they'd double
+        // up against the chart-drawn x-axis line. Framed grids keep their baseline gridline.
+        if (!frame && dimensions.plotTop + dimensions.plotHeight - coord < AXIS_BASELINE_GAP) {
+            continue
+        }
+        const y = snapToPixel(coord)
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
@@ -688,25 +767,28 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         if (!isFinite(coord) || coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
             continue
         }
-        const x = Math.round(coord) + 0.5
+        const x = snapToPixel(coord)
         ctx.beginPath()
         ctx.moveTo(x, dimensions.plotTop)
         ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
         ctx.stroke()
     }
 
-    const axisX = Math.round(dimensions.plotLeft) + 0.5
-    ctx.beginPath()
-    ctx.moveTo(axisX, dimensions.plotTop)
-    ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
-    ctx.stroke()
+    if (frame) {
+        const axisX = snapToPixel(dimensions.plotLeft)
+        ctx.beginPath()
+        ctx.moveTo(axisX, dimensions.plotTop)
+        ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+        ctx.stroke()
 
-    // See the horizontal-mode block for the `- 0.5` snap rationale (mirror of the near-edge `+ 0.5`).
-    const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
-    ctx.beginPath()
-    ctx.moveTo(closingX, dimensions.plotTop)
-    ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
-    ctx.stroke()
+        // snapToPixel keeps this closing stroke on the same half-pixel grid as the value/category
+        // gridlines and drawAxes' baseline (see the horizontal-mode block), so coincident strokes align.
+        const closingX = snapToPixel(dimensions.plotLeft + dimensions.plotWidth)
+        ctx.beginPath()
+        ctx.moveTo(closingX, dimensions.plotTop)
+        ctx.lineTo(closingX, dimensions.plotTop + dimensions.plotHeight)
+        ctx.stroke()
+    }
 }
 
 export function drawCrosshair(
