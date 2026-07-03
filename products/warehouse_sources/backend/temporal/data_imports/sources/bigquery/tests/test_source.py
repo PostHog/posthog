@@ -449,26 +449,30 @@ def test_bigquery_get_query_row_filters_compose_with_incremental():
 
 
 @pytest.mark.parametrize(
-    "field_type,last_value,expected_clause,offset_present",
+    "field_type,column_bq_type,last_value,expected_clause,offset_present",
     [
         # DATETIME columns are timezone-naive — a tz-aware literal can't be cast and BigQuery rejects it
         # with "Could not cast literal ... to type DATETIME". On the first incremental sync the cursor
         # defaults to the 1970-01-01 UTC initial value, whose isoformat carries a '+00:00' offset; for a
         # DATETIME field the literal must be naive.
-        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
+        (IncrementalFieldType.DateTime, "DATETIME", None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
         # A tz-aware value carried over from a previous sync is also rendered naive for DATETIME fields.
         (
             IncrementalFieldType.DateTime,
+            "DATETIME",
             parser.parse("2024-03-11T09:26:04+00:00"),
             "WHERE `cursor` > '2024-03-11T09:26:04'",
             False,
         ),
         # TIMESTAMP columns are timezone-aware, so the offset must be preserved in the literal.
-        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
+        (IncrementalFieldType.Timestamp, "TIMESTAMP", None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
     ],
 )
-def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
+def test_bigquery_get_query_datetime_cursor_timezone_offset(
+    field_type, column_bq_type, last_value, expected_clause, offset_present
+):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type=column_bq_type)]
     sql, _ = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
@@ -478,6 +482,36 @@ def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_val
     )
     assert expected_clause in sql
     assert ("+00:00" in sql) is offset_present
+
+
+@pytest.mark.parametrize(
+    "field_type,last_value,expected_clause",
+    [
+        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01'"),
+        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01'"),
+        (
+            IncrementalFieldType.DateTime,
+            parser.parse("2024-03-11T09:26:04+00:00"),
+            "WHERE `cursor` > '2024-03-11'",
+        ),
+    ],
+)
+def test_bigquery_get_query_date_column_with_datetime_cursor(field_type, last_value, expected_clause):
+    # A column retyped to DATE in BigQuery after discovery still carries a DateTime/Timestamp cursor
+    # here, whose datetime-shaped literal ("1970-01-01T00:00:00") BigQuery refuses to cast to DATE
+    # ("Could not cast literal ... to type DATE"). The literal must follow the column's live type.
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type="DATE")]
+    sql, _ = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=last_value,
+        bq_table=bq_table,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
+    )
+    assert expected_clause in sql
+    assert "T00:00:00" not in sql
+    assert "+00:00" not in sql
 
 
 @pytest.mark.parametrize(
