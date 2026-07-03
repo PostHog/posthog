@@ -150,6 +150,26 @@ describe('RustVmShadow', () => {
             expect(await outcomeCounts()).toEqual({ match: 1 })
         })
 
+        it('a flush while a native batch is still running drops its captures instead of stacking', async () => {
+            let resolveBatch: (results: unknown[]) => void = () => {}
+            mockHogvmNode.executeBatch.mockImplementationOnce(
+                () => new Promise((resolve) => (resolveBatch = resolve as (results: unknown[]) => void))
+            )
+
+            shadow.capture(capture('fn-a', { name: 'a1' }, 'ok-a1'))
+            const firstFlush = shadow.flush()
+
+            shadow.capture(capture('fn-a', { name: 'a2' }, 'ok-a2'))
+            await shadow.flush()
+
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(await outcomeCounts()).toEqual({ dropped: 1 })
+
+            resolveBatch([{ result: 'ok-a1', durationUs: 5 }])
+            await firstFlush
+            expect(await outcomeCounts()).toEqual({ dropped: 1, match: 1 })
+        })
+
         it('captures beyond the buffer cap are counted as dropped, not as rust errors', async () => {
             for (let i = 0; i < 10_001; i++) {
                 shadow.capture(capture('fn-a', { name: 'a' }, 'ok'))

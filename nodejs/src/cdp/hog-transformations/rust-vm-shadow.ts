@@ -115,6 +115,7 @@ export function classifyShadowOutcome(node: ShadowNodeResult, rust: RustExecResu
 export class RustVmShadow {
     private buffer: ShadowCapturedInvocation[] = []
     private module_: HogvmNodeModule | null | undefined = undefined
+    private flushInFlight = false
 
     constructor(
         private options: {
@@ -152,7 +153,28 @@ export class RustVmShadow {
             return
         }
 
+        // The caller's mirrorCall timeout only stops awaiting — the native batch keeps running on
+        // its worker threads. Never stack batches: while one is in flight, drop new captures.
+        if (this.flushInFlight) {
+            shadowComparison.inc({ outcome: 'dropped' }, items.length)
+            return
+        }
+        this.flushInFlight = true
+
         shadowFlushSize.observe({ scope: 'flush' }, items.length)
+
+        try {
+            await this.executeAndCompare(items)
+        } finally {
+            this.flushInFlight = false
+        }
+    }
+
+    private async executeAndCompare(items: ShadowCapturedInvocation[]): Promise<void> {
+        const module_ = this.getModule()
+        if (!module_) {
+            return
+        }
 
         const byFunction = new Map<string, ShadowCapturedInvocation[]>()
         for (const item of items) {
