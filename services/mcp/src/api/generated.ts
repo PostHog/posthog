@@ -22970,6 +22970,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -23271,7 +23272,15 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis
+       * * `Mercury` - Mercury
+       * * `Gojiberry` - Gojiberry
+       * * `Teachable` - Teachable */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -23975,7 +23984,7 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp */
       created_via?: CreatedViaEnum;
-      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
     }
 
@@ -24034,7 +24043,7 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
-      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
@@ -38529,7 +38538,7 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
-      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
@@ -51919,7 +51928,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
     }
 
