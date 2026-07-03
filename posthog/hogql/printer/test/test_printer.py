@@ -54,6 +54,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
@@ -6009,6 +6010,26 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
         reprinted = parsed.to_hogql()
         self.assertEqual(printed, reprinted)
+
+    @parameterized.expand(
+        [
+            ("array_access_over_alias", "(1 as x)[1]"),
+            ("nullish_array_access_over_alias", "(1 as x)?.[1]"),
+            ("property_access_over_alias", "(1 as x).a"),
+            ("array_access_over_between", "(1 between 2 and 3)[1]"),
+            ("array_access_over_is_distinct_from", "(1 is distinct from 2)[1]"),
+        ]
+    )
+    def test_array_access_over_loose_operand_roundtrips(self, _name: str, source: str):
+        """Regression: `[...]` binds tighter than the infix-printed forms (alias,
+        BETWEEN, IS DISTINCT FROM), so the printer must parenthesize such an array
+        operand — `(1 as x)[1]` used to print as `1 AS x[1]`, which does not parse
+        back, and `(1 between 2 and 3)[1]` silently regrouped on reparse."""
+        node = parse_expr(source)
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(clear_locations(parsed), clear_locations(node), f"AST changed after roundtrip: {printed!r}")
+        self.assertEqual(parsed.to_hogql(), printed)
 
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
