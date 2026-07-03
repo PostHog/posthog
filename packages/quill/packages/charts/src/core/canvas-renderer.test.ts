@@ -794,14 +794,16 @@ describe('hog-charts canvas-renderer', () => {
     })
 
     describe('drawGrid — dash pattern', () => {
-        it('dashes interior grid lines while the frame strokes stay solid', () => {
-            const ctx = mockCanvasContext()
-            drawGrid(makeDrawContext(ctx, ['a', 'b']), { gridDash: [3, 3] })
-            const patterns = dashCalls(ctx)
-            expect(patterns[0]).toEqual([3, 3])
-            // Frame strokes reset to solid before drawing.
-            expect(patterns[patterns.length - 1]).toEqual([])
-        })
+        it.each(['vertical', 'horizontal'] as const)(
+            '%s orientation: dashes interior grid lines while the frame strokes stay solid',
+            (orientation) => {
+                const ctx = mockCanvasContext()
+                drawGrid(makeDrawContext(ctx, ['a', 'b']), { gridDash: [3, 3], orientation })
+                const patterns = dashCalls(ctx)
+                expect(patterns[0]).toEqual([3, 3])
+                expect(patterns[patterns.length - 1]).toEqual([])
+            }
+        )
     })
 
     describe('drawGrid', () => {
@@ -915,6 +917,17 @@ describe('hog-charts canvas-renderer', () => {
             })
             composed(makeArgs(ctx, 1, 200))
             expect(drawHover).toHaveBeenCalledTimes(1)
+        })
+
+        it('dashes the crosshair with crosshairDash and resets to solid for subsequent hover drawing', () => {
+            const ctx = mockCanvasContext()
+            const composed = composeDrawHoverWithCrosshair(() => jest.fn(), {
+                crosshairColor: '#f00',
+                crosshairDash: [3, 3],
+                showCrosshair: true,
+            })
+            composed(makeArgs(ctx, 1, 200))
+            expect(dashCalls(ctx)).toEqual([[3, 3], []])
         })
 
         it('skips crosshair when showCrosshair is false', () => {
