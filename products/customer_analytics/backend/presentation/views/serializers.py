@@ -277,11 +277,12 @@ class AccountNoteSerializer(DataclassSerializer):
     last_modified_at = serializers.DateTimeField(read_only=True, help_text="When the note was last modified.")
     account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
     account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
 
     class Meta:
         dataclass = AccountNoteView
         ref_name = "AccountNote"
-        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name"]
+        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):

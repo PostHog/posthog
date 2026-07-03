@@ -138,27 +138,6 @@ export namespace Schemas {
     }
 
     /**
-     * A team-wide account note — an internal notebook linked to a Customer analytics account.
-     */
-    export interface AccountNote {
-      /** URL-safe short ID of the notebook. */
-      readonly short_id: string;
-      /**
-         * Title of the note.
-         * @nullable
-         */
-      readonly title: string | null;
-      /** When the note was created. */
-      readonly created_at: string;
-      /** When the note was last modified. */
-      readonly last_modified_at: string;
-      /** UUID of the account this note is linked to. */
-      readonly account_id: string;
-      /** Name of the account this note is linked to. */
-      readonly account_name: string;
-    }
-
-    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -213,6 +192,29 @@ export namespace Schemas {
       /** @nullable */
       readonly hedgehog_config: UserBasicHedgehogConfig;
       role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    /**
+     * A team-wide account note — an internal notebook linked to a Customer analytics account.
+     */
+    export interface AccountNote {
+      /** URL-safe short ID of the notebook. */
+      readonly short_id: string;
+      /**
+         * Title of the note.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the note was created. */
+      readonly created_at: string;
+      /** When the note was last modified. */
+      readonly last_modified_at: string;
+      /** UUID of the account this note is linked to. */
+      readonly account_id: string;
+      /** Name of the account this note is linked to. */
+      readonly account_name: string;
+      /** User who created the note, if known. */
+      readonly created_by: UserBasic | null;
     }
 
     export interface AccountNotebook {
@@ -24342,9 +24344,24 @@ export namespace Schemas {
     }
 
     export interface GitHubRepo {
+      /** GitHub repository numeric identifier. */
       id: number;
+      /** Repository short name (without the owner prefix). */
       name: string;
+      /** Fully-qualified repository name as 'owner/repo'. */
       full_name: string;
+      /** Whether the repository is private. */
+      private?: boolean;
+      /** The repository's default branch (e.g. 'main'). */
+      default_branch?: string;
+      /** Primary programming language GitHub detected for the repository. */
+      language?: string;
+      /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+      pushed_at?: string;
+      /** Whether the repository is archived. */
+      archived?: boolean;
+      /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+      can_push?: boolean;
     }
 
     export interface GitHubReposRefreshResponse {
@@ -60557,6 +60574,14 @@ export namespace Schemas {
     };
 
     export type AccountNotesListParams = {
+    /**
+     * Only return notes linked to this account.
+     */
+    account_id?: string;
+    /**
+     * Only return notes created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
     /**
      * Number of results to return per page.
      */
