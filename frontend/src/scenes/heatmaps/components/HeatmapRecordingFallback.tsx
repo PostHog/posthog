@@ -21,14 +21,15 @@ export function HeatmapRecordingFallback({ url }: { url: string }): JSX.Element 
         <LemonBanner type="info">
             <div className="flex flex-col gap-2">
                 <p className="mb-0">
-                    We found recent recordings that visited this page. You can build the heatmap from a recording
-                    instead: open one, scrub to the page you want as the background, then choose "View heatmap" in the
-                    player.
+                    We found recent recordings of sessions that visited this page. You can build the heatmap from a
+                    recording instead: open one, scrub to the page you want as the background, then choose "View
+                    heatmap" in the player.
                 </p>
                 <div className="flex flex-wrap gap-2">
                     {matchingRecordings.map((recording) => (
                         <LemonButton
                             key={recording.id}
+                            data-attr="heatmap-recording-fallback-open-recording"
                             type="secondary"
                             size="small"
                             icon={<IconRewindPlay />}

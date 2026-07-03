@@ -9,8 +9,16 @@ import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidUR
 import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 
 export function HeatmapHeader(): JSX.Element {
-    const { pageUrlDraft, isPageUrlDraftValid, pageUrlDraftIsPattern, loading, screenshotError, displayUrl, type } =
-        useValues(heatmapLogic)
+    const {
+        pageUrlDraft,
+        isPageUrlDraftValid,
+        pageUrlDraftIsPattern,
+        loading,
+        screenshotError,
+        displayUrl,
+        displayUrlIsPattern,
+        type,
+    } = useValues(heatmapLogic)
     const { iframeBanner } = useValues(heatmapsBrowserLogic)
     const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot } = useActions(heatmapLogic)
 
@@ -58,7 +66,7 @@ export function HeatmapHeader(): JSX.Element {
                             )
                         ) : null}
                     </div>
-                    {screenshotError && (
+                    {type === 'screenshot' && screenshotError && (
                         <div className="flex flex-col gap-2">
                             <LemonBanner
                                 type="error"
@@ -69,7 +77,7 @@ export function HeatmapHeader(): JSX.Element {
                             >
                                 {screenshotError}
                             </LemonBanner>
-                            {displayUrl ? <HeatmapRecordingFallback url={displayUrl} /> : null}
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>
                     )}
                     {type === 'iframe' && iframeBanner?.level === 'error' && (
@@ -77,7 +85,7 @@ export function HeatmapHeader(): JSX.Element {
                             <LemonBanner type="error">
                                 The page failed to load in an iframe (or is very slow). Some sites block being embedded.
                             </LemonBanner>
-                            {displayUrl ? <HeatmapRecordingFallback url={displayUrl} /> : null}
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>
                     )}
                     <HeatmapAdvancedSettings

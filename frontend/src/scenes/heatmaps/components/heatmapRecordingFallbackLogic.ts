@@ -14,12 +14,14 @@ export type HeatmapRecordingFallbackLogicProps = {
     url: string
 }
 
+const RECORDING_FALLBACK_LOOKBACK = '-30d'
+
 export function buildRecordingsQueryForUrl(url: string): RecordingsQuery {
     return {
         kind: NodeKind.RecordingsQuery,
         order: 'start_time',
         order_direction: 'DESC',
-        date_from: '-30d',
+        date_from: RECORDING_FALLBACK_LOOKBACK,
         limit: 3,
         properties: [
             {
