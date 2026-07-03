@@ -1,8 +1,12 @@
 from posthog.test.base import BaseTest
 
 from posthog.models import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
-from products.customer_analytics.backend.facade import api as facade
+from products.customer_analytics.backend.facade import (
+    api as facade,
+    contracts,
+)
 from products.customer_analytics.backend.logic import relationships
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
@@ -214,3 +218,61 @@ class TestRelationshipFacade(BaseTest):
         assert facade.list_account_relationship_definitions(other_team.id) == []
         assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
         assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
+
+
+class TestWritePathSync(BaseTest):
+    def setUp(self):
+        super().setUp()
+        AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
+
+    def _active_rows(self, account):
+        return AccountRelationship.objects.for_team(self.team.id).filter(account=account, ended_at__isnull=True)
+
+    def _update_properties(self, account_id, properties):
+        return facade.update_account_for_view(
+            team_id=self.team.id,
+            account_id=str(account_id),
+            input=contracts.UpdateAccountInput(properties=properties, properties_provided=True),
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+            required_level="editor",
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    def test_update_account_for_view_syncs_role_assign_and_clear(self):
+        account = Account.objects.create_account(team=self.team, name="Acme")
+        self._update_properties(account.id, {"csm": {"id": self.user.id, "email": self.user.email}})
+        rows = self._active_rows(account)
+        assert rows.count() == 1
+        row = rows.first()
+        assert row is not None
+        assert row.user_id == self.user.id
+        self._update_properties(account.id, {})
+        assert self._active_rows(account).count() == 0
+
+    def test_create_account_for_view_syncs_roles(self):
+        view = facade.create_account_for_view(
+            team_id=self.team.id,
+            team=self.team,
+            input=contracts.CreateAccountInput(
+                name="Acme", properties={"csm": {"id": self.user.id, "email": self.user.email}}
+            ),
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        account = Account.objects.for_team(self.team.id).get(id=view.id)
+        assert self._active_rows(account).count() == 1
+
+    def test_update_external_account_syncs_roles(self):
+        account = Account.objects.create_account(team=self.team, name="Acme", external_id="acme-1")
+        result = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+        )
+        assert result.error is None
+        rows = self._active_rows(account)
+        assert rows.count() == 1
+        row = rows.first()
+        assert row is not None
+        assert row.user_id == self.user.id

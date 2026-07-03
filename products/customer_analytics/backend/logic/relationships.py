@@ -1,6 +1,6 @@
 """
 Assign/end transactions for account relationships, plus the transitional forward-sync from
-the legacy JSON role keys. Called by facade/api.py only.
+the legacy JSON role keys. Called by the facade and product-internal account writers only.
 """
 
 from django.db import transaction

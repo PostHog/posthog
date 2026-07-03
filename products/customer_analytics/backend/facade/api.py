@@ -36,7 +36,10 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
+from products.customer_analytics.backend.logic import (
+    custom_property_values as _custom_property_values_logic,
+    relationships as _relationships_logic,
+)
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
     apply_option_side_effects,
@@ -333,6 +336,7 @@ def _apply_external_role_assignments(
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
 
     account.save(update_fields=["_properties", "updated_at"])
+    _relationships_logic.sync_from_account_properties(account)
     return None
 
 
@@ -1286,6 +1290,8 @@ def create_account_for_view(
                 properties=input.properties,
             )
             _set_tags(input.tags, account)
+            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1330,6 +1336,8 @@ def update_account_for_view(
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             _set_tags(input.tags, account)
+            if input.properties_provided:
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
