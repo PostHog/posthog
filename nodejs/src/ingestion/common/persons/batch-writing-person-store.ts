@@ -32,6 +32,7 @@ import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { Component } from '~/ingestion/common/scopes'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { Properties } from '~/plugin-scaffold'
@@ -2128,5 +2129,35 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         return updatedPersonUpdate
+    }
+}
+
+/**
+ * Owns a `BatchWritingPersonsStore`'s lifetime as a scope entry. `start()`
+ * constructs the store (which begins its metric-emission timer); `stop()`
+ * shuts it down. Shutdown throws when the cache still holds dirty entries —
+ * a drain-ordering bug the pipeline's per-batch flush is supposed to prevent —
+ * so we log and swallow rather than break the rest of scope teardown, matching
+ * the legacy consumer's stop path.
+ */
+export class BatchWritingPersonsStoreComponent implements Component<BatchWritingPersonsStore> {
+    constructor(
+        private readonly personRepository: PersonRepository,
+        private readonly outputs: PersonOutputs,
+        private readonly options?: Partial<BatchWritingPersonsStoreOptions>
+    ) {}
+
+    start(): Promise<{ value: BatchWritingPersonsStore; stop: () => Promise<void> }> {
+        const store = new BatchWritingPersonsStore(this.personRepository, this.outputs, this.options)
+        return Promise.resolve({
+            value: store,
+            stop: async () => {
+                try {
+                    await store.shutdown()
+                } catch (error) {
+                    logger.error('🚨', 'BatchWritingPersonsStore.shutdown() failed', { error })
+                }
+            },
+        })
     }
 }

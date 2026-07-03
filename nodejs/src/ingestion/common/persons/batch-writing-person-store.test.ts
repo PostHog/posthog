@@ -14,7 +14,7 @@ import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 
-import { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { BatchWritingPersonsStore, BatchWritingPersonsStoreComponent } from './batch-writing-person-store'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
 // Mock the ingestion warnings module
@@ -3122,6 +3122,28 @@ describe('BatchWritingPersonStore', () => {
             })
 
             // Remove injected entry so afterEach shutdown does not re-trigger a flush
+            cache.delete(`${teamId}:${person.id}`)
+        })
+    })
+
+    describe('BatchWritingPersonsStoreComponent', () => {
+        it('stop() swallows the dirty-cache shutdown error so scope teardown continues', async () => {
+            const { value: store, stop } = await new BatchWritingPersonsStoreComponent(
+                mockRepo,
+                mockIngestionWarningsOutputs
+            ).start()
+
+            const cache = (store as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                ...fromInternalPerson(person, 'test'),
+                needs_write: true,
+                properties_to_set: { x: '1' },
+            })
+
+            // The store's own shutdown() throws on a dirty cache; the component
+            // must log and resolve so a real drain bug doesn't break teardown.
+            await expect(stop()).resolves.toBeUndefined()
+
             cache.delete(`${teamId}:${person.id}`)
         })
     })
