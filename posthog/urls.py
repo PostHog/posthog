@@ -47,9 +47,11 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
+from products.data_modeling.backend.facade.internal_ops import InternalDataModelingOpsViewSet
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
+from products.endpoints.backend.facade.internal_ops import InternalEndpointsOpsViewSet
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.api.push_subscriptions import push_subscriptions
@@ -500,6 +502,40 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
+    ),
+    # Internal read-only endpoints for the modeling-ops admin app (authenticated with
+    # scoped JWTs signed by DATA_MODELING_OPS_JWT_SECRET; not exposed to Contour ingress)
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/overview",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_overview"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_queries"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries/<str:saved_query_id>",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_query_detail"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/saved_queries/<str:saved_query_id>/jobs",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_query_jobs"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/dags",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_dags"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/dags/<str:dag_id>",
+        csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_dag_detail"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/endpoints",
+        csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoints"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/data_modeling_ops/endpoints/<str:name>",
+        csrf_exempt(InternalEndpointsOpsViewSet.as_view({"get": "internal_endpoint_detail"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
