@@ -1735,7 +1735,7 @@ class KafkaSourceConfig(config.Config):
 
 @config.config
 class KatanaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
