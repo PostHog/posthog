@@ -157,8 +157,10 @@ REVIEWER_SYSTEM = textwrap.dedent(
 
     Dependency manifests (in the prompt when set): the diff changes a
     manifest (package.json, pyproject.toml, tsconfig, Cargo.toml, go.mod)
-    with no lockfile change, so it cannot add third-party code. Read the
-    manifest hunks in the diff: version bumps, metadata, and internal
+    with no lockfile change, so it cannot add third-party code. A
+    deterministic scan already hard-denies edits to known scripts/lifecycle/
+    build keys — you are the second line for what the scan can't name. Read
+    the manifest hunks in the diff: version bumps, metadata, and internal
     workspace references are fine. REFUSE if "scripts" entries, lifecycle
     hooks (postinstall, prepare, husky), or tool configuration that executes
     commands were added or changed — those run in CI and on dev machines.

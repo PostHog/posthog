@@ -48,6 +48,7 @@ from gates import (
     test_only,
 )
 from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr
+from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
 
@@ -349,6 +350,15 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        dep_manifests = dependency_manifests_without_lockfile(file_paths)
+        # Deterministic first line for the manifest scripts risk: an edit to
+        # scripts/lifecycle/build keys hard-denies rather than resting solely
+        # on the reviewer prompt's REFUSE instruction.
+        risky_manifests = (
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
+        )
+        if risky_manifests and "deps_toolchain" not in deny:
+            deny = sorted([*deny, "deps_toolchain"])
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -360,11 +370,7 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        allow_only = (
-            is_allow_listed_only(file_paths)
-            and not has_dependency_changes(file_paths)
-            and not dependency_manifests_without_lockfile(file_paths)
-        )
+        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
         ownership = detect_ownership(file_paths, ownership_rules)
@@ -400,7 +406,8 @@ class Pipeline:
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
-            "dep_manifests_without_lockfile": dependency_manifests_without_lockfile(file_paths),
+            "dep_manifests_without_lockfile": dep_manifests,
+            "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
         }
@@ -449,6 +456,9 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        risky = self.classification.get("manifest_script_changes", [])
+        if risky:
+            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {', '.join(risky)})"
         if deny:
             return False, f"matches: {', '.join(deny)}"
         return True, "no deny categories matched"

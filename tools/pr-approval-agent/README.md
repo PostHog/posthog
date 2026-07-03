@@ -167,9 +167,12 @@ Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 day
 and `.github/pr-deploy` cover real deployment artifacts instead.
 Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml,
 go.mod) don't hard-deny either: without a lockfile change they can't pull in
-third-party code. They're kept out of the T0 fast path, and the reviewer
-prompt must REFUSE if manifest scripts or lifecycle hooks changed — those
-execute in CI.
+third-party code (CI installs are frozen-lockfile). Three guards cover the
+residual risk that manifest scripts/hooks execute in CI: a deterministic scan
+of the manifest's diff hard-denies edits to known scripts/lifecycle/build
+keys (see `manifest_risk.py` — fails closed if the diff can't be read),
+manifest PRs are kept out of the T0 fast path, and the reviewer prompt must
+REFUSE on execution-bearing changes the scan can't name.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching
