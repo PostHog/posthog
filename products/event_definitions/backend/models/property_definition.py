@@ -138,24 +138,13 @@ def _is_person_email(instance: PropertyDefinition) -> bool:
     return instance.type == PropertyDefinition.Type.PERSON and instance.name == "email"
 
 
-def _effective_project_id(instance: PropertyDefinition) -> int:
-    return instance.project_id or instance.team_id
-
-
 @receiver(post_save, sender=PropertyDefinition)
-def _invalidate_has_person_email_on_save(
-    sender: type[PropertyDefinition], instance: PropertyDefinition, **kwargs
-) -> None:
-    if _is_person_email(instance):
-        invalidate_has_person_email_cache(_effective_project_id(instance))
-
-
 @receiver(post_delete, sender=PropertyDefinition)
-def _invalidate_has_person_email_on_delete(
+def _invalidate_has_person_email_on_change(
     sender: type[PropertyDefinition], instance: PropertyDefinition, **kwargs
 ) -> None:
     if _is_person_email(instance):
-        invalidate_has_person_email_cache(_effective_project_id(instance))
+        invalidate_has_person_email_cache(instance.project_id or instance.team_id)
 
 
 # ClickHouse Table DDL

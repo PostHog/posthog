@@ -1,5 +1,6 @@
 import { actions, events, kea, path, reducers, selectors } from 'kea'
 
+import { getAppContext } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { taxonomicFilterPinnedPropertiesLogicType } from './taxonomicFilterPinnedPropertiesLogicType'
@@ -77,7 +78,7 @@ function makeDefaultPinnedFilter(
 }
 
 function buildDefaultPinnedFilters(): PinnedTaxonomicFilter[] {
-    const appContext = window.POSTHOG_APP_CONTEXT
+    const appContext = getAppContext()
     const defaults: PinnedTaxonomicFilter[] = []
     if (appContext?.has_pageview) {
         defaults.push(
