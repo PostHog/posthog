@@ -590,7 +590,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, vr-setup, vr-complete]
+        needs: [build-storybook, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -598,13 +598,23 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  # A failed, timed-out or cancelled Storybook build skips the VR jobs
+                  # below rather than failing them, and this gate would read those skips
+                  # as a pass — a green required check with zero visual coverage. Naming
+                  # the build here makes its failure hit the gate directly. A legitimate
+                  # "no frontend changes" run leaves the build skipped, which still passes.
+                  if [[ "${{ needs.build-storybook.result }}" != "success" && "${{ needs.build-storybook.result }}" != "skipped" ]]; then
+                    echo "Storybook build did not succeed (result: ${{ needs.build-storybook.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
-                    echo "Visual Review setup failed — VR CLI or API error."
+                  if [[ "${{ needs.vr-setup.result }}" != "success" && "${{ needs.vr-setup.result }}" != "skipped" ]]; then
+                    echo "Visual Review setup failed or was cancelled (result: ${{ needs.vr-setup.result }})."
                     exit 1
                   fi
 
