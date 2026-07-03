@@ -219,7 +219,11 @@ class QueryDateRange:
             start += delta
         return values
 
+    # ISO week-day mode for toDayOfWeek(): 0 = ISO (1=Mon … 7=Sun)
+    _TO_DAY_OF_WEEK_ISO_MODE = 0
+
     def days_of_week(self) -> Optional[list[int]]:
+        # Returns None for unset, empty input, or all seven days — all three mean "no restriction"
         days = self._date_range.daysOfWeek if self._date_range else None
         if not days:
             return None
@@ -239,7 +243,7 @@ class QueryDateRange:
                 name="toDayOfWeek",
                 args=[
                     timestamp_field,
-                    ast.Constant(value=0),
+                    ast.Constant(value=self._TO_DAY_OF_WEEK_ISO_MODE),
                     ast.Constant(value=str(self._timezone_info)),
                 ],
             ),

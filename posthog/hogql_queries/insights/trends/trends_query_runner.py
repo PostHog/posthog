@@ -734,29 +734,27 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 filtered.append(series_result)
                 continue
 
-            # Build allowed-day mask — parse date string and check day of week
-            weekday_indices = []
+            kept_indices = []
             for i, day_str in enumerate(days):
                 try:
                     dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
                     if dt.isoweekday() in allowed_iso_days:
-                        weekday_indices.append(i)
+                        kept_indices.append(i)
                 except (ValueError, TypeError):
-                    weekday_indices.append(i)  # Keep unparseable entries
+                    kept_indices.append(i)  # Keep unparseable entries
 
-            if len(weekday_indices) == len(days):
-                # Nothing to filter
+            if len(kept_indices) == len(days):
                 filtered.append(series_result)
                 continue
 
             new_result = {**series_result}
-            new_result["days"] = [days[i] for i in weekday_indices]
+            new_result["days"] = [days[i] for i in kept_indices]
 
             if "data" in new_result and isinstance(new_result["data"], list):
-                new_result["data"] = [new_result["data"][i] for i in weekday_indices]
+                new_result["data"] = [new_result["data"][i] for i in kept_indices]
 
             if "labels" in new_result and isinstance(new_result["labels"], list):
-                new_result["labels"] = [new_result["labels"][i] for i in weekday_indices]
+                new_result["labels"] = [new_result["labels"][i] for i in kept_indices]
 
             # Recompute count from filtered data
             if "data" in new_result and new_result.get("count") is not None:

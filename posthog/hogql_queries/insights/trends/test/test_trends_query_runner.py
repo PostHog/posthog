@@ -610,6 +610,40 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, response.results[0]["count"])
         self.assertEqual(["2020-01-11"], response.results[0]["days"])
 
+    def test_days_of_week_wau_counts_only_monday_events(self):
+        # p1 fires on Mon Jan 13 and Tue Jan 14 — only the Monday event counts with daysOfWeek=[1]
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",  # Monday — counted in WAU
+                                "2020-01-14T12:00:00Z",  # Tuesday — filtered out of aggregation
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+        flush_persons_and_events()
+
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            dateRange=DateRange(date_from="2020-01-13", date_to="2020-01-20", daysOfWeek=[1]),
+            interval=IntervalType.DAY,
+        )
+        response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        # With interval=day and daysOfWeek=[1], non-Monday buckets are removed from the response.
+        # Jan 13 WAU window [Jan 7–13] includes p1's Monday event → count=1.
+        # Jan 20 WAU window [Jan 14–20] has no Monday events (Tue Jan 14 is filtered) → count=0.
+        assert response.results[0]["days"] == ["2020-01-13", "2020-01-20"]
+        assert response.results[0]["data"] == [1, 0]
+
     def test_trends_days(self):
         self._create_test_events()
 
