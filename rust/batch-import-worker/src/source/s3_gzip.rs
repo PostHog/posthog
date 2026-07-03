@@ -15,7 +15,7 @@ use crate::extractor::PartExtractor;
 use crate::staging::StagingGuard;
 
 use super::s3::extract_user_friendly_error;
-use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
+use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart, RemoteStaging};
 
 fn sanitize_key_for_path(key: &str) -> String {
     key.replace(['/', ':'], "_")
@@ -32,6 +32,7 @@ pub struct GzipS3Source {
     extractor: Arc<dyn PartExtractor>,
     staging_dir: PathBuf,
     staging_max_bytes: u64,
+    remote_staging: Option<RemoteStaging>,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
 }
@@ -44,6 +45,7 @@ impl GzipS3Source {
         extractor: Arc<dyn PartExtractor>,
         staging_dir: PathBuf,
         staging_max_bytes: u64,
+        remote_staging: Option<RemoteStaging>,
     ) -> Self {
         Self {
             client,
@@ -52,6 +54,7 @@ impl GzipS3Source {
             extractor,
             staging_dir,
             staging_max_bytes,
+            remote_staging,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -74,107 +77,12 @@ impl GzipS3Source {
     ) -> Result<Vec<u8>, Error> {
         read_prepared_chunk(&self.prepared_keys, key, offset, size).await
     }
-}
 
-#[async_trait]
-impl DataSource for GzipS3Source {
-    async fn keys(&self) -> Result<Vec<String>, Error> {
-        debug!(
-            "Listing keys in bucket {} with prefix {}",
-            self.bucket, self.prefix
-        );
-        let mut keys = Vec::new();
-        let mut continuation_token = None;
-        loop {
-            let mut cmd = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix(self.prefix.clone());
-            if let Some(token) = continuation_token {
-                cmd = cmd.continuation_token(token);
-            }
-            let output = cmd.send().await.or_else(|sdk_error| {
-                let friendly_msg =
-                    extract_user_friendly_error(&sdk_error, &self.bucket, "list objects");
-                Err(sdk_error).user_error(friendly_msg)
-            })?;
-
-            debug!("Got response: {:?}", output);
-            if let Some(contents) = output.contents {
-                keys.extend(
-                    contents
-                        .iter()
-                        .filter_map(|o| o.key.clone())
-                        .filter(|k| is_gzip_key(k)),
-                );
-            }
-            match output.next_continuation_token {
-                Some(token) => continuation_token = Some(token),
-                None => break,
-            }
-        }
-        Ok(keys)
-    }
-
-    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
-        let prepared_keys = self.prepared_keys.lock().await;
-        Ok(prepared_keys.get(key).and_then(|part| part.total_size))
-    }
-
-    async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
-        self.get_chunk_from_prepared_key(key, offset, size).await
-    }
-
-    async fn prepare_for_job(&self) -> Result<(), Error> {
-        let temp_dir = tempfile::Builder::new()
-            .prefix("job-")
-            .tempdir_in(&self.staging_dir)
-            .with_context(|| {
-                format!(
-                    "Failed to create temp directory in staging dir: {}",
-                    self.staging_dir.display()
-                )
-            })?;
-        debug!("Created temp directory for job: {:?}", temp_dir.path());
-
-        {
-            let mut temp_dir_guard = self.temp_dir.lock().await;
-            *temp_dir_guard = Some(temp_dir);
-        }
-
-        Ok(())
-    }
-
-    async fn cleanup_after_job(&self) -> Result<(), Error> {
-        {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.clear();
-        }
-        {
-            let mut temp_dir_guard = self.temp_dir.lock().await;
-            if let Some(temp_dir) = temp_dir_guard.take() {
-                let path = temp_dir.path().to_path_buf();
-                if let Err(e) = temp_dir.close() {
-                    warn!("Failed to remove temp directory {}: {e}", path.display());
-                } else {
-                    debug!("Cleaned up temp directory: {}", path.display());
-                }
-            }
-        }
-        debug!("Job cleanup complete");
-        Ok(())
-    }
-
-    async fn prepare_key(&self, key: &str) -> Result<(), Error> {
-        {
-            let prepared_keys = self.prepared_keys.lock().await;
-            if prepared_keys.contains_key(key) {
-                debug!("Key already prepared: {}", key);
-                return Ok(());
-            }
-        }
-
+    /// Stream the compressed object into a temp `.raw` file and return its path, or
+    /// `None` for a zero-byte object (the empty `.raw` is removed). The staging guard is
+    /// checked before the download, throttled as the file grows, and once more at the
+    /// part boundary.
+    async fn download_object_raw(&self, key: &str) -> Result<Option<(PathBuf, u64)>, Error> {
         let get = self
             .client
             .get_object()
@@ -229,11 +137,7 @@ impl DataSource for GzipS3Source {
                     raw_file_path.display()
                 );
             }
-
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.insert(key.to_string(), PreparedPart::empty());
-            info!("Prepared key {} (empty object)", key);
-            return Ok(());
+            return Ok(None);
         }
 
         // Final check once the whole `.raw` is on disk: the per-chunk `record` calls are
@@ -246,27 +150,165 @@ impl DataSource for GzipS3Source {
             raw_file_path.display()
         );
 
-        // Open a streaming decoder over the compressed file; we keep the `.raw`
-        // on disk and decompress on demand rather than materializing a `.data`
-        // copy, bounding disk usage to the compressed size.
-        let reader = self.extractor.open_reader(raw_file_path.clone());
+        Ok(Some((raw_file_path, total_bytes)))
+    }
+}
+
+#[async_trait]
+impl DataSource for GzipS3Source {
+    async fn keys(&self) -> Result<Vec<String>, Error> {
+        debug!(
+            "Listing keys in bucket {} with prefix {}",
+            self.bucket, self.prefix
+        );
+        let mut keys = Vec::new();
+        let mut continuation_token = None;
+        loop {
+            let mut cmd = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(self.prefix.clone());
+            if let Some(token) = continuation_token {
+                cmd = cmd.continuation_token(token);
+            }
+            let output = cmd.send().await.or_else(|sdk_error| {
+                let friendly_msg =
+                    extract_user_friendly_error(&sdk_error, &self.bucket, "list objects");
+                Err(sdk_error).user_error(friendly_msg)
+            })?;
+
+            debug!("Got response: {:?}", output);
+            if let Some(contents) = output.contents {
+                keys.extend(
+                    contents
+                        .iter()
+                        .filter_map(|o| o.key.clone())
+                        .filter(|k| is_gzip_key(k)),
+                );
+            }
+            match output.next_continuation_token {
+                Some(token) => continuation_token = Some(token),
+                None => break,
+            }
+        }
+        Ok(keys)
+    }
+
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.backend.size(key).await;
+        }
+        let prepared_keys = self.prepared_keys.lock().await;
+        Ok(prepared_keys.get(key).and_then(|part| part.total_size))
+    }
+
+    async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.backend.read(key, offset, size).await;
+        }
+        self.get_chunk_from_prepared_key(key, offset, size).await
+    }
+
+    async fn prepare_for_job(&self) -> Result<(), Error> {
+        let temp_dir = tempfile::Builder::new()
+            .prefix("job-")
+            .tempdir_in(&self.staging_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp directory in staging dir: {}",
+                    self.staging_dir.display()
+                )
+            })?;
+        debug!("Created temp directory for job: {:?}", temp_dir.path());
+
         {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.insert(
-                key.to_string(),
-                PreparedPart::streaming(raw_file_path, reader),
-            );
+            let mut temp_dir_guard = self.temp_dir.lock().await;
+            *temp_dir_guard = Some(temp_dir);
         }
 
-        info!(
-            "Prepared key {} ({total_bytes} compressed bytes, streaming decode)",
-            key
-        );
+        Ok(())
+    }
+
+    async fn cleanup_after_job(&self) -> Result<(), Error> {
+        // Sweep any staged objects this job left in the remote backend (best-effort;
+        // the bucket TTL is the final backstop).
+        if let Some(remote) = &self.remote_staging {
+            if let Err(e) = remote.backend.cleanup_job().await {
+                warn!("Failed to clean up remote staging after job: {e:#}");
+            }
+        }
+        {
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.clear();
+        }
+        {
+            let mut temp_dir_guard = self.temp_dir.lock().await;
+            if let Some(temp_dir) = temp_dir_guard.take() {
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
+            }
+        }
+        debug!("Job cleanup complete");
+        Ok(())
+    }
+
+    async fn prepare_key(&self, key: &str) -> Result<(), Error> {
+        if let Some(remote) = &self.remote_staging {
+            // Idempotent via the backend: a completed object (cached size, or `head` on a
+            // cold process) means the part is staged — multipart atomicity guarantees no
+            // torn part is ever visible, so attach without re-downloading from origin.
+            if remote.backend.size(key).await?.is_some() {
+                debug!("Key already staged remotely: {}", key);
+                return Ok(());
+            }
+            let downloaded = self.download_object_raw(key).await?;
+            let size = remote
+                .stage_downloaded(key, downloaded.map(|(path, _)| path))
+                .await?;
+            info!("Staged key {key} remotely ({size} decompressed bytes)");
+            return Ok(());
+        }
+
+        {
+            let prepared_keys = self.prepared_keys.lock().await;
+            if prepared_keys.contains_key(key) {
+                debug!("Key already prepared: {}", key);
+                return Ok(());
+            }
+        }
+
+        let prepared_part = match self.download_object_raw(key).await? {
+            None => {
+                info!("Prepared key {} (empty object)", key);
+                PreparedPart::empty()
+            }
+            Some((raw_file_path, total_bytes)) => {
+                // Open a streaming decoder over the compressed file; we keep the `.raw`
+                // on disk and decompress on demand rather than materializing a `.data`
+                // copy, bounding disk usage to the compressed size.
+                let reader = self.extractor.open_reader(raw_file_path.clone());
+                info!("Prepared key {key} ({total_bytes} compressed bytes, streaming decode)");
+                PreparedPart::streaming(raw_file_path, reader)
+            }
+        };
+
+        {
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.insert(key.to_string(), prepared_part);
+        }
 
         Ok(())
     }
 
     async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.backend.cleanup_key(key).await;
+        }
         remove_prepared_key(&self.prepared_keys, key).await;
         Ok(())
     }

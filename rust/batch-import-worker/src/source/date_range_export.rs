@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use tokio::{fs::File, io::AsyncWriteExt, sync::Mutex};
 use tracing::{debug, info, warn};
 
-use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
+use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart, RemoteStaging};
 use crate::error::{RateLimitedError, ToUserError};
 use crate::extractor::PartExtractor;
 use crate::staging::StagingGuard;
@@ -88,6 +88,7 @@ pub struct DateRangeExportSourceBuilder {
     date_format: String,
     headers: HashMap<String, String>,
     staging_max_bytes: u64,
+    remote_staging: Option<RemoteStaging>,
 }
 
 impl DateRangeExportSourceBuilder {
@@ -115,11 +116,20 @@ impl DateRangeExportSourceBuilder {
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
             staging_max_bytes: 0,
+            remote_staging: None,
         }
     }
 
     pub fn with_staging_max_bytes(mut self, staging_max_bytes: u64) -> Self {
         self.staging_max_bytes = staging_max_bytes;
+        self
+    }
+
+    /// Stage decompressed part plaintext in a remote backend (temp bucket) instead of
+    /// serving reads from the local streaming machinery. `None` (default) keeps the
+    /// local path unchanged.
+    pub fn with_remote_staging(mut self, remote_staging: Option<RemoteStaging>) -> Self {
+        self.remote_staging = remote_staging;
         self
     }
 
@@ -191,6 +201,7 @@ impl DateRangeExportSourceBuilder {
             extractor: self.extractor,
             staging_dir: self.staging_dir,
             staging_max_bytes: self.staging_max_bytes,
+            remote_staging: self.remote_staging,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -211,6 +222,7 @@ pub struct DateRangeExportSource {
     pub end_qp: String,
     staging_dir: PathBuf,
     staging_max_bytes: u64,
+    remote_staging: Option<RemoteStaging>,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
     auth_config: AuthConfig,
@@ -312,12 +324,12 @@ impl DateRangeExportSource {
     // To support exporting directly from sources that do not provide a byte seekable interface, we need to create
     // that byte seekable interface ourselves
 
-    // This method streams the compressed data from the source into a temp `.raw`
-    // file on disk, then opens a streaming decoder over it. The compressed file is
-    // kept and decompressed on demand as the job reads forward, so disk usage is
-    // bounded by the compressed size rather than the (potentially much larger)
-    // decompressed size.
-    async fn download_and_prepare_part_data(&self, key: &str) -> Result<PreparedPart, Error> {
+    // This method streams the compressed data from the source into a temp `.raw` file on
+    // disk and returns its path (`None` for an empty part, e.g. a 404 interval). What
+    // happens to the `.raw` depends on the staging mode: the local path opens a streaming
+    // decoder over it (disk bounded by compressed size); the remote path ingests it into
+    // the temp bucket and deletes it.
+    async fn download_part_raw(&self, key: &str) -> Result<Option<(PathBuf, u64)>, Error> {
         let (start, end) = self
             .interval_from_key(key)
             .ok_or_else(|| Error::msg("Invalid interval key"))?;
@@ -330,16 +342,15 @@ impl DateRangeExportSource {
         info!("Downloading and preparing key: {}", key);
 
         // Let errors (including 429 wrapped as RateLimitedError) bubble up to job-level backoff
-        self.download_and_prepare_part_data_inner(key, start, end)
-            .await
+        self.download_part_raw_inner(key, start, end).await
     }
 
-    async fn download_and_prepare_part_data_inner(
+    async fn download_part_raw_inner(
         &self,
         key: &str,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
-    ) -> Result<PreparedPart, Error> {
+    ) -> Result<Option<(PathBuf, u64)>, Error> {
         // All date range export APIs (Mixpanel, Amplitude, etc.) use inclusive date ranges,
         // meaning both start and end dates/times are included in the results. Our intervals
         // are created as semi-open [start, end), so we subtract one interval unit from the
@@ -398,7 +409,7 @@ impl DateRangeExportSource {
                 key
             );
             tokio::time::sleep(Duration::from_secs(2)).await;
-            return Ok(PreparedPart::empty());
+            return Ok(None);
         }
 
         if response.status().as_u16() == 429 {
@@ -468,7 +479,7 @@ impl DateRangeExportSource {
 
         // A 200 with a zero-byte body is an export interval with no data (some
         // export APIs return this instead of a 404). It is not a decodable gzip
-        // stream, so treat it as an empty part - mirroring the 404 branch above
+        // stream, so report it as an empty part - mirroring the 404 branch above
         // and s3_gzip's zero-byte handling - rather than handing the decoder an
         // empty file it would reject as "unexpected end of file".
         if total_bytes == 0 {
@@ -479,18 +490,10 @@ impl DateRangeExportSource {
                     raw_file_path.display()
                 );
             }
-            return Ok(PreparedPart::empty());
+            return Ok(None);
         }
 
-        // Keep the `.raw` file and decompress on demand as the job reads forward.
-        let reader = self.extractor.open_reader(raw_file_path.clone());
-
-        info!(
-            "Prepared key {} ({total_bytes} compressed bytes, streaming decode)",
-            key
-        );
-
-        Ok(PreparedPart::streaming(raw_file_path, reader))
+        Ok(Some((raw_file_path, total_bytes as u64)))
     }
 
     async fn get_chunk_from_prepared_key(
@@ -514,6 +517,9 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.backend.size(key).await;
+        }
         let prepared_keys = self.prepared_keys.lock().await;
         Ok(prepared_keys.get(key).and_then(|part| part.total_size))
     }
@@ -521,7 +527,11 @@ impl DataSource for DateRangeExportSource {
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         let mut retries = self.retries;
         loop {
-            match self.get_chunk_from_prepared_key(key, offset, size).await {
+            let result = match &self.remote_staging {
+                Some(remote) => remote.backend.read(key, offset, size).await,
+                None => self.get_chunk_from_prepared_key(key, offset, size).await,
+            };
+            match result {
                 Ok(chunk) => return Ok(chunk),
                 Err(e) => {
                     if retries == 0 {
@@ -560,6 +570,13 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
+        // Sweep any staged objects this job left in the remote backend (best-effort;
+        // the bucket TTL is the final backstop).
+        if let Some(remote) = &self.remote_staging {
+            if let Err(e) = remote.backend.cleanup_job().await {
+                warn!("Failed to clean up remote staging after job: {e:#}");
+            }
+        }
         // Clear refs then explicitly close() the temp dir to surface removal errors
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
@@ -583,6 +600,22 @@ impl DataSource for DateRangeExportSource {
     // We call this every time we process a chunk from a key/part
     // So this needs to be idempotent/a no-op when the key/part is already prepared
     async fn prepare_key(&self, key: &str) -> Result<(), Error> {
+        if let Some(remote) = &self.remote_staging {
+            // Idempotent via the backend: a completed object (cached size, or `head` on a
+            // cold process) means the part is staged — multipart atomicity guarantees no
+            // torn part is ever visible, so attach without re-downloading from origin.
+            if remote.backend.size(key).await?.is_some() {
+                debug!("Key already staged remotely: {}", key);
+                return Ok(());
+            }
+            let downloaded = self.download_part_raw(key).await?;
+            let size = remote
+                .stage_downloaded(key, downloaded.map(|(path, _)| path))
+                .await?;
+            info!("Staged key {key} remotely ({size} decompressed bytes)");
+            return Ok(());
+        }
+
         {
             let prepared_keys = self.prepared_keys.lock().await;
             if prepared_keys.contains_key(key) {
@@ -591,7 +624,15 @@ impl DataSource for DateRangeExportSource {
             }
         }
 
-        let prepared_part = self.download_and_prepare_part_data(key).await?;
+        let prepared_part = match self.download_part_raw(key).await? {
+            None => PreparedPart::empty(),
+            Some((raw_file_path, total_bytes)) => {
+                // Keep the `.raw` file and decompress on demand as the job reads forward.
+                let reader = self.extractor.open_reader(raw_file_path.clone());
+                info!("Prepared key {key} ({total_bytes} compressed bytes, streaming decode)");
+                PreparedPart::streaming(raw_file_path, reader)
+            }
+        };
 
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
@@ -603,6 +644,9 @@ impl DataSource for DateRangeExportSource {
 
     // Should be called after we've read the last of a key/part into memory and attempt to commit it
     async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.backend.cleanup_key(key).await;
+        }
         remove_prepared_key(&self.prepared_keys, key).await;
         Ok(())
     }
@@ -1528,5 +1572,320 @@ mod tests {
         );
 
         source.cleanup_after_job().await.unwrap();
+    }
+}
+
+/// Remote (temp-bucket) staging mode: the source ingests each downloaded part into a
+/// StagingBackend via the decompress pipeline and serves reads from it. These tests use
+/// the real backend over `object_store::memory::InMemory` and real gzip bodies over
+/// httpmock, exercising the exact production code path minus the network store.
+#[cfg(test)]
+mod remote_staging_tests {
+    use super::*;
+    use crate::extractor::ExtractorType;
+    use crate::staging::TempBucketBackend;
+    use chrono::{TimeZone, Utc};
+    use flate2::{write::GzEncoder, Compression};
+    use httpmock::{Mock, MockServer};
+    use object_store::memory::InMemory;
+    use object_store::ObjectStore;
+    use std::io::Write;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    const BODY: &[u8] = b"{\"event\":\"a\"}\n{\"event\":\"b\"}\n{\"event\":\"c\"}\n";
+
+    fn gzip(data: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn mock_export<'a>(server: &'a MockServer, body: &[u8]) -> Mock<'a> {
+        let gz = gzip(body);
+        server.mock(move |when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(200).body(gz.clone());
+        })
+    }
+
+    fn remote_staging(
+        store: Arc<dyn ObjectStore>,
+        max_plaintext_bytes: u64,
+    ) -> Option<RemoteStaging> {
+        Some(RemoteStaging {
+            backend: Arc::new(TempBucketBackend::new(store, "staging/", "job-TEST")),
+            extractor_type: ExtractorType::PlainGzip,
+            max_plaintext_bytes,
+        })
+    }
+
+    /// One-hour-interval source over `hours` keys, staging remotely into `store`
+    /// (or locally when `remote` is None), decoding real gzip.
+    fn build_source(
+        base_url: String,
+        staging: &Path,
+        hours: u32,
+        remote: Option<RemoteStaging>,
+    ) -> DateRangeExportSource {
+        let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2023, 1, 1, hours, 0, 0).unwrap();
+        DateRangeExportSource::builder(
+            base_url,
+            start,
+            end,
+            3600,
+            ExtractorType::PlainGzip.create_extractor(),
+            staging.to_path_buf(),
+        )
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .with_remote_staging(remote)
+        .build()
+        .unwrap()
+    }
+
+    /// Read a key back through `get_chunk` in small record-misaligned slices.
+    async fn read_all(source: &DateRangeExportSource, key: &str, slice: u64) -> Vec<u8> {
+        let total = source.size(key).await.unwrap().expect("size must be known");
+        let mut out = Vec::new();
+        let mut offset = 0u64;
+        while offset < total {
+            let chunk = source.get_chunk(key, offset, slice).await.unwrap();
+            assert!(!chunk.is_empty(), "read stalled before total");
+            offset += chunk.len() as u64;
+            out.extend_from_slice(&chunk);
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn remote_round_trip_multi_part_byte_identical_to_local() {
+        let server = MockServer::start();
+        let _mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let remote_src = build_source(
+            server.url("/export"),
+            staging.path(),
+            2,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        remote_src.prepare_for_job().await.unwrap();
+        let keys = remote_src.keys().await.unwrap();
+        assert_eq!(keys.len(), 2);
+
+        // Local-mode source over the same origin is the byte-identity reference.
+        let local_staging = TempDir::new().unwrap();
+        let local_src = build_source(server.url("/export"), local_staging.path(), 2, None);
+        local_src.prepare_for_job().await.unwrap();
+
+        for key in &keys {
+            remote_src.prepare_key(key).await.unwrap();
+            local_src.prepare_key(key).await.unwrap();
+
+            // Size is known immediately after remote staging (no lazy-size pass).
+            assert_eq!(remote_src.size(key).await.unwrap(), Some(BODY.len() as u64));
+
+            let remote_bytes = read_all(&remote_src, key, 7).await;
+            assert_eq!(remote_bytes, BODY);
+            // Local streaming mode discovers size lazily; drive it with the same slices.
+            let mut local_bytes = Vec::new();
+            let mut offset = 0u64;
+            loop {
+                let chunk = local_src.get_chunk(key, offset, 7).await.unwrap();
+                if chunk.is_empty() {
+                    break;
+                }
+                offset += chunk.len() as u64;
+                local_bytes.extend_from_slice(&chunk);
+            }
+            assert_eq!(remote_bytes, local_bytes, "backends must be byte-identical");
+
+            // The .raw is deleted right after a successful stage: staging disk holds
+            // nothing for this part while it is being read.
+            assert_eq!(count_raw_files_in(staging.path()), 0);
+        }
+    }
+
+    fn count_raw_files_in(dir: &Path) -> usize {
+        let mut count = 0;
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[tokio::test]
+    async fn remote_resume_attaches_without_redownload() {
+        let server = MockServer::start();
+        let mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let src_a = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        src_a.prepare_for_job().await.unwrap();
+        let key = &src_a.keys().await.unwrap()[0];
+        src_a.prepare_key(key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+
+        // A fresh source (simulating a pod restart: empty in-memory state) over the same
+        // backend store must attach via head and never re-hit the origin.
+        let staging_b = TempDir::new().unwrap();
+        let src_b = build_source(
+            server.url("/export"),
+            staging_b.path(),
+            1,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        src_b.prepare_for_job().await.unwrap();
+        src_b.prepare_key(key).await.unwrap();
+        assert_eq!(mock.hits(), 1, "resume must not re-download from origin");
+        assert_eq!(src_b.size(key).await.unwrap(), Some(BODY.len() as u64));
+        assert_eq!(read_all(&src_b, key, 7).await, BODY);
+    }
+
+    #[tokio::test]
+    async fn flip_mid_part_resumes_byte_identical_from_offset() {
+        // The no-Postgres-migration guarantee: a part half-read under local staging can
+        // be resumed at the same byte offset under temp-bucket staging (and vice versa)
+        // because both decode the identical plaintext stream.
+        let server = MockServer::start();
+        let _mock = mock_export(&server, BODY);
+
+        // Read a prefix under local streaming mode.
+        let local_staging = TempDir::new().unwrap();
+        let local_src = build_source(server.url("/export"), local_staging.path(), 1, None);
+        local_src.prepare_for_job().await.unwrap();
+        let key = &local_src.keys().await.unwrap()[0];
+        local_src.prepare_key(key).await.unwrap();
+        let offset = 17u64; // deliberately mid-record
+        let prefix = local_src.get_chunk(key, 0, offset).await.unwrap();
+        assert_eq!(prefix.len() as u64, offset);
+
+        // Flip: a fresh remote-mode source resumes from the persisted offset.
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let remote_src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(store, 0),
+        );
+        remote_src.prepare_for_job().await.unwrap();
+        remote_src.prepare_key(key).await.unwrap();
+        let suffix = remote_src
+            .get_chunk(key, offset, BODY.len() as u64)
+            .await
+            .unwrap();
+
+        let mut reassembled = prefix;
+        reassembled.extend_from_slice(&suffix);
+        assert_eq!(reassembled, BODY, "no gap or overlap across the flip");
+    }
+
+    #[tokio::test]
+    async fn remote_empty_part_stages_empty_object_and_skips_redownload() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(404);
+        });
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(store, 0),
+        );
+        src.prepare_for_job().await.unwrap();
+        let key = &src.keys().await.unwrap()[0];
+
+        src.prepare_key(key).await.unwrap();
+        assert_eq!(src.size(key).await.unwrap(), Some(0));
+        assert!(src.get_chunk(key, 0, 100).await.unwrap().is_empty());
+
+        // The staged empty object makes prepare_key idempotent: no second origin hit.
+        src.prepare_key(key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+    }
+
+    #[tokio::test]
+    async fn remote_ceiling_breach_pauses_and_stages_nothing() {
+        let server = MockServer::start();
+        let _mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(Arc::clone(&store), 16), // ceiling far below BODY.len()
+        );
+        src.prepare_for_job().await.unwrap();
+        let key = &src.keys().await.unwrap()[0];
+
+        let err = src.prepare_key(key).await.unwrap_err();
+        let user_msg = crate::error::get_user_message(&err);
+        assert!(
+            user_msg.contains("STAGED_PLAINTEXT_MAX_BYTES=16"),
+            "unexpected message: {user_msg}"
+        );
+        // Failed-stage atomicity: no readable object was published.
+        assert_eq!(src.size(key).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn remote_cleanup_key_and_job_sweep() {
+        let server = MockServer::start();
+        let _mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let src = build_source(
+            server.url("/export"),
+            staging.path(),
+            2,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        src.prepare_for_job().await.unwrap();
+        let keys = src.keys().await.unwrap();
+
+        src.prepare_key(&keys[0]).await.unwrap();
+        src.prepare_key(&keys[1]).await.unwrap();
+
+        // cleanup_key removes exactly one part; double-delete is a no-op.
+        src.cleanup_key(&keys[0]).await.unwrap();
+        assert_eq!(src.size(&keys[0]).await.unwrap(), None);
+        assert_eq!(src.size(&keys[1]).await.unwrap(), Some(BODY.len() as u64));
+        src.cleanup_key(&keys[0]).await.unwrap();
+
+        // cleanup_after_job sweeps the remainder.
+        src.cleanup_after_job().await.unwrap();
+        let fresh = build_source(
+            server.url("/export"),
+            staging.path(),
+            2,
+            remote_staging(store, 0),
+        );
+        assert_eq!(fresh.size(&keys[1]).await.unwrap(), None);
     }
 }

@@ -394,7 +394,7 @@ impl Job {
         let source = model
             .import_config
             .source
-            .construct(&model.secrets, context.clone(), is_restarting)
+            .construct(&model.secrets, context.clone(), is_restarting, model.id)
             .await
             .with_context(|| "Failed to construct data source for job".to_string())?;
 
@@ -1318,11 +1318,13 @@ mod tests {
 
         /// Build a source spanning `hours` one-hour intervals (one key per hour),
         /// all served the same body by the mock, decoded with `extractor`.
-        pub(super) fn build_source_with_extractor(
+        /// `remote` selects temp-bucket staging; `None` is the local streaming path.
+        pub(super) fn build_source_with(
             base_url: String,
             staging: &Path,
             hours: u32,
             extractor: ExtractorType,
+            remote: Option<crate::source::RemoteStaging>,
         ) -> DateRangeExportSource {
             let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
             let end = Utc.with_ymd_and_hms(2023, 1, 1, hours, 0, 0).unwrap();
@@ -1337,12 +1339,22 @@ mod tests {
             .with_auth(AuthConfig::None)
             .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
             .with_headers(HashMap::new())
+            .with_remote_staging(remote)
             .build()
             .unwrap()
         }
 
+        pub(super) fn build_source_with_extractor(
+            base_url: String,
+            staging: &Path,
+            hours: u32,
+            extractor: ExtractorType,
+        ) -> DateRangeExportSource {
+            build_source_with(base_url, staging, hours, extractor, None)
+        }
+
         fn build_source(base_url: String, staging: &Path, hours: u32) -> DateRangeExportSource {
-            build_source_with_extractor(base_url, staging, hours, ExtractorType::PlainGzip)
+            build_source_with(base_url, staging, hours, ExtractorType::PlainGzip, None)
         }
 
         /// A transform that consumes the whole chunk and emits no events. The
@@ -1816,6 +1828,78 @@ mod tests {
                 0,
                 "all parts' .raw files must be cleaned up by the read loop alone"
             );
+        }
+
+        /// The real read loop over a remote-staged (temp-bucket) source: parts stage on
+        /// first touch, sizes are known immediately (no lazy-size pass), every part
+        /// completes with the parser consuming real newline-delimited records, and no
+        /// `.raw` survives staging (deleted right after a successful ingest).
+        #[tokio::test]
+        async fn test_remote_staged_source_completes_all_parts_through_read_loop() {
+            use crate::source::RemoteStaging;
+            use crate::staging::TempBucketBackend;
+            use object_store::memory::InMemory;
+
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..500 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let remote = RemoteStaging {
+                backend: Arc::new(TempBucketBackend::new(
+                    Arc::new(InMemory::new()),
+                    "staging/",
+                    "job-LOOP",
+                )),
+                extractor_type: ExtractorType::PlainGzip,
+                max_plaintext_bytes: 0,
+            };
+            let source = build_source_with(
+                server.url("/export"),
+                staging.path(),
+                2,
+                ExtractorType::PlainGzip,
+                Some(remote),
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 2);
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            // Real newline parser: proves record reassembly across chunk boundaries
+            // works over ranged backend reads, not just a consume-everything stub.
+            let transform = newline_consumed_transform();
+
+            loop {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                // A successful stage never leaves a .raw behind.
+                assert_eq!(count_raw_files(staging.path()), 0);
+                if next.is_none() {
+                    break;
+                }
+            }
+
+            let final_state = state.lock().await;
+            for part in &final_state.parts {
+                assert!(part.is_done(), "part {} must complete", part.key);
+                assert_eq!(part.total_size, Some(body.len() as u64));
+            }
         }
     }
 

@@ -4,14 +4,67 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::warn;
 
-use crate::extractor::StreamingReader;
+use crate::extractor::{ExtractorType, StreamingReader};
+use crate::staging::{open_plaintext_stream, PlaintextStream, StagingBackend};
 
 pub mod date_range_export;
 pub mod folder;
 pub mod s3;
 pub mod s3_gzip;
 pub mod url_list;
+
+/// Remote (temp-bucket) staging for a compressed source, selected by
+/// `STAGING_BACKEND=temp_bucket`. Bundles the backend with how this source's parts
+/// decompress, so a downloaded `.raw` can be ingested in one call.
+///
+/// When present, a source stages each part's decompressed plaintext in the backend and
+/// serves `size`/`get_chunk`/`cleanup_key` from it, bypassing the local
+/// [`PreparedPart`]/[`StreamingReader`] machinery. When absent (`local_disk`, the
+/// default), the local streaming path below is used unchanged.
+#[derive(Clone)]
+pub struct RemoteStaging {
+    pub backend: Arc<dyn StagingBackend>,
+    pub extractor_type: ExtractorType,
+    /// Per-part decompressed-byte ceiling forwarded to the pipeline (0 = disabled).
+    pub max_plaintext_bytes: u64,
+}
+
+impl RemoteStaging {
+    /// Ingest a downloaded part into the backend and return its decompressed size.
+    /// `raw_file_path: None` means an empty part (404 / zero-byte object): an empty
+    /// object is staged so `size()` reports `Some(0)` and resume skips re-download.
+    /// The `.raw` is deleted after a successful stage (its bytes now live remotely).
+    pub(crate) async fn stage_downloaded(
+        &self,
+        key: &str,
+        raw_file_path: Option<PathBuf>,
+    ) -> Result<u64, Error> {
+        match raw_file_path {
+            None => {
+                self.backend
+                    .stage_part(
+                        key,
+                        PlaintextStream::from_chunks(Vec::<bytes::Bytes>::new()),
+                    )
+                    .await
+            }
+            Some(raw) => {
+                let stream = open_plaintext_stream(
+                    raw.clone(),
+                    self.extractor_type.clone(),
+                    self.max_plaintext_bytes,
+                );
+                let size = self.backend.stage_part(key, stream).await?;
+                if let Err(e) = tokio::fs::remove_file(&raw).await {
+                    warn!("Failed to remove staged raw file {}: {e}", raw.display());
+                }
+                Ok(size)
+            }
+        }
+    }
+}
 
 /// Per-key state for sources that download a compressed `.raw` file and
 /// stream-decompress it on demand (see [`crate::extractor::StreamingReader`]).
