@@ -21,18 +21,22 @@ The work splits into two concerns with opposite needs:
 - **The scrub compute** wants dependency isolation (Stage 2's ML runtime is ~hundreds of MB) — so it
   lives **here**, in a standalone image that is _not_ a pnpm-workspace member.
 
-The consumer never imports this package; it **calls** it over localhost. A library import would drag the
-ML deps into the workspace install; a process call doesn't. The two run as containers in the same pod.
+The consumer never imports this package; it **calls** it over loopback (127.0.0.1). A library import would
+drag the ML deps into the workspace install; a process call doesn't. The two run as containers in the same pod.
 
 ## HTTP contract
 
 ```text
 POST /scrub    body = raw image bytes            -> 200 scrubbed image bytes (application/octet-stream)
-                                                     500 on undecodable/failed input (never passthrough)
-                                                     503 when at IMAGE_SCRUB_CONCURRENCY (consumer retries)
+                                                     422 undecodable input (permanent — consumer skips the image)
+                                                     500 transient/internal failure (consumer retries, then replays)
+                                                     503 at IMAGE_SCRUB_CONCURRENCY (consumer retries)
 GET  /_health, /_ready                           -> 200
-GET  /metrics                                    -> Prometheus text (scrubbed/failed/rejected/duration)
+GET  /metrics                                    -> Prometheus text (scrubbed/undecodable/failed/rejected/aborted/duration)
 ```
+
+The 422-vs-500 split is the load-bearing contract: the consumer permanently skips a 422 but retries and
+replays a 500, so a Stage-2 reimplementation must keep undecodable input on 422 and transient failures on 500.
 
 Config (`src/config.ts`): `IMAGE_SCRUB_PORT` (9010), `IMAGE_SCRUB_CONCURRENCY` (8).
 
@@ -48,7 +52,7 @@ src/  (production — ships)
   metrics.ts   prom-client counters/histogram, served at /metrics
 
 dev/  (non-production)
-  server.test.ts   unit test: POST /scrub blurs, 500s on garbage, serves health+metrics
+  server.test.ts   unit test: POST /scrub blurs, 422s on garbage, serves health+metrics
 ```
 
 ## Run
