@@ -40,10 +40,10 @@ pub fn anonymize_kafka_payload(
     let distinct_id = scan::unescape(payload, distinct_id_span)
         .map_err(|e| failure(FailKind::InvalidJson, e.0))?
         .into_owned();
-    let len = scan::unescape_in_place(payload, data_span)
+    let (len, ascii) = scan::unescape_in_place(payload, data_span)
         .map_err(|e| failure(FailKind::InvalidJson, e.0))?;
     let inner = &payload[data_span.0 + 1..data_span.0 + 1 + len];
-    if std::str::from_utf8(inner).is_err() {
+    if !ascii && std::str::from_utf8(inner).is_err() {
         return Err(failure(FailKind::InvalidJson, "invalid utf-8"));
     }
     reject_if_too_deep(inner, "snapshot event json")

@@ -441,16 +441,19 @@ fn decode_unicode(bytes: &[u8], at: usize) -> Result<(char, usize)> {
 /// trails the read cursor). Returns the decoded byte length, starting at `span.0 + 1`.
 ///
 /// The buffer past the decoded bytes is left as scrap — callers must treat the span as consumed.
-/// The decoded bytes are NOT validated as UTF-8; callers that need a `str` must check.
-pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<usize> {
+/// Returns the decoded length and whether the decoded bytes are pure ASCII — ASCII output needs no
+/// further UTF-8 validation; non-ASCII output does (the second tuple field is `false`).
+pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<(usize, bool)> {
     let raw_len = span.1.checked_sub(span.0).ok_or(ScanError("bad span"))?;
     if raw_len < 2 || bytes.get(span.0) != Some(&b'"') || bytes.get(span.1 - 1) != Some(&b'"') {
         return Err(ScanError("not a string span"));
     }
     let (start, end) = (span.0 + 1, span.1 - 1);
     let Some(first) = memchr::memchr(b'\\', &bytes[start..end]) else {
-        return Ok(end - start); // escape-free: the bytes are already in place
+        let ascii = is_ascii_fold(&bytes[start..end]);
+        return Ok((end - start, ascii)); // escape-free: the bytes are already in place
     };
+    let mut ascii = is_ascii_fold(&bytes[start..start + first]);
     let mut rd = start + first;
     let mut wr = rd;
     while rd < end {
@@ -458,6 +461,7 @@ pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<usize> {
             // Clean run: locate its end, then one copy_within.
             let run_start = rd;
             rd = next_backslash(bytes, rd, end);
+            ascii &= is_ascii_fold(&bytes[run_start..rd]);
             bytes.copy_within(run_start..rd, wr);
             wr += rd - run_start;
             continue;
@@ -479,6 +483,7 @@ pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<usize> {
             b'u' => {
                 let (ch, consumed) = decode_unicode(&bytes[..end], rd)?;
                 rd += consumed;
+                ascii &= ch.is_ascii();
                 let mut buf = [0u8; 4];
                 let encoded = ch.encode_utf8(&mut buf).as_bytes();
                 bytes[wr..wr + encoded.len()].copy_from_slice(encoded);
@@ -490,7 +495,13 @@ pub fn unescape_in_place(bytes: &mut [u8], span: Span) -> Result<usize> {
         bytes[wr] = simple;
         wr += 1;
     }
-    Ok(wr - start)
+    Ok((wr - start, ascii))
+}
+
+/// OR-fold ASCII check (auto-vectorizes; the bytes are cache-warm from the surrounding copy).
+#[inline]
+fn is_ascii_fold(bytes: &[u8]) -> bool {
+    bytes.iter().fold(0u8, |acc, &b| acc | b) < 0x80
 }
 
 fn hex4(bytes: &[u8], at: usize) -> Result<u16> {

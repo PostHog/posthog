@@ -244,12 +244,13 @@ pub fn anonymize_kafka_payload_opts(
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
         // classified directly (as the parse would have: undecodable data -> invalid JSON), never
         // retried against the now-rewritten bytes.
-        let len = scan::unescape_in_place(payload, data_span)
+        let (len, ascii) = scan::unescape_in_place(payload, data_span)
             .map_err(|e| Failure::new(FailKind::InvalidJson, format!("data string: {}", e.0)))?;
         let inner = &mut payload[data_span.0 + 1..data_span.0 + 1 + len];
         // The parse it replaces validated the whole payload's UTF-8; the scan path must not let
-        // invalid bytes flow through pass-through events into the output.
-        if std::str::from_utf8(inner).is_err() {
+        // invalid bytes flow through pass-through events into the output. The unescape already
+        // proved ASCII output valid; only non-ASCII output needs the real check.
+        if !ascii && std::str::from_utf8(inner).is_err() {
             return Err(Failure::new(
                 FailKind::InvalidJson,
                 "invalid utf-8 in data string",
@@ -381,17 +382,12 @@ pub fn anonymize_snapshot_data_opts(
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
     let ctx = Ctx::new(allow);
-    match scan_envelope(inner)? {
-        Scanned::Envelope(env) => {
-            if let Some(msg) = stream_events(&ctx, distinct_id, inner, env, opts)? {
-                return Ok(msg);
-            }
-            // Snapshot-dominated message: nothing was consumed before the abort, so the tree path
-            // re-reads (and now consumes) the intact buffer.
-            anonymize_via_tree_mut(&ctx, distinct_id, inner)
-        }
-        // Escaped keys at the envelope level: only a real parse resolves them.
-        Scanned::NeedFullParse => anonymize_via_tree_mut(&ctx, distinct_id, inner),
+    match stream_message(&ctx, distinct_id, inner, opts)? {
+        StreamOutcome::Done(msg) => Ok(msg),
+        // Escaped/duplicate envelope keys (only a real parse resolves them) or a snapshot-dominated
+        // message (adaptive routing): nothing was consumed before either signal, so the tree path
+        // re-reads (and now consumes) the intact buffer.
+        StreamOutcome::Tree => anonymize_via_tree_mut(&ctx, distinct_id, inner),
     }
 }
 
@@ -408,92 +404,36 @@ fn non_snapshot(detail: impl Into<String>) -> Failure {
 // ---------------------------------------------------------------------------
 
 struct ScannedEnvelope {
-    items: Span,
     session_id: String,
     window_id: Option<String>,
     snapshot_source: Option<String>,
     snapshot_library: Option<String>,
 }
 
-enum Scanned {
-    Envelope(ScannedEnvelope),
-    NeedFullParse,
+enum StreamOutcome {
+    Done(AnonymizedMessage),
+    /// Re-process via the tree (escaped/duplicate envelope keys, or adaptive routing). Only ever
+    /// returned while the buffer is intact.
+    Tree,
 }
 
-/// The five envelope fields captured from `properties`, plus the object's end position.
-#[derive(Default)]
-struct PropsScan {
-    end: usize,
-    items: Option<Span>,
-    session_id: Option<Span>,
-    window_id: Option<Span>,
-    snapshot_source: Option<Span>,
-    lib: Option<Span>,
-}
-
-enum PropsScanned {
-    Props(PropsScan),
-    NeedFullParse,
-}
-
-/// Depth-1 walk of the `properties` object, capturing the envelope fields while discovering the
-/// object's end. Escaped or duplicate keys route to the full parse, whose JSON.parse semantics
-/// (last occurrence wins) are exact where a byte scanner's would be guesswork.
-fn scan_props(inner: &[u8], start: usize) -> SResult<PropsScanned> {
-    let mut p = PropsScan::default();
-    let mut pos = start + 1;
-    let mut first = true;
-    loop {
-        pos = scan::skip_ws(inner, pos);
-        // At an entry boundary `}` can only close the object (keys must start with `"`).
-        if inner.get(pos) == Some(&b'}') {
-            p.end = pos + 1;
-            return Ok(PropsScanned::Props(p));
-        }
-        if !first {
-            if inner.get(pos) != Some(&b',') {
-                return Err(non_snapshot("expected ',' between object entries"));
-            }
-            pos = scan::skip_ws(inner, pos + 1);
-        }
-        first = false;
-        if inner.get(pos) != Some(&b'"') {
-            return Err(non_snapshot("expected object key"));
-        }
-        let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
-        let key = &inner[pos + 1..key_end - 1];
-        if key.contains(&b'\\') {
-            return Ok(PropsScanned::NeedFullParse);
-        }
-        pos = scan::skip_ws(inner, key_end);
-        if inner.get(pos) != Some(&b':') {
-            return Err(non_snapshot("expected ':' after object key"));
-        }
-        let vspan = scan::locate_value(inner, pos + 1).map_err(|e| non_snapshot(e.0))?;
-        let slot = match key {
-            b"$snapshot_items" => &mut p.items,
-            b"$session_id" => &mut p.session_id,
-            b"$window_id" => &mut p.window_id,
-            b"$snapshot_source" => &mut p.snapshot_source,
-            b"$lib" => &mut p.lib,
-            _ => {
-                pos = vspan.1;
-                continue;
-            }
-        };
-        if slot.replace(vspan).is_some() {
-            return Ok(PropsScanned::NeedFullParse);
-        }
-        pos = vspan.1;
-    }
-}
-
-/// Locate `$snapshot_items` + the envelope strings by scanning, enforcing the same shape checks the
-/// TS zod schemas apply (`EventSchema` + the `$snapshot_items`/`$session_id` presence checks).
+/// One fused walk over the whole message: envelope fields are captured as they pass, and the
+/// events are processed inline the moment `$snapshot_items` is reached — the array is never
+/// pre-skipped just to finish the envelope first. Because prod key order puts `$window_id` after
+/// the items, events emit prefix-less bodies (`Sink.line_starts`) and `finish` frames them once
+/// the envelope is complete.
 ///
-/// One walk: the root entries are iterated directly and `properties` is captured inline while its
-/// end is discovered, instead of locating each value and then re-iterating it.
-fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
+/// Error precedence matches the unfused code (envelope validation used to run before any event):
+/// event failures are stashed while the envelope walk completes, envelope validation errors win,
+/// and only then does a stashed event error surface. Escaped/duplicate envelope keys after events
+/// have consumed the buffer in place cannot fall back to the parse — that combination (multi-MB of
+/// scrub data plus a mangled envelope key behind the items) fails closed instead.
+fn stream_message(
+    ctx: &Ctx<'_>,
+    distinct_id: &str,
+    inner: &mut [u8],
+    opts: AnonymizeOpts,
+) -> SResult<StreamOutcome> {
     let start = scan::skip_ws(inner, 0);
     if inner.get(start) != Some(&b'{') {
         // Preserve the old classification for non-object roots (including trailing-byte checks).
@@ -504,9 +444,32 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
         return Err(non_snapshot("event json is not an object"));
     }
 
+    let mut sink = Sink::new(inner.len() - start);
     let mut event_span: Option<Span> = None;
-    let mut props: Option<PropsScan> = None;
-    let mut props_not_object = false;
+    let mut saw_props = false;
+    let mut session_id_span: Option<Span> = None;
+    let mut window_id_span: Option<Span> = None;
+    let mut snapshot_source_span: Option<Span> = None;
+    let mut lib_span: Option<Span> = None;
+    let mut saw_items = false;
+    let mut items_not_array = false;
+    // First event-processing failure; surfaced only after envelope validation passes.
+    let mut deferred: Option<Failure> = None;
+    let mut use_tree = false;
+
+    // Escaped or duplicate envelope keys need JSON.parse semantics — the tree run. That is only
+    // possible while the buffer is intact.
+    macro_rules! need_full_parse {
+        () => {{
+            if sink.mutated {
+                return Err(non_snapshot(
+                    "envelope key needs a full parse after events were consumed",
+                ));
+            }
+            return Ok(StreamOutcome::Tree);
+        }};
+    }
+
     let mut pos = start + 1;
     let mut first = true;
     let root_end = loop {
@@ -525,9 +488,9 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
             return Err(non_snapshot("expected object key"));
         }
         let key_end = scan::skip_string(inner, pos).map_err(|e| non_snapshot(e.0))?;
-        let key = &inner[pos + 1..key_end - 1];
-        if key.contains(&b'\\') {
-            return Ok(Scanned::NeedFullParse);
+        let key_span = (pos + 1, key_end - 1);
+        if inner[key_span.0..key_span.1].contains(&b'\\') {
+            need_full_parse!();
         }
         pos = scan::skip_ws(inner, key_end);
         if inner.get(pos) != Some(&b':') {
@@ -535,31 +498,136 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
         }
         pos += 1;
         let vstart = scan::skip_ws(inner, pos);
-        match key {
-            // Duplicate envelope keys route to the full parse: JSON.parse's last-occurrence-wins
-            // only falls out of a real parse.
+        match &inner[key_span.0..key_span.1] {
             b"properties" => {
-                if props.is_some() || props_not_object {
-                    return Ok(Scanned::NeedFullParse);
+                if saw_props {
+                    need_full_parse!();
                 }
-                if inner.get(vstart) == Some(&b'{') {
-                    match scan_props(inner, vstart)? {
-                        PropsScanned::NeedFullParse => return Ok(Scanned::NeedFullParse),
-                        PropsScanned::Props(p) => {
-                            pos = p.end;
-                            props = Some(p);
+                saw_props = true;
+                if inner.get(vstart) != Some(&b'{') {
+                    // Recorded as present-but-wrong; validation below reports it like before.
+                    let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+                    pos = vspan.1;
+                    session_id_span = None;
+                    saw_props = false; // "missing properties object", matching the old filter
+                    continue;
+                }
+                // Inline props walk.
+                let mut ppos = vstart + 1;
+                let mut pfirst = true;
+                pos = loop {
+                    ppos = scan::skip_ws(inner, ppos);
+                    if inner.get(ppos) == Some(&b'}') {
+                        break ppos + 1;
+                    }
+                    if !pfirst {
+                        if inner.get(ppos) != Some(&b',') {
+                            return Err(non_snapshot("expected ',' between object entries"));
+                        }
+                        ppos = scan::skip_ws(inner, ppos + 1);
+                    }
+                    pfirst = false;
+                    if inner.get(ppos) != Some(&b'"') {
+                        return Err(non_snapshot("expected object key"));
+                    }
+                    let pkey_end = scan::skip_string(inner, ppos).map_err(|e| non_snapshot(e.0))?;
+                    let pkey = (ppos + 1, pkey_end - 1);
+                    if inner[pkey.0..pkey.1].contains(&b'\\') {
+                        need_full_parse!();
+                    }
+                    ppos = scan::skip_ws(inner, pkey_end);
+                    if inner.get(ppos) != Some(&b':') {
+                        return Err(non_snapshot("expected ':' after object key"));
+                    }
+                    let pvstart = scan::skip_ws(inner, ppos + 1);
+                    match &inner[pkey.0..pkey.1] {
+                        b"$snapshot_items" => {
+                            if saw_items || items_not_array {
+                                need_full_parse!();
+                            }
+                            saw_items = true;
+                            if inner.get(pvstart) != Some(&b'[') {
+                                items_not_array = true;
+                                let vspan = scan::locate_value(inner, pvstart)
+                                    .map_err(|e| non_snapshot(e.0))?;
+                                ppos = vspan.1;
+                                continue;
+                            }
+                            // Stream the events right here. After a deferred failure or a routing
+                            // abort, the remaining items are only skipped to find the array's end.
+                            let mut ipos = pvstart + 1;
+                            let mut ifirst = true;
+                            loop {
+                                ipos = scan::skip_ws(inner, ipos);
+                                if inner.get(ipos) == Some(&b']') {
+                                    ipos += 1;
+                                    break;
+                                }
+                                if !ifirst {
+                                    if inner.get(ipos) != Some(&b',') {
+                                        return Err(non_snapshot(
+                                            "expected ',' between array items",
+                                        ));
+                                    }
+                                    ipos += 1;
+                                }
+                                ifirst = false;
+                                if deferred.is_some() || use_tree {
+                                    let span = scan::locate_value(inner, ipos)
+                                        .map_err(|e| non_snapshot(e.0))?;
+                                    ipos = span.1;
+                                    continue;
+                                }
+                                match process_event_at(ctx, inner, ipos, &mut sink, opts) {
+                                    Ok(EventStep::Next(p)) => ipos = p,
+                                    Ok(EventStep::UseTree) => {
+                                        use_tree = true;
+                                        let span = scan::locate_value(inner, ipos)
+                                            .map_err(|e| non_snapshot(e.0))?;
+                                        ipos = span.1;
+                                    }
+                                    Err(e) => {
+                                        deferred = Some(e);
+                                        let span = scan::locate_value(inner, ipos)
+                                            .map_err(|e| non_snapshot(e.0))?;
+                                        ipos = span.1;
+                                    }
+                                }
+                            }
+                            ppos = ipos;
+                        }
+                        b"$session_id" => {
+                            if session_id_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                                need_full_parse!();
+                            }
+                        }
+                        b"$window_id" => {
+                            if window_id_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                                need_full_parse!();
+                            }
+                        }
+                        b"$snapshot_source" => {
+                            if snapshot_source_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                                need_full_parse!();
+                            }
+                        }
+                        b"$lib" => {
+                            if lib_span.replace(scan_prop_value(inner, pvstart, &mut ppos)?).is_some() {
+                                need_full_parse!();
+                            }
+                        }
+                        _ => {
+                            let vspan =
+                                scan::locate_value(inner, pvstart).map_err(|e| non_snapshot(e.0))?;
+                            ppos = vspan.1;
                         }
                     }
-                } else {
-                    let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
-                    props_not_object = true;
-                    pos = vspan.1;
-                }
+                };
             }
             b"event" => {
                 let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
                 if event_span.replace(vspan).is_some() {
-                    return Ok(Scanned::NeedFullParse);
+                    need_full_parse!();
                 }
                 pos = vspan.1;
             }
@@ -573,6 +641,7 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
         return Err(non_snapshot("trailing bytes after event json"));
     }
 
+    // Envelope validation, with the same messages and precedence as when it ran before the events.
     let Some(event_span) = event_span.filter(|s| scan::is_string(inner, *s)) else {
         return Err(non_snapshot("missing event name"));
     };
@@ -580,27 +649,16 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
     if event_name != "$snapshot_items" {
         return Err(non_snapshot("not a $snapshot_items event"));
     }
-    let Some(props) = props else {
+    if !saw_props {
         return Err(non_snapshot("missing properties object"));
-    };
-    let PropsScan {
-        end: _,
-        items,
-        session_id,
-        window_id,
-        snapshot_source,
-        lib,
-    } = props;
-
-    // zod: `$snapshot_items` must be an array when present; the step then requires it present.
-    let Some(items) = items else {
+    }
+    if !saw_items {
         return Err(non_snapshot("missing $snapshot_items"));
-    };
-    if !scan::is_array(inner, items) {
+    }
+    if items_not_array {
         return Err(non_snapshot("$snapshot_items is not an array"));
     }
-    // zod: `$session_id` must be a string when present; the step then requires it truthy (non-empty).
-    let session_id = match session_id {
+    let session_id = match session_id_span {
         Some(s) if scan::is_string(inner, s) => {
             scan::unescape(inner, s).map_err(|e| non_snapshot(e.0))?
         }
@@ -619,21 +677,36 @@ fn scan_envelope(inner: &[u8]) -> SResult<Scanned> {
             Some(_) => Err(non_snapshot(format!("{name} is not a string"))),
         }
     };
-
-    Ok(Scanned::Envelope(ScannedEnvelope {
-        items,
+    let env = ScannedEnvelope {
         session_id: session_id.into_owned(),
-        window_id: opt_string(window_id, "$window_id")?,
-        snapshot_source: opt_string(snapshot_source, "$snapshot_source")?,
-        snapshot_library: opt_string(lib, "$lib")?,
-    }))
+        window_id: opt_string(window_id_span, "$window_id")?,
+        snapshot_source: opt_string(snapshot_source_span, "$snapshot_source")?,
+        snapshot_library: opt_string(lib_span, "$lib")?,
+    };
+
+    if use_tree {
+        return Ok(StreamOutcome::Tree);
+    }
+    if let Some(e) = deferred {
+        return Err(e);
+    }
+    finish(distinct_id, env, sink, Route::Stream).map(StreamOutcome::Done)
 }
 
-/// Shared per-message accumulation state.
+/// Locate a props value span and advance the cursor past it.
+fn scan_prop_value(inner: &[u8], vstart: usize, ppos: &mut usize) -> SResult<Span> {
+    let vspan = scan::locate_value(inner, vstart).map_err(|e| non_snapshot(e.0))?;
+    *ppos = vspan.1;
+    Ok(vspan)
+}
+
+/// Shared per-message accumulation state. Lines accumulate as prefix-less event bodies with their
+/// start offsets recorded; `finish` frames them (`["<windowId>",` ... `]\n`) once the envelope —
+/// which may complete after the events in prod key order — is known.
 struct Sink {
-    /// `["<windowId>",` — constant per message.
-    prefix: Vec<u8>,
     lines: Vec<u8>,
+    /// Start offset of each emitted body in `lines` (one per entry in `events`).
+    line_starts: Vec<usize>,
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
     /// simd-json scratch reused across the per-event parses.
@@ -649,14 +722,10 @@ struct Sink {
 }
 
 impl Sink {
-    fn new(window_id: &str, capacity_hint: usize) -> Self {
-        let mut prefix = Vec::with_capacity(window_id.len() + 4);
-        prefix.push(b'[');
-        scan::write_json_string(window_id, &mut prefix);
-        prefix.push(b',');
+    fn new(capacity_hint: usize) -> Self {
         Self {
-            prefix,
             lines: Vec::with_capacity(capacity_hint + capacity_hint / 8),
+            line_starts: Vec::new(),
             events: Vec::new(),
             console: [0; 3],
             buffers: simd_json::Buffers::default(),
@@ -666,50 +735,11 @@ impl Sink {
         }
     }
 
-    fn open_line(&mut self) {
-        self.lines.extend_from_slice(&self.prefix);
+    /// Record that a body was emitted starting at `start` — call only once the emission is final
+    /// (declined attempts truncate `lines` and must leave no marker behind).
+    fn open_line_at(&mut self, start: usize) {
+        self.line_starts.push(start);
     }
-
-    fn close_line(&mut self) {
-        self.lines.extend_from_slice(b"]\n");
-    }
-}
-
-/// `None` means "route this message through the tree path instead" — only ever returned before any
-/// in-place parse has consumed a span, so the buffer is still intact for the tree run.
-fn stream_events(
-    ctx: &Ctx<'_>,
-    distinct_id: &str,
-    inner: &mut [u8],
-    env: ScannedEnvelope,
-    opts: AnonymizeOpts,
-) -> SResult<Option<AnonymizedMessage>> {
-    let window_id = env.window_id.clone().unwrap_or_default();
-    let mut sink = Sink::new(&window_id, env.items.1 - env.items.0);
-
-    // Manual item iteration: each event's end position comes out of its own processing walk, so the
-    // array layer never pre-walks event spans just to find the commas.
-    let mut pos = env.items.0 + 1;
-    let mut first = true;
-    loop {
-        pos = scan::skip_ws(inner, pos);
-        if inner.get(pos) == Some(&b']') {
-            break;
-        }
-        if !first {
-            if inner.get(pos) != Some(&b',') {
-                return Err(non_snapshot("expected ',' between array items"));
-            }
-            pos += 1;
-        }
-        first = false;
-        match process_event_at(ctx, inner, pos, &mut sink, opts)? {
-            EventStep::Next(p) => pos = p,
-            EventStep::UseTree => return Ok(None),
-        }
-    }
-
-    finish(distinct_id, env, sink, Route::Stream).map(Some)
 }
 
 fn finish(
@@ -726,8 +756,23 @@ fn finish(
     }
     let start_ts = sink.events.iter().map(|e| e.ts).fold(f64::MAX, f64::min);
     let end_ts = sink.events.iter().map(|e| e.ts).fold(f64::MIN, f64::max);
+    // Frame the prefix-less bodies into `["<windowId>",<event>]\n` lines.
+    let window_id_str = env.window_id.clone().unwrap_or_default();
+    let mut prefix = Vec::with_capacity(window_id_str.len() + 4);
+    prefix.push(b'[');
+    scan::write_json_string(&window_id_str, &mut prefix);
+    prefix.push(b',');
+    let n = sink.line_starts.len();
+    debug_assert_eq!(n, sink.events.len());
+    let mut lines = Vec::with_capacity(sink.lines.len() + n * (prefix.len() + 2));
+    for i in 0..n {
+        let body_end = sink.line_starts.get(i + 1).copied().unwrap_or(sink.lines.len());
+        lines.extend_from_slice(&prefix);
+        lines.extend_from_slice(&sink.lines[sink.line_starts[i]..body_end]);
+        lines.extend_from_slice(b"]\n");
+    }
     Ok(AnonymizedMessage {
-        lines: sink.lines,
+        lines,
         route,
         meta: SnapshotMeta {
             distinct_id: distinct_id.to_string(),
@@ -979,7 +1024,6 @@ fn process_event_at(
     // through (and adaptive routing) stay sound.
     if opts.byte_walk {
         let mark = sink.lines.len();
-        sink.open_line();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
         let data_mark = sink.lines.len();
         match crate::bytewalk::scrub_data_bytes(ctx, ty, source, compressed, inner, data, &mut sink.lines)
@@ -991,7 +1035,7 @@ fn process_event_at(
                     sink.lines.extend_from_slice(&inner[data.0..data.1]);
                 }
                 sink.lines.extend_from_slice(&inner[data.1..span.1]);
-                sink.close_line();
+                sink.open_line_at(mark);
                 // These routes never scrub data.href/source/type, so the scanned (pre-scrub)
                 // values equal what the tree path reads post-scrub.
                 let interaction = es
@@ -1054,13 +1098,13 @@ fn process_event_at(
             .map_err(|e| non_snapshot(format!("event data: {e}")))?;
         route_data(ctx, ty, compressed, &mut value)
             .map_err(|e| Failure::new(FailKind::AnonymizeFailed, e.to_string()))?;
-        sink.open_line();
+        let line_start = sink.lines.len();
         sink.lines.extend_from_slice(prefix);
         value
             .write(&mut sink.lines)
             .expect("writing json to a Vec cannot fail");
         sink.lines.extend_from_slice(suffix);
-        sink.close_line();
+        sink.open_line_at(line_start);
         push_meta_from_data(ty, ts, Some(&value), sink);
         Ok(())
     })();
@@ -1080,9 +1124,9 @@ fn pass_through(
     data: Option<&EventScan>,
     sink: &mut Sink,
 ) {
-    sink.open_line();
+    let line_start = sink.lines.len();
     sink.lines.extend_from_slice(&inner[span.0..span.1]);
-    sink.close_line();
+    sink.open_line_at(line_start);
 
     let (source, interaction, href) = match data {
         Some(d) => (
@@ -1224,11 +1268,11 @@ fn tree_event(ctx: &Ctx<'_>, event: &mut Value<'_>, sink: &mut Sink) -> SResult<
 
     route_event(ctx, event).map_err(|e| Failure::new(FailKind::AnonymizeFailed, e.to_string()))?;
 
-    sink.open_line();
+    let line_start = sink.lines.len();
     event
         .write(&mut sink.lines)
         .expect("writing json to a Vec cannot fail");
-    sink.close_line();
+    sink.open_line_at(line_start);
 
     let data = as_object(&*event).and_then(|o| o.get("data"));
     push_meta_from_data(ty, ts, data, sink);
@@ -1313,7 +1357,7 @@ fn anonymize_via_tree_mut(
         .and_then(crate::json::as_array_mut)
         .expect("validated above");
 
-    let mut sink = Sink::new(window_id.as_deref().unwrap_or(""), inner_len);
+    let mut sink = Sink::new(inner_len);
     for event in items.iter_mut() {
         tree_event(ctx, event, &mut sink)?;
     }
@@ -1321,7 +1365,6 @@ fn anonymize_via_tree_mut(
     finish(
         distinct_id,
         ScannedEnvelope {
-            items: (0, 0), // unused by finish
             session_id,
             window_id,
             snapshot_source,
