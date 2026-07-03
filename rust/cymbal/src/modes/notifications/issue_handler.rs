@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::core::{
@@ -116,7 +116,7 @@ pub async fn handle_issue_spiking(
         event_properties,
     } = issue;
 
-    let issue_exists = persist_spike_event(
+    match persist_spike_event(
         context,
         meta.notification_id,
         meta.team_id,
@@ -124,15 +124,27 @@ pub async fn handle_issue_spiking(
         computed_baseline,
         current_bucket_value,
     )
-    .await?;
-    if !issue_exists {
-        warn!(
-            notification_id = %meta.notification_id,
-            team_id = meta.team_id,
-            issue_id = %issue_id,
-            "dropping spike notification for missing issue"
-        );
-        return Ok(());
+    .await?
+    {
+        PersistSpikeEventResult::Inserted => {}
+        PersistSpikeEventResult::AlreadyPersisted => {
+            debug!(
+                notification_id = %meta.notification_id,
+                team_id = meta.team_id,
+                issue_id = %issue_id,
+                "dropping duplicate spike notification"
+            );
+            return Ok(());
+        }
+        PersistSpikeEventResult::MissingIssue => {
+            warn!(
+                notification_id = %meta.notification_id,
+                team_id = meta.team_id,
+                issue_id = %issue_id,
+                "dropping spike notification for missing issue"
+            );
+            return Ok(());
+        }
     }
 
     let issue = issue_from_notification(meta.team_id, issue_id, issue_snapshot);
@@ -157,6 +169,12 @@ pub async fn handle_issue_spiking(
     Ok(())
 }
 
+enum PersistSpikeEventResult {
+    Inserted,
+    AlreadyPersisted,
+    MissingIssue,
+}
+
 fn issue_from_notification(
     team_id: i32,
     issue_id: Uuid,
@@ -179,7 +197,7 @@ async fn persist_spike_event(
     issue_id: Uuid,
     computed_baseline: f64,
     current_bucket_value: f64,
-) -> Result<bool, UnhandledError> {
+) -> Result<PersistSpikeEventResult, UnhandledError> {
     let now = Utc::now();
     let result = sqlx::query(
         r#"WITH existing_issue AS (
@@ -202,7 +220,7 @@ async fn persist_spike_event(
     .await?;
 
     if result.rows_affected() > 0 {
-        return Ok(true);
+        return Ok(PersistSpikeEventResult::Inserted);
     }
 
     let issue_exists: bool = sqlx::query_scalar(
@@ -215,7 +233,11 @@ async fn persist_spike_event(
     .fetch_one(&context.posthog_pool)
     .await?;
 
-    Ok(issue_exists)
+    if issue_exists {
+        return Ok(PersistSpikeEventResult::AlreadyPersisted);
+    }
+
+    Ok(PersistSpikeEventResult::MissingIssue)
 }
 
 fn parse_notification_timestamp(event_timestamp: &str, event_uuid: Uuid) -> DateTime<Utc> {
