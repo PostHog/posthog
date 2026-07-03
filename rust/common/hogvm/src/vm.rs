@@ -299,19 +299,19 @@ impl<'a> HogVM<'a> {
             Operation::Lt => self.compare_op(NumOp::Lt)?,
             Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(like(val, pat, true)?)?;
             }
             Operation::Ilike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(like(val, pat, false)?)?;
             }
             Operation::NotLike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(!like(val, pat, true)?)?;
             }
             Operation::NotIlike => {
-                let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (val, pat) = self.pop_like_operands()?;
                 self.push_stack(!like(val, pat, false)?)?;
             }
             Operation::In => {
@@ -866,6 +866,32 @@ impl<'a> HogVM<'a> {
     // `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
     // either operand being null never matches (the reference's external matcher returns false), so
     // `=~` is false and `!~` is true.
+    // The reference VM funnels both like/ilike operands through JS String coercion (the pattern
+    // via String(...), the value via RegExp.test(...)), so null, booleans, and numbers stringify
+    // instead of erroring — `null like '%x%'` tests the string "null". Containers stay errors: the
+    // reference would produce "[object Object]", which no real program relies on.
+    fn pop_like_operands(&mut self) -> Result<(String, String), VmError> {
+        let val = self.pop_stack()?;
+        let pat = self.pop_stack()?;
+        Ok((self.js_string_coerce(&val)?, self.js_string_coerce(&pat)?))
+    }
+
+    fn js_string_coerce(&self, value: &HogValue) -> Result<String, VmError> {
+        match value.deref(&self.heap)? {
+            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::Null => Ok("null".to_string()),
+            HogLiteral::Boolean(b) => Ok(b.to_string()),
+            HogLiteral::Number(n) => Ok(match n {
+                Num::Integer(i) => i.to_string(),
+                Num::Float(f) => format!("{f}"),
+            }),
+            other => Err(VmError::InvalidValue(
+                other.type_name().to_string(),
+                "String".to_string(),
+            )),
+        }
+    }
+
     fn regex_op(&mut self, case_sensitive: bool, negate: bool) -> Result<(), VmError> {
         let val = self.pop_stack()?;
         let pat = self.pop_stack()?;
