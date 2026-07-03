@@ -19,13 +19,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { ThemeMenu } from '../Menus/ThemeMenu'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { shortcutLogic } from '../Shortcuts/shortcutLogic'
 import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
@@ -34,18 +31,10 @@ import { helpMenuLogic } from './helpMenuLogic'
 import { IconCheeseburger } from './IconCheeseburger'
 import { posthogStatusLogic } from './posthogStatusLogic'
 
-// Empty leading slot that keeps menu labels aligned where the item's icon has been removed.
-// Only the AI icon and the green/red status badges keep a visible glyph in this slot.
-function IconSlotPlaceholder(): JSX.Element {
-    return <span aria-hidden className="size-4 shrink-0" />
-}
-
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
@@ -129,8 +118,8 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             buttonProps={{ menuItem: true }}
                                             data-attr="more-menu-ask-ai-button"
                                         >
-                                            <IconSparkles className="text-ai" />
                                             Ask PostHog AI
+                                            <IconSparkles className="text-ai" />
                                         </Link>
                                     )}
                                 />
@@ -138,7 +127,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="more-menu-support-button">
-                                            <IconSlotPlaceholder />
                                             Support
                                             <IconOpenSidebar className="size-3" />
                                         </ButtonPrimitive>
@@ -157,25 +145,35 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipPlacement="right"
                                             data-attr="more-menu-docs-button"
                                         >
-                                            <IconSlotPlaceholder />
                                             Docs
                                         </Link>
                                     )}
                                 />
 
                                 <Label intent="menu" className="px-2 mt-3">
-                                    Project
+                                    System
                                 </Label>
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
                                             {...props}
-                                            to={urls.exports()}
+                                            targetBlankIcon
+                                            target="_blank"
                                             buttonProps={{ menuItem: true }}
-                                            data-attr="more-menu-exports-button"
+                                            to={statusPageUrl}
+                                            tooltip={postHogStatusTooltip}
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                            data-attr="more-menu-status-button"
                                         >
-                                            <IconSlotPlaceholder />
-                                            Exports
+                                            Status Page
+                                            {postHogStatusBadgeStatus !== 'success' && (
+                                                <LemonBadge
+                                                    content={postHogStatusBadgeContent}
+                                                    size="xsmall"
+                                                    status={postHogStatusBadgeStatus}
+                                                />
+                                            )}
                                         </Link>
                                     )}
                                 />
@@ -194,41 +192,16 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-health-button"
                                         >
+                                            Health
                                             <LemonBadge
-                                                size="xsmall"
+                                                size="small"
                                                 content={triggerBadgeContent}
                                                 status={triggerBadgeStatus}
                                             />
-                                            Health
                                         </Link>
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-3">
-                                    PostHog
-                                </Label>
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link
-                                            {...props}
-                                            targetBlankIcon
-                                            target="_blank"
-                                            buttonProps={{ menuItem: true }}
-                                            to={statusPageUrl}
-                                            tooltip={postHogStatusTooltip}
-                                            tooltipPlacement="right"
-                                            tooltipCloseDelayMs={0}
-                                            data-attr="more-menu-status-button"
-                                        >
-                                            <LemonBadge
-                                                content={postHogStatusBadgeContent}
-                                                size="xsmall"
-                                                status={postHogStatusBadgeStatus}
-                                            />
-                                            Status
-                                        </Link>
-                                    )}
-                                />
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
@@ -241,8 +214,20 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             to="https://posthog.com/changelog"
                                             data-attr="more-menu-changelog-button"
                                         >
-                                            <IconSlotPlaceholder />
                                             Changelog
+                                        </Link>
+                                    )}
+                                />
+
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.exports()}
+                                            buttonProps={{ menuItem: true }}
+                                            data-attr="more-menu-exports-button"
+                                        >
+                                            Exports
                                         </Link>
                                     )}
                                 />
@@ -256,7 +241,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 buttonProps={{ menuItem: true }}
                                                 data-attr="help-menu-upgrade-to-cloud-button"
                                             >
-                                                <IconSlotPlaceholder />
                                                 Try PostHog Cloud
                                             </Link>
                                         )}
@@ -268,7 +252,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         <Menu.SubmenuTrigger
                                             render={
                                                 <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
-                                                    <IconSlotPlaceholder />
                                                     Admin (Lucky you!)
                                                     <MenuOpenIndicator intent="sub" />
                                                 </ButtonPrimitive>
@@ -346,42 +329,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Menu.Portal>
                                     </Menu.SubmenuRoot>
                                 )}
-
-                                <Label intent="menu" className="px-2 mt-3">
-                                    Display
-                                </Label>
-                                <Menu.Item
-                                    onClick={() => setShortcutMenuOpen(true)}
-                                    render={
-                                        <ButtonPrimitive
-                                            tooltip="Open shortcut menu"
-                                            tooltipPlacement="right"
-                                            menuItem
-                                            data-attr="more-menu-shortcuts-button"
-                                        >
-                                            <IconSlotPlaceholder />
-                                            Shortcuts
-                                            <div className="flex gap-1 ml-auto items-center">
-                                                <KeyboardShortcut command option k />
-                                                <span className="text-xs opacity-75">or</span>
-                                                <KeyboardShortcut command shift k />
-                                            </div>
-                                        </ButtonPrimitive>
-                                    }
-                                />
-                                <Menu.Item
-                                    onClick={() => toggleZenMode('help_menu')}
-                                    render={
-                                        <ButtonPrimitive menuItem data-attr="more-menu-zen-mode-button">
-                                            <IconSlotPlaceholder />
-                                            Zen mode
-                                            <div className="flex gap-1 ml-auto items-center">
-                                                <KeyboardShortcut command option z />
-                                            </div>
-                                        </ButtonPrimitive>
-                                    }
-                                />
-                                <ThemeMenu />
 
                                 {billing?.account_owner?.email && billing?.account_owner?.name && (
                                     <>
