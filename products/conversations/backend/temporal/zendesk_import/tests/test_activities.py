@@ -93,7 +93,6 @@ class TestZendeskImportBatchActivity(BaseTest):
         tickets: list[dict[str, Any]],
         users: dict[int, dict[str, Any]],
         comments_by_ticket: dict[int, list[dict[str, Any]]],
-        persons: dict[str, Any] | None = None,
         download: bytes = b"filebytes",
         download_raises: bool = False,
         save_return: str | None = "https://media.posthog.test/file",
@@ -110,7 +109,6 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         with (
             patch(f"{M}.ZendeskImportClient", return_value=client),
-            patch(f"{M}._get_persons_by_email", return_value=persons or {}),
             patch(f"{M}.save_file_to_uploaded_media", return_value=save_return),
         ):
             result = _import_ticket_batch_sync(
@@ -185,14 +183,13 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(stored.order_by("created_at").first().created_at.year, 2020)
 
     def test_unmatched_requester_sets_anonymous_traits_for_display(self) -> None:
-        # With no PostHog person match, the customer must still render as their Zendesk name/email
-        # (via anonymous_traits) instead of "Anonymous user".
+        # The customer must render as their Zendesk name/email (via anonymous_traits) instead of
+        # "Anonymous user".
         self._run_batch(
             [205],
             tickets=[_zd_ticket(205, 10)],
             users={10: _zd_user(10, "requester@x.com", name="Ada Lovelace")},
             comments_by_ticket={205: []},
-            persons={},
         )
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=205)
@@ -340,29 +337,21 @@ class TestZendeskImportBatchActivity(BaseTest):
         assert comment.item_context is not None
         self.assertEqual(comment.item_context["author_email"], "person@example.com")
 
-    @parameterized.expand(
-        [
-            ("matched_person", ["person-distinct-1"], "person-distinct-1"),
-            ("no_match_falls_back_to_email", None, "requester@x.com"),
-        ]
-    )
-    def test_person_match_sets_distinct_id(self, _name: str, distinct_ids: list[str] | None, expected: str) -> None:
-        persons: dict[str, Any] = {}
-        if distinct_ids is not None:
-            person = MagicMock()
-            person.distinct_ids = distinct_ids
-            persons = {"requester@x.com": person}
-
+    def test_distinct_id_is_the_zendesk_requester_email(self) -> None:
+        # Access-control invariant: the imported ticket's distinct_id must be the Zendesk requester
+        # email verbatim, never a distinct_id resolved from a PostHog person's `properties.email`.
+        # That analytics field is attacker-settable, so resolving through it would let an attacker
+        # seed a profile with a victim's email and inherit the victim's imported ticket history
+        # (identity poisoning). The email comes from the authenticated Zendesk API, so it's trusted.
         self._run_batch(
             [202],
             tickets=[_zd_ticket(202, 10)],
             users={10: _zd_user(10, "requester@x.com")},
             comments_by_ticket={202: []},
-            persons=persons,
         )
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=202)
-        self.assertEqual(ticket.distinct_id, expected)
+        self.assertEqual(ticket.distinct_id, "requester@x.com")
 
     def test_ticket_numbers_are_unique_and_gap_free_within_batch(self) -> None:
         # Pre-existing ticket sets MAX(ticket_number)=5; the batch must assign 6,7,8 under one lock

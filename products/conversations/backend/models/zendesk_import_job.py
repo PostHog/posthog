@@ -24,7 +24,6 @@ class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
     failed_tickets = models.BigIntegerField(default=0)
 
     export_cursor = models.TextField(null=True, blank=True)
-    email_distinct_id_cache = models.JSONField(default=dict, blank=True)
 
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

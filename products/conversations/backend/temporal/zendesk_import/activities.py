@@ -16,8 +16,7 @@ from temporalio import activity, workflow
 # activity sync helpers touch them at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     from django.db import transaction
-    from django.db.models import F, Func, Max, Value
-    from django.db.models.fields.json import JSONField
+    from django.db.models import F, Max
     from django.utils import timezone
     from django.utils.dateparse import parse_datetime
     from django.utils.html import strip_tags
@@ -28,7 +27,6 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
-    from products.conversations.backend.person_lookup import _get_persons_by_email
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
@@ -39,7 +37,6 @@ with workflow.unsafe.imports_passed_through():
         ZendeskCredentials,
         ZendeskImportClient,
     )
-    from products.conversations.backend.temporal.zendesk_import.constants import EMAIL_RESOLUTION_BATCH_SIZE
     from products.conversations.backend.temporal.zendesk_import.mappers import (
         default_channel_source,
         map_zendesk_author_type,
@@ -198,39 +195,6 @@ def _process_attachments(
     return build_content_with_images(content, rich_content, images)
 
 
-# nosemgrep: python.django.security.audit.extends-custom-expression.extends-custom-expression -- constant template + operator; operands are a column F() and a parameterized Value, never user input
-class _JSONBConcat(Func):
-    """Atomic ``jsonb || jsonb`` merge (right-hand keys win).
-
-    Up to ``MAX_CONCURRENT_BATCH_WORKFLOWS`` batch activities run at once and each
-    updates ``email_distinct_id_cache``. A full-object ``save()`` is last-writer-wins
-    and silently drops every other batch's newly-resolved keys. Merging at the DB in a
-    single row-locked ``UPDATE`` serializes concurrent writers, so no entries are lost.
-    """
-
-    function = None
-    arg_joiner = " || "
-    template = "%(expressions)s"
-
-
-def _resolve_distinct_ids(
-    team: Team,
-    emails: set[str],
-    cache: dict[str, str],
-) -> dict[str, str]:
-    unresolved = sorted(email for email in emails if email and email.lower() not in cache)
-    for i in range(0, len(unresolved), EMAIL_RESOLUTION_BATCH_SIZE):
-        batch = unresolved[i : i + EMAIL_RESOLUTION_BATCH_SIZE]
-        matched = _get_persons_by_email(team, batch)
-        for email in batch:
-            person = matched.get(email.lower())
-            if person is not None and person.distinct_ids:
-                cache[email.lower()] = person.distinct_ids[0]
-            else:
-                cache[email.lower()] = email
-    return cache
-
-
 def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     job = ZendeskImportJob.objects.for_team(input.team_id).get(id=input.job_id)
     team = Team.objects.get(id=input.team_id)
@@ -254,30 +218,6 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     zendesk_tickets = client.fetch_tickets(to_import)
     requester_ids = [int(t["requester_id"]) for t in zendesk_tickets if t.get("requester_id") is not None]
     users_by_id = client.fetch_users(requester_ids)
-
-    emails: set[str] = set()
-    for zendesk_ticket in zendesk_tickets:
-        requester_id = zendesk_ticket.get("requester_id")
-        if requester_id is None:
-            continue
-        user = users_by_id.get(int(requester_id), {})
-        email = _strip_nul((user.get("email") or "").strip())
-        if email:
-            emails.add(email)
-
-    cache: dict[str, str] = dict(job.email_distinct_id_cache or {})
-    resolved_before = set(cache)
-    cache = _resolve_distinct_ids(team, emails, cache)
-    new_entries = {key: cache[key] for key in cache.keys() - resolved_before}
-    if new_entries:
-        ZendeskImportJob.objects.for_team(input.team_id).filter(id=input.job_id).update(
-            email_distinct_id_cache=_JSONBConcat(
-                F("email_distinct_id_cache"),
-                Value(new_entries, output_field=JSONField()),
-                output_field=JSONField(),
-            ),
-            updated_at=timezone.now(),
-        )
 
     imported = 0
     failed = 0
@@ -337,7 +277,13 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 (requester.get("email") or f"zendesk-user-{zendesk_ticket.get('requester_id')}").strip()
             )
             requester_name = _strip_nul((requester.get("name") or "").strip())
-            distinct_id = cache.get(requester_email.lower(), requester_email)
+            # Access identity: use the Zendesk requester email verbatim. This gates verified-widget
+            # ticket history (widget.py checks ticket.distinct_id ∈ the caller's person distinct_ids),
+            # and person distinct_ids are set only by the app's own identify()/alias() calls. We must
+            # NOT resolve this via a person lookup on `properties.email`: that field is attacker-
+            # settable analytics data, so seeding a profile with a victim's email would rebind the
+            # victim's imported tickets to the attacker's distinct_id (identity poisoning).
+            distinct_id = requester_email
 
             # Populate anonymous_traits so the customer renders as their name/email instead of
             # "Anonymous user" when no PostHog person matched — same shape as the other import
@@ -579,7 +525,7 @@ def _update_job_status_sync(input: UpdateJobStatusInput) -> None:
     if input.status in (ZendeskImportJob.Status.COMPLETED, ZendeskImportJob.Status.FAILED):
         job.finished_at = timezone.now()
         update_fields.append("finished_at")
-    # Narrow update_fields so this write can't clobber counters / cursor / cache
+    # Narrow update_fields so this write can't clobber counters / cursor
     # that in-flight batch children may update concurrently (e.g. on FAILED).
     job.save(update_fields=update_fields)
 
