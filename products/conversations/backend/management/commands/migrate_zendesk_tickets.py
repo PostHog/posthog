@@ -44,6 +44,14 @@ class Command(BaseCommand):
             help="Fallback EmailChannel id for tickets whose Zendesk recipient doesn't match a "
             "configured support address. Omit to leave those tickets without an email channel.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            default=False,
+            help="Mark any existing pending/running job for this team as failed before starting. "
+            "Use to recover after a workflow was terminated out-of-band (e.g. killed in the "
+            "Temporal UI), which leaves the DB row stuck 'running'.",
+        )
 
     def handle(self, *args, **options) -> None:
         team_id: int = options["team_id"]
@@ -61,16 +69,23 @@ class Command(BaseCommand):
         if not validate_zendesk_credentials(credentials):
             raise CommandError("Zendesk rejected the credentials")
 
-        running = (
-            ZendeskImportJob.objects.unscoped()
-            .filter(
-                team_id=team_id,
-                status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
-            )
-            .exists()
+        active_jobs = ZendeskImportJob.objects.unscoped().filter(
+            team_id=team_id,
+            status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
         )
-        if running:
-            raise CommandError("A Zendesk import is already running for this team")
+        if active_jobs.exists():
+            if not options["force"]:
+                raise CommandError(
+                    "A Zendesk import is already running for this team. "
+                    "If it was terminated out-of-band (e.g. in the Temporal UI), re-run with --force."
+                )
+            reset = active_jobs.update(
+                status=ZendeskImportJob.Status.FAILED,
+                latest_error="Superseded by a --force re-import (previous job was no longer running).",
+                finished_at=timezone.now(),
+                updated_at=timezone.now(),
+            )
+            self.stdout.write(self.style.WARNING(f"--force: marked {reset} stale job(s) as failed"))
 
         job = ZendeskImportJob.objects.unscoped().create(
             team_id=team_id,
