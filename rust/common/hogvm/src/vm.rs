@@ -265,23 +265,23 @@ impl<'a> HogVM<'a> {
                 self.push_stack(result)?;
             }
             Operation::Plus => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Add, &a, &b)?)?;
             }
             Operation::Minus => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Sub, &a, &b)?)?;
             }
             Operation::Mult => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Mul, &a, &b)?)?;
             }
             Operation::Div => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Div, &a, &b)?)?;
             }
             Operation::Mod => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
+                let (a, b) = (self.pop_arith_operand()?, self.pop_arith_operand()?);
                 self.push_stack(Num::binary_op(NumOp::Mod, &a, &b)?)?;
             }
             Operation::Eq => {
@@ -448,7 +448,14 @@ impl<'a> HogVM<'a> {
                 for _ in 0..element_count {
                     // Note we don't put references into collections ever
                     values.push(self.pop_stack()?);
-                    keys.push(self.pop_stack_as::<String>()?);
+                    // Numeric keys coerce to their string form (the reference keys a JS Map with
+                    // the raw scalar; see values::num_key_string).
+                    let key_val = self.pop_stack()?;
+                    let key = match key_val.deref(&self.heap)? {
+                        HogLiteral::Number(n) => crate::values::num_key_string(n),
+                        lit => lit.try_as::<str>()?.to_string(),
+                    };
+                    keys.push(key);
                 }
                 // keys/values were popped in reverse (stack order), so reverse the zip to restore
                 // the source insertion order in the IndexMap.
@@ -866,6 +873,16 @@ impl<'a> HogVM<'a> {
     // `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
     // either operand being null never matches (the reference's external matcher returns false), so
     // `=~` is false and `!~` is true.
+    // The reference VM applies JS arithmetic coercion, where null behaves as 0 (`5 - null` is
+    // 5); real transformations do arithmetic on absent event properties.
+    fn pop_arith_operand(&mut self) -> Result<Num, VmError> {
+        let val = self.pop_stack()?;
+        match val.deref(&self.heap)? {
+            HogLiteral::Null => Ok(Num::Integer(0)),
+            lit => lit.try_as::<Num>().cloned(),
+        }
+    }
+
     // The reference VM funnels both like/ilike operands through JS String coercion (the pattern
     // via String(...), the value via RegExp.test(...)), so null, booleans, and numbers stringify
     // instead of erroring — `null like '%x%'` tests the string "null". Containers stay errors: the
