@@ -14,14 +14,22 @@
 // Keep-newest groups. A comment/review belongs to a group when its author matches and
 // its body (leading whitespace ignored) starts with the prefix — bots occasionally pad
 // the front of the body with blank lines.
+//
+// Author logins are the GraphQL form, WITHOUT the "[bot]" suffix — GraphQL reports
+// bot authors as e.g. "github-actions" where REST reports "github-actions[bot]".
+// Each prefix is coupled to the exact wording the named source emits; if the source
+// rewords its message the group silently stops matching, so the zero-match log below
+// is the breadcrumb that says a prefix has drifted.
 const COMMENT_GROUPS = [
-    // stamphog's per-push "kept your approval" notes (pr-approval-agent.yml)
-    { author: 'github-actions[bot]', prefix: 'Retaining stamphog approval' },
-    // commit-snapshots' "branch advanced" skip notices
-    { author: 'github-actions[bot]', prefix: '⏭️ Skipped snapshot commit' },
+    // stamphog's per-push "kept your approval" notes ("Note retained approval" step
+    // in .github/workflows/pr-approval-agent.yml)
+    { author: 'github-actions', prefix: 'Retaining stamphog approval' },
+    // "branch advanced" skip notices ("Post skip comment" step in
+    // .github/actions/commit-snapshots/action.yml)
+    { author: 'github-actions', prefix: '⏭️ Skipped snapshot commit' },
 ]
 const REVIEW_GROUPS = [
-    // Codex posts a fresh review per reviewed commit
+    // Codex (third-party, wording not ours) posts a fresh review per reviewed commit
     { author: 'chatgpt-codex-connector', prefix: '### 💡 Codex Review' },
 ]
 
@@ -77,6 +85,10 @@ function supersededIn(nodes, groups) {
         const matches = nodes
             .filter((n) => n.author?.login === group.author && n.body?.trimStart().startsWith(group.prefix))
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        if (matches.length === 0) {
+            console.info(`Group "${group.prefix}" matched nothing — fine on most PRs, a drifted prefix if unexpected.`)
+            continue
+        }
         // Everything but the newest is superseded; already-minimized ones are done.
         superseded.push(...matches.slice(0, -1).filter((n) => !n.isMinimized))
     }
