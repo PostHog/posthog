@@ -17,6 +17,8 @@ interface FunnelBarHorizontalTooltipProps {
     context: TooltipContext<FunnelBarHorizontalSegmentMeta>
     step: FunnelStepWithConversionMetrics
     stepIndex: number
+    /** First funnel step — basis for a compare stack drop-off's period-aggregate from-start rate. */
+    firstStep: FunnelStepWithConversionMetrics
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
@@ -28,6 +30,7 @@ export function FunnelBarHorizontalTooltip({
     context,
     step,
     stepIndex,
+    firstStep,
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
@@ -37,7 +40,7 @@ export function FunnelBarHorizontalTooltip({
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
-    const target = resolveFunnelBarHorizontalHover(context, step, stepIndex)
+    const target = resolveFunnelBarHorizontalHover(context, step, stepIndex, firstStep)
     if (!target) {
         return null
     }
@@ -49,7 +52,7 @@ export function FunnelBarHorizontalTooltip({
         : null
 
     const sharedProps = {
-        showPersonsModal,
+        showPersonsModal: showPersonsModal && (target.clickable ?? true),
         stepIndex,
         series,
         groupTypeLabel,

@@ -143,6 +143,7 @@ export function FunnelBarHorizontalChart({
                             context={ctx}
                             step={step}
                             stepIndex={stepIndex}
+                            firstStep={steps[0]}
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}

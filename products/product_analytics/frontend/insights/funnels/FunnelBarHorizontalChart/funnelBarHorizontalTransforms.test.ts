@@ -591,6 +591,98 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(target?.isDropOffHover).toBe(expected.isDropOffHover)
             expect(target?.color).toBe(expected.color)
         })
+
+        describe('breakdown + compare stack drop-off', () => {
+            // nested_breakdown pairs [value current, value previous, …]; the aggregate step spreads the
+            // current period's totals and compare_label, so the whole-step fallback would label every
+            // stack's drop-off "current" with current-period numbers.
+            const compareVariant = (
+                count: number,
+                breakdownValue: string,
+                compareLabel: 'current' | 'previous',
+                droppedOffFromPrevious = 0
+            ): FunnelStepWithConversionMetrics =>
+                makeStep({
+                    count,
+                    fromBasisStep: 0,
+                    breakdown_value: breakdownValue,
+                    compare_label: compareLabel,
+                    droppedOffFromPrevious,
+                })
+            const firstCompareStep = makeStep({
+                count: 200,
+                fromBasisStep: 1,
+                compare_label: 'current',
+                breakdown_value: 'mobile',
+                nested_breakdown: [
+                    compareVariant(120, 'mobile', 'current'),
+                    compareVariant(90, 'mobile', 'previous'),
+                    compareVariant(80, 'desktop', 'current'),
+                    compareVariant(60, 'desktop', 'previous'),
+                ],
+            })
+            const compareStep = makeStep({
+                count: 50,
+                fromBasisStep: 0.25,
+                compare_label: 'current',
+                breakdown_value: 'mobile',
+                droppedOffFromPrevious: 50,
+                nested_breakdown: [
+                    compareVariant(30, 'mobile', 'current', 30),
+                    compareVariant(15, 'mobile', 'previous', 30),
+                    compareVariant(20, 'desktop', 'current', 20),
+                    compareVariant(15, 'desktop', 'previous', 15),
+                ],
+            })
+
+            // Current period: 200 first-step entrants, 100 reached this step (50 converted + 50
+            // dropped); previous period: 150 first-step entrants, 75 reached (30 + 45). fromPrevious
+            // and total intentionally differ so a swapped computation fails.
+            it.each([
+                {
+                    period: 'current',
+                    stackSegments: [segmentEntry(0, '#aaa'), segmentEntry(2, '#bbb')],
+                    expected: { count: 50, droppedOffFromPrevious: 50, fromPrevious: 0.5, total: 0.25 },
+                },
+                {
+                    period: 'previous',
+                    stackSegments: [segmentEntry(1, '#aaa'), segmentEntry(3, '#bbb')],
+                    expected: { count: 30, droppedOffFromPrevious: 45, fromPrevious: 0.4, total: 0.2 },
+                },
+            ])(
+                'resolves the $period stack’s drop-off band to that period’s aggregate',
+                ({ period, stackSegments, expected }) => {
+                    const target = resolveFunnelBarHorizontalHover(
+                        {
+                            hoveredSeriesKey: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+                            seriesData: stackSegments,
+                            hoverPosition: null,
+                        },
+                        compareStep,
+                        1,
+                        firstCompareStep
+                    )
+
+                    expect(target?.series).toEqual(
+                        expect.objectContaining({
+                            compare_label: period,
+                            count: expected.count,
+                            droppedOffFromPrevious: expected.droppedOffFromPrevious,
+                            conversionRates: expect.objectContaining({
+                                fromPrevious: expected.fromPrevious,
+                                total: expected.total,
+                            }),
+                            breakdown_value: undefined,
+                        })
+                    )
+                    expect(target?.isDropOffHover).toBe(true)
+                    expect(target?.color).toBeUndefined()
+                    // The band spans every breakdown value of the period, so a click opens nothing —
+                    // the tooltip must not advertise one.
+                    expect(target?.clickable).toBe(false)
+                }
+            )
+        })
     })
 
     describe('series keys', () => {
