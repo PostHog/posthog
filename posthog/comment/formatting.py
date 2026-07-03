@@ -28,6 +28,18 @@ _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
+_RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
+
+
+def escape_slack_mrkdwn(text: str) -> str:
+    """Escape Slack mrkdwn control characters in user-supplied text.
+
+    Unescaped `<...>` sequences are live in mrkdwn: `<!channel>` broadcasts,
+    `<@U…>` pings a user, and `<url|label>` renders a disguised link.
+    """
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _slack_unicode_to_char(unicode_hex: str) -> str | None:
@@ -163,7 +175,12 @@ def content_to_slack_mrkdwn(content: str) -> str:
     if not content:
         return ""
 
-    text = content
+    # Escape mrkdwn control chars up front so user content can't inject links,
+    # user mentions, or <!channel>-style broadcasts. The conversions below
+    # generate their own <url|label> constructs on top of the escaped text.
+    text = escape_slack_mrkdwn(content)
+    # Markdown blockquote markers double as (inert) mrkdwn quotes — keep them.
+    text = _RE_MRKDWN_BLOCKQUOTE_UNESCAPE.sub(">", text)
 
     text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
 

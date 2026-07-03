@@ -5,6 +5,7 @@ from parameterized import parameterized
 from posthog.comment.formatting import (
     _slack_emoji_name_to_char,
     _slack_unicode_to_char,
+    content_to_slack_mrkdwn,
     extract_images_from_rich_content,
     extract_slack_user_ids,
     rich_content_to_slack_payload,
@@ -24,6 +25,19 @@ class TestSlackFormatting(SimpleTestCase):
         content, rich_content = slack_to_content_and_rich_content(slack_text, None)
         assert content == expected
         assert rich_content is None
+
+    @parameterized.expand(
+        [
+            ("channel_broadcast", "hey <!channel> look", "hey &lt;!channel&gt; look"),
+            ("user_mention", "ping <@U12345>", "ping &lt;@U12345&gt;"),
+            ("disguised_link", "<https://evil.com|posthog.com>", "&lt;https://evil.com|posthog.com&gt;"),
+            ("ampersand", "a & b", "a &amp; b"),
+            ("md_link_still_converts", "[docs](https://posthog.com)", "<https://posthog.com|docs>"),
+            ("blockquote_preserved", "> quoted", "> quoted"),
+        ]
+    )
+    def test_outbound_mrkdwn_escapes_control_sequences(self, _name: str, content: str, expected: str) -> None:
+        assert content_to_slack_mrkdwn(content) == expected
 
     @parameterized.expand(
         [
