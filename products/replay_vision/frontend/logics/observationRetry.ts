@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,8 +19,9 @@ export async function requestObservationRetry(
         lemonToast.success(successMessage)
         refreshVisionQuota()
         return true
-    } catch (error: any) {
-        lemonToast.error(`Failed to retry observation${error.detail ? `: ${error.detail}` : ''}`)
+    } catch (error) {
+        const detail = error instanceof ApiError && error.detail ? `: ${error.detail}` : ''
+        lemonToast.error(`Failed to retry observation${detail}`)
         return false
     }
 }

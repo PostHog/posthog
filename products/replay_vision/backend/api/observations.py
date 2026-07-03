@@ -527,17 +527,25 @@ class ReplayObservationViewSet(
     def retry(self, request: Request, **kwargs: Any) -> Response:
         """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
         observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
         if observation.status != ObservationStatus.FAILED:
             raise ValidationError("Only failed observations can be retried.")
         check_observation_quota(self.team.organization_id)
-        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
-        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         session_id = observation.session_id
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
         observation.delete()
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=cast(User, request.user).id
         )
+        if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
+            # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
+            return Response(
+                {"detail": "The previous run is still finishing. Scan the recording again in a moment."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {

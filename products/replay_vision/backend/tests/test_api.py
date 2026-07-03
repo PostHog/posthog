@@ -1583,6 +1583,38 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 503)
         self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
 
+    def test_retry_denied_without_scanner_editor_access(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The session route's get_object only checks the observation row; retry must object-check the scanner.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-rbac")
+
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
+        ):
+            resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_conflict_when_previous_run_still_active(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        observation = self._create_failed("sess-still-running")
+        workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-still-running")
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(workflow_id=workflow_id, workflow_type=APPLY_SCANNER_WORKFLOW_NAME)
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 409, resp.json())
+        # Documented contract: the slot is already freed; the recording can be scanned again shortly.
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+
     def test_retry_works_on_session_scoped_route(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
