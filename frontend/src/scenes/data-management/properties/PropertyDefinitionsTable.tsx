@@ -41,7 +41,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 return (
                     <DefinitionHeader
                         definition={definition}
-                        to={urls.propertyDefinition(definition.id)}
+                        to={definition.id ? urls.propertyDefinition(definition.id) : undefined}
                         taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
                     />
                 )

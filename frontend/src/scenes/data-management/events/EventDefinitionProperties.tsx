@@ -29,7 +29,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 return (
                     <DefinitionHeader
                         definition={_definition}
-                        to={urls.propertyDefinition(_definition.id)}
+                        to={_definition.id ? urls.propertyDefinition(_definition.id) : undefined}
                         taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
                     />
                 )

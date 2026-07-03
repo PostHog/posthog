@@ -65,5 +65,15 @@ describe('definitionLogic', () => {
                     definition: createNewDefinition(false),
                 })
         })
+
+        it.each(['undefined', 'null'])('marks definition missing without loading for id "%s"', async (id) => {
+            router.actions.push(urls.propertyDefinition(id))
+            logic = definitionLogic({ id })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['setDefinitionMissing'])
+                .toNotHaveDispatchedActions(['loadDefinition'])
+                .toMatchValues({ definitionMissing: true })
+        })
     })
 })

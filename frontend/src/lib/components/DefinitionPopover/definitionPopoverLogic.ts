@@ -239,8 +239,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     // Event Definitions
                     return urls.eventDefinition((definition as EventDefinition).id)
                 } else if (isProperty) {
-                    // Property Definitions
-                    return urls.propertyDefinition((definition as PropertyDefinition).id)
+                    // Property Definitions — many property group types (session, person, metadata, …)
+                    // are synthesized client-side and carry no backend id, so guard against a bad link.
+                    const id = (definition as PropertyDefinition).id
+                    return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
                     // Cohort
                     return urls.cohort((definition as CohortType).id)

@@ -204,6 +204,10 @@ export const definitionLogic = kea<definitionLogicType>([
     afterMount(({ actions, values, props }) => {
         if (!props.id || props.id === 'new') {
             actions.setDefinition(createNewDefinition(values.isEvent))
+        } else if (props.id === 'undefined' || props.id === 'null') {
+            // A bad link (e.g. /data-management/properties/undefined) stringifies a missing id;
+            // treat it as not-found instead of firing a doomed API call.
+            actions.setDefinitionMissing()
         } else {
             actions.loadDefinition(props.id)
             actions.loadMetrics(props.id)
