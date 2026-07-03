@@ -208,6 +208,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="cargo-lockfile",
         ),
         pytest.param(
+            ["composer.lock"],
+            "deps_toolchain",
+            id="composer-lockfile",
+        ),
+        pytest.param(
             ["requirements.txt"],
             "deps_toolchain",
             id="requirements-pins-directly",
@@ -407,6 +412,11 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
             ["common/esbuilder/tsconfig.json", "pnpm-lock.yaml"],
             ["common/esbuilder/tsconfig.json"],
             id="tsconfig-has-no-lockfile-always-flagged",
+        ),
+        pytest.param(
+            ["composer.json"],
+            ["composer.json"],
+            id="composer-manifest-flagged",
         ),
         pytest.param(
             ["docs/some_tsconfig_notes.md"],
