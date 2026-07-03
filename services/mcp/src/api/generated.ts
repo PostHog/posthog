@@ -14202,6 +14202,7 @@ export namespace Schemas {
      * * `applied` - Applied
      * * `dismissed` - Dismissed
      * * `superseded` - Superseded
+     * * `no_change` - No change
      */
     export type ReplayScannerPromptSuggestionStatusEnum = typeof ReplayScannerPromptSuggestionStatusEnum[keyof typeof ReplayScannerPromptSuggestionStatusEnum];
 
@@ -14211,6 +14212,7 @@ export namespace Schemas {
       Applied: 'applied',
       Dismissed: 'dismissed',
       Superseded: 'superseded',
+      NoChange: 'no_change',
     } as const;
 
     export interface ReplayScannerPromptSuggestion {
@@ -14220,7 +14222,8 @@ export namespace Schemas {
        * * `pending` - Pending
        * * `applied` - Applied
        * * `dismissed` - Dismissed
-       * * `superseded` - Superseded */
+       * * `superseded` - Superseded
+       * * `no_change` - No change */
       readonly status: ReplayScannerPromptSuggestionStatusEnum;
       /** The full rewritten prompt, ready to apply to the scanner. */
       readonly suggested_prompt: string;
@@ -30628,10 +30631,16 @@ export namespace Schemas {
     }
 
     export interface ObservationVersionMarker {
-      /** First day (UTC) this prompt version produced observations in the window. */
+      /** First day (UTC) this prompt version produced observations. */
       date: string;
       /** The scanner (prompt) version number. */
       version: number;
+      /** The prompt text this version ran with, taken from the observation run snapshots. */
+      prompt: string;
+      /** Thumbs-up ratings on this version's observations. */
+      up: number;
+      /** Thumbs-down ratings on this version's observations. */
+      down: number;
     }
 
     export interface ObservationLabelStats {
@@ -30643,7 +30652,7 @@ export namespace Schemas {
       by_day: ObservationLabelDayCount[];
       /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
       by_rating_day: ObservationLabelDayCount[];
-      /** First day each scanner (prompt) version produced observations within the window, for marking version changes on charts. */
+      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
       version_markers: ObservationVersionMarker[];
     }
 

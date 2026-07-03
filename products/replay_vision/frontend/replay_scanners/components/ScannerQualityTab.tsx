@@ -31,6 +31,7 @@ import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
 import { versionTag } from './ScannerObservationsTable'
 
@@ -55,6 +56,11 @@ const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string
         type: 'muted',
         label: 'Superseded',
         tooltip: 'A newer recommendation replaced this one before it was applied',
+    },
+    no_change: {
+        type: 'success',
+        label: 'Looks good',
+        tooltip: 'The prompt already handles the rated sessions well; nothing to change',
     },
 }
 
@@ -97,6 +103,10 @@ function SuggestionDetails({
                             readOnly: true,
                             renderSideBySide: true,
                             useInlineViewWhenSpaceIsLimited: false,
+                            // Keep both panes at exactly half width on resize, in lockstep with the header row.
+                            enableSplitViewResizing: false,
+                            splitViewDefaultRatio: 0.5,
+                            automaticLayout: true,
                             wordWrap: 'on',
                             lineNumbers: 'off',
                             folding: false,
@@ -189,6 +199,17 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 </LemonButton>
             </div>
         )
+    } else if (currentSuggestion.status === 'no_change') {
+        body = (
+            <div className="space-y-3">
+                <p className="text-sm m-0">
+                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
+                    changes to recommend.
+                </p>
+                {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
+                <SuggestionMeta suggestion={currentSuggestion} />
+            </div>
+        )
     } else {
         body = (
             <div className="space-y-3">
@@ -212,7 +233,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 Dismiss
                             </LemonButton>
                         )}
-                        {currentSuggestion.status !== 'applied' && (
+                        {(currentSuggestion.status === 'pending' || currentSuggestion.status === 'dismissed') && (
                             <LemonButton
                                 size="small"
                                 type="primary"
@@ -237,7 +258,9 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 <span className="text-sm font-medium">Prompt recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
                 {suggestionStale && currentSuggestion && (
-                    <LemonTag type="warning">Ratings changed since this was generated</LemonTag>
+                    <Tooltip title="Refreshes automatically about once a day; regenerate to update now">
+                        <LemonTag type="warning">New ratings since this was generated</LemonTag>
+                    </Tooltip>
                 )}
                 <div className="ml-auto flex items-center gap-2">
                     {currentSuggestion && (
@@ -308,6 +331,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
 interface VersionBadgePosition {
     version: number
     label: string
+    prompt: string
     x: number
 }
 
@@ -349,6 +373,7 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[]
 
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
     const theme = useMemo(() => buildTheme(), [])
     const [mode, setMode] = useState<ChartMode>('session')
     const [badgePositionsRaw, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
@@ -369,7 +394,11 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         () =>
             mode === 'session' && labelStats && chart
                 ? labelStats.version_markers
-                      .map((marker) => ({ version: marker.version, label: dayjs(marker.date).format('MMM D') }))
+                      .map((marker) => ({
+                          version: marker.version,
+                          label: dayjs(marker.date).format('MMM D'),
+                          prompt: marker.prompt,
+                      }))
                       .filter((marker) => chart.labels.includes(marker.label))
                 : [],
         [labelStats, chart, mode]
@@ -424,11 +453,27 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                             {badgePositions.map((badge) => (
                                 <Tooltip
                                     key={badge.version}
-                                    title={`Prompt v${badge.version} active from ${badge.label}`}
+                                    title={
+                                        <div className="space-y-1 max-w-100">
+                                            <div className="font-semibold">
+                                                Prompt v{badge.version} · active from {badge.label}
+                                            </div>
+                                            {badge.prompt && (
+                                                <div className="font-mono text-xs whitespace-pre-wrap">
+                                                    {badge.prompt.length > 280
+                                                        ? `${badge.prompt.slice(0, 280)}…`
+                                                        : badge.prompt}
+                                                </div>
+                                            )}
+                                            <div className="text-muted">Click to view all prompt versions</div>
+                                        </div>
+                                    }
                                 >
                                     <div
-                                        className="absolute top-0 inline-flex items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted"
+                                        className="absolute top-0 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
                                         style={{ left: badge.x, transform: 'translateX(-50%)' }}
+                                        onClick={() => setActiveTab('configuration')}
+                                        data-attr="vision-quality-version-badge"
                                     >
                                         v{badge.version}
                                     </div>
