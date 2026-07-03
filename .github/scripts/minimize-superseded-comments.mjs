@@ -35,7 +35,7 @@ const REVIEW_GROUPS = [
 
 const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
 const repo = process.env.GITHUB_REPOSITORY
-const prNumber = Number.parseInt(process.env.PR_NUMBER ?? '', 10)
+const prNumber = Number.parseInt(process.env.PR_NUMBER, 10)
 if (!token || !repo || !Number.isFinite(prNumber)) {
     console.warn('Missing GITHUB_TOKEN/GITHUB_REPOSITORY/PR_NUMBER — skipping.')
     process.exit(0)
@@ -97,10 +97,8 @@ function supersededIn(nodes, groups) {
 
 let targets = []
 try {
-    targets = [
-        ...supersededIn(await fetchAll('comments'), COMMENT_GROUPS),
-        ...supersededIn(await fetchAll('reviews'), REVIEW_GROUPS),
-    ]
+    const [comments, reviews] = await Promise.all([fetchAll('comments'), fetchAll('reviews')])
+    targets = [...supersededIn(comments, COMMENT_GROUPS), ...supersededIn(reviews, REVIEW_GROUPS)]
 } catch (err) {
     console.warn(`Could not fetch PR comments/reviews: ${err.message}`)
     process.exit(0)
