@@ -1449,7 +1449,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
             if not can_perform_merge:
-                if bigquery_target_table.is_mutable() or max_consumers > 1:
+                max_consumers = 1
+
+                if bigquery_target_table.is_mutable():
                     # Mutable tables require merges
                     # As do multiple consumers, as we write to multiple stage
                     # tables and later merge
