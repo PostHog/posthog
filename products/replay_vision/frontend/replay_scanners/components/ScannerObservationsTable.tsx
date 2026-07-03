@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { IconPlay, IconRefresh, IconRewindPlay, IconThumbsDownFilled, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,7 +13,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
-import { ImproveFromLabelsButton } from '../ImproveFromLabelsButton'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -177,15 +176,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 }
                 const feedback = !label.is_correct ? label.feedback : null
                 const content = (
-                    <span className="flex items-center gap-1">
-                        <LemonTag type={label.is_correct ? 'success' : 'danger'}>
-                            {label.is_correct ? 'Correct' : 'Incorrect'}
-                        </LemonTag>
-                        {feedback ? <span className="text-xs text-muted truncate">{feedback}</span> : null}
+                    <span className="inline-flex items-center">
+                        {label.is_correct ? (
+                            <IconThumbsUpFilled className="text-success" aria-label="Thumbs up" />
+                        ) : (
+                            <IconThumbsDownFilled className="text-danger" aria-label="Thumbs down" />
+                        )}
                     </span>
                 )
                 return (
-                    <Link to={to} className="block max-w-[20rem]">
+                    <Link to={to} className="block">
                         {feedback ? <Tooltip title={feedback}>{content}</Tooltip> : content}
                     </Link>
                 )
@@ -267,14 +267,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
-                {scanner && (
-                    <ImproveFromLabelsButton
-                        scannerId={scannerId}
-                        scannerName={scanner.name || 'Scanner'}
-                        scannerType={scanner.scanner_type}
-                        prompt={scanner.scanner_config.prompt}
-                    />
-                )}
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
