@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import patch
@@ -213,7 +214,7 @@ class TestCreateManagedProxyWorkflowCancellation:
             cert_started.set()
             await asyncio.Event().wait()
 
-        activities = [mock_wait_for_dns, mock_update_record, mock_create_hostname, mock_wait_cert]
+        activities: list[Callable] = [mock_wait_for_dns, mock_update_record, mock_create_hostname, mock_wait_cert]
         task_queue = str(uuid.uuid4())
 
         async with await WorkflowEnvironment.start_time_skipping() as env:

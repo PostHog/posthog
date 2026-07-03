@@ -668,22 +668,34 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             # asyncio.shield keeps the status write from being cancelled along with the workflow.
             cancelled = isinstance(e.cause, CancelledError)
             message = "Provisioning was cancelled before completion." if cancelled else _describe_activity_failure(e)
-            await asyncio.shield(
-                temporalio.workflow.execute_activity(
-                    activity_update_proxy_record,
-                    UpdateProxyRecordInputs(
-                        organization_id=inputs.organization_id,
-                        proxy_record_id=inputs.proxy_record_id,
-                        status=ProxyRecord.Status.ERRORING.value,
-                        message=message,
-                    ),
-                    start_to_close_timeout=dt.timedelta(seconds=60),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=10,
-                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
-                    ),
+            # If the shielded status write itself fails (e.g. the 10 retries are exhausted, or the
+            # record is deleted in the tight window between cancellation and cleanup), don't let that
+            # exception silently replace the original one — surface it so the stranded record is at
+            # least visible, then re-raise the original failure below.
+            try:
+                await asyncio.shield(
+                    temporalio.workflow.execute_activity(
+                        activity_update_proxy_record,
+                        UpdateProxyRecordInputs(
+                            organization_id=inputs.organization_id,
+                            proxy_record_id=inputs.proxy_record_id,
+                            status=ProxyRecord.Status.ERRORING.value,
+                            message=message,
+                        ),
+                        start_to_close_timeout=dt.timedelta(seconds=60),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=10,
+                            non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                        ),
+                    )
                 )
-            )
+            except Exception:
+                logger.exception(
+                    "Failed to move proxy record %s (%s) to erroring after %s; record may be left stranded",
+                    inputs.proxy_record_id,
+                    inputs.domain,
+                    "cancellation" if cancelled else "activity failure",
+                )
             raise
 
         except Exception as e:
