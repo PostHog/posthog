@@ -242,7 +242,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             { persist: true },
             {
                 setZenMode: (_, { zenMode }) => zenMode,
-                toggleZenMode: (state) => !state,
             },
         ],
     }),
@@ -251,7 +250,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             posthog.capture('zen mode toggled', { enabled: zenMode, trigger })
         },
         toggleZenMode: ({ trigger }) => {
-            posthog.capture('zen mode toggled', { enabled: values.zenMode, trigger })
+            actions.setZenMode(!values.zenMode, trigger)
         },
         initiateNewItemInCategory: ({ category: categoryKey }) => {
             let category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
