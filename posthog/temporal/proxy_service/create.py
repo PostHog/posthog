@@ -24,7 +24,7 @@ from temporalio.client import (
     ScheduleIntervalSpec,
     ScheduleSpec,
 )
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, RetryState
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
@@ -650,19 +650,32 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             )
 
         except ActivityError as e:
-            if (
-                hasattr(e, "cause")
-                and e.cause
-                and hasattr(e.cause, "type")
-                and e.cause.type != "RecordDeletedException"
-            ):
-                await temporalio.workflow.execute_activity(
+            # A genuinely-deleted record is the only no-op: the deletion path raises
+            # RecordDeletedException, so there's nothing left to update.
+            if getattr(e.cause, "type", None) == "RecordDeletedException":
+                logger.info(
+                    "Record was deleted before completing provisioning for id %s (%s)",
+                    inputs.proxy_record_id,
+                    inputs.domain,
+                )
+                # if the record has been deleted don't error the workflow, just ignore
+                return
+
+            # Any other terminal outcome — a real activity failure OR a workflow cancellation —
+            # must leave the record in ERRORING, not stranded mid-provision (e.g. stuck in
+            # `issuing`, where it can no longer be retried). Cancellation previously fell through
+            # to the "record deleted" no-op above because a CancelledError carries no `.type`.
+            # asyncio.shield keeps the status write from being cancelled along with the workflow.
+            cancelled = isinstance(e.cause, CancelledError)
+            message = "Provisioning was cancelled before completion." if cancelled else _describe_activity_failure(e)
+            await asyncio.shield(
+                temporalio.workflow.execute_activity(
                     activity_update_proxy_record,
                     UpdateProxyRecordInputs(
                         organization_id=inputs.organization_id,
                         proxy_record_id=inputs.proxy_record_id,
                         status=ProxyRecord.Status.ERRORING.value,
-                        message=_describe_activity_failure(e),
+                        message=message,
                     ),
                     start_to_close_timeout=dt.timedelta(seconds=60),
                     retry_policy=temporalio.common.RetryPolicy(
@@ -670,16 +683,8 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
                     ),
                 )
-                raise
-
-            logger.info(
-                "Record was deleted before completing provisioning for id %s (%s)",
-                inputs.proxy_record_id,
-                inputs.domain,
             )
-
-            # if the record has been deleted don't error the workflow, just ignore
-            return
+            raise
 
         except Exception as e:
             logger.info(

@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 
 import pytest
 from unittest.mock import patch
@@ -181,3 +182,57 @@ class TestCreateManagedProxyWorkflowErrorHandling:
 
         assert "valid" in status_updates
         assert "erroring" not in status_updates
+
+
+@pytest.mark.django_db(transaction=True)
+@patch("posthog.temporal.proxy_service.create.use_cloudflare_proxy", return_value=True)
+class TestCreateManagedProxyWorkflowCancellation:
+    """Cancelling provisioning must move the record to ERRORING, not leave it stranded in a
+    transitional state (e.g. `issuing`) where it can no longer be retried."""
+
+    async def test_cancellation_sets_erroring_and_does_not_strand_record(self, _mock_cloudflare):
+        status_updates: list[str] = []
+        cert_started = asyncio.Event()
+
+        @activity.defn(name="wait_for_dns_records")
+        async def mock_wait_for_dns(inputs: WaitForDNSRecordsInputs):
+            pass
+
+        @activity.defn(name="activity_update_proxy_record")
+        async def mock_update_record(inputs: UpdateProxyRecordInputs):
+            status_updates.append(inputs.status)
+
+        @activity.defn(name="create_cloudflare_custom_hostname")
+        async def mock_create_hostname(inputs: CreateCloudflareProxyInputs):
+            pass
+
+        @activity.defn(name="wait_for_cloudflare_certificate")
+        async def mock_wait_cert(inputs: CreateCloudflareProxyInputs):
+            # Signal the test that provisioning has reached the long-running wait, then block so
+            # the workflow can be cancelled mid-flight.
+            cert_started.set()
+            await asyncio.Event().wait()
+
+        activities = [mock_wait_for_dns, mock_update_record, mock_create_hostname, mock_wait_cert]
+        task_queue = str(uuid.uuid4())
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[CreateManagedProxyWorkflow],
+                activities=activities,
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    CreateManagedProxyWorkflow.run,
+                    _make_workflow_inputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await asyncio.wait_for(cert_started.wait(), timeout=30)
+                await handle.cancel()
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+
+        assert "erroring" in status_updates
