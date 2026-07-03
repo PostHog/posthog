@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from posthog.models.user import User
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
@@ -97,8 +98,13 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
     return reasoning[:_MAX_REASONING_CHARS] + ("…" if len(reasoning) > _MAX_REASONING_CHARS else "")
 
 
+def _label(observation: ReplayObservation) -> ReplayObservationLabel:
+    """Typed accessor for the reverse one-to-one: guaranteed by the label__isnull=False filters here."""
+    return observation.label  # type: ignore[attr-defined]
+
+
 def _example_line(observation: ReplayObservation) -> str:
-    label = observation.label
+    label = _label(observation)
     parts = [f"- Session {observation.session_id}. Scanner output: {_describe_outcome(observation)}"]
     if label.feedback:
         parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {label.feedback}")
@@ -142,8 +148,8 @@ def _version_trend_lines(scanner: ReplayScanner) -> list[str]:
 
 
 def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: list[ReplayObservation]) -> str:
-    wrong = [o for o in observations if not o.label.is_correct]
-    right = [o for o in observations if o.label.is_correct]
+    wrong = [o for o in observations if not _label(o).is_correct]
+    right = [o for o in observations if _label(o).is_correct]
     lines = [
         f'Scanner name: "{scanner.name}"',
         f"Scanner type: {scanner.scanner_type}",
@@ -209,7 +215,7 @@ def generate_prompt_suggestion(scanner: ReplayScanner, user: User) -> ReplayScan
         team_id=scanner.team_id,
         distinct_id=str(user.uuid),
     )
-    up = sum(1 for o in observations if o.label.is_correct)
+    up = len([o for o in observations if _label(o).is_correct])
     with transaction.atomic():
         ReplayScannerPromptSuggestion.objects.filter(
             scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.PENDING
