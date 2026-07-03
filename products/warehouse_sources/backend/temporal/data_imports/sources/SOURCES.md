@@ -141,6 +141,7 @@ the row lists both.
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
+| eventzilla              | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
@@ -206,6 +207,7 @@ the row lists both.
 | linear                  | HTTP                        | requests                                                        | ✅                          |
 | lever                   | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| linkrunner              | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite              | HTTP                        | requests                                                        | ✅                          |
@@ -432,7 +434,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- eventzilla
 - expensify
 - facebook_pages
 - fastbill
@@ -514,7 +515,6 @@ doesn't conflict with concurrent PRs.
 - liana
 - lightfield
 - linkedin_pages
-- linkrunner
 - linnworks
 - lokalise
 - looker

@@ -66,8 +66,14 @@ def list_mcp_sessions(
     )
 
 
-def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
-    return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from)
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    limit: int,
+    offset: int,
+    date_from: datetime | None = None,
+) -> contracts.MCPToolCallsPage:
+    return logic.list_mcp_tool_calls(team, session_id=session_id, limit=limit, offset=offset, date_from=date_from)
 
 
 def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
