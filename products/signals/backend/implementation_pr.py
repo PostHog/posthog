@@ -56,8 +56,7 @@ _PR_CLOSE_COMMENT_TEMPLATE = (
     "If that wasn't intended, restore the report in PostHog and reopen this PR."
 )
 _PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
-    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
-    for reason in ("suppressed", "snoozed")
+    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason) for reason in ("suppressed", "snoozed")
 }
 
 

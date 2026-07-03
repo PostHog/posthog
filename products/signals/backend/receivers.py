@@ -55,10 +55,7 @@ def _pr_close_reason(
     if instance.status == SignalReport.Status.SUPPRESSED:
         return "suppressed"
 
-    if (
-        instance.status == SignalReport.Status.POTENTIAL
-        and prior_status in _SNOOZE_SOURCE_STATUSES
-    ):
+    if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
         return "snoozed"
 
     return None

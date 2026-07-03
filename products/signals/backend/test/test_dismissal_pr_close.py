@@ -31,7 +31,13 @@ class TestClosePrWhenReportDismissed(BaseTest):
     @parameterized.expand(
         [
             ("suppressed", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}, "suppressed"),
-            ("snooze_from_ready", SignalReport.Status.READY, SignalReport.Status.POTENTIAL, {"snooze_for": 5}, "snoozed"),
+            (
+                "snooze_from_ready",
+                SignalReport.Status.READY,
+                SignalReport.Status.POTENTIAL,
+                {"snooze_for": 5},
+                "snoozed",
+            ),
             ("snooze_from_resolved", SignalReport.Status.RESOLVED, SignalReport.Status.POTENTIAL, {}, "snoozed"),
         ]
     )
