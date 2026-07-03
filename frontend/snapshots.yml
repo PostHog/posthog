@@ -4395,7 +4395,7 @@ snapshots:
     products-posthog-ai-runalertactivity--connection-lost--dark:
         hash: v1.k794b7964.7d42222ea3b3472183c676ef7a66f546b31dc178c0f160cf857356f64d63ea53.sXR8gsAy2i5_S9Ty1fnLGgnZmP8MGncm1iEt6z2esI8
     products-posthog-ai-runalertactivity--connection-lost--light:
-        hash: v1.k794b7964.80ee310e5db116a96505ff364d55e68a8e07922ea08eca9e1ccfdc44c79abf37.DwLSFQhTYea47P0SPTaP50bRj-ELceiUVBOU98i0wEQ
+        hash: v1.k794b7964.2112a18454f05a8ad2283cf4784f8bfb308c08e971a8c1ba7d1c9f09295b4ecf.DgVdEj2TYus9n65ozaoy2nm_4L6vJx38hJPE3pxq45g
     products-posthog-ai-virtualizedthread--bounded-embed--dark:
         hash: v1.k794b7964.3654eccce875b2647d60ed3d63ef7b931f816bf9a909e882e4124af248bc5237.d_GnZyfxRooS8JpR9PWZPy8voXShxV1MhN_f-y-9sSU
     products-posthog-ai-virtualizedthread--bounded-embed--light:
