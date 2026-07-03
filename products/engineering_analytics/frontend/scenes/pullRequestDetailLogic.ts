@@ -29,7 +29,6 @@ import {
     isPassingConclusion,
     summarizeLifecycle,
 } from '../lib/lifecycle'
-import type { WorkflowHealthBucket, WorkflowHealthRow } from './engineeringAnalyticsLogic'
 import type { pullRequestDetailLogicType } from './pullRequestDetailLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -110,6 +109,14 @@ export interface PrCommitRuns {
 export interface PrRunRow extends WorkflowRun {
     headSha: string
     headBranch: string
+}
+
+/** One row of the PR page's workflows table — its verdict/failed-job columns derive separately. */
+export interface PrWorkflowRow {
+    workflowName: string
+    runCount: number
+    p50Seconds: number | null
+    estimatedCostUsd: number | null
 }
 
 /** Nearest-rank percentile over a small sample (the PR's per-workflow run durations). */
@@ -332,13 +339,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     group.runs.map((run) => ({ ...run, headSha: group.headSha, headBranch: group.headBranch }))
                 ),
         ],
-        // Per-workflow rollup in WorkflowHealthRow shape so the PR page reuses WorkflowHealthTable;
-        // sparkline buckets are the PR's pushes, oldest first.
-        workflowHealthRows: [
-            (s) => [s.commitGroups, s.repoOwner, s.repoName, s.prCost],
-            (commitGroups, repoOwner, repoName, prCost): WorkflowHealthRow[] => {
+        // One row per workflow on the PR (first-seen order) — just what the workflows table renders;
+        // the verdict column derives from latestRunPerWorkflow separately.
+        prWorkflowRows: [
+            (s) => [s.commitGroups, s.prCost],
+            (commitGroups, prCost): PrWorkflowRow[] => {
                 const costByWorkflow = new Map((prCost?.by_workflow ?? []).map((cost) => [cost.workflow_name, cost]))
-                const pushesOldestFirst = [...commitGroups].reverse()
                 const workflowNames: string[] = []
                 const seen = new Set<string>()
                 for (const group of commitGroups) {
@@ -349,52 +355,18 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                         }
                     }
                 }
-                return workflowNames.map((workflowName): WorkflowHealthRow => {
-                    const buckets: WorkflowHealthBucket[] = pushesOldestFirst.map((group, index) => {
-                        const runs = group.runs.filter((run) => run.workflow === workflowName)
-                        return {
-                            bucketStart: group.headSha,
-                            label: `Push ${index + 1} (${group.headSha.slice(0, 7)})`,
-                            runCount: runs.length,
-                            completed: runs.filter((run) => run.conclusion !== null).length,
-                            successes: runs.filter((run) => run.conclusion === 'success').length,
-                            failures: runs.filter((run) => isDecisiveFailure(run.conclusion)).length,
-                        }
-                    })
+                return workflowNames.map((workflowName): PrWorkflowRow => {
                     const all = commitGroups.flatMap((group) =>
                         group.runs.filter((run) => run.workflow === workflowName)
                     )
-                    const completedRuns = all.filter((run) => run.conclusion !== null)
-                    const durations = completedRuns
+                    const durations = all
+                        .filter((run) => run.conclusion !== null)
                         .map((run) => run.durationSeconds)
                         .filter((d): d is number => d != null)
-                    // Latest completed run (by start) drives the status badge, same as workflow health.
-                    const latest = [...completedRuns].sort((a, b) =>
-                        (b.startedAt ?? '').localeCompare(a.startedAt ?? '')
-                    )[0]
-                    const failingStarts = all
-                        .filter((run) => isDecisiveFailure(run.conclusion))
-                        .map((run) => run.startedAt)
-                        .filter((at): at is string => !!at)
                     return {
-                        repoOwner,
-                        repoName,
                         workflowName,
                         runCount: all.length,
-                        successRate:
-                            completedRuns.length > 0
-                                ? all.filter((run) => run.conclusion === 'success').length / completedRuns.length
-                                : null,
                         p50Seconds: percentile(durations, 0.5),
-                        p95Seconds: percentile(durations, 0.95),
-                        lastFailureAt: failingStarts.length
-                            ? failingStarts.reduce((max, at) => (at > max ? at : max))
-                            : null,
-                        latestRunFailed: latest ? isDecisiveFailure(latest.conclusion) : null,
-                        latestRunConclusion: latest ? latest.conclusion : null,
-                        granularity: 'push',
-                        buckets,
-                        billableMinutes: costByWorkflow.get(workflowName)?.billable_minutes ?? null,
                         estimatedCostUsd: costByWorkflow.get(workflowName)?.estimated_cost_usd ?? null,
                     }
                 })
@@ -414,9 +386,9 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 return map
             },
         ],
-        filteredWorkflowHealthRows: [
-            (s) => [s.workflowHealthRows, s.workflowFilter],
-            (rows: WorkflowHealthRow[], workflowFilter: string): WorkflowHealthRow[] => {
+        filteredPrWorkflowRows: [
+            (s) => [s.prWorkflowRows, s.workflowFilter],
+            (rows: PrWorkflowRow[], workflowFilter: string): PrWorkflowRow[] => {
                 const query = workflowFilter.trim().toLowerCase()
                 return query ? rows.filter((row) => row.workflowName.toLowerCase().includes(query)) : rows
             },

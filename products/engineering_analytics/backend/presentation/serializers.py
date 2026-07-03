@@ -29,7 +29,6 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequest,
     QuarantineRequestResult,
     RepoOverview,
-    RepoOverviewBucket,
     RepoRef,
     RunCost,
     RunFailureLogs,
@@ -645,24 +644,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         }
 
 
-class RepoOverviewBucketSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = RepoOverviewBucket
-        extra_kwargs = {
-            "bucket_start": {
-                "help_text": "Bucket start, aligned to the overview's granularity (top of hour, midnight, or Monday)."
-            },
-            "completed": {"help_text": "Runs that completed on the default branch in this bucket."},
-            "successes": {"help_text": "Completed default-branch runs with conclusion 'success' in this bucket."},
-        }
-
-
 class RepoOverviewSerializer(DataclassSerializer):
-    default_branch_buckets = RepoOverviewBucketSerializer(
-        many=True,
-        help_text="Completed-run history on the default branch across the window, oldest first, zero-filled.",
-    )
-
     class Meta:
         dataclass = RepoOverview
         extra_kwargs = {
@@ -709,9 +691,6 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
-            "granularity": {
-                "help_text": "Bucket width of default_branch_buckets, chosen to fit the window: 'hour', 'day', or 'week'."
-            },
         }
 
 

@@ -37,10 +37,10 @@ import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
-import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
 import {
     PrCommitRuns,
     PrRunRow,
+    PrWorkflowRow,
     PullRequestDetailLogicProps,
     jobCacheKey,
     pullRequestDetailLogic,
@@ -446,7 +446,7 @@ function PrWorkflowsTable({
     expandedRunKeys,
     setRunExpanded,
 }: {
-    rows: WorkflowHealthRow[]
+    rows: PrWorkflowRow[]
     filteredRuns: PrRunRow[]
     failingJobLabelByWorkflow: Record<string, string>
     runCostByKey: Record<string, { minutes: number | null; cost: number | null }>
@@ -461,7 +461,7 @@ function PrWorkflowsTable({
     setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
-    const columns: LemonTableColumns<WorkflowHealthRow> = [
+    const columns: LemonTableColumns<PrWorkflowRow> = [
         {
             title: 'Workflow',
             key: 'workflow',
@@ -539,16 +539,16 @@ function PrWorkflowsTable({
                       title: 'Cost',
                       key: 'cost',
                       align: 'right',
-                      sorter: (a: WorkflowHealthRow, b: WorkflowHealthRow) =>
+                      sorter: (a: PrWorkflowRow, b: PrWorkflowRow) =>
                           (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
-                      render: (_: unknown, row: WorkflowHealthRow) => (
+                      render: (_: unknown, row: PrWorkflowRow) => (
                           <span className="text-xs tabular-nums whitespace-nowrap">
                               {row.estimatedCostUsd != null ? compactUsd(row.estimatedCostUsd) : '—'}
                           </span>
                       ),
                   },
               ]
-            : []) as LemonTableColumns<WorkflowHealthRow>),
+            : []) as LemonTableColumns<PrWorkflowRow>),
     ]
     return (
         <LemonTable
@@ -591,7 +591,7 @@ export function PullRequestDetailScene(): JSX.Element {
         runs,
         commitGroups,
         filteredRuns,
-        filteredWorkflowHealthRows,
+        filteredPrWorkflowRows,
         prRunsLoading,
         prRunsFailed,
         prCost,
@@ -818,11 +818,11 @@ export function PullRequestDetailScene(): JSX.Element {
                     </div>
                 ) : commitGroups.length === 0 ? (
                     <div className="text-sm text-secondary">No CI runs attributed to this pull request yet.</div>
-                ) : filteredWorkflowHealthRows.length === 0 ? (
+                ) : filteredPrWorkflowRows.length === 0 ? (
                     <div className="text-sm text-secondary">No workflows match “{workflowFilter}”.</div>
                 ) : (
                     <PrWorkflowsTable
-                        rows={filteredWorkflowHealthRows}
+                        rows={filteredPrWorkflowRows}
                         filteredRuns={filteredRuns}
                         failingJobLabelByWorkflow={failingJobLabelByWorkflow}
                         runCostByKey={runCostByKey}
@@ -841,16 +841,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
             {failed > 0 && (
                 <Section id="pr-failures" title="Failures">
-                    <FailureLogGroups
-                        jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
-                        logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
-                        loading={failureLogsLoading}
-                        emptyState={
-                            failureLogs === 'unavailable'
-                                ? 'Failure logs are unavailable for this pull request.'
-                                : undefined
-                        }
-                    />
+                    <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} />
                 </Section>
             )}
 

@@ -10,14 +10,13 @@ so the trend sparkline keeps a readable number of points — per-day buckets are
 for a 24h window and far too many for a year.
 """
 
-import math
 from datetime import date, datetime, timedelta
 from typing import Literal
 
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthBucket, WorkflowHealthItem
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
 Granularity = Literal["hour", "day", "week"]
@@ -140,7 +139,7 @@ def query_workflow_health(
         placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
-        (repo_owner, repo_name, workflow_name): _to_opt_float(success_rate)
+        (repo_owner, repo_name, workflow_name): opt_float(success_rate)
         for repo_owner, repo_name, workflow_name, success_rate in prev_response.results or []
     }
     buckets_by_workflow: dict[tuple[str, str, str], dict[datetime, WorkflowHealthBucket]] = {}
@@ -159,9 +158,9 @@ def query_workflow_health(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
-            success_rate=_to_opt_float(success_rate),
-            p50_seconds=_to_opt_float(p50_seconds),
-            p95_seconds=_to_opt_float(p95_seconds),
+            success_rate=opt_float(success_rate),
+            p50_seconds=opt_float(p50_seconds),
+            p95_seconds=opt_float(p95_seconds),
             last_failure_at=last_failure_at,
             # argMaxIf defaults to 0 when nothing completed; the completed_count guard tells
             # "latest run passed" apart from "no completed run yet".
@@ -228,10 +227,3 @@ def _normalize(value: datetime | date, granularity: Granularity) -> datetime:
     if granularity == "week":
         return midnight - timedelta(days=midnight.weekday())
     return midnight
-
-
-def _to_opt_float(value: float | None) -> float | None:
-    # quantileIf over an empty window returns NaN; nullIf division returns None.
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return None
-    return float(value)

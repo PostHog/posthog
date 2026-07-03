@@ -23,7 +23,7 @@ import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
-import type { GitHubSourceApi, MasterFailureGroupApi } from '../generated/api.schemas'
+import type { MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
@@ -149,16 +149,7 @@ function MasterFailuresSection(): JSX.Element {
                                             </Link>
                                         </span>
                                     </div>
-                                    <FailureLogGroups
-                                        jobs={logs === 'unavailable' ? [] : logs?.jobs}
-                                        logsAvailable={logs !== 'unavailable' && (logs?.logs_available ?? false)}
-                                        loading={failureLogsLoading}
-                                        emptyState={
-                                            logs === 'unavailable'
-                                                ? 'Failure logs are unavailable for this run.'
-                                                : undefined
-                                        }
-                                    />
+                                    <FailureLogGroups logs={logs} loading={failureLogsLoading} />
                                 </div>
                             )
                         },
@@ -261,7 +252,7 @@ export function RepoOverviewScene(): JSX.Element {
         workflowHealthLoading,
         sourceId,
         costLensEnabled,
-        githubSources,
+        activeSource,
     } = useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
@@ -286,13 +277,7 @@ export function RepoOverviewScene(): JSX.Element {
                 picker (multi-source teams) so the repo name isn't stated twice on one screen. */}
             <ScopeBar repoSlot={<SourceScopeChip pickerOnly />} />
 
-            <RepoEntityHeader
-                repoFullName={
-                    (sourceId
-                        ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
-                        : githubSources[0]?.repo) || ''
-                }
-            />
+            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
 
             <div className="flex flex-wrap gap-2.5">
                 <MasterStatusTile

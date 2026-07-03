@@ -123,8 +123,7 @@ def build_workflow_run_list(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_list(
         curated=curated,
         repo_owner=owner,
@@ -148,8 +147,7 @@ def build_workflow_run_activity(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_activity(
         curated=curated,
         repo_owner=owner,
@@ -173,8 +171,7 @@ def build_workflow_runner_costs(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_runner_costs(
         curated=curated,
         repo_owner=owner,
@@ -210,16 +207,24 @@ def build_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
 
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+def _parse_window(
+    team: Team, date_from: str | None, date_to: str | None, *, default: str
+) -> tuple[datetime, datetime | None]:
+    """Resolve a caller's date window against the team timezone, capping the span at _MAX_WINDOW_DAYS."""
+    parsed_from = _parse_date(team, date_from or default)
+    parsed_to = _parse_date(team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    return parsed_from, parsed_to
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
@@ -239,11 +244,7 @@ def build_repo_overview(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> RepoOverview:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
@@ -254,11 +255,7 @@ def build_master_failures(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[MasterFailureGroup]:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     resolved_branch = (branch or "").strip()
     if not resolved_branch:
         # No branch given: use the repo's default branch as observed in the window.
@@ -278,11 +275,7 @@ def build_job_aggregates(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowJobAggregate]:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_job_aggregates(
         curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
     )

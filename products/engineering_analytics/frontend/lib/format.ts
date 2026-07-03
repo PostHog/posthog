@@ -24,20 +24,31 @@ export function compactCount(count: number | null | undefined): string {
     return Math.round(count).toLocaleString()
 }
 
+// Below this many hours the PR-timing format stays in hours; above, one-decimal days.
+const HOURS_BEFORE_DAYS = 48
+
 /** Hours below two days, one-decimal days above — the PR-timing headline format. */
 export function compactHours(seconds: number | null | undefined): string {
     if (seconds == null) {
         return '—'
     }
     const hours = seconds / 3600
-    return hours < 48 ? `${Math.round(hours)}` : `${(hours / 24).toFixed(1)}`
+    return hours < HOURS_BEFORE_DAYS ? `${Math.round(hours)}` : `${(hours / 24).toFixed(1)}`
 }
 
 export function compactHoursUnit(seconds: number | null | undefined): string {
     if (seconds == null) {
         return ''
     }
-    return seconds / 3600 < 48 ? 'hours' : 'days'
+    return seconds / 3600 < HOURS_BEFORE_DAYS ? 'hours' : 'days'
+}
+
+/** The compactHours ladder as one short label: "17h" below two days, "3.2d" above. */
+export function compactHoursLabel(seconds: number | null | undefined): string {
+    if (seconds == null) {
+        return '—'
+    }
+    return `${compactHours(seconds)}${seconds / 3600 < HOURS_BEFORE_DAYS ? 'h' : 'd'}`
 }
 
 export function compactMinutes(minutes: number | null | undefined): string {

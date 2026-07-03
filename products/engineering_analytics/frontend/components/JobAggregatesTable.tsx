@@ -128,10 +128,12 @@ export function JobAggregatesTable({
                     title: 'Cost',
                     key: 'cost',
                     align: 'right',
+                    tooltip:
+                        'Estimated cost over billable (self-hosted) runners. "—" when there is no billable figure: GitHub-hosted, an unrecognized runner, or no finished instance yet.',
                     sorter: (a, b) => (a.estimated_cost_usd ?? -1) - (b.estimated_cost_usd ?? -1),
                     render: (_, row) => {
                         if (row.estimated_cost_usd == null) {
-                            return <span className="text-xs text-secondary">Free</span>
+                            return <span className="text-xs text-tertiary">—</span>
                         }
                         const share = totalCostUsd && totalCostUsd > 0 ? row.estimated_cost_usd / totalCostUsd : null
                         return (
@@ -142,9 +144,7 @@ export function JobAggregatesTable({
                             >
                                 <span className="text-xs tabular-nums whitespace-nowrap">
                                     {compactUsd(row.estimated_cost_usd)}
-                                    {share != null && (
-                                        <span className="ml-1 text-tertiary">{Math.round(share * 100)}%</span>
-                                    )}
+                                    {share != null && <span className="ml-1 text-tertiary">{percent(share)}</span>}
                                 </span>
                             </Tooltip>
                         )

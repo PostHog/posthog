@@ -1,11 +1,10 @@
-// Headline-metric tile: label · value (+suffix) · delta vs the previous window · caption · sparkline.
+// Headline-metric tile: label · value (+suffix) · delta vs the previous window · caption.
 // Every entity page builds its stat strip from this tile.
 
 import { ReactNode } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 
@@ -72,7 +71,6 @@ export function MetricTile({
     valueSuffix,
     delta,
     sub,
-    sparkline,
     className,
 }: {
     label: string
@@ -84,8 +82,6 @@ export function MetricTile({
     delta?: ReactNode
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
-    /** Small in-flow trend line at the tile's bottom edge. */
-    sparkline?: { values: number[]; labels?: string[]; name?: string }
     className?: string
 }): JSX.Element {
     const labelSpan = <span className="text-xs text-secondary">{label}</span>
@@ -107,15 +103,6 @@ export function MetricTile({
                 {delta}
             </span>
             {sub && <span className="text-xs text-tertiary">{sub}</span>}
-            {sparkline && sparkline.values.length > 1 && (
-                <Sparkline
-                    type="line"
-                    className="mt-1 h-6 w-full"
-                    data={[{ name: sparkline.name ?? label, values: sparkline.values, color: 'muted' }]}
-                    labels={sparkline.labels}
-                    maximumIndicator={false}
-                />
-            )}
         </LemonCard>
     )
 }

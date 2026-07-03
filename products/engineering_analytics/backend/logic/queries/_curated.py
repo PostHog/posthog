@@ -13,6 +13,7 @@ flow through ``ast.Constant`` placeholders in the calling query, never be string
 into these fragments.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -208,3 +209,10 @@ class CuratedGitHubSource:
                 # strip the tables — bypass is set ONLY in this genuinely userless case.
                 bypass_warehouse_access_control=uac is None,
             )
+
+
+def opt_float(value: float | None) -> float | None:
+    """ClickHouse aggregate → optional float: quantile/avg over an empty set returns NaN, nullIf None."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return float(value)

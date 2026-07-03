@@ -10,7 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { JobGroup, JobGroupConclusion, failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { BillableBadge } from './BillableBadge'
-import { StatusDot } from './runTables'
+import { RunConclusionTag, StatusDot } from './runTables'
 
 type WorkflowJobGroup = JobGroup<WorkflowJobApi>
 
@@ -29,26 +29,6 @@ function GroupConclusionDot({ conclusion }: { conclusion: JobGroupConclusion }):
             // eslint-disable-next-line react/forbid-dom-props
             style={{ backgroundColor: GROUP_DOT_COLOR[conclusion], opacity: conclusion === 'skipped' ? 0.5 : 1 }}
         />
-    )
-}
-
-/** One dot per matrix group. */
-export function GroupDots({ groups }: { groups: WorkflowJobGroup[] }): JSX.Element {
-    return (
-        <span className="inline-flex items-center gap-[3px]">
-            {groups.map((group) => (
-                <span
-                    key={group.base}
-                    className="inline-block size-1.5 rounded-full"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        backgroundColor: GROUP_DOT_COLOR[group.conclusion],
-                        opacity: group.conclusion === 'skipped' ? 0.5 : 0.9,
-                    }}
-                    title={`${group.base} · ${group.jobs.length > 1 ? `${group.jobs.length} jobs, ` : ''}${group.conclusion}`}
-                />
-            ))}
-        </span>
     )
 }
 
@@ -153,14 +133,8 @@ function resultTag(group: WorkflowJobGroup): JSX.Element {
             </LemonTag>
         )
     }
-    const tag: Record<JobGroupConclusion, JSX.Element> = {
-        failure: <LemonTag type="danger">Failed</LemonTag>,
-        running: <LemonTag type="completion">Running</LemonTag>,
-        cancelled: <LemonTag type="muted">Cancelled</LemonTag>,
-        skipped: <LemonTag type="muted">Skipped</LemonTag>,
-        success: <LemonTag type="success">Success</LemonTag>,
-    }
-    return tag[group.conclusion]
+    // The shared conclusion→tag convention; RunConclusionTag renders null as Running.
+    return <RunConclusionTag conclusion={group.conclusion === 'running' ? null : group.conclusion} />
 }
 
 /**

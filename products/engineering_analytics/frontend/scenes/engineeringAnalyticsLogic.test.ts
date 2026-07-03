@@ -42,7 +42,6 @@ import {
     inferOwnerFromSelector,
     quarantineCountsOf,
     quarantineRequestErrorMessage,
-    workflowFailureTrend,
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
@@ -570,22 +569,6 @@ describe('engineeringAnalyticsLogic', () => {
     ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
         const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
-    })
-
-    it.each([
-        ['rising failures trend up', [0, 0, 2, 3], 'up'],
-        ['falling failures trend down', [4, 3, 1, 0], 'down'],
-        ['steady failures stay flat', [1, 1, 1, 1], 'flat'],
-        ['a single bucket is flat', [5], 'flat'],
-    ])('workflowFailureTrend: %s', (_label, failuresPerBucket, expected) => {
-        const buckets = failuresPerBucket.map((failures, i) => ({
-            bucketStart: `2026-06-0${i + 1}`,
-            runCount: 10,
-            completed: 10,
-            successes: 10 - failures,
-            failures,
-        }))
-        expect(workflowFailureTrend(buckets)).toBe(expected)
     })
 
     it('summarizeLifecycle rolls events up into milestones and verdicts', () => {

@@ -1,10 +1,11 @@
-// A leaderboard row: rank · label/sub · share bar · value/value-sub. The cost and authors sections
-// build their "where does it go" lists from this, so every breakdown reads the same.
+// A leaderboard row: rank · label/sub · share bar · value/value-sub. The cost section builds its
+// "where does it go" list from this, so every breakdown reads the same.
 
 import { ReactNode } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { cn } from 'lib/utils/css-classes'
 
@@ -46,16 +47,13 @@ export function ShareRow({
                 {sub && <span className="block truncate text-[11px] text-tertiary">{sub}</span>}
             </span>
             {share !== undefined && (
-                <span className="relative h-1.5 w-40 max-w-[30%] shrink-0 overflow-hidden rounded-full bg-fill-tertiary">
-                    <span
-                        className="absolute inset-y-0 left-0 rounded-full"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            width: `${Math.max(0, Math.min(100, share * 100)).toFixed(1)}%`,
-                            backgroundColor: color ?? 'var(--brand-blue)',
-                        }}
-                    />
-                </span>
+                <LemonProgress
+                    percent={share * 100}
+                    strokeColor={color ?? 'var(--brand-blue)'}
+                    bgColor="var(--color-bg-fill-tertiary)"
+                    smoothing={false}
+                    className="w-40 max-w-[30%] shrink-0"
+                />
             )}
             <span className="shrink-0 text-right">
                 <span className="block text-[13px] font-semibold tabular-nums text-primary">{value}</span>

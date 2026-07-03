@@ -574,18 +574,7 @@ export interface QuarantineRequestResultApi {
     branch: string
 }
 
-export interface RepoOverviewBucketApi {
-    /** Bucket start, aligned to the overview's granularity (top of hour, midnight, or Monday). */
-    bucket_start: string
-    /** Runs that completed on the default branch in this bucket. */
-    completed: number
-    /** Completed default-branch runs with conclusion 'success' in this bucket. */
-    successes: number
-}
-
 export interface RepoOverviewApi {
-    /** Completed-run history on the default branch across the window, oldest first, zero-filled. */
-    default_branch_buckets: RepoOverviewBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -638,8 +627,6 @@ export interface RepoOverviewApi {
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
     default_branch: string
-    /** Bucket width of default_branch_buckets, chosen to fit the window: 'hour', 'day', or 'week'. */
-    granularity: string
 }
 
 export interface RunFailureLogsApi {

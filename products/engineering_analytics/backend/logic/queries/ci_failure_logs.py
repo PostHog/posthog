@@ -135,9 +135,28 @@ def query_ci_failure_logs(
     )
 
 
+# Existence probe for the source-authorization check below.
+_RUN_IN_SOURCE = """
+    SELECT 1
+    FROM __RUNS_SOURCE__ AS r
+    WHERE id = {run_id}
+    LIMIT 1
+"""
+
+
 def query_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
     """Same log substrate as ``query_ci_failure_logs``, keyed directly by one run id — for surfaces
     that aren't PR-scoped (the default-branch failures feed and the run page)."""
+    # The Logs table is team-scoped, not source-scoped — prove the run exists in the caller's
+    # authorized source before reading its logs, or a known run id would leak another source's logs.
+    in_source = curated.run(
+        _RUN_IN_SOURCE.replace("__RUNS_SOURCE__", curated.run_source()),
+        query_type="engineering_analytics.run_failure_logs_source_check",
+        placeholders={"run_id": ast.Constant(value=run_id)},
+    )
+    if not in_source.results:
+        return RunFailureLogs(run_id=run_id, logs_available=False, jobs=[], truncated=False)
+
     response = curated.run(
         _SELECT,
         query_type="engineering_analytics.run_failure_logs",

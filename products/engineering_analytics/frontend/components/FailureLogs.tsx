@@ -1,8 +1,6 @@
 // CI failure log excerpts grouped by failed job. Lines come pre-thinned from the backend; omission
 // markers (original_line == null) render muted so the elision is visible, never silent.
 
-import { ReactNode } from 'react'
-
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -47,36 +45,36 @@ function JobFailureLog({ job, jobName }: { job: CIJobFailureLogApi; jobName?: st
 }
 
 /**
- * A set of failed jobs with their log excerpts. ``jobs == null`` is the not-loaded state; an empty
- * list with ``logsAvailable === false`` means the run didn't fail or its logs aged out of retention.
+ * A set of failed jobs with their log excerpts, straight from the loader's union: ``null`` is the
+ * not-loaded state, ``'unavailable'`` a failed fetch, and ``logs_available === false`` means the run
+ * didn't fail or its logs aged out of retention.
  */
 export function FailureLogGroups({
-    jobs,
-    logsAvailable,
+    logs,
     loading,
-    emptyState,
     jobNames,
 }: {
-    jobs: CIJobFailureLogApi[] | null | undefined
-    logsAvailable: boolean
+    logs: { jobs: CIJobFailureLogApi[]; logs_available: boolean } | 'unavailable' | null | undefined
     loading: boolean
-    emptyState?: ReactNode
     /** job_id → display name, when the caller has the run's jobs loaded — logs only carry ids. */
     jobNames?: Record<number, string>
 }): JSX.Element {
-    if (jobs == null) {
+    if (logs === 'unavailable') {
+        return <div className="px-1 py-2 text-xs text-secondary">Failure logs are unavailable.</div>
+    }
+    if (logs == null) {
         return <div className="px-1 py-2 text-xs text-secondary">{loading ? 'Loading failure logs…' : '—'}</div>
     }
-    if (!logsAvailable || jobs.length === 0) {
+    if (!logs.logs_available || logs.jobs.length === 0) {
         return (
             <div className="px-1 py-2 text-xs text-secondary">
-                {emptyState ?? 'No failure logs. Nothing failed, or the logs have aged out of retention.'}
+                No failure logs. Nothing failed, or the logs have aged out of retention.
             </div>
         )
     }
     return (
         <div className="flex flex-col gap-2">
-            {jobs.map((job) => (
+            {logs.jobs.map((job) => (
                 <JobFailureLog key={`${job.run_id}:${job.job_id}`} job={job} jobName={jobNames?.[job.job_id]} />
             ))}
         </div>

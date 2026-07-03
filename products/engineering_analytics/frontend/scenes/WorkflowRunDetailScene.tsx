@@ -249,17 +249,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                     {isDecisiveFailure(run.conclusion) && (
                         <div className="flex flex-col gap-2">
                             <h3 className="mb-0">Failure logs</h3>
-                            <FailureLogGroups
-                                jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
-                                logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
-                                loading={failureLogsLoading}
-                                jobNames={jobNamesById}
-                                emptyState={
-                                    failureLogs === 'unavailable'
-                                        ? 'Failure logs are unavailable for this run.'
-                                        : undefined
-                                }
-                            />
+                            <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} jobNames={jobNamesById} />
                         </div>
                     )}
                 </>

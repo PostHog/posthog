@@ -1,5 +1,4 @@
-// Per-workflow CI health table, shared by the Workflows tab (time-bucketed) and the PR detail page
-// (per-push buckets, rows expandable to runs). Only the bucket axis and row expansion differ per caller.
+// Per-workflow CI health table, shared by the Workflows tab and the repo hub.
 
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -8,7 +7,6 @@ import { ReactNode } from 'react'
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import type { ExpandableConfig } from 'lib/lemon-ui/LemonTable/types'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -19,10 +17,6 @@ import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringA
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
 import { DeltaBadge, pointChange } from './MetricTile'
-
-// Floor on bar slots for push-bucketed sparklines (PR view) so a single push stays narrow, but low
-// enough that 2-3 pushes read as separate bars. Time-bucketed sparklines (Workflows tab) fill.
-const PUSH_MIN_SLOTS = 10
 
 function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
@@ -79,11 +73,9 @@ export interface WorkflowHealthTableProps {
     loading?: boolean
     /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Optional row expansion (the PR page expands a workflow to its runs). */
-    expandable?: ExpandableConfig<WorkflowHealthRow>
     /** Default column sort. Alphabetical by workflow name by default; click Status for failing-first. */
     defaultSorting?: { columnKey: string; order: 1 | -1 }
-    /** Show the billable cost column (needs per-workflow cost on the rows; PR page only for now). */
+    /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
     /** Rows per page — 50 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
@@ -95,7 +87,6 @@ export function WorkflowHealthTable({
     rows,
     loading,
     sourceId,
-    expandable,
     defaultSorting = { columnKey: 'workflowName', order: 1 },
     showCost = false,
     pageSize = 50,
@@ -260,8 +251,6 @@ export function WorkflowHealthTable({
                         failures={failures}
                         labels={labels}
                         ariaLabel={`${row.workflowName} failure history`}
-                        // Push buckets are few — keep bars narrow and right-aligned instead of fat.
-                        minSlots={row.granularity === 'push' ? PUSH_MIN_SLOTS : undefined}
                     />
                 )
             },
@@ -294,7 +283,6 @@ export function WorkflowHealthTable({
             loading={loading}
             useURLForSorting={false}
             defaultSorting={defaultSorting}
-            expandable={expandable}
             pagination={{ pageSize }}
             emptyState={emptyState ?? 'No workflow runs.'}
             nouns={['workflow', 'workflows']}

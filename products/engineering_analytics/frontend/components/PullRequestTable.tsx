@@ -1,5 +1,5 @@
-// Shared by the repo hub and the PR list; only the default sort differs per caller. Author renders as
-// plain metadata and links nowhere in-product (attribution, never a unit of analysis — see SPEC §2).
+// Shared by the repo hub and the PR list. Author renders as plain metadata and links nowhere
+// in-product (attribution, never a unit of analysis — see SPEC §2).
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -11,6 +11,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
@@ -25,12 +26,15 @@ function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
     ).url
 }
 
-/** Hours below two days, one-decimal days above — how long the PR has been (or was) open. */
-function openTimeOf(row: PullRequestRow): { seconds: number; label: string } {
+/** How long the PR has been (or was) open, in the shared hours/days headline format.
+ *  Null for closed-unmerged PRs: the list carries no closed_at, so their open time is unknown. */
+function openTimeOf(row: PullRequestRow): { seconds: number; label: string } | null {
     const end = row.mergedAt ?? (row.state === 'open' ? dayjs().toISOString() : null)
-    const seconds = end ? dayjs(end).diff(dayjs(row.createdAt), 'second') : (row.openToMergeSeconds ?? 0)
-    const hours = seconds / 3600
-    return { seconds, label: hours < 48 ? `${Math.round(hours)}h` : `${(hours / 24).toFixed(1)}d` }
+    if (!end) {
+        return null
+    }
+    const seconds = dayjs(end).diff(dayjs(row.createdAt), 'second')
+    return { seconds, label: compactHoursLabel(seconds) }
 }
 
 export interface PullRequestTableProps {
@@ -40,7 +44,6 @@ export interface PullRequestTableProps {
     sourceId: string | null
     /** Show the pushes / re-runs / CI cost columns. */
     costLensEnabled: boolean
-    defaultSorting?: { columnKey: string; order: 1 | -1 }
     /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
@@ -52,7 +55,6 @@ export function PullRequestTable({
     loading,
     sourceId,
     costLensEnabled,
-    defaultSorting,
     pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
@@ -161,10 +163,10 @@ export function PullRequestTable({
             width: 100,
             align: 'right',
             tooltip: 'How long the pull request has been open (or was, until it merged).',
-            sorter: (a, b) => openTimeOf(a).seconds - openTimeOf(b).seconds,
+            sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
             render: (_, row) => (
                 <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
-                    <span className="text-xs tabular-nums whitespace-nowrap">{openTimeOf(row).label}</span>
+                    <span className="text-xs tabular-nums whitespace-nowrap">{openTimeOf(row)?.label ?? '—'}</span>
                 </Tooltip>
             ),
         },
@@ -178,7 +180,6 @@ export function PullRequestTable({
             dataSource={rows}
             rowKey={prKeyOf}
             loading={loading}
-            defaultSorting={defaultSorting}
             onRow={(row) => {
                 const detailUrl = detailUrlOf(row, sourceId)
                 return {

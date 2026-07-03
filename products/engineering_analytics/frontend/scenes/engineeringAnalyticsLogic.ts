@@ -83,9 +83,8 @@ export interface CardsData {
     failingCi: number
 }
 
-/** Bucket width of a workflow's history series. 'hour'/'day'/'week' come from the server (time-bucketed
- *  workflow health); 'push' is computed client-side for the PR view, where each bucket is one push. */
-export type WorkflowGranularity = 'hour' | 'day' | 'week' | 'push'
+/** Bucket width of a workflow's history series, picked by the server from the window length. */
+export type WorkflowGranularity = 'hour' | 'day' | 'week'
 
 export interface WorkflowHealthBucket {
     /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
@@ -95,9 +94,6 @@ export interface WorkflowHealthBucket {
     successes: number
     /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
     failures: number
-    /** Pre-formatted sparkline label; used verbatim when set — push buckets aren't time-aligned, so they
-     *  carry their own "Push N (sha)" label. */
-    label?: string
 }
 
 export interface WorkflowHealthRow {
@@ -122,13 +118,11 @@ export interface WorkflowHealthRow {
     billableMinutes?: number | null
     /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
     estimatedCostUsd?: number | null
-    /** Runs in the window that were a 2nd+ attempt. Undefined on per-push rows. */
+    /** Runs in the window that were a 2nd+ attempt. */
     rerunCycles?: number
-    /** Success rate over the previous equal-length window. Undefined on per-push rows. */
+    /** Success rate over the previous equal-length window. */
     successRatePrev?: number | null
 }
-
-export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
 
 export interface WorkflowFailureSeries {
     completed: number[]
@@ -155,28 +149,10 @@ export function workflowFailureSeries(
     const completed = buckets.map((b) => b.completed)
     const failures = buckets.map((b) => b.failures)
     const labels = buckets.map((b) => {
-        const when = b.label ?? formatBucket(b.bucketStart, granularity)
+        const when = formatBucket(b.bucketStart, granularity)
         return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
     })
     return { completed, failures, labels }
-}
-
-/** Failure direction: are failures rising in the recent half of the window vs the prior half? */
-export function workflowFailureTrend(buckets: WorkflowHealthBucket[]): WorkflowTrendDirection {
-    if (buckets.length < 2) {
-        return 'flat'
-    }
-    const mid = Math.floor(buckets.length / 2)
-    const sumFailures = (slice: WorkflowHealthBucket[]): number => slice.reduce((total, b) => total + b.failures, 0)
-    const prior = sumFailures(buckets.slice(0, mid))
-    const recent = sumFailures(buckets.slice(mid))
-    if (recent > prior) {
-        return 'up'
-    }
-    if (recent < prior) {
-        return 'down'
-    }
-    return 'flat'
 }
 
 /** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
@@ -893,6 +869,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
             hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
+            // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
+            activeSource: [
+                (s) => [s.githubSources, s.sourceId],
+                (githubSources, sourceId): GitHubSourceApi | null =>
+                    (sourceId ? githubSources.find((source) => source.id === sourceId) : githubSources[0]) ?? null,
+            ],
             sourceOptions: [
                 (s) => [s.githubSources],
                 (githubSources): { value: string; label: string }[] =>

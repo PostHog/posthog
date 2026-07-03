@@ -12,14 +12,13 @@ Unexpanded ``${{ matrix.* }}`` template names (skipped matrices) are collapsed f
 grouping the same way the frontend does.
 """
 
-import math
 from datetime import datetime
 
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowJobAggregate
 from products.engineering_analytics.backend.logic.cost import estimate_job_cost_usd
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries.pr_cost import _parse_labels
 
 _LIMIT = 200
@@ -54,7 +53,8 @@ _COST_SELECT = f"""
     SELECT
         {_JOB_NAME} AS job_name,
         labels,
-        sumIf(greatest(duration_seconds, 0), duration_seconds IS NOT NULL) AS elapsed_seconds
+        sumIf(greatest(duration_seconds, 0), duration_seconds IS NOT NULL) AS elapsed_seconds,
+        countIf(duration_seconds IS NOT NULL) AS settled_jobs
     FROM __JOBS_SOURCE__ AS j
     WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY job_name, labels
@@ -115,12 +115,15 @@ def query_job_aggregates(
         fill(_COST_SELECT), query_type="engineering_analytics.job_aggregates_cost", placeholders=placeholders
     )
     billable_by_job: dict[str, tuple[float, float]] = {}
-    for job_name, labels_raw, elapsed_seconds in cost_response.results or []:
-        cost = estimate_job_cost_usd(_parse_labels(labels_raw), float(elapsed_seconds or 0.0))
+    for job_name, labels_raw, elapsed_seconds, settled_jobs in cost_response.results or []:
+        # An all-unsettled group (every instance still queued/running) sums to 0 elapsed — pass None
+        # so its cost stays unknown instead of billing a not-yet-finished job as $0.
+        elapsed = float(elapsed_seconds or 0.0) if settled_jobs else None
+        cost = estimate_job_cost_usd(_parse_labels(labels_raw), elapsed)
         if cost is None:
             continue
         seconds, usd = billable_by_job.get(job_name, (0.0, 0.0))
-        billable_by_job[job_name] = (seconds + float(elapsed_seconds or 0.0), usd + cost)
+        billable_by_job[job_name] = (seconds + (elapsed or 0.0), usd + cost)
 
     items: list[WorkflowJobAggregate] = []
     for (
@@ -142,19 +145,13 @@ def query_job_aggregates(
                 shard_count=shard_count,
                 runs_in=runs_in,
                 run_share=(runs_in / total_runs) if total_runs else None,
-                queue_p50_seconds=_opt_float(queue_p50_seconds),
-                p50_seconds=_opt_float(p50_seconds),
-                p95_seconds=_opt_float(p95_seconds),
-                failure_rate=_opt_float(failure_rate),
+                queue_p50_seconds=opt_float(queue_p50_seconds),
+                p50_seconds=opt_float(p50_seconds),
+                p95_seconds=opt_float(p95_seconds),
+                failure_rate=opt_float(failure_rate),
                 retry_job_count=retry_job_count,
                 billable_minutes=billable[0] / 60 if billable else None,
                 estimated_cost_usd=billable[1] if billable else None,
             )
         )
     return items
-
-
-def _opt_float(value: float | None) -> float | None:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return None
-    return float(value)

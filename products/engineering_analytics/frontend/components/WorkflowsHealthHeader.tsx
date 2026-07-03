@@ -2,8 +2,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
-import { percentage } from 'lib/utils/numbers'
 
+import { percent } from '../lib/format'
 import type { FleetSummary } from '../lib/runHealth'
 import { HealthKpi, STATE_META } from './healthVerdict'
 import { formatCost } from './runTables'
@@ -20,7 +20,7 @@ interface WorkflowsHealthHeaderProps {
 export function WorkflowsHealthHeader({ summary, truncated, className }: WorkflowsHealthHeaderProps): JSX.Element {
     const meta = STATE_META[summary.state]
     const greenNow = summary.settledWorkflows - summary.failingNow
-    const greenRateLabel = summary.settledWorkflows > 0 ? percentage(greenNow / summary.settledWorkflows, 0) : '—'
+    const greenRateLabel = summary.settledWorkflows > 0 ? percent(greenNow / summary.settledWorkflows) : '—'
     const hasCost = summary.estimatedCostUsd != null
 
     return (
@@ -89,7 +89,7 @@ export function WorkflowsHealthHeader({ summary, truncated, className }: Workflo
                     value={
                         summary.passRate != null ? (
                             <Tooltip title="Passes ÷ completed runs across all workflows, weighted by run volume, so busier workflows count for more.">
-                                <span>{percentage(summary.passRate, 0)}</span>
+                                <span>{percent(summary.passRate)}</span>
                             </Tooltip>
                         ) : (
                             '—'

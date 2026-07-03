@@ -621,15 +621,6 @@ class WorkflowHealthItem:
 
 
 @dataclass(frozen=True)
-class RepoOverviewBucket:
-    """One time bucket of the default branch's completed-run history; empty buckets are zero-filled."""
-
-    bucket_start: datetime
-    completed: int
-    successes: int
-
-
-@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -653,10 +644,6 @@ class RepoOverview:
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
-    # Bucket width of the history series: 'hour', 'day', or 'week'.
-    granularity: str
-    # Completed-run history on the default branch, oldest first, zero-filled.
-    default_branch_buckets: list[RepoOverviewBucket]
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 
-import type { GitHubSourceApi } from '../generated/api.schemas'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 
@@ -46,11 +45,9 @@ const CHIP_CLASS =
 /** A source picker on multi-source teams, otherwise the repo name. `pickerOnly` skips the static chip
  *  on pages that already state the repo elsewhere (the hub's entity header). */
 export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
-    const { hasMultipleSources, sourceOptions, sourceId, githubSources } = useValues(engineeringAnalyticsLogic)
+    const { hasMultipleSources, sourceOptions, sourceId, activeSource } = useValues(engineeringAnalyticsLogic)
     const { setSourceId } = useActions(engineeringAnalyticsLogic)
-    const repoLabel = sourceId
-        ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
-        : githubSources[0]?.repo
+    const repoLabel = activeSource?.repo
     if (hasMultipleSources) {
         return (
             <LemonSelect

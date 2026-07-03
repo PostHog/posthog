@@ -13,12 +13,7 @@ import {
     engineeringAnalyticsRepoOverview,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
-import type {
-    GitHubSourceApi,
-    MasterFailureGroupApi,
-    RepoOverviewApi,
-    RunFailureLogsApi,
-} from '../generated/api.schemas'
+import type { MasterFailureGroupApi, RepoOverviewApi, RunFailureLogsApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
@@ -106,7 +101,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
             engineeringAnalyticsLogic,
             [
                 'sourceId',
-                'githubSources',
+                'activeSource',
                 'pullRequests',
                 'pullRequestsLoading',
                 'cards',
@@ -188,15 +183,12 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         // The warehouse table behind the master-health embeds, mirroring the backend's per-team
         // `prefix + github_workflow_runs` resolution (logic/sources.py).
         runsTableName: [
-            (s) => [s.githubSources, s.sourceId],
-            (githubSources, sourceId): string | null => {
-                const source: GitHubSourceApi | undefined = sourceId
-                    ? githubSources.find((candidate: GitHubSourceApi) => candidate.id === sourceId)
-                    : githubSources[0]
-                if (!source) {
+            (s) => [s.activeSource],
+            (activeSource): string | null => {
+                if (!activeSource) {
                     return null
                 }
-                const table = `${source.prefix}github_workflow_runs`
+                const table = `${activeSource.prefix}github_workflow_runs`
                 return TABLE_IDENTIFIER.test(table) ? table : null
             },
         ],
