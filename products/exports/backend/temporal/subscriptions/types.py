@@ -199,6 +199,20 @@ class GenerateAIReportResult:
         # this "fully degraded" judgement, so callers don't re-derive it from the raw counts.
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
+    def failure_error(self) -> dict[str, str]:
+        # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
+        # error-type names only (query_error_types are exception class names), never raw query content.
+        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        subject = (
+            "The query the AI generated"
+            if self.total_step_count == 1
+            else f"All {self.total_step_count} queries the AI generated"
+        )
+        return {
+            "message": f"{subject} failed to run{detail}, so the report could not be computed.",
+            "type": "AIReportQueryFailure",
+        }
+
 
 @dataclasses.dataclass
 class SubscriptionAbortInfo:

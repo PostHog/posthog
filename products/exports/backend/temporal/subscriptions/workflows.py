@@ -540,15 +540,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # the delivery detail view.
             if generate_result.all_queries_failed:
                 final_status = DeliveryStatus.FAILED
-                total = generate_result.total_step_count
-                detail = (
-                    f" ({', '.join(generate_result.query_error_types)})" if generate_result.query_error_types else ""
-                )
-                subject = "The query the AI generated" if total == 1 else f"All {total} queries the AI generated"
-                generation_error = {
-                    "message": f"{subject} failed to run{detail}, so the report could not be computed.",
-                    "type": "AIReportQueryFailure",
-                }
+                generation_error = generate_result.failure_error()
             else:
                 final_status = DeliveryStatus.COMPLETED
 
