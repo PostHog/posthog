@@ -30117,6 +30117,24 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface ObservationLabelDayCount {
+      /** Day (UTC) the observed sessions were scanned. */
+      date: string;
+      /** Observations scanned this day labeled correct (thumbs up). */
+      up: number;
+      /** Observations scanned this day labeled incorrect (thumbs down). */
+      down: number;
+    }
+
+    export interface ObservationLabelStats {
+      /** Observations in the filtered set labeled correct (thumbs up). */
+      up_total: number;
+      /** Observations in the filtered set labeled incorrect (thumbs down). */
+      down_total: number;
+      /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
+      by_day: ObservationLabelDayCount[];
+    }
+
     export interface ObservationStatusCounts {
       /** Total observations in the filtered set. */
       total: number;
@@ -30171,6 +30189,8 @@ export namespace Schemas {
       status_counts: ObservationStatusCounts;
       /** Session-level scanner coverage. */
       coverage: CoverageStats;
+      /** Team label (thumbs up/down) aggregates over the filtered set. */
+      labels: ObservationLabelStats;
       /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
       available_tags: string[];
       /** Monitor-type aggregates; null when the scanner is not a monitor. */
@@ -59232,7 +59252,7 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
     /**
@@ -59275,7 +59295,7 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
     /**
@@ -66717,7 +66737,7 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
     /**
@@ -66760,7 +66780,7 @@ export namespace Schemas {
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
     /**

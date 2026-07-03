@@ -11,6 +11,7 @@ from typing import Any
 from django.db import connection
 from django.db.models import Count, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -33,6 +34,7 @@ def compute_observation_stats(
     payload: dict[str, Any] = {
         "status_counts": status_counts,
         "coverage": _coverage(queryset, clamped_recent_days),
+        "labels": _label_stats(queryset, clamped_recent_days),
         "available_tags": [],
         "monitor": None,
         "classifier": None,
@@ -83,6 +85,33 @@ def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[s
         "recent_sessions": aggregates["recent"] or 0,
         "total_sessions": aggregates["total"] or 0,
         "recent_days": recent_days,
+    }
+
+
+def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
+    labeled = queryset.filter(label__isnull=False)
+    totals = labeled.aggregate(
+        up=Count("id", filter=Q(label__is_correct=True)),
+        down=Count("id", filter=Q(label__is_correct=False)),
+    )
+    cutoff = timezone.now() - timedelta(days=recent_days)
+    # Bucketed by the day the session was scanned (not the day it was rated), so the series tracks
+    # scanner quality over time: as the prompt improves, newer days should carry fewer thumbs-down.
+    rows = (
+        labeled.filter(created_at__gte=cutoff)
+        .annotate(day=TruncDate("created_at"))
+        .order_by()  # Don't let parent ordering leak into GROUP BY.
+        .values("day")
+        .annotate(
+            up=Count("id", filter=Q(label__is_correct=True)),
+            down=Count("id", filter=Q(label__is_correct=False)),
+        )
+        .order_by("day")
+    )
+    return {
+        "up_total": totals["up"] or 0,
+        "down_total": totals["down"] or 0,
+        "by_day": [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows],
     }
 
 
