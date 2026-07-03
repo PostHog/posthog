@@ -5,11 +5,15 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { AccumulatingPipeline, AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
-import { newAccumulatingPipeline, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import {
+    AccumulatedFlushInput,
+    AccumulatingPipeline,
+    AccumulationContext,
+} from '~/ingestion/framework/accumulating-pipeline'
+import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
+import { BatchPipelineBuilder, newAccumulatingPipeline, newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
@@ -28,6 +32,12 @@ import { createParseMessageStep } from './parse-message-step'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
+import {
+    TrimmedReplayElement,
+    createPostProcessStep,
+    createProjectReplayOutputStep,
+    createReplayBeforeBatchStep,
+} from './session-batch-post-process-step'
 import { createRecordMetricsStep } from './session-batch-record-metrics-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createCreateSessionBatchStep } from './session-batch-step'
@@ -47,25 +57,40 @@ export interface SessionReplayPipelineOutput {
 }
 
 /**
- * The per-message inner pipeline wrapped by the session replay pipeline. Its input carries the
- * batch context (the recorder) tagged on by the accumulating pipeline, which the retention and
- * record steps read.
+ * The per-message inner pipeline wrapped by the session replay pipeline: a batching pipeline whose
+ * afterBatch tracks each message's offset and trims the recorded results down to a lightweight row.
+ * Its input carries the batch context (the recorder) tagged on by the accumulating pipeline, which
+ * the retention and record steps read.
  */
-export type SessionReplayInnerPipeline = BatchPipeline<
+export type SessionReplayInnerPipeline = BatchingPipeline<
     SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput: raw input + batch recorder + batch id
-    SessionReplayPipelineOutput, // TOutput: element out of the inner pipeline
+    SessionReplayPipelineOutput, // TOutput: element out of the sub-pipeline (before the afterBatch trim)
     { message: Message }, // CInput: per-element context in (the Kafka message)
-    { message: Message }, // COutput: per-element context out (the Kafka message)
-    OverflowOutput // R: redirect output names this pipeline can emit
+    Record<never, object>, // CBatch: the batching pipeline's own batch context (empty — beforeBatch is a passthrough)
+    { message: Message } & BatchingContext, // COutput: sub-pipeline context out (the Kafka message + messageId)
+    OverflowOutput, // R: redirect output names this pipeline can emit
+    TrimmedReplayElement, // TPostOut: trimmed element the afterBatch emits
+    { messageId: number } // CPostOut: trimmed context the afterBatch emits
 >
+
+/**
+ * The value the flush pipeline threads through its steps: the accumulated (trimmed) elements plus the
+ * batch context, with the written block metadata tacked on by the write step.
+ */
+export type SessionReplayFlushOutput = AccumulatedFlushInput<
+    TrimmedReplayElement,
+    { messageId: number },
+    SessionBatchContext,
+    OverflowOutput
+> & { blockMetadata: SessionBlockMetadata[] }
 
 export type SessionReplayPipeline = AccumulatingPipeline<
     SessionReplayPipelineInput, // TRecordIn: element fed in per message (batch context is added internally)
-    SessionReplayPipelineOutput, // TRecordOut: element out of the inner pipeline
+    TrimmedReplayElement, // TRecordOut: trimmed element out of the inner pipeline's afterBatch
     { message: Message }, // CRecordIn: inner-pipeline context in (the Kafka message)
-    { message: Message }, // CRecordOut: inner-pipeline context out (the Kafka message)
+    { messageId: number }, // CRecordOut: trimmed inner-pipeline context out
     SessionBatchContext, // CBatch: batch context minted per cycle (the recorder), tagged on every element and the flush unit
-    SessionBlockMetadata[], // TFlushOut: element out of the flush pipeline (written block metadata)
+    SessionReplayFlushOutput, // TFlushOut: value threaded out of the flush pipeline (elements + batch context + block metadata)
     Record<string, never>, // CFlushOut: flush-pipeline context out (empty — the flush unit carries no context)
     OverflowOutput // R: redirect output names this pipeline can emit
 >
@@ -75,6 +100,8 @@ export interface SessionReplayInnerPipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     promiseScheduler: PromiseScheduler
+    /** Offsets are tracked here in the afterBatch, for every fed message (recorded, dropped, or DLQ'd). */
+    offsetManager: KafkaOffsetManager
     teamService: TeamService
     /** Resolves per-session retention before recording, so keys and storage route correctly */
     retentionService: RetentionService
@@ -124,6 +151,7 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
         eventIngestionRestrictionManager,
         overflowEnabled,
         promiseScheduler,
+        offsetManager,
         teamService,
         retentionService,
         sessionTracker,
@@ -141,12 +169,25 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<
-        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
-        { message: Message }
-    >()
-        .messageAware((b) =>
-            b
+    return newBatchingPipeline<
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput
+        SessionReplayPipelineOutput, // TOutput
+        { message: Message }, // CInput
+        Record<never, object>, // CBatch (empty — beforeBatch is a passthrough)
+        { message: Message }, // COutput
+        OverflowOutput, // R
+        TrimmedReplayElement, // TPostOut
+        { messageId: number } // CPostOut
+    >(
+        (beforeBatch) =>
+            beforeBatch.pipe(
+                createReplayBeforeBatchStep<
+                    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+                    { message: Message }
+                >()
+            ),
+        (batch) => {
+            const processed = batch
                 .sequentially((b) =>
                     b
                         // Parse headers and apply restrictions (drop/overflow)
@@ -247,18 +288,23 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
                                                     ]
                                                 )
                                             )
+                                            // Narrow to the declared output; the afterBatch trims further.
+                                            .pipe(createProjectReplayOutputStep())
                                     )
                                     .gather()
                             )
                             .handleIngestionWarnings(outputs)
                 )
-        )
-        .handleResults(pipelineConfig)
-        .handleSideEffects(promiseScheduler, { await: false })
-        .gather()
-        .build()
 
-    return pipeline
+            // Route non-OK results (DLQ/overflow/drop) into produce side effects, but do NOT schedule
+            // them — leave them on each result's context so the afterBatch can surface them to the
+            // accumulating pipeline. The builder's handleResults() forces handleSideEffects (which would
+            // consume them), so wrap the result handler directly.
+            return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather()
+        },
+        (afterBatch) => afterBatch.pipe(createPostProcessStep(offsetManager)),
+        { concurrentBatches: 1 }
+    )
 }
 
 /**
@@ -273,11 +319,11 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
 
     return newAccumulatingPipeline<
         SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
+        TrimmedReplayElement,
         { message: Message },
-        { message: Message },
+        { messageId: number },
         SessionBatchContext,
-        SessionBlockMetadata[],
+        SessionReplayFlushOutput,
         Record<string, never>,
         OverflowOutput
     >({

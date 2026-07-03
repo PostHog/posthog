@@ -23,11 +23,9 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import {
-    SessionReplayInnerPipelineConfig,
-    SessionReplayPipelineOutput,
-    createSessionReplayInnerPipeline,
-} from './session-replay-pipeline'
+import { KafkaOffsetManager } from './kafka/offset-manager'
+import { TrimmedReplayElement } from './session-batch-post-process-step'
+import { SessionReplayInnerPipelineConfig, createSessionReplayInnerPipeline } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -86,6 +84,7 @@ describe('session-replay-pipeline', () => {
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let promiseScheduler: PromiseScheduler
     let topHog: MockTopHogRegistry
     let outputs: jest.Mocked<
@@ -187,6 +186,7 @@ describe('session-replay-pipeline', () => {
             eventIngestionRestrictionManager: mockRestrictionManager,
             overflowEnabled: true,
             promiseScheduler,
+            offsetManager: mockOffsetManager,
             teamService: mockTeamService,
             retentionService,
             sessionTracker,
@@ -199,20 +199,24 @@ describe('session-replay-pipeline', () => {
     }
 
     // Feeds messages through the inner pipeline with the batch recorder tagged on each element
-    // (as the accumulating pipeline does), drains it, and returns the unwrapped OK outputs.
+    // (as the accumulating pipeline does), drains its batch results, and returns the unwrapped OK
+    // outputs — now the trimmed per-message rows the afterBatch emits (in feed order).
     async function runPipeline(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
         messages: Message[]
-    ): Promise<SessionReplayPipelineOutput[]> {
-        pipeline.feed(
-            messages.map((message) =>
-                createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message })
+    ): Promise<TrimmedReplayElement[]> {
+        // The accumulating pipeline skips empty feeds (an empty batch never completes); mirror that.
+        if (messages.length > 0) {
+            await pipeline.feed(
+                messages.map((message) =>
+                    createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message })
+                )
             )
-        )
-        const results: SessionReplayPipelineOutput[] = []
+        }
+        const results: TrimmedReplayElement[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
-            for (const element of batch) {
+            for (const element of batch.elements) {
                 if (isOkResult(element.result)) {
                     results.push(element.result.value)
                 }
@@ -220,6 +224,12 @@ describe('session-replay-pipeline', () => {
             batch = await pipeline.next()
         }
         return results
+    }
+
+    // The session ids recorded into the batch, in call order — the observable effect of a message
+    // reaching the record step (the trimmed output no longer carries the parsed message).
+    function recordedSessionIds(): string[] {
+        return mockBatchRecorder.record.mock.calls.map((call) => call[0].message.session_id)
     }
 
     beforeEach(() => {
@@ -239,6 +249,7 @@ describe('session-replay-pipeline', () => {
         } as unknown as TeamService
 
         mockBatchRecorder = createMockBatchRecorder()
+        mockOffsetManager = { trackOffset: jest.fn() } as unknown as jest.Mocked<KafkaOffsetManager>
         topHog = createMockTopHog()
 
         promiseScheduler = new PromiseScheduler()
@@ -337,10 +348,9 @@ describe('session-replay-pipeline', () => {
             const result = await runPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
-            expect(result[0].parsedMessage.session_id).toBe('session-1')
-            expect(result[0].team.teamId).toBe(1)
-            expect(result[1].parsedMessage.session_id).toBe('session-2')
-            expect(result[1].team.teamId).toBe(1)
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
+            // trimmed output is the lightweight per-message row (in feed order), not the parsed message
+            expect(result[0]).toEqual({ partition: 0, timestamp: expect.any(Number) })
         })
 
         it('filters out dropped messages from restrictions', async () => {
@@ -364,8 +374,7 @@ describe('session-replay-pipeline', () => {
             const result = await runPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
-            expect(result[0].parsedMessage.session_id).toBe('session-1')
-            expect(result[1].parsedMessage.session_id).toBe('session-3')
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
         })
 
         it('filters out messages that fail to parse', async () => {
@@ -388,8 +397,7 @@ describe('session-replay-pipeline', () => {
             const result = await runPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
-            expect(result[0].parsedMessage.session_id).toBe('session-1')
-            expect(result[1].parsedMessage.session_id).toBe('session-3')
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
         })
 
         it('sends messages that fail to parse to the DLQ topic', async () => {
@@ -447,8 +455,7 @@ describe('session-replay-pipeline', () => {
             await promiseScheduler.waitForAll()
 
             expect(result).toHaveLength(2)
-            expect(result[0].parsedMessage.session_id).toBe('session-1')
-            expect(result[1].parsedMessage.session_id).toBe('session-3')
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
 
             // Verify the overflow message was produced
             expect(outputs.produce).toHaveBeenCalledWith(OVERFLOW_OUTPUT, expect.anything())
@@ -487,8 +494,8 @@ describe('session-replay-pipeline', () => {
             // 900 messages should pass through
             expect(result).toHaveLength(900)
 
-            // Verify the session_ids are correct (all non-multiples of 10)
-            const resultSessionIds = result.map((m) => m.parsedMessage.session_id)
+            // Verify the recorded session_ids are correct (all non-multiples of 10)
+            const resultSessionIds = recordedSessionIds()
             for (let i = 1; i <= 1000; i++) {
                 if (i % 10 === 0) {
                     expect(resultSessionIds).not.toContain(`session-${i}`)
@@ -546,10 +553,8 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(500)
 
-            // Verify all session_ids are present and in order
-            for (let i = 0; i < 500; i++) {
-                expect(result[i].parsedMessage.session_id).toBe(`session-${i + 1}`)
-            }
+            // Verify all session_ids were recorded, in feed order
+            expect(recordedSessionIds()).toEqual(Array.from({ length: 500 }, (_, i) => `session-${i + 1}`))
         })
 
         it('filters out messages with invalid team', async () => {
@@ -574,8 +579,7 @@ describe('session-replay-pipeline', () => {
             const result = await runPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
-            expect(result[0].parsedMessage.session_id).toBe('session-1')
-            expect(result[1].parsedMessage.session_id).toBe('session-3')
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-3'])
         })
 
         it('sends messages with no token header to DLQ', async () => {
@@ -700,6 +704,39 @@ describe('session-replay-pipeline', () => {
 
             const mockBatch = mockBatchRecorder
             expect(mockBatch.record).toHaveBeenCalledTimes(3)
+        })
+
+        it('tracks the offset of every fed message in the afterBatch, including dropped ones', async () => {
+            // Drop offset 2 at restrictions; offsets 1 and 3 record.
+            mockCreateApplyEventRestrictionsStep.mockReturnValue(
+                (input: { message: Message; headers: Record<string, string> }) => {
+                    if (input.message.offset === 2) {
+                        return Promise.resolve(drop('blocked'))
+                    }
+                    return Promise.resolve(ok(input))
+                }
+            )
+
+            const pipeline = buildPipeline()
+            const messages = [
+                createMessage(0, 1, 'session-1'),
+                createMessage(0, 2, 'session-2'),
+                createMessage(0, 3, 'session-3'),
+            ]
+
+            const result = await runPipeline(pipeline, messages)
+
+            // Only the recorded messages surface as trimmed rows, in feed order.
+            expect(result).toEqual([
+                { partition: 0, timestamp: expect.any(Number) },
+                { partition: 0, timestamp: expect.any(Number) },
+            ])
+            // Every fed message's offset is tracked (so the dropped one advances too).
+            expect(mockOffsetManager.trackOffset.mock.calls.map((call) => call[0])).toEqual([
+                { partition: 0, offset: 1 },
+                { partition: 0, offset: 2 },
+                { partition: 0, offset: 3 },
+            ])
         })
 
         it('does not record dropped messages to session batch', async () => {

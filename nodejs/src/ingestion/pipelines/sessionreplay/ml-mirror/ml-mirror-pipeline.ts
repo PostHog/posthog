@@ -1,12 +1,14 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
+import { Message } from 'node-rdkafka'
+
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { BatchPipelineBuilder, newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import {
+    SessionReplayInnerPipeline,
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
@@ -16,10 +18,15 @@ import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymi
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
-import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
+import {
+    TrimmedReplayElement,
+    createPostProcessStep,
+    createProjectReplayOutputStep,
+    createReplayBeforeBatchStep,
+} from '~/ingestion/pipelines/sessionreplay/session-batch-post-process-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
 import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
@@ -31,20 +38,13 @@ export type MlMirrorReplayPipelineConfig = SessionReplayInnerPipelineConfig & {
     scrubContext: ScrubContext
 }
 
-export function createMlMirrorReplayPipeline(
-    config: MlMirrorReplayPipelineConfig
-): BatchPipeline<
-    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
-    SessionReplayPipelineOutput,
-    MessageContext,
-    MessageContext,
-    OverflowOutput
-> {
+export function createMlMirrorReplayPipeline(config: MlMirrorReplayPipelineConfig): SessionReplayInnerPipeline {
     const {
         outputs,
         eventIngestionRestrictionManager,
         overflowEnabled,
         promiseScheduler,
+        offsetManager,
         teamService,
         retentionService,
         sessionTracker,
@@ -59,12 +59,25 @@ export function createMlMirrorReplayPipeline(
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<
-        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
-        MessageContext
-    >()
-        .messageAware((b) =>
-            b
+    return newBatchingPipeline<
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput
+        SessionReplayPipelineOutput, // TOutput
+        { message: Message }, // CInput
+        Record<never, object>, // CBatch (empty — beforeBatch is a passthrough)
+        { message: Message }, // COutput
+        OverflowOutput, // R
+        TrimmedReplayElement, // TPostOut
+        { messageId: number } // CPostOut
+    >(
+        (beforeBatch) =>
+            beforeBatch.pipe(
+                createReplayBeforeBatchStep<
+                    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+                    { message: Message }
+                >()
+            ),
+        (batch) => {
+            const processed = batch
                 .sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
@@ -166,16 +179,19 @@ export function createMlMirrorReplayPipeline(
                                                 ]
                                             )
                                         )
+                                            // Narrow to the declared output; the afterBatch trims further.
+                                            .pipe(createProjectReplayOutputStep())
                                     })
                                     .gather()
                             )
                             .handleIngestionWarnings(outputs)
                 )
-        )
-        .handleResults(pipelineConfig)
-        .handleSideEffects(promiseScheduler, { await: false })
-        .gather()
-        .build()
 
-    return pipeline
+            // Route non-OK results into produce side effects without scheduling them, so the afterBatch
+            // can surface them (see createSessionReplayInnerPipeline for the rationale).
+            return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather()
+        },
+        (afterBatch) => afterBatch.pipe(createPostProcessStep(offsetManager)),
+        { concurrentBatches: 1 }
+    )
 }
