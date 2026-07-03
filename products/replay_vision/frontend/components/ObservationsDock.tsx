@@ -102,8 +102,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen } = useValues(logic)
-    const { setDockOpen } = useActions(logic)
+    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
+    const { setDockOpen, retryObservation } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -166,7 +166,15 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
+                            <ObservationDockCard
+                                key={observation.id}
+                                observation={observation}
+                                onSeek={seekToTime}
+                                onRetry={
+                                    observation.status === 'failed' ? () => retryObservation(observation.id) : undefined
+                                }
+                                retrying={retryingObservationIds.includes(observation.id)}
+                            />
                         ))
                     )}
                 </div>

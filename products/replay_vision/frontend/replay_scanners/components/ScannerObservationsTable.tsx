@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
@@ -94,9 +97,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationStats,
         scanner,
         triggeringOnDemandObservation,
+        retryingObservationIds,
+        retryingAllFailed,
     } = useValues(logic)
     const {
         refreshObservations,
+        retryObservation,
+        retryAllFailed,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -193,16 +200,37 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'actions',
             width: 1,
             render: (_, obs) => (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
-                    className="whitespace-nowrap"
-                    data-attr="vision-observation-view-recording"
-                >
-                    View recording
-                </LemonButton>
+                <div className="flex gap-1">
+                    {obs.status === 'failed' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => retryObservation(obs.id)}
+                                loading={retryingObservationIds.includes(obs.id)}
+                                disabledReason={retryingAllFailed ? 'Bulk retry in progress…' : undefined}
+                                className="whitespace-nowrap"
+                                data-attr="vision-observation-retry"
+                            >
+                                Retry
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconRewindPlay />}
+                        to={urls.replaySingle(obs.session_id)}
+                        className="whitespace-nowrap"
+                        data-attr="vision-observation-view-recording"
+                    >
+                        View recording
+                    </LemonButton>
+                </div>
             ),
         },
     ]
@@ -261,6 +289,24 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 </LemonButton>
                             </>
                         )}
+                        {observationStats.failed > 0 && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    icon={<IconRefresh />}
+                                    onClick={() => retryAllFailed()}
+                                    loading={retryingAllFailed}
+                                    tooltip="Delete the failed observations and re-run the scanner on their recordings"
+                                    data-attr="vision-observations-retry-all-failed"
+                                >
+                                    Retry all failed
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         <Tooltip
                             title={
                                 hasObservationsInFlight
@@ -318,11 +364,24 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 noSortingCancellation
                 nouns={['observation', 'observations']}
                 emptyState={
-                    <div className="p-6 text-center text-muted">
-                        {hasActiveObservationFilters
-                            ? 'No observations match your filters.'
-                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
-                    </div>
+                    hasActiveObservationFilters ? (
+                        <div className="p-6 text-center text-muted">No observations match your filters.</div>
+                    ) : (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                            <div className="text-muted">
+                                No observations yet. They'll appear here once the scanner fires on its schedule — or
+                                scan a recording right now.
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlay />}
+                                to={`${urls.replayVision(scannerId)}?tab=on-demand`}
+                                data-attr="vision-observations-empty-scan-now"
+                            >
+                                Scan a recording now
+                            </LemonButton>
+                        </div>
+                    )
                 }
             />
         </div>

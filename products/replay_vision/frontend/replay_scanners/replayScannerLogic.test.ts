@@ -21,11 +21,15 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
     let observeSpy: jest.Mock
+    let retrySpy: jest.Mock
+    let retryFailedSpy: jest.Mock
     let suggestSpy: jest.Mock
     let createSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
+        retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
+        retryFailedSpy = jest.fn(() => [200, { retried: 2, failed_to_start: 0, remaining_failed: 0 }])
         suggestSpy = jest.fn(() => [200, { suggestions: [] }])
         createSpy = jest.fn(() => [201, { id: 'created-scanner' }])
         useMocks({
@@ -36,6 +40,8 @@ describe('replayScannerLogic', () => {
             post: {
                 '/api/projects/:team/vision/scanners/': createSpy,
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
+                '/api/projects/:team/vision/scanners/:id/observations/:obsId/retry/': retrySpy,
+                '/api/projects/:team/vision/scanners/:id/observations/retry_failed/': retryFailedSpy,
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
@@ -640,6 +646,45 @@ describe('replayScannerLogic', () => {
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
             expect(observeSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('retrying failed observations', () => {
+        it('retryObservation hits the endpoint and re-arms the poll window for the replacement row', async () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () => persisted.actions.retryObservation('obs-1')).toDispatchActions([
+                    'retryObservationSuccess',
+                ])
+                expect(retrySpy).toHaveBeenCalledTimes(1)
+                expect(persisted.values.retryingObservationIds).toEqual([])
+                // Without the grace window the replacement row, inserted moments later, is never polled in.
+                expect(persisted.values.pollUntil).toBeGreaterThan(Date.now())
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('retryAllFailed settles its flag on the summary response', async () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () => persisted.actions.retryAllFailed()).toDispatchActions([
+                    'retryAllFailedSuccess',
+                ])
+                expect(retryFailedSpy).toHaveBeenCalledTimes(1)
+                expect(persisted.values.retryingAllFailed).toBe(false)
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('bails on unsaved scanners without calling the API', async () => {
+            await expectLogic(logic, () => logic.actions.retryObservation('obs-1')).toDispatchActions([
+                'retryObservationFailure',
+            ])
+            expect(retrySpy).not.toHaveBeenCalled()
         })
     })
 
