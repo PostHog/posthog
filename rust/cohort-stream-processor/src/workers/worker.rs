@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -29,6 +28,7 @@ use crate::observability::metrics::{
     STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
     SWEEP_KEYS_EVICTED_TOTAL,
 };
+use crate::partitions::intake::MeteredReceiver;
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
@@ -74,7 +74,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
-        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        receiver: MeteredReceiver,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -101,7 +101,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_memo(
         partition_id: u16,
-        receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+        receiver: MeteredReceiver,
         store: CohortStore,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -141,7 +141,7 @@ impl Stage1Worker {
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
-    mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
+    mut receiver: MeteredReceiver,
     store: CohortStore,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -934,6 +934,7 @@ mod tombstone_redirect_tests {
     use chrono_tz::UTC;
     use serde_json::json;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
@@ -1192,6 +1193,7 @@ mod tombstone_redirect_tests {
         batch: Vec<ShuffleMessage>,
     ) {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition_id,
             rx,

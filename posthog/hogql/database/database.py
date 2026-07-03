@@ -938,7 +938,9 @@ class Database(BaseModel):
                 if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
                     continue
 
-                if include_only and table_key not in include_only:
+                # Warehouse tables are queryable by their dotted key (`zendesk.groups`) or their raw
+                # underscore name (`zendesk_groups`); honor either form in `include_only`.
+                if include_only and table_key not in include_only and warehouse_table.name not in include_only:
                     continue
 
                 try:
@@ -1645,8 +1647,12 @@ class Database(BaseModel):
 
             table_has_no_timestamp_field = "timestamp" not in table.fields.keys()
             timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
+            # The configured timestamp_field must win even when the source table has its own DateTime
+            # column literally named `timestamp` (e.g. an ingestion timestamp). Without this, the virtual
+            # mapping is skipped and queries silently bucket/filter on the wrong column.
+            timestamp_field_is_remapped = warehouse_modifier.timestamp_field != "timestamp"
 
-            if table_has_no_timestamp_field or not timestamp_field_is_datetime:
+            if timestamp_field_is_remapped or table_has_no_timestamp_field or not timestamp_field_is_datetime:
                 # get_table raises (rather than skipping) when no backing row exists — see resolvers below.
                 table_model = get_table(warehouse_modifier)
                 timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)

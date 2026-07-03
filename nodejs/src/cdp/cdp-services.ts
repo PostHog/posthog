@@ -12,7 +12,6 @@ import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
 import {
-    BatchHogflowRequestsOutput,
     PrecalculatedPersonPropertiesOutput,
     PrefilteredEventsOutput,
     WarehouseSourceWebhooksOutput,
@@ -51,7 +50,6 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
-    | BatchHogflowRequestsOutput
     | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -158,8 +156,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >

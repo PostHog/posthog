@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
@@ -337,6 +338,20 @@ class TestConnect:
             with impl.connect(_make_config(schema="SALES")):
                 pass
             assert mock_connect.call_args.kwargs["schema"] == "SALES"
+
+    def test_bounds_network_timeout(self, impl):
+        # Without a bounded `network_timeout` the connector retries a stalled request forever, so the
+        # threaded sync activity hangs until Temporal cancels it mid socket-read (a noisy WantReadError
+        # / "Cancelled"). Keep a finite bound so the stall becomes a fast, retryable error instead.
+        with patch("snowflake.connector.connect") as mock_connect:
+            mock_connect.return_value.__enter__.return_value = MagicMock()
+            with impl.connect(_make_config()):
+                pass
+            network_timeout = mock_connect.call_args.kwargs["network_timeout"]
+            # A finite, positive bound is the invariant. `0` reads as infinite to the connector, so
+            # guard that explicitly — equality alone can't catch the constant regressing to `0`.
+            assert network_timeout == _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
+            assert network_timeout > 0
 
 
 class TestSourceRequiresSsl:

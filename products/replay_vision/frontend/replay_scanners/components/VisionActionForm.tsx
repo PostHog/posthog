@@ -221,6 +221,11 @@ export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Elem
                     <h4 className="mb-1">Deliver to Slack</h4>
                     <DeliverySection />
                 </div>
+
+                <div className="text-xs text-muted">
+                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are skipped while
+                    you're over your AI-credit budget.
+                </div>
             </Form>
         </LemonModal>
     )

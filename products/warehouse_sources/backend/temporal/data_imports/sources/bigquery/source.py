@@ -14,6 +14,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
+    BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
@@ -70,6 +71,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
             # the volatile temp-table id.
             "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # Before it can write into the `__posthog_import_...` temp tables, `_run_destination_query_with_job_retry`
+            # (WRITE_TRUNCATE, on incremental / view / row-filtered reads) needs to *create* them in the
+            # dataset they live in. A service account with only read access is denied with "Permission
+            # bigquery.tables.create denied on dataset <id>". Like `bigquery.tables.update` this is a
+            # write-side denial, distinct from the read-side ones the "Access Denied:" key below covers —
+            # and that key would match this message first and misdirect the customer to grant *read* access
+            # (Data Viewer), which can't create a table. Keep this key above "Access Denied:" so the
+            # write-specific guidance wins. Deterministic IAM config problem — retrying can't grant the
+            # permission. Matched on the stable permission name, not the volatile dataset id.
+            "bigquery.tables.create": "BigQuery denied permission to create a temporary table in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -194,6 +205,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # the Read API and spams error tracking until a later sync finds the table caught up.
             # Matched on the stable freshness phrasing rather than the volatile table id.
             "un-applied upsert data that is not fresh enough": "BigQuery couldn't read this table through the Storage Read API because it uses change data capture and has pending upserts that haven't been applied within the table's max_staleness window. This usually clears once BigQuery applies the pending changes, so a later sync should recover. If it persists, lower the table's max_staleness or run a query against the table in BigQuery to apply the changes.",
+            # BigQuery aborts a query job with "Resources exceeded during query execution" (reason
+            # `resourcesExceeded`) when the query can't run within a worker's memory — heavy sorts or
+            # analytic OVER() clauses over a large table or view. We copy incremental / view /
+            # row-filtered reads into a temp table before reading them (`_run_destination_query_with_job_retry`
+            # in `bigquery.py`), and that copy carries the offending shape, so it fails here. It's a
+            # deterministic property of the customer's data volume and query shape — retrying the same
+            # query always fails identically (Google's own default job-retry doesn't retry this reason),
+            # so it just spams error tracking. The user must reduce the data synced or simplify the
+            # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
+            # or job id.
+            BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
         }
 
     def validate_credentials(

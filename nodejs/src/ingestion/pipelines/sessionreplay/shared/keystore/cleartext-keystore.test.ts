@@ -15,7 +15,7 @@ describe('CleartextKeyStore', () => {
 
     describe('generateKey', () => {
         it('should return empty keys with sessionState cleartext', async () => {
-            const result = await keyStore.generateKey('session-123', 1)
+            const result = await keyStore.generateKey('session-123', 1, 30)
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
