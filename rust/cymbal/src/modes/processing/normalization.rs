@@ -75,6 +75,10 @@ fn lib_rules() -> Vec<LibRule> {
         "posthog-go",
         "posthog-rs",
         "posthog-elixir",
+        // Java server SDK: `posthog-java` is the current identifier;
+        // `posthog-server` is the deprecated identifier still emitted by
+        // unmigrated clients. Both are crash-first.
+        "posthog-java",
         "posthog-server",
     ];
 
@@ -230,6 +234,19 @@ mod test {
             stack: Some(Stacktrace::Raw {
                 frames: functions.iter().map(|f| py_frame(f)).collect(),
             }),
+        }
+    }
+
+    #[test]
+    fn java_server_libs_both_normalize() {
+        // Java server SDK sends crash-first frames under both the current
+        // (`posthog-java`) and deprecated (`posthog-server`) identifiers.
+        for lib in ["posthog-java", "posthog-server"] {
+            let mut list: ExceptionList =
+                vec![exception_with_frames("Boom", &["main", "boom"])].into();
+            let legacy = normalize_wire_order(&mut list, Some(lib), Some("1.0.0"));
+            assert!(legacy.is_some(), "{lib} should normalize");
+            assert_eq!(frame_names(&list[0]), vec!["boom", "main"]);
         }
     }
 
