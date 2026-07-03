@@ -1193,6 +1193,7 @@ async def run_consumer(
     producer_task: asyncio.Task[None],
     merge: bool,
     merge_semaphore: asyncio.Semaphore,
+    records_total: int | None = None,
 ) -> BatchExportResult:
     """Run a BigQueryConsumer until completion.
 
@@ -1210,6 +1211,7 @@ async def run_consumer(
             model=model,
         )
 
+        consumer.records_total = records_total
         result = await consumer.start(
             queue=queue,
             producer_task=producer_task,
@@ -1504,6 +1506,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 producer_task=producer_task,
                                 merge=can_perform_merge,
                                 merge_semaphore=merge_semaphore,
+                                records_total=inputs.records_total if max_consumers == 1 else None,
                             ),
                             name=f"consumer-{index}",
                         )
