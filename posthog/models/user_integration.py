@@ -132,10 +132,12 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     integration: UserIntegration
 
-    def __init__(self, integration: UserIntegration) -> None:
+    def __init__(self, integration: UserIntegration, *, source: str | None = None) -> None:
         if integration.kind != "github":
             raise Exception("UserGitHubIntegration initialized with non-github integration")
         self.integration = integration
+        if source is not None:
+            self.source = source
 
     # --- Token refresh hooks ---
 

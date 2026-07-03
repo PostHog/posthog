@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.integration_repository_cache import (
     GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS,
@@ -228,12 +229,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
 
         def _side_effect(self_, path, *, endpoint=None, timeout=10):
             if path.startswith("/repos/posthog/posthog/readme"):
-                raise GitHubIntegrationError(
-                    "secondary rate limit on /readme",
-                    status_code=403,
-                    is_rate_limit=True,
-                    retry_after_seconds=60.0,
-                )
+                raise GitHubRateLimitError("secondary rate limit on /readme", retry_after=60)
             return responses[path]
 
         with patch(
@@ -241,11 +237,10 @@ class TestGitHubRepositoryFullCache(BaseTest):
             autospec=True,
             side_effect=_side_effect,
         ):
-            with pytest.raises(GitHubIntegrationError) as excinfo:
+            with pytest.raises(GitHubRateLimitError) as excinfo:
                 async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog")
 
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 60.0
+        assert excinfo.value.retry_after == 60
         assert not IntegrationRepositoryCacheEntry.objects.filter(integration=integration).exists()
 
     def test_sync_full_cache_entry_propagates_non_404_readme_errors(self):
