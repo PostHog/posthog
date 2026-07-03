@@ -95,12 +95,17 @@ export function createMlMirrorReplayPipeline(
                                         // anonymized before recording, so derived metadata is scrubbed too.
                                         const parsed = scrubContext.useRustAnonymizer
                                             ? b.pipe(
-                                                  topHogWrapper(createParseAndAnonymizeMessageStep(), [
-                                                      timer('parse_time_ms_by_session_id', (input) => ({
-                                                          token: input.headers.token ?? 'unknown',
-                                                          session_id: input.headers.session_id ?? 'unknown',
-                                                      })),
-                                                  ])
+                                                  topHogWrapper(
+                                                      createParseAndAnonymizeMessageStep({
+                                                          cvZstd: scrubContext.cvZstd,
+                                                      }),
+                                                      [
+                                                          timer('parse_time_ms_by_session_id', (input) => ({
+                                                              token: input.headers.token ?? 'unknown',
+                                                              session_id: input.headers.session_id ?? 'unknown',
+                                                          })),
+                                                      ]
+                                                  )
                                               )
                                             : b
                                                   .pipe(

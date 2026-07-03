@@ -113,6 +113,11 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    let cv_zstd = cx
+        .argument_opt(2)
+        .and_then(|v| v.downcast::<JsBoolean, _>(&mut cx).ok())
+        .map(|b| b.value(&mut cx))
+        .unwrap_or(false);
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -129,7 +134,11 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                         Ok(p) => p,
                         Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
                     };
-                match snapshot::anonymize_kafka_payload(allow, &mut payload) {
+                let opts = snapshot::AnonymizeOpts {
+                    cv_zstd,
+                    ..Default::default()
+                };
+                match snapshot::anonymize_kafka_payload_opts(allow, &mut payload, opts) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;

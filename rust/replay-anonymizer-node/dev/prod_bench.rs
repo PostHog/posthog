@@ -47,12 +47,22 @@ fn main() {
 
     bench("crate (byte walk)", &allow, &payloads, AnonymizeOpts::default());
     bench(
+        "crate (cv zstd)  ",
+        &allow,
+        &payloads,
+        AnonymizeOpts {
+            cv_zstd: true,
+            ..Default::default()
+        },
+    );
+    bench(
         "crate (walk off) ",
         &allow,
         &payloads,
         AnonymizeOpts {
             adaptive_routing: true,
             byte_walk: false,
+            ..Default::default()
         },
     );
     #[cfg(feature = "mlhog-bench")]

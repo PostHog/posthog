@@ -306,6 +306,7 @@ fn adaptive_routing_only_takes_the_tree_before_any_in_place_parse() {
     let opts = AnonymizeOpts {
         adaptive_routing: true,
         byte_walk: false,
+        ..Default::default()
     };
     let run_opts = |payload: &str| {
         let mut bytes = payload.as_bytes().to_vec();
@@ -387,8 +388,12 @@ impl Rng {
 }
 
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
+    assert_stream_matches_tree_cv(allow, inner_json, label, false)
+}
+
+fn assert_stream_matches_tree_cv(allow: &AllowLists, inner_json: &str, label: &str, cv_zstd: bool) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
-    let ctx = Ctx::new(allow);
+    let ctx = Ctx::new(allow).with_cv_zstd(cv_zstd);
     let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
     // Adaptive routing off: the differential must pin the *streaming* implementations against the
@@ -402,6 +407,8 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
             AnonymizeOpts {
                 adaptive_routing: false,
                 byte_walk,
+                cv_zstd,
+                ..Default::default()
             },
         );
         match (&stream, &tree) {
@@ -616,15 +623,18 @@ fn differential_cv_stream_vs_tree() {
         ),
     ];
 
-    for (event, label) in &ok_cases {
-        let inner = serde_json::to_string(&snapshot_message(json!([event]))).unwrap();
-        assert_stream_matches_tree(&allow, &inner, label);
-    }
+    // Both emission modes: gzip keep-verbatim (default) and single-format zstd re-emission.
+    for cv_zstd in [false, true] {
+        for (event, label) in &ok_cases {
+            let inner = serde_json::to_string(&snapshot_message(json!([event]))).unwrap();
+            assert_stream_matches_tree_cv(&allow, &inner, label, cv_zstd);
+        }
 
-    // All succeeding shapes in one message: exercises sink sequencing around re-emitted cv spans.
-    let all: Vec<Value> = ok_cases.iter().map(|(e, _)| e.clone()).collect();
-    let inner = serde_json::to_string(&snapshot_message(json!(all))).unwrap();
-    assert_stream_matches_tree(&allow, &inner, "all cv shapes in one message");
+        // All succeeding shapes in one message: exercises sink sequencing around re-emitted cv spans.
+        let all: Vec<Value> = ok_cases.iter().map(|(e, _)| e.clone()).collect();
+        let inner = serde_json::to_string(&snapshot_message(json!(all))).unwrap();
+        assert_stream_matches_tree_cv(&allow, &inner, "all cv shapes in one message", cv_zstd);
+    }
 
     // Failing shapes must fail identically through both paths.
     for (event, label) in [

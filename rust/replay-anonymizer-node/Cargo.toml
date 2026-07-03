@@ -24,6 +24,7 @@ neon = { workspace = true, features = ["external-buffers"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simd-json = { version = "0.15", features = ["serde_impl"] }
+zstd = { workspace = true }
 
 [features]
 # Compiles the MLHog v2 scrubber walk for the side-by-side benchmark and its parity test only.
@@ -34,9 +35,6 @@ mlhog-bench = []
 # so a codec regression can't hide by round-tripping through itself.
 flate2 = { workspace = true }
 serde_json = { workspace = true }
-# zstd: the compression_bench example compares candidate cv re-compression codecs; nothing in
-# the shipped scrubber uses it.
-zstd = { workspace = true }
 
 [[example]]
 name = "anonymize_bench"

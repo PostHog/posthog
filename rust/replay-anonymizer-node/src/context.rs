@@ -13,6 +13,10 @@ use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
+    /// Re-emit every cv payload (changed or not) as zstd instead of gzip, keeping output blocks
+    /// single-format (see `AnonymizeOpts::cv_zstd`). Off until the ML prep loader's zstd support
+    /// is deployed.
+    pub cv_zstd: bool,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
@@ -22,8 +26,14 @@ impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
         Self {
             allow,
+            cv_zstd: false,
             blur_cache: RefCell::new(HashMap::new()),
         }
+    }
+
+    pub fn with_cv_zstd(mut self, on: bool) -> Self {
+        self.cv_zstd = on;
+        self
     }
 
     // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs

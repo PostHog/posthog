@@ -44,10 +44,11 @@ const DLQ_REASONS = new Set([
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
-    T,
-    T & ParseMessageStepOutput
-> {
+export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput>(options?: {
+    /** Re-emit changed `cv` payloads as zstd (see `ScrubContext.cvZstd` for the rollout constraint). */
+    cvZstd?: boolean
+}): ProcessingStep<T, T & ParseMessageStepOutput> {
+    const cvZstd = options?.cvZstd ?? false
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -65,7 +66,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const t0 = performance.now()
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
+            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding, cvZstd)
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })

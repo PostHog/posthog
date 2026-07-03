@@ -121,7 +121,11 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             initAnonymizer(allow.entries())
             logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
         }
-        const scrubContext: ScrubContext = { allow, useRustAnonymizer }
+        const scrubContext: ScrubContext = {
+            allow,
+            useRustAnonymizer,
+            cvZstd: this.config.SESSION_RECORDING_ML_CV_ZSTD,
+        }
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
         const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)

@@ -210,8 +210,8 @@ pub fn scrub_cv_mutation_field(
 
 /// Scrub a cv-compressed FullSnapshot `data` value straight from its wire span (the still-escaped
 /// gzip-as-latin-1 JSON string, quotes included): decode the gzip bytes off the escaped span,
-/// gunzip, walk the decompressed payload, and re-emit — changed payloads as a freshly gzipped
-/// latin-1 string, unchanged ones as the original span verbatim. The tree path does the same work
+/// gunzip, walk the decompressed payload, and re-emit — changed payloads as a freshly compressed
+/// (`gzip::compress_cv`) latin-1 string, unchanged ones as the original span verbatim. The tree path does the same work
 /// through simd-json's tape and an intermediate UTF-8 `String`; this skips both. Declines (`None`)
 /// on anything unexpected — the parse fallback owns failing malformed streams closed.
 fn scrub_cv_snapshot_value(
@@ -227,10 +227,16 @@ fn scrub_cv_snapshot_value(
     let decompressed = crate::gzip::gunzip(&raw).ok()?;
     let mut walked = Vec::with_capacity(decompressed.len() + 64);
     if !scrub_cv_snapshot(ctx, &decompressed, &mut walked)? {
-        out.extend_from_slice(&bytes[data.0..data.1]);
-        return Some(false);
+        if !ctx.cv_zstd {
+            out.extend_from_slice(&bytes[data.0..data.1]);
+            return Some(false);
+        }
+        // Single-format mode: unchanged content still re-emits in the configured codec.
+        let gz = crate::gzip::compress_cv(ctx.cv_zstd, &decompressed).ok()?;
+        write_latin1_json_string(&gz, out);
+        return Some(true);
     }
-    let gz = crate::gzip::gzip(&walked).ok()?;
+    let gz = crate::gzip::compress_cv(ctx.cv_zstd, &walked).ok()?;
     write_latin1_json_string(&gz, out);
     Some(true)
 }
@@ -340,7 +346,7 @@ fn latin1_from_wire(wire: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Emit gzip bytes as a JSON latin-1 string (quotes included): the write-side inverse of
+/// Emit compressed-stream bytes as a JSON latin-1 string (quotes included): the write-side inverse of
 /// [`latin1_from_wire`]. Control bytes escape as `\u00XX`; 0x80..=0xFF emit as their two-byte
 /// UTF-8 sequence — the same codepoints the tree path's serializer produces, differently escaped
 /// at most (the output contract is semantic JSON).
@@ -961,9 +967,10 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// One cv-marked mutation sub-field, straight from the wire: a gzipped latin-1 string goes
-    /// through decode/gunzip/walk and re-gzips only if the scrub changed it; a plain array walks
-    /// uncompressed; `null` and the empty string keep verbatim (mirroring the tree path); any
-    /// other shape declines so the parse fallback can fail it closed.
+    /// through decode/gunzip/walk and re-compresses per the emission mode (changed-only in gzip
+    /// mode, always in zstd mode); a plain array walks uncompressed; `null` and the empty string
+    /// keep verbatim (mirroring the tree path); any other shape declines so the parse fallback
+    /// can fail it closed.
     fn walk_cv_sub(
         &mut self,
         field: CvMutationField,
@@ -987,8 +994,11 @@ impl<'c, 'a> Walker<'c, 'a> {
                 let raw = latin1_from_wire(wire)?;
                 let decompressed = crate::gzip::gunzip(&raw).ok()?;
                 let mut walked = Vec::with_capacity(decompressed.len() + 64);
-                if scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)? {
-                    let gz = crate::gzip::gzip(&walked).ok()?;
+                let sub_changed =
+                    scrub_cv_mutation_field(self.ctx, field, &decompressed, &mut walked)?;
+                if sub_changed || self.ctx.cv_zstd {
+                    let content = if sub_changed { &walked } else { &decompressed };
+                    let gz = crate::gzip::compress_cv(self.ctx.cv_zstd, content).ok()?;
                     write_latin1_json_string(&gz, out);
                     self.changed = true;
                 } else {

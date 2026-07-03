@@ -54,12 +54,14 @@ fn decompress_string(s: &str) -> Result<Vec<u8>> {
     gzip::gunzip(&raw).context("gunzip cv data")
 }
 
-fn compress_bytes(json: &[u8]) -> Result<String> {
-    Ok(bytes_to_latin1(&gzip::gzip(json).context("gzip cv payload")?))
+fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
+    Ok(bytes_to_latin1(
+        &gzip::compress_cv(ctx.cv_zstd, json).context("compress cv payload")?,
+    ))
 }
 
-fn compress_value(value: &Value<'_>) -> Result<String> {
-    compress_bytes(value.encode().as_bytes())
+fn compress_value(ctx: &Ctx<'_>, value: &Value<'_>) -> Result<String> {
+    compress_bytes(ctx, value.encode().as_bytes())
 }
 
 /// Scrub a `cv`-compressed FullSnapshot `data` value (a gzipped latin-1 string) in place. Returns
@@ -75,9 +77,16 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     // duplicate keys, unexpected shapes, over-deep nesting) fall through to the parse below.
     let mut walked = Vec::with_capacity(scratch.len() + 64);
     match bytewalk::scrub_cv_snapshot(ctx, &scratch, &mut walked) {
-        Some(false) => return Ok(false),
+        Some(false) => {
+            if !ctx.cv_zstd {
+                return Ok(false);
+            }
+            // Single-format mode: unchanged content still re-emits in the configured codec.
+            *data = string_value(compress_bytes(ctx, &scratch)?);
+            return Ok(true);
+        }
         Some(true) => {
-            *data = string_value(compress_bytes(&walked)?);
+            *data = string_value(compress_bytes(ctx, &walked)?);
             return Ok(true);
         }
         None => {}
@@ -89,10 +98,10 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     // The decompressed payload lives in its own scratch buffer; the parsed tree borrows it and is
     // dropped (re-serialized) before anything is written back.
     let mut payload = parse_untrusted(&mut scratch).context("parse cv payload")?;
-    if !scrub_full_snapshot(ctx, &mut payload) {
+    if !scrub_full_snapshot(ctx, &mut payload) && !ctx.cv_zstd {
         return Ok(false);
     }
-    let recompressed = compress_value(&payload)?;
+    let recompressed = compress_value(ctx, &payload)?;
     *data = string_value(recompressed);
     Ok(true)
 }
@@ -111,11 +120,11 @@ fn scrub_sub(ctx: &Ctx<'_>, sub_key: &str, arr: &mut Vec<Value<'_>>) -> bool {
 ///
 /// Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. Plain
 /// arrays are scrubbed in place inside the event tree. Gzipped sub-fields are each decompressed
-/// into their own scratch buffer, byte-walked (parse fallback on decline), and re-compressed only
-/// when that sub-field itself changed; untouched sub-fields keep their original gzip string
-/// verbatim. (The TS pipeline re-compresses every sub-field once any changed — but recompressing
-/// an unchanged field re-encodes identical content, so keeping the original bytes produces the
-/// same payload after gunzip while skipping the most expensive leg, level-6 recompression.)
+/// into their own scratch buffer and byte-walked (parse fallback on decline). Re-compression is
+/// mode-dependent: in gzip mode only sub-fields the scrub changed re-compress (level-6 deflate is
+/// the pipeline's most expensive leg, so untouched fields keep their original string verbatim); in
+/// zstd mode every gzipped sub-field re-emits so output blocks stay single-format (zstd-1 is cheap
+/// enough that uniformity costs ~6% — see PERF_PLAN).
 pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result<bool> {
     const KEYS: [(&str, bytewalk::CvMutationField); 3] = [
         ("texts", bytewalk::CvMutationField::Texts),
@@ -136,7 +145,12 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
                 let mut scratch = decompress_string(s)?;
                 let mut walked = Vec::with_capacity(scratch.len() + 64);
                 match bytewalk::scrub_cv_mutation_field(ctx, field, &scratch, &mut walked) {
-                    Some(false) => {}
+                    Some(false) => {
+                        if ctx.cv_zstd {
+                            changed = true;
+                            recompress.push((sub_key, scratch));
+                        }
+                    }
                     Some(true) => {
                         changed = true;
                         recompress.push((sub_key, walked));
@@ -150,7 +164,7 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
                             // Fail closed: a decodable-but-non-array sub-field is malformed.
                             bail!("cv mutation sub-field did not decode to an array");
                         };
-                        if scrub_sub(ctx, sub_key, arr) {
+                        if scrub_sub(ctx, sub_key, arr) || ctx.cv_zstd {
                             changed = true;
                             recompress.push((sub_key, decoded.encode().into_bytes()));
                         }
@@ -166,7 +180,7 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
     }
 
     for (sub_key, json) in recompress {
-        data.insert(key(sub_key), string_value(compress_bytes(&json)?));
+        data.insert(key(sub_key), string_value(compress_bytes(ctx, &json)?));
     }
 
     Ok(changed)
@@ -184,8 +198,9 @@ mod tests {
         simd_json::to_borrowed_value(Vec::leak(json.to_vec())).unwrap()
     }
 
+    // Test inputs model what the SDK sends, which is always gzip.
     fn compress_json(json: &[u8]) -> String {
-        compress_bytes(json).unwrap()
+        bytes_to_latin1(&gzip::gzip(json).unwrap())
     }
 
     fn decompress_value(s: &str) -> serde_json::Value {
@@ -253,6 +268,33 @@ mod tests {
         // The untouched sub-field keeps its original gzip bytes — it is not re-compressed just
         // because a sibling changed.
         assert_eq!(as_str(data.get("adds").unwrap()).unwrap(), adds_gz);
+    }
+
+    #[test]
+    fn cv_zstd_reemits_every_gzipped_field_as_zstd() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let ctx = Ctx::new(&allow).with_cv_zstd(true);
+        let texts_gz = compress_json(br#"[{"id":5,"value":"keep secret"}]"#);
+        let adds_json = br#"[{"parentId":1,"nextId":null,"node":{"id":9,"type":2}}]"#;
+
+        let mut data = Object::default();
+        data.insert(Cow::Borrowed("source"), Value::Static(StaticNode::U64(0)));
+        data.insert(Cow::Borrowed("texts"), string_value(texts_gz));
+        data.insert(Cow::Borrowed("adds"), string_value(compress_json(adds_json)));
+
+        assert!(scrub_compressed_mutation(&ctx, &mut data).unwrap());
+
+        let unzstd = |key: &str| -> Vec<u8> {
+            let raw = latin1_to_bytes(as_str(data.get(key).unwrap()).unwrap()).unwrap();
+            // Single-format output: every gzipped sub-field re-emits as a zstd frame, scrubbed
+            // or not — the loader never sees mixed formats within a post-flip block.
+            assert_eq!(&raw[..4], &[0x28, 0xb5, 0x2f, 0xfd], "{key} is a zstd frame");
+            zstd::bulk::decompress(&raw, 1 << 20).unwrap()
+        };
+        let texts: serde_json::Value = serde_json::from_slice(&unzstd("texts")).unwrap();
+        assert_eq!(texts[0]["value"], "keep ******");
+        // The untouched sub-field carries its original content, re-coded.
+        assert_eq!(unzstd("adds"), adds_json);
     }
 
     #[test]

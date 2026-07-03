@@ -97,6 +97,7 @@ fn main() {
         let no_walk = AnonymizeOpts {
             adaptive_routing: false,
             byte_walk: false,
+            ..Default::default()
         };
         let stream_simd = p50(3, n, || {
             let mut b = payload.clone();
@@ -172,6 +173,7 @@ fn main() {
         let no_walk = AnonymizeOpts {
             adaptive_routing: false,
             byte_walk: false,
+            ..Default::default()
         };
         let stream_simd = p50(3, n, || {
             let mut b = payload.clone();

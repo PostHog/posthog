@@ -199,9 +199,28 @@ Conclusions:
   17% smaller (zstd-8/9), or both ~1.5-2x faster and ~11% smaller (zstd-5/6). Since compression of
   changed payloads is the single largest pipeline cost, re-emitting changed cv payloads as zstd is
   the biggest remaining lever — the SDK input stays gzip (we always decode gzip), only the
-  re-emitted format changes. It needs a format marker (e.g. a new `cv` version value) and support
-  in the one consumer, the MLHog prep loader — a coordinated but small change, deliberately not
-  made unilaterally here.
+  re-emitted format changes. It needs support in the one consumer, the MLHog prep loader.
+
+### zstd-1 re-emission (done, gated off)
+
+Shipped behind `AnonymizeOpts.cv_zstd` -> `SESSION_RECORDING_ML_CV_ZSTD` (default off until the ML
+prep loader deploys zstd support). Design decisions, both measured on the corpus:
+
+- **Uniform output, not keep-verbatim**: zstd mode re-compresses every gzipped cv payload,
+  including ones the scrub didn't change, so post-flip blocks carry exactly one compression
+  format. Keeping unchanged payloads verbatim measured only ~6% faster (3.74 vs 3.96 ms/msg) —
+  and this corpus, being pre-scrubbed, is the *best case* for keep-verbatim — so uniformity is
+  nearly free at zstd-1 speeds. (Gzip mode keeps the per-field keep-verbatim rule, where skipping
+  level-6 deflate saves real time.)
+- **No `cv` marker change; magic-byte dispatch instead**: the loader distinguishes gzip
+  (`1f 8b`) from zstd (`28 b5 2f fd`) per compressed field, which also covers historical blocks
+  and the transition window with one code path.
+
+Corpus numbers with the flag on: **3.96 ms/msg avg (113 MB/s)** vs 5.65 gzip mode — another -30%,
+for **9.6 -> 3.96 ms/msg (-59%) across the whole cv effort**. Differentially pinned in both
+emission modes (stream-vs-tree, all cv shapes), plus unit tests for the magic contract and
+uniform-format output.
+
 - Staying gzip: level 3 is ~1.45x compress speed for ~9% more storage, level 1 ~2x for ~13% more.
   Real but far less attractive than the format switch.
 - The corpus median cv payload decompresses to **2 bytes** (`[]` — the SDK gzips even empty

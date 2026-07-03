@@ -32,6 +32,12 @@ export interface ScrubContext {
      * scrubbers.
      */
     useRustAnonymizer?: boolean
+    /**
+     * Native path only: re-emit every `cv` payload as zstd instead of gzip (same compression
+     * ratio at ~5x the speed; output blocks are single-format). Requires the ML prep loader's
+     * magic-byte format dispatch to be deployed first, since historical blocks stay gzip.
+     */
+    cvZstd?: boolean
 }
 
 /** Shared non-null-object type guard used across the scrubbers. */
