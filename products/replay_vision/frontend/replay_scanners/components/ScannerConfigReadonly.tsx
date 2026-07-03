@@ -146,7 +146,7 @@ function PromptVersionHistory({ scannerId }: { scannerId: string }): JSX.Element
                 {newestFirst.map((marker) => (
                     <div key={marker.version} className="border rounded p-3 space-y-2" id={`prompt-v${marker.version}`}>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                            <LemonTag type={marker === newestFirst[0] ? 'success' : 'muted'} className="font-mono">
+                            <LemonTag type={marker === newestFirst[0] ? 'warning' : 'muted'} className="font-mono">
                                 v{marker.version}
                             </LemonTag>
                             <span>from {dayjs(marker.date).format('MMM D, YYYY')}</span>
