@@ -67,6 +67,9 @@ tools:
             `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
             event citations). Use `vision-observations-list` to find observation IDs for a session first.
         feature_flag: replay-vision
+    vision-observations-retry-create:
+        operation: vision_observations_retry_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -229,6 +232,9 @@ tools:
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
         feature_flag: replay-vision
+    vision-scanners-observations-retry-create:
+        operation: vision_scanners_observations_retry_create
+        enabled: false
     vision-scanners-observations-stats-retrieve:
         operation: vision_scanners_observations_stats_retrieve
         enabled: false

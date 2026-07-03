@@ -26,7 +26,7 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -34,13 +34,14 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -463,6 +464,14 @@ function TrendChart({
 }
 
 export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
+            <MCPAnalyticsToolDetailContent toolName={toolName} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.Element {
     const {
         summary,
         summaryLoading,
@@ -485,11 +494,9 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         topUserRows,
         topUserRowsLoading,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn forces a recompute on theme flip.
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
         () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
         [dailyChartData, theme]

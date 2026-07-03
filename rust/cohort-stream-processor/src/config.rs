@@ -76,6 +76,13 @@ pub struct Config {
     #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
 
+    /// Per-partition ceiling on un-drained events in a worker's channel — the binding intake bound
+    /// (the 128-slot buffer counts sub-batches, not the events inside them). Worst case in channels
+    /// ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS runs hot; too low churns
+    /// pause/resume.
+    #[envconfig(from = "PARTITION_INTAKE_MAX_EVENTS", default = "1024")]
+    pub partition_intake_max_events: usize,
+
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
@@ -103,6 +110,16 @@ pub struct Config {
     /// membership, a restart within this window reclaims partitions with no rebalance.
     #[envconfig(default = "60000")]
     pub kafka_session_timeout_ms: u64,
+
+    /// `queued.max.messages.kbytes` (KB). For a `subscribe()` consumer this is an *aggregate* cap
+    /// across all partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", default = "131072")]
+    pub kafka_queued_max_messages_kbytes: u32,
+
+    /// `queued.min.messages` — per-partition prefetch floor. Low so a paused partition hoards fewer
+    /// stragglers; too low risks `fetch.queue.backoff.ms` inter-fetch gaps.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MIN_MESSAGES", default = "2000")]
+    pub kafka_queued_min_messages: u32,
 
     /// The person-merge trigger topic, keyed by `hash(team_id, old_person_uuid)` so a merge lands on
     /// P_old's worker.
@@ -253,6 +270,12 @@ pub struct Config {
     /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
+
+    /// Startup delay before the *first* eviction sweep, so its overdue-eviction read burst doesn't
+    /// compete with backlog catch-up on a cold, idle store at boot. Counts from sweep-task spawn
+    /// (≈ process boot), not "backlog drained", so raise it if the burst still lands on catch-up.
+    #[envconfig(from = "COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", default = "120000")]
+    pub first_eviction_sweep_delay_ms: u64,
 
     /// Grace period added to every eviction deadline before the sweep acts. The sweep evicts a key
     /// only once `deadline + safety_margin < now`, absorbing consumer-lag spikes.
@@ -413,6 +436,14 @@ pub struct Config {
     pub checkpoint_import_timeout_secs: u64,
 }
 
+/// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
+/// per-partition prefetch floor.
+#[derive(Clone, Copy, Debug)]
+pub struct FetchQueueConfig {
+    pub queued_max_messages_kbytes: u32,
+    pub queued_min_messages: u32,
+}
+
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
@@ -452,6 +483,17 @@ impl Config {
 
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.sweep_interval_ms)
+    }
+
+    pub fn first_eviction_sweep_delay(&self) -> Duration {
+        Duration::from_millis(self.first_eviction_sweep_delay_ms)
+    }
+
+    pub fn fetch_queue_config(&self) -> FetchQueueConfig {
+        FetchQueueConfig {
+            queued_max_messages_kbytes: self.kafka_queued_max_messages_kbytes,
+            queued_min_messages: self.kafka_queued_min_messages,
+        }
     }
 
     pub fn sweep_safety_margin(&self) -> Duration {
@@ -625,6 +667,15 @@ impl Config {
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
 
+        // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
+        let fetch = self.fetch_queue_config();
+        config
+            .set(
+                "queued.max.messages.kbytes",
+                fetch.queued_max_messages_kbytes.to_string(),
+            )
+            .set("queued.min.messages", fetch.queued_min_messages.to_string());
+
         // Static membership; an explicit `kafka_client_id` overrides `client.id` below.
         if let Some(id) = self.pod_identity() {
             config.set("group.instance.id", id).set("client.id", id);
@@ -734,6 +785,7 @@ mod tests {
             cohort_person_memo_capacity: 20000,
             cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 128,
+            partition_intake_max_events: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -741,6 +793,8 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            kafka_queued_max_messages_kbytes: 131_072,
+            kafka_queued_min_messages: 2000,
             person_merge_events_topic: "person_merge_events".to_string(),
             cohort_merge_state_transfer_topic: "cohort_merge_state_transfer".to_string(),
             kafka_merge_consumer_group: "cohort-stream-merges".to_string(),
@@ -772,6 +826,7 @@ mod tests {
             offset_commit_interval_ms: 5000,
             tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
+            first_eviction_sweep_delay_ms: 120_000,
             sweep_safety_margin_ms: 300000,
             stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
@@ -863,6 +918,47 @@ mod tests {
             Some("cooperative-sticky"),
         );
         assert_eq!(client.get("session.timeout.ms"), Some("45000"));
+    }
+
+    #[test]
+    fn consumer_config_sets_the_fetch_queue_bounds() {
+        let config = test_config();
+        let client = config.consumer_client_config();
+        assert_eq!(client.get("queued.max.messages.kbytes"), Some("131072"));
+        assert_eq!(client.get("queued.min.messages"), Some("2000"));
+    }
+
+    #[test]
+    fn intake_and_boot_ordering_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.partition_intake_max_events, 1024);
+        assert_eq!(defaults.kafka_queued_max_messages_kbytes, 131_072);
+        assert_eq!(defaults.kafka_queued_min_messages, 2000);
+        assert_eq!(
+            defaults.first_eviction_sweep_delay(),
+            Duration::from_millis(120_000),
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("PARTITION_INTAKE_MAX_EVENTS", "512"),
+            ("COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", "65536"),
+            ("COHORT_KAFKA_QUEUED_MIN_MESSAGES", "1000"),
+            ("COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", "30000"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.partition_intake_max_events, 512);
+        assert_eq!(
+            config.fetch_queue_config().queued_max_messages_kbytes,
+            65536
+        );
+        assert_eq!(config.fetch_queue_config().queued_min_messages, 1000);
+        assert_eq!(
+            config.first_eviction_sweep_delay(),
+            Duration::from_millis(30_000),
+        );
     }
 
     #[test]

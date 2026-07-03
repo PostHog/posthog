@@ -13,7 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -4550,8 +4550,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("no_group_type_mapping", None, "group", "groups"),
+            ("named_group_type", "organization", "Company", "Companies"),
+        ]
+    )
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_create_group_feature_flag_usage_dashboard(
+        self, _name, group_type, expected_singular, expected_plural, mock_report_user_action
+    ):
+        if group_type is not None:
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type=group_type,
+                group_type_index=0,
+                name_singular=expected_singular,
+                name_plural=expected_plural,
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4607,10 +4624,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(total_volume_properties, [flag_property_filter, group_property_filter])
 
         assert tiles[1].insight is not None
-        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique groups per variant")
+        self.assertEqual(tiles[1].insight.name, f"Feature Flag calls made by unique {expected_plural} per variant")
         self.assertEqual(
             tiles[1].insight.description,
-            "Shows the number of unique group calls made on feature flag per variant with key: group-feature",
+            f"Shows the number of unique {expected_singular} calls made on feature flag per variant with key: group-feature",
         )
         unique_calls_query = cast(dict[str, Any], tiles[1].insight.query)
         unique_calls_series = unique_calls_query["source"]["series"][0]
@@ -4619,8 +4636,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         unique_calls_properties = unique_calls_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
 
+    @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_update_group_feature_flag_key_updates_usage_dashboard(self, mock_report_user_action):
+    def test_update_group_feature_flag_key_updates_usage_dashboard(
+        self, mock_report_user_action, mock_personhog_client
+    ):
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_id.return_value = MagicMock(mappings=[])
         create = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {

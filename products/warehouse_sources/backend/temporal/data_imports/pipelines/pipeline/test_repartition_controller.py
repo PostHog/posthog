@@ -179,11 +179,58 @@ class TestRepartitionActivity:
             ActivityEnvironment().run(maybe_repartition_table_activity, inputs)
         return capture
 
-    def test_noop_when_nothing_pending(self, team):
-        inputs = self._inputs(team, _make_schema(team, {}))
+    def test_noop_when_flag_disabled(self, team):
+        # Healthy no-op: the rollout flag being off short-circuits the gate before any on-disk I/O — no
+        # job fetch, no delta read, no detection, no rewrite — regardless of any recorded size. Guards
+        # the gate that keeps unflagged syncs free of the extra pre-extraction work.
+        schema = _make_schema(team, {"max_partition_bytes": 5})
         mocked = AsyncMock()
-        self._run(inputs, mocked)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event"),
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=False),
+            patch.object(repartition_table, "maybe_flag_for_repartition") as flag,
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         mocked.assert_not_called()
+        flag.assert_not_called()
+
+    @pytest.mark.parametrize("recorded_max_partition_bytes", [None, 5])
+    def test_pre_extraction_flags_over_budget_live_table(self, team, recorded_max_partition_bytes):
+        # Nothing queued, flag on: the activity reads the LIVE on-disk size and repartitions when it's
+        # over budget. The `recorded_max_partition_bytes=5` case is the fix's core regression: a stale,
+        # within-budget recorded value (from a merge that OOMed before it could refresh) must NOT
+        # short-circuit detection — the gate now trusts the live size, not the recorded one.
+        config: dict = {
+            "partitioning_enabled": True,
+            "partition_mode": "md5",
+            "partition_count": 2,
+            "partitioning_keys": ["id"],
+        }
+        if recorded_max_partition_bytes is not None:
+            config["max_partition_bytes"] = recorded_max_partition_bytes
+        schema = _make_schema(team, config)
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 4, "partition_mode_after": "md5"})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(repartition_table, "HeartbeaterSync"),
+                patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+                patch.object(repartition_table, "capture_repartition_event") as capture,
+                patch.object(repartition_table.DeltaTableHelper, "get_delta_table", new=AsyncMock(return_value=delta)),
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                # The activity evaluates the rollout flag once and threads the verdict into detection,
+                # so patch the binding the activity reads from (not the controller's).
+                patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+
+        mocked.assert_awaited_once()
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_started" in emitted
+        assert "warehouse_repartition_completed" in emitted
 
     def test_success_emits_completed(self, team):
         schema = _make_schema(team, {})

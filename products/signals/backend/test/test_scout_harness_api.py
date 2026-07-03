@@ -888,6 +888,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "integrations",
             "external_data_sources",
             "signal_source_configs",
+            "emit_eligibility",
             "existing_inbox_reports",
             "recent_activity",
             "recent_dashboards",
@@ -900,6 +901,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_notebooks",
             "recent_cohorts",
             "recent_actions",
+            "recent_reviewer_corrections",
             "top_events",
         }
 

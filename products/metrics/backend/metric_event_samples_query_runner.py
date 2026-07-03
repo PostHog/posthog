@@ -7,7 +7,9 @@ first. It backs the Samples view and the metric->trace pivot.
 Joins `posthog.metric_samples` (the tiny hot rows) to `posthog.metric_series`
 (the deduped label set) on `series_fingerprint`. Samples are filtered + limited
 first, then enriched with their series' labels; the series side is grouped so a
-ReplacingMergeTree duplicate never multiplies a sample.
+ReplacingMergeTree duplicate never multiplies a sample. metric_name comes from
+the sample row itself, so an emission whose series row hasn't landed yet still
+renders with its name (series-side fields fall back to empty).
 """
 
 import datetime as dt
@@ -56,17 +58,20 @@ class MetricEventSamplesQueryRunner:
             """
                 SELECT
                     s.timestamp,
-                    ser.metric_name,
+                    s.metric_name,
                     ser.metric_type,
                     s.value,
+                    s.count,
                     ser.unit,
+                    ser.aggregation_temporality,
+                    ser.is_monotonic,
                     ser.service_name,
                     s.trace_id,
                     s.span_id,
                     ser.attributes,
                     ser.resource_attributes
                 FROM (
-                    SELECT team_id, metric_name, series_fingerprint, timestamp, value, trace_id, span_id
+                    SELECT team_id, metric_name, series_fingerprint, timestamp, value, count, trace_id, span_id
                     FROM posthog.metric_samples
                     WHERE metric_name = {metric_name}
                       AND timestamp >= {date_from}
@@ -82,6 +87,8 @@ class MetricEventSamplesQueryRunner:
                         series_fingerprint,
                         any(metric_type) AS metric_type,
                         any(unit) AS unit,
+                        any(aggregation_temporality) AS aggregation_temporality,
+                        any(is_monotonic) AS is_monotonic,
                         any(service_name) AS service_name,
                         any(attributes) AS attributes,
                         any(resource_attributes) AS resource_attributes
@@ -117,12 +124,15 @@ class MetricEventSamplesQueryRunner:
                 "metric_name": row[1],
                 "metric_type": row[2],
                 "value": row[3],
-                "unit": row[4],
-                "service_name": row[5],
-                "trace_id": row[6],
-                "span_id": row[7],
-                "attributes": dict(row[8]) if row[8] else {},
-                "resource_attributes": dict(row[9]) if row[9] else {},
+                "count": int(row[4]),
+                "unit": row[5],
+                "aggregation_temporality": row[6],
+                "is_monotonic": bool(row[7]),
+                "service_name": row[8],
+                "trace_id": row[9],
+                "span_id": row[10],
+                "attributes": dict(row[11]) if row[11] else {},
+                "resource_attributes": dict(row[12]) if row[12] else {},
             }
             for row in response.results
         ]

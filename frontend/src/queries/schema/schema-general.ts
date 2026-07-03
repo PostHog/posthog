@@ -7201,6 +7201,14 @@ export const externalDataSources = [
     'AppLovin',
     'Baserow',
     'Plunk',
+    'Dub',
+    'AirOps',
+    'Podium',
+    'Loops',
+    'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

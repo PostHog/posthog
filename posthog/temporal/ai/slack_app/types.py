@@ -40,11 +40,14 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
+    # Resolved at routing time on the mention path. The slash surface passes
+    # ``None`` on purpose — it defers user resolution into the workflow's first
+    # activity to keep its webhook ack under Slack's 3s budget — so the
+    # in-workflow resolve fallback is permanent, not a legacy shim.
     user_id: int | None = None
+    # The invoking surface's prefix, used verbatim in user-facing help/error copy:
+    # ``@PostHog`` for mentions, ``/posthog`` for the slash command.
+    command_prefix: str = "@PostHog"
 
 
 @dataclass

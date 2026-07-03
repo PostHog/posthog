@@ -38,7 +38,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['true', 'false', 'all'])
         .optional()
         .describe(
-            "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks (available to any team member; access stays governed by task visibility). 'true' lists only internal tasks and is a staff/debug view.\n\n* `true` - true\n* `false` - false\n* `all` - all"
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
     limit: zod
         .number()

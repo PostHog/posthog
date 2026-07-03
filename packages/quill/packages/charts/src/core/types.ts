@@ -7,8 +7,15 @@ export interface ChartTheme {
     colors: string[]
     backgroundColor?: string
     axisColor?: string
+    /** Stroke color for the L-shaped axis baselines and tick marks. Falls back to `axisColor`,
+     *  then `gridColor` — set it to mute the lines without muting the tick label text. */
+    axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
@@ -46,6 +53,14 @@ export interface Series<Meta = unknown> {
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
      *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
     bars?: { color?: string; label?: string; meta?: Meta }[]
+    /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
+     *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
+     *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
+     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
+     *  leave an entry undefined) for the default full-axis extent. */
+    trackData?: number[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
@@ -156,6 +171,13 @@ export interface TooltipContext<Meta = unknown> {
          *  distance-to-midpoint, giving correct results regardless of segment size differences. */
         yPixelBottom?: number
     }[]
+    /** Key of the series whose bar/segment is under the cursor. Set only by BarChart's
+     *  cursor narrowing (stacked: the visible segment containing the cursor; grouped: the
+     *  band-slot hit) — `undefined` for other chart types and for pinned rebuilds with no
+     *  cursor. May reference a series hidden from `seriesData` via `visibility.tooltip:
+     *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
+     *  `seriesData` entry exists. */
+    hoveredSeriesKey?: string
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -222,6 +244,12 @@ export interface ChartConfig {
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
     showAxisLines?: boolean
+    /** Draw short tick marks on the axes next to each visible tick label. Pairs with
+     *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
+    showTickMarks?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -299,6 +327,11 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
+    /** When a pinnable tooltip covers multiple series, resolve the series nearest the cursor and
+     *  fire `onPointClick` for it directly instead of pinning — skips the pin-then-click-a-row
+     *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
+     *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
+    resolveClickToNearestSeries?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
