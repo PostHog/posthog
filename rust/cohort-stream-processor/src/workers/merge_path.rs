@@ -157,7 +157,6 @@ pub(crate) async fn handle_merge(
     // absent, so the drain never wedges on an unknown team.
     let snapshot = catalog.load_full();
 
-    let started = Instant::now();
     // The whole drain state machine runs as one sync section on the blocking pool with owned inputs.
     let section = {
         let snapshot = snapshot.clone();
@@ -173,18 +172,22 @@ pub(crate) async fn handle_merge(
                         &fallback
                     }
                 };
-                handle_merge_event(
+                // Timed inside the section so the histogram keeps measuring drain execution only;
+                // permit and pool-queue waits are on `store_offload_*{op="merge_drain"}`.
+                let started = Instant::now();
+                let outcome = handle_merge_event(
                     partition_id,
                     store,
                     filters,
                     &event_owned,
                     msg_coords,
                     partition_count,
-                )
+                );
+                histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+                outcome
             })
             .await
     };
-    histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
@@ -321,7 +324,6 @@ pub(crate) async fn handle_apply(
 
     let snapshot = catalog.load_full();
 
-    let started = Instant::now();
     // The whole apply state machine runs as one sync section on the blocking pool with owned inputs.
     let section = {
         let snapshot = snapshot.clone();
@@ -337,18 +339,22 @@ pub(crate) async fn handle_apply(
                         &fallback
                     }
                 };
-                handle_transfer(
+                // Timed inside the section so the histogram keeps measuring apply execution only;
+                // permit and pool-queue waits are on `store_offload_*{op="merge_apply"}`.
+                let started = Instant::now();
+                let outcome = handle_transfer(
                     partition_id,
                     store,
                     filters,
                     &transfer_owned,
                     transfer_coords,
                     partition_count,
-                )
+                );
+                histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+                outcome
             })
             .await
     };
-    histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
