@@ -13,5 +13,8 @@ describe('heatmapRecordingFallbackLogic', () => {
         ])
         expect(query.order).toBe('start_time')
         expect(query.order_direction).toBe('DESC')
+        expect(query.kind).toBe('RecordingsQuery')
+        expect(query.limit).toBe(3)
+        expect(query.date_from).toBe('-30d')
     })
 })

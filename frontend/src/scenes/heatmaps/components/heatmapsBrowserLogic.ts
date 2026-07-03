@@ -382,6 +382,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     // (screenshot detail, the new-heatmap form), where a load-failure
                     // banner would be a false positive
                     if (!document.getElementById('heatmap-iframe')) {
+                        actions.stopTrackingLoading()
                         return
                     }
                     posthog.capture('in-app heatmap load failed')
