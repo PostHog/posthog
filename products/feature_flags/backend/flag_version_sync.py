@@ -7,6 +7,12 @@ cohort it references (directly or through nested cohorts), so editing a cohort's
 conditions must bump the version of every flag using it — even though the flag rows
 themselves didn't change.
 
+Each bump also writes a FeatureFlag activity log entry ("flag history"). That entry is
+load-bearing, not just informational: ``version_history.reconstruct_flag_at_version``
+rebuilds historical flag states by walking activity entries via their ``version``
+change, and raises ``VersionHistoryIncomplete`` for any version number that has no
+entry — which is exactly what a silent bump would create.
+
 Membership recalculation bookkeeping must never bump versions: the periodic
 recalculation cycle saves every stale dynamic cohort roughly every 15 minutes, and
 version churn there would invalidate every SDK cache (and the payload ETag) with no
@@ -16,6 +22,7 @@ real condition changes bump.
 
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, pre_save
@@ -24,11 +31,16 @@ from django.dispatch import receiver
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
+
+# Also referenced by the frontend flag activity describer — keep the two in sync.
+COHORT_CONDITIONS_UPDATED_JOB_TYPE = "cohort_conditions_updated"
 
 # Fields that make up a cohort's conditions. Saves that persist a value change to any
 # of these bump the versions of flags referencing the cohort; everything else
@@ -78,16 +90,67 @@ def bump_flag_versions_on_cohort_definition_change(
     if all(getattr(instance, field) == value for field, value in before.items()):
         return
 
-    flag_ids = [flag.pk for flag in _flags_referencing_cohort(instance)]
-    if flag_ids:
-        # Bumped in the same transaction as the cohort save, so the cache rebuilds the
-        # cohort receivers enqueue via transaction.on_commit always read the new
-        # versions. Bypassing FeatureFlag.save() (and its signals) is intentional: the
-        # cohort save already triggers the team's cache invalidation, and the flag rows'
+    flags = _flags_referencing_cohort(instance)
+    if not flags:
+        return
+    with transaction.atomic():
+        # Lock the affected rows (and only them — of="self" keeps the joined team row
+        # unlocked) so the versions logged below exactly match what the UPDATE writes
+        # even under concurrent flag edits (which take the same lock in the serializer);
+        # a mismatched entry breaks version-history reconstruction the same way a
+        # missing one does. pk order keeps the lock order consistent.
+        old_versions = dict(
+            FeatureFlag.objects.filter(pk__in=[flag.pk for flag in flags], team__project_id=instance.team.project_id)
+            .select_for_update(of=("self",))
+            .order_by("pk")
+            .values_list("pk", "version")
+        )
+        # Bypassing FeatureFlag.save() (and its signals) is intentional: the cohort
+        # save already triggers the team's cache invalidation, and the flag rows'
         # own fields are untouched, so updated_at/last_modified_by stay as they were.
-        FeatureFlag.objects.filter(pk__in=flag_ids, team__project_id=instance.team.project_id).update(
+        # The flag-history entry the signal path would have produced is written
+        # explicitly below instead.
+        FeatureFlag.objects.filter(pk__in=old_versions.keys(), team__project_id=instance.team.project_id).update(
             version=Coalesce("version", Value(0)) + 1
         )
+        for flag in flags:
+            if flag.pk in old_versions:
+                _log_flag_version_bump(flag, old_version=old_versions[flag.pk], cohort=instance)
+
+
+def _log_flag_version_bump(flag: FeatureFlag, old_version: int | None, cohort: Cohort) -> None:
+    """Write the flag-history entry for a cohort-driven version bump.
+
+    The acting user comes from activity_storage (populated by middleware for API
+    requests, i.e. whoever edited the cohort); outside a request the entry is logged
+    as a system action.
+    """
+    log_activity(
+        organization_id=flag.team.organization_id,
+        team_id=flag.team_id,
+        user=activity_storage.get_user(),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=flag.pk,
+        scope="FeatureFlag",
+        activity="updated",
+        detail=Detail(
+            name=flag.key,
+            changes=[
+                Change(
+                    type="FeatureFlag",
+                    action="changed",
+                    field="version",
+                    before=old_version,
+                    after=(old_version or 0) + 1,
+                )
+            ],
+            trigger=Trigger(
+                job_type=COHORT_CONDITIONS_UPDATED_JOB_TYPE,
+                job_id=str(cohort.pk),
+                payload={"cohort_id": cohort.pk, "cohort_name": cohort.name},
+            ),
+        ),
+    )
 
 
 def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:

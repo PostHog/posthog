@@ -4,11 +4,21 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import activity_storage
+
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.version_history import reconstruct_flag_at_version
 
 # The receivers under test are deliberately not imported here: they must be wired by
 # the feature_flags AppConfig, so these tests also fail if that wiring is removed.
+
+
+def _updated_entries(flag: FeatureFlag) -> list[ActivityLog]:
+    # Flag creation logs a "created" entry via ModelActivityMixin; only "updated"
+    # entries are the receiver's output.
+    return list(ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.pk), activity="updated"))
 
 
 def _person_filters(email: str) -> dict:
@@ -68,6 +78,66 @@ class TestFlagVersionSync(BaseTest):
         assert flag_behind_static.version == 1
         assert flag_unrelated.version == 1
 
+        # Every bump writes a flag-history entry whose version change matches the row —
+        # version_history reconstruction breaks on versions with no (or a mismatched) entry.
+        assert _updated_entries(flag_behind_static) == []
+        assert _updated_entries(flag_unrelated) == []
+        for flag, before, after in ((flag_direct, 1, 2), (flag_nested, None, 1)):
+            (entry,) = _updated_entries(flag)
+            assert entry.detail["changes"] == [
+                {"type": "FeatureFlag", "action": "changed", "field": "version", "before": before, "after": after}
+            ]
+            assert entry.detail["trigger"] == {
+                "job_type": "cohort_conditions_updated",
+                "job_id": str(edited.pk),
+                "payload": {"cohort_id": edited.pk, "cohort_name": "edited"},
+            }
+            assert entry.detail["name"] == flag.key
+            # No request context in this test, so the entry is a system action.
+            assert entry.user is None
+            assert entry.is_system is True
+
+    def test_flag_history_entry_attributes_the_cohort_editor(self):
+        cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
+        flag = self._create_flag("flag", cohort.pk)
+        # Middleware populates activity_storage with the request user; the receiver must
+        # attribute the flag-history entry to whoever edited the cohort.
+        activity_storage.set_user(self.user)
+        self.addCleanup(activity_storage.clear_all)
+
+        cohort.filters = _person_filters("z@z.com")
+        cohort.save()
+
+        (entry,) = _updated_entries(flag)
+        assert entry.user == self.user
+        assert entry.is_system is False
+
+    def test_version_history_reconstructable_across_cohort_driven_bumps(self):
+        original_filters = {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": None}]}]}
+        cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
+        original_filters["groups"][0]["properties"][0]["value"] = cohort.pk
+        flag = self._create_flag("flag", cohort.pk)
+
+        cohort.filters = _person_filters("z@z.com")
+        cohort.save()  # version 2, via the receiver
+
+        flag.refresh_from_db()
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        flag.version = 3
+        flag.save()  # version 3, via ModelActivityMixin like a regular edit
+
+        # Version 2 exists only because of the cohort bump; without the receiver's
+        # activity entry this raised VersionHistoryIncomplete.
+        at_v2 = reconstruct_flag_at_version(flag, 2, self.team.pk)
+        assert at_v2["version"] == 2
+        assert at_v2["filters"] == original_filters
+        assert at_v2["is_historical"] is True
+
+        # Undoing the cohort-bump entry must only rewind `version`, never touch other fields.
+        at_v1 = reconstruct_flag_at_version(flag, 1, self.team.pk)
+        assert at_v1["version"] == 1
+        assert at_v1["filters"] == original_filters
+
     def test_malformed_sibling_flag_does_not_block_save_or_bump(self):
         cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
         healthy_flag = self._create_flag("healthy", cohort.pk)
@@ -121,3 +191,5 @@ class TestFlagVersionSync(BaseTest):
 
         flag.refresh_from_db()
         assert flag.version == 1
+        # Recalculation bookkeeping must not spam flag history either.
+        assert _updated_entries(flag) == []
