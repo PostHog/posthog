@@ -996,7 +996,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         _backfill_thread_replies(client, team, ticket, channel, root_ts, after_ts=message_ts)
 
 
-def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
+def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str, *, own_bot_user_id: str | None) -> None:
     """Fire an internal PostHog event when our own bot is added to a channel.
 
     Unlike the human join/leave alerts, this isn't gated on any team setting — it's usage
@@ -1013,9 +1013,6 @@ def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str) -> No
         return
     if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
         return
-
-    client = get_slack_client(team)
-    own_bot_user_id = get_bot_user_id_cached(team, client)
     if not own_bot_user_id or user != own_bot_user_id:
         return
 
@@ -1031,13 +1028,24 @@ def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str) -> No
     )
 
 
-def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
+def _handle_member_event(
+    event: dict,
+    team: Team,
+    *,
+    joined: bool,
+    client: WebClient | None = None,
+    own_bot_user_id: str | None = None,
+) -> None:
     """Post a join/leave alert to the configured alert channel.
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
     team's settings. Members of the team's own organization are skipped — the alert is
     meant to surface external participants, not internal teammates.
+
+    ``client``/``own_bot_user_id`` may be supplied by the caller so the join path resolves
+    the bot identity once for both tracking and alerting; when omitted (leave path) they're
+    resolved lazily here, after the gates, so a leave with alerts off does no Slack API work.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1057,12 +1065,13 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
         logger.warning("slack_member_event_malformed_ids", user=user, channel=channel)
         return
 
-    client = get_slack_client(team)
+    if client is None:
+        client = get_slack_client(team)
+        own_bot_user_id = get_bot_user_id_cached(team, client)
 
     # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
     # the bot's own join apart from a real user's, and posting a self-referential alert is worse
     # than skipping one alert during a transient auth outage.
-    own_bot_user_id = get_bot_user_id_cached(team, client)
     if not own_bot_user_id:
         logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
         return
@@ -1102,8 +1111,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
 def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
-    _track_bot_joined_channel(event, team, slack_team_id)
-    _handle_member_event(event, team, joined=True)
+    # Resolve the bot identity once and share it with both the analytics event and the alert,
+    # since a bot join always needs it for tracking regardless of the alert toggle.
+    client = get_slack_client(team)
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:

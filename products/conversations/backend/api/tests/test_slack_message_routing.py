@@ -411,30 +411,30 @@ class TestSlackMemberAlerts(BaseTest):
         kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == "<@U123> joined <#C_SUPPORT>"
 
+    @parameterized.expand(
+        [
+            ("unconfigured_channel", [], False),
+            ("configured_channel", ["C_SUPPORT"], True),
+        ]
+    )
     @patch(f"{MODULE}.report_team_action")
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
-    def test_bot_join_fires_posthog_event(self, mock_get_client, _mock_bot_id, mock_report):
+    def test_bot_join_fires_posthog_event(
+        self, _name, channel_ids, expected_is_configured, mock_get_client, _mock_bot_id, mock_report
+    ):
+        self.team.conversations_settings["slack_channel_ids"] = channel_ids
+        self.team.save()
+
         handle_member_joined_channel({"user": "U_OWN_BOT", "channel": "C_SUPPORT"}, self.team, "T123")
 
         mock_report.assert_called_once_with(
             self.team,
             "support slack bot joined channel",
-            {"slack_team_id": "T123", "slack_channel_id": "C_SUPPORT", "is_configured_channel": False},
+            {"slack_team_id": "T123", "slack_channel_id": "C_SUPPORT", "is_configured_channel": expected_is_configured},
         )
         # It's analytics only — no Slack alert for the bot's own join.
         mock_get_client.return_value.chat_postMessage.assert_not_called()
-
-    @patch(f"{MODULE}.report_team_action")
-    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
-    @patch(f"{MODULE}.get_slack_client")
-    def test_bot_join_flags_configured_channel(self, _mock_get_client, _mock_bot_id, mock_report):
-        self.team.conversations_settings["slack_channel_ids"] = ["C_SUPPORT"]
-        self.team.save()
-
-        handle_member_joined_channel({"user": "U_OWN_BOT", "channel": "C_SUPPORT"}, self.team, "T123")
-
-        assert mock_report.call_args.args[2]["is_configured_channel"] is True
 
     @patch(f"{MODULE}.report_team_action")
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
