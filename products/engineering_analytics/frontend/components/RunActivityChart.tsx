@@ -59,11 +59,9 @@ const MIN_POINTS = 2
 const LENS_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
-// A run with no final duration is treated as in flight up to now — but only up to this cap. A run that
-// started longer ago than this and still hasn't settled almost certainly never will (its completion webhook
-// was missed); without the cap its interval would stretch to now and inflate the in-flight band — and the
-// time axis — by hours or days. Capping bounds that phantom load while still counting a genuinely-running
-// recent run right up to now.
+// A run with no final duration counts as in flight up to now, capped here: one that started longer ago
+// and never settled almost certainly lost its completion webhook, and uncapped it would inflate the
+// in-flight band and time axis by days.
 const MAX_IN_FLIGHT_MS = 60 * 60 * 1000
 
 /** Round up to a "nice" number (1/2/5 × 10ⁿ) so axis ticks land on readable values. */
@@ -397,9 +395,7 @@ export function RunActivityChart({
                 <h3 className="mb-0">{title}</h3>
                 <Tooltip
                     title={
-                        truncated
-                            ? `Over the most recent ${plottable.length} runs — the list is capped, so this isn't the full window.`
-                            : undefined
+                        truncated ? `Covers the most recent ${plottable.length} runs, not the full window.` : undefined
                     }
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">

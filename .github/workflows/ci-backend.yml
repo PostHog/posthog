@@ -1170,10 +1170,65 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
+            - name: Compute master schema cache key
+              # Must match the migration-set computation in turbo-discover and the
+              # push-side save below (inputs, hash, and key prefix). Keyed off the
+              # master checkout (HEAD here) so a restored dump is exactly the state
+              # that "Run migrations up to master" would build from scratch; any
+              # difference in the migration set is a cache miss, never a stale hit.
+              if: github.event_name != 'push'
+              id: master-schema-key
+              run: |
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Restore master schema dump from cache
+              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.master-schema-key.outputs.key }}
+
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
+
+            - name: Prime posthog DB from cached schema
+              # Turns "Run migrations up to master" below into a no-op instead
+              # of ~10 minutes of full migrations.
+              if: github.event_name != 'push'
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
+                      exit 0
+                  fi
+                  # The load is atomic: on failure the transaction rolls back and
+                  # the fallback below recreates an empty DB for a full migrate.
+                  # ensure_migration_defaults re-seeds data-migration rows the
+                  # schema-only dump lacks.
+                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
+                      && .venv-master/bin/python manage.py ensure_migration_defaults; then
+                      echo "Primed posthog DB from cached master schema"
+                  else
+                      echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
+                      # Terminate lingering sessions first or DROP DATABASE fails
+                      # (same guard as _recreate_database in hogli's db_schema.py).
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog' AND pid <> pg_backend_pid();"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "DROP DATABASE IF EXISTS posthog;"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "CREATE DATABASE posthog;"
+                  fi
+                  rm -f schema.sql.gz
 
             - name: Run migrations up to master
               run: |
@@ -1560,7 +1615,8 @@ jobs:
                   key: posthog-schema-master-${{ github.sha }}
 
             - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover (inputs, hash, and key prefix).
+              # Must match the merge-base computation in turbo-discover and the
+              # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
@@ -1618,6 +1674,7 @@ jobs:
                       exit 0
                   fi
                   echo "has_changes=true" >> "$GITHUB_OUTPUT"
+                  echo "migration_count=$(echo "$CHANGED" | grep -c .)" >> "$GITHUB_OUTPUT"
                   {
                       echo '<!-- ch-migration-sql -->'
                       echo '## ClickHouse migration SQL per cloud environment'
@@ -1667,58 +1724,21 @@ jobs:
                       done
                   fi
 
-            - name: Post CH migration SQL PR comment
-              # Sticky comment: find the marker and update in place so pushes don't spam the PR.
+            - name: Post CH migration SQL to CI report comment
+              # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const marker = '<!-- ch-migration-sql -->';
-                      const hasChanges = process.env.HAS_CHANGES === 'true';
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find((c) => c.body.includes(marker));
-                      if (!hasChanges) {
-                          // No migrations changed — clean up a stale sticky comment if one exists
-                          // (e.g. migrations were added then removed in a later push), otherwise no-op.
-                          if (existing) {
-                              await github.rest.issues.deleteComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                              });
-                          }
-                          return;
-                      }
-                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
-                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
-                      if (body.length > LIMIT) {
-                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
-                      }
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
+                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ -f .github/scripts/post-ch-migration-section.mjs ]; then
+                      node .github/scripts/post-ch-migration-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping CH migration section — script not present on this checkout"
+                  fi
 
     check-openapi-types:
         needs: [changes]
@@ -2832,7 +2852,18 @@ jobs:
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
         needs:
-            [django, check-migrations, check-openapi-types, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
+            [
+                changes,
+                get_clickhouse_versions,
+                build_django_matrix,
+                django,
+                check-migrations,
+                check-openapi-types,
+                turbo-discover,
+                turbo-tests,
+                handle-snapshots,
+                repo-checks,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -2846,6 +2877,9 @@ jobs:
                     echo "| --- | --- |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
+                    echo "| changes | ${{ needs.changes.result }} |"
+                    echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
+                    echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
@@ -2905,6 +2939,13 @@ jobs:
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  # Upstream jobs whose failure would otherwise only cascade into django
+                  # being *skipped*, which this gate reads as success — a green gate with
+                  # zero backend tests run. Naming them makes the failure hit the gate
+                  # directly; legitimate skips (frontend-only PRs) and plain successes still pass.
+                  check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
+                  check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
