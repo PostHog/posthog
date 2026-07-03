@@ -70,9 +70,9 @@ export function RecordingClickmapOverlay({
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
             <div ref={innerRef} className="absolute inset-0">
-                {clickmapBoxes.map((box) => (
+                {clickmapBoxes.map((box, index) => (
                     <div
-                        key={`${box.top}:${box.left}:${box.width}:${box.height}`}
+                        key={`${box.top}:${box.left}:${index}`}
                         className="absolute rounded-sm border border-danger"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{

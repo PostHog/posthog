@@ -55,13 +55,27 @@ function currentUrlProperty(href: string, isPattern: boolean): Record<string, un
 export function buildElementStatsParams(
     href: string,
     isPattern: boolean,
-    commonFilters: { date_from?: string | null; date_to?: string | null; filter_test_accounts?: boolean },
+    commonFilters: {
+        date_from?: string | null
+        date_to?: string | null
+        filter_test_accounts?: boolean
+        cohort_ids?: number[]
+    },
     dataAttributes: string[]
 ): ElementsStatsRetrieveParams {
+    const properties: Record<string, unknown>[] = [currentUrlProperty(href, isPattern)]
+    for (const cohortId of commonFilters.cohort_ids ?? []) {
+        properties.push({
+            type: PropertyFilterType.Cohort,
+            key: 'id',
+            value: cohortId,
+            operator: PropertyOperator.In,
+        })
+    }
     // properties and filter_test_accounts are parsed by the endpoint but missing from its
     // generated schema, hence the widening cast - see the stats action in posthog/api/element.py
     return {
-        properties: JSON.stringify([currentUrlProperty(href, isPattern)]),
+        properties: JSON.stringify(properties),
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
         filter_test_accounts: commonFilters.filter_test_accounts,
@@ -153,6 +167,12 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setReplayIframeDataURL: () => [],
             },
         ],
+        // the loader keeps stale stats across recording changes otherwise, and
+        // onIframeLoad would repaint the old recording's counts onto the new snapshot
+        elementStats: {
+            setReplayIframeData: () => null,
+            setReplayIframeDataURL: () => null,
+        },
     }),
     loaders(({ values }) => ({
         elementStats: [
@@ -164,7 +184,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                     // so the replay payload's URL is the stable source of truth here
                     const url = values.replayIframeData?.url?.trim()
                     if (!url) {
-                        return values.elementStats
+                        return null
                     }
                     const params = buildElementStatsParams(
                         url,
@@ -214,6 +234,9 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         },
         loadElementStatsSuccess: () => actions.recomputeClickmap(),
         recomputeClickmap: async (_, breakpoint) => {
+            if (!values.clickmapEnabled) {
+                return
+            }
             await breakpoint(50)
             const iframe = props.iframeRef?.current
             const snapshotDocument = iframe?.contentDocument
