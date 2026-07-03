@@ -25,7 +25,7 @@ export function AccountNotesTabContent(): JSX.Element {
             title: 'Title',
             dataIndex: 'title',
             width: '100%',
-            render: function Render(title, note) {
+            render: function Render(_, note) {
                 // Plain click opens the note in the side panel (keeping the list mounted);
                 // the href stays so cmd/ctrl-click opens the full notebook page in a new tab.
                 return (
@@ -41,7 +41,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             selectNotebook(note.short_id)
                         }}
                     >
-                        {title || 'Untitled'}
+                        {note.title || 'Untitled'}
                     </Link>
                 )
             },
@@ -49,7 +49,7 @@ export function AccountNotesTabContent(): JSX.Element {
         {
             title: 'Account',
             dataIndex: 'account_name',
-            render: function Render(accountName, note) {
+            render: function Render(_, note) {
                 return (
                     <Link
                         data-attr="account-note-account"
@@ -59,7 +59,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             posthog.capture(AccountsEvents.NotesTabAccountClicked, { account_id: note.account_id })
                         }}
                     >
-                        {accountName}
+                        {note.account_name}
                     </Link>
                 )
             },
