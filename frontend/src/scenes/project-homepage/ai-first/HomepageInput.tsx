@@ -7,8 +7,10 @@ import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin,
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -291,6 +293,7 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
@@ -298,7 +301,9 @@ function IdleGrid(): JSX.Element {
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
 
-    const hasExtraMarginTop = useFeatureFlag('MAX_HOMEPAGE_CAPABILITIES', 'control')
+    const hasExtraMarginTop =
+        !!featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] ||
+        featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] === 'control'
 
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
