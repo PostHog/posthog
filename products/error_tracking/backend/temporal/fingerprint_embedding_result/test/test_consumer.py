@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 from django.test import override_settings
 
+from confluent_kafka import KafkaError, KafkaException
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from products.error_tracking.backend.management.commands.et_consume_embeddings import (
     Command,
     FingerprintEmbeddingResultOutcome,
+    _commit_message,
     fingerprint_embedding_result_inputs_from_message,
     handle_embedding_result_message,
     start_fingerprint_embedding_result_workflow,
@@ -178,3 +180,28 @@ class TestFingerprintEmbeddingResultConsumer:
         await Command()._handle_kafka_message(consumer, AsyncMock(), message)
 
         consumer.commit.assert_called_once_with(message=message, asynchronous=False)
+
+    @pytest.mark.parametrize(
+        "error_code",
+        [
+            KafkaError.ILLEGAL_GENERATION,
+            KafkaError.UNKNOWN_MEMBER_ID,
+            KafkaError.REBALANCE_IN_PROGRESS,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_commit_tolerates_rebalance_errors(self, error_code: int) -> None:
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(error_code))
+
+        await _commit_message(consumer, MagicMock())
+
+        consumer.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_commit_reraises_non_rebalance_errors(self) -> None:
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError.OFFSET_METADATA_TOO_LARGE))
+
+        with pytest.raises(KafkaException):
+            await _commit_message(consumer, MagicMock())
