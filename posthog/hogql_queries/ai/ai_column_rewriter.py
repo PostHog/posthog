@@ -64,6 +64,7 @@ _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
 _RAW_JSON_COLUMNS: frozenset[str] = frozenset(
     {"input", "output", "output_choices", "input_state", "output_state", "tools"}
 )
+_EVENTS_RESULT_ALIAS = "__ai_events_result_events"
 
 
 class AiColumnToPropertyRewriter(CloningVisitor):
@@ -100,6 +101,8 @@ class AiColumnToPropertyRewriter(CloningVisitor):
                 ast.Alias(alias=name, expr=item) if name and not isinstance(item, ast.Alias) else item
                 for name, item in zip(natural_names, result.select)
             ]
+            if django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                result.select = [_rename_events_result_alias(item) for item in result.select]
         self._in_ai_events_scope = was_in_scope
         self._table_qualifier = old_qualifier
         return result
@@ -163,6 +166,23 @@ def _select_item_natural_name(item: ast.Expr, table_qualifier: str) -> str | Non
     ):
         return chain[1]
     return None
+
+
+def _rename_events_result_alias(item: ast.Expr) -> ast.Expr:
+    if isinstance(item, ast.Alias) and item.alias == "events":
+        return ast.Alias(
+            alias=_EVENTS_RESULT_ALIAS,
+            expr=item.expr,
+            hidden=item.hidden,
+            from_asterisk=item.from_asterisk,
+        )
+    return item
+
+
+def restore_events_result_alias(columns: list[str] | None) -> list[str] | None:
+    if columns is None:
+        return None
+    return ["events" if column == _EVENTS_RESULT_ALIAS else column for column in columns]
 
 
 def _has_ai_events_from(query: ast.SelectQuery) -> bool:
