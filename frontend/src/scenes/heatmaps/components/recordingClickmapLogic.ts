@@ -234,7 +234,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         },
         loadElementStatsSuccess: () => actions.recomputeClickmap(),
         recomputeClickmap: async (_, breakpoint) => {
-            if (!values.clickmapEnabled) {
+            if (!values.clickmapEnabled || !values.replayIframeData?.url?.trim()) {
                 return
             }
             await breakpoint(50)
