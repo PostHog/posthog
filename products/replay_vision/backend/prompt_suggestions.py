@@ -332,7 +332,8 @@ def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict
         return {"error": "no rated observation for that session id on this scanner"}
     label = _label(observation)
     output = (observation.scanner_result or {}).get("model_output") or {}
-    reasoning = output.get("reasoning") if isinstance(output.get("reasoning"), str) else ""
+    raw_reasoning = output.get("reasoning")
+    reasoning = raw_reasoning if isinstance(raw_reasoning, str) else ""
     snapshot = observation.scanner_snapshot or {}
     return {
         "session_id": session_id,
@@ -374,15 +375,16 @@ def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict:
     if state.summaries_used >= _MAX_SUMMARIES_PER_RUN:
         return {"error": "summary budget for this run is exhausted; decide with the context you have"}
     # Heavy modules stay off the API import path; they only load when the agent actually asks for a summary.
-    from products.replay.backend.models.session_summaries import SingleSessionSummary  # noqa: PLC0415
+    # Summary access goes through core helpers: replay_vision must not import products.replay internals.
+    from posthog.temporal.session_replay.session_summary.state import get_ready_summaries_from_db  # noqa: PLC0415
 
-    cached = SingleSessionSummary.objects.get_summary(team_id=state.scanner.team_id, session_id=session_id)
-    summary_json = cached.summary if cached is not None else None
+    cached = get_ready_summaries_from_db([session_id], team_id=state.scanner.team_id, extra_summary_context=None)
+    summary_json = cached[0].summary if cached else None
     if summary_json is None:
         if not (state.allow_cold_summaries and state.user):
             return {"error": "no summary exists for this session yet and generating one is unavailable here"}
         from posthog.models.team import Team  # noqa: PLC0415
-        from posthog.temporal.session_replay.session_summary.workflow import (  # noqa: PLC0415 — heavy temporal dep
+        from posthog.temporal.session_replay.session_summary.workflow import (  # noqa: PLC0415 (heavy temporal dep)
             execute_summarize_session,
         )
 
