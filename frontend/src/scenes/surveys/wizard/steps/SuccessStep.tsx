@@ -18,6 +18,7 @@ interface SuccessStepProps {
 
 export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
+    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
     const [countdown, setCountdown] = useState(5)
 
     useEffect(() => {
@@ -89,7 +90,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                         <div className="flex justify-between">
                             <dt className="text-secondary">Frequency</dt>
                             <dd>
-                                {doesSurveyRepeatOnEveryEvent(survey)
+                                {repeatsOnEveryEvent
                                     ? 'Every time a trigger event is captured'
                                     : survey.schedule === SurveySchedule.Once || !survey.iteration_frequency_days
                                       ? 'Once ever'
