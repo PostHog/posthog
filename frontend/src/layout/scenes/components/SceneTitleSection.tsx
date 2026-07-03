@@ -13,7 +13,7 @@ import {
     IconSparkles,
     IconWrench,
 } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
@@ -27,6 +27,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -36,6 +37,7 @@ import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
+import { getSceneStatusTag } from '../sceneStatusTags'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
 export function SceneTitlePanelButton({
@@ -246,7 +248,10 @@ export function SceneTitleSection({
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
     const { showDescription } = useValues(sceneLayoutLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
+    // Mirror the alpha/beta status the current product/tool shows in the navbar, next to the title.
+    const statusTag = getSceneStatusTag(activeSceneId)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
     const sentinelRef = useRef<HTMLDivElement>(null)
@@ -351,6 +356,15 @@ export function SceneTitleSection({
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
                                         <>
+                                            {statusTag && (
+                                                <LemonTag
+                                                    type={statusTag === 'alpha' ? 'completion' : 'warning'}
+                                                    size="small"
+                                                    className="relative top-[-1px] shrink-0"
+                                                >
+                                                    {statusTag.toUpperCase()}
+                                                </LemonTag>
+                                            )}
                                             {nameSuffix}
                                             {hasDescription ? (
                                                 <ButtonPrimitive
