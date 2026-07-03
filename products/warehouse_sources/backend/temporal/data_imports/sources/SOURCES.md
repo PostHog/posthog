@@ -156,6 +156,7 @@ the row lists both.
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
+| gainsight_px            | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
@@ -204,6 +205,7 @@ the row lists both.
 | linear                  | HTTP                        | requests                                                        | ✅                          |
 | lever                   | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| linkrunner              | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite              | HTTP                        | requests                                                        | ✅                          |
@@ -450,7 +452,6 @@ doesn't conflict with concurrent PRs.
 - freshchat
 - freshservice
 - fulcrum
-- gainsight_px
 - gitbook
 - glassfrog
 - gmail
@@ -513,7 +514,6 @@ doesn't conflict with concurrent PRs.
 - liana
 - lightfield
 - linkedin_pages
-- linkrunner
 - linnworks
 - lokalise
 - looker
