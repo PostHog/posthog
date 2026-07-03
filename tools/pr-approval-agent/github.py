@@ -207,7 +207,13 @@ def _normalize_reactions(node: dict, is_trusted: Callable[[str], bool]) -> list[
     for rn in (node.get("reactions") or {}).get("nodes") or []:
         login = (rn.get("user") or {}).get("login", "ghost")
         if is_trusted(login):
-            reactions.append({"user": login, "emoji": _reaction_emoji(rn.get("content", ""))})
+            reactions.append(
+                {
+                    "user": login,
+                    "emoji": _reaction_emoji(rn.get("content", "")),
+                    "created_at": rn.get("createdAt"),
+                }
+            )
     return reactions
 
 
@@ -233,6 +239,7 @@ query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
       reactions(first: 100) {
         nodes {
           content
+          createdAt
           user { login }
         }
       }
@@ -254,6 +261,7 @@ query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
               reactions(first: 20) {
                 nodes {
                   content
+                  createdAt
                   user { login }
                 }
               }

@@ -187,6 +187,10 @@ def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatc
         pytest.param([], id="no-reactions"),
         pytest.param([{"user": "greptile-apps[bot]", "emoji": "👍"}], id="bot-verdict-reaction"),
         pytest.param([{"user": "alice", "emoji": "👀"}], id="human-eyes-not-waited-on"),
+        pytest.param(
+            [{"user": "greptile-apps[bot]", "emoji": "👀", "created_at": "2020-01-01T00:00:00Z"}],
+            id="stale-bot-eyes-from-crashed-reviewer-ignored",
+        ),
     ],
 )
 def test_no_wait_without_in_flight_bot_review(monkeypatch: pytest.MonkeyPatch, reactions: list[dict]) -> None:
@@ -244,3 +248,62 @@ def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPa
 
     output = pipeline.to_dict()
     assert output["final_verdict"] == "WAIT"
+
+
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A deny-listed PR can't be approved over an in-flight review, so waiting
+    # 5 minutes before the inevitable REFUSE is pure runner cost.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
+
+    class _RefusingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "REFUSE", "reasoning": "gates denied", "risk": "high", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _RefusingReviewer)
+
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", pr))
+
+    assert pipeline.run() == "REFUSED"
+
+
+def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The wait loop refetches the PR; if the author pushed during the wait,
+    # gates must run against the new file set, not the pre-wait snapshot.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    class _ApprovingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _ApprovingReviewer)
+
+    initial = _fake_pr(head_sha="abc123")
+    initial.files = [{"filename": "docs/readme.md", "additions": 1, "deletions": 0, "status": "M"}]
+    initial.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    refetched = _fake_pr(head_sha="def456")
+    refetched.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    refetched.pr_reactions = []
+
+    fetches = iter([initial, refetched])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", next(fetches)))
+
+    verdict = pipeline.run()
+
+    assert verdict == "REFUSED"
+    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
