@@ -221,6 +221,9 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
             "date": inputs.ctx.date_str,
             "period_start": inputs.ctx.period_start.isoformat(),
             "period_end": inputs.ctx.period_end.isoformat(),
+            # "complete" tells billing the reported day was already over when
+            # queried — its signal to treat the numbers as final for that date.
+            "report_completeness": inputs.ctx.report_completeness,
             "region": get_instance_region(),
             "site_url": settings.SITE_URL,
             "bucket": bucket(),
@@ -230,6 +233,10 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
             "total_orgs": inputs.aggregate.total_orgs,
             "total_orgs_with_usage": inputs.aggregate.total_orgs_with_usage,
         }
+        # Omit the key for legacy contexts (field absent pre-deploy); billing
+        # reads it with `.get(...)` and skips the flow-latency metric when None.
+        if inputs.ctx.workflow_started_at is not None:
+            pointer["workflow_started_at"] = inputs.ctx.workflow_started_at.isoformat()
 
         @sync_to_async
         def send() -> None:
