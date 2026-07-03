@@ -344,13 +344,6 @@ ALLOW_PATH_PATTERNS = [
 # so it's kept out of the trivially-safe set.
 DISMISS_TIME_LOCKFILES: frozenset[str] = _ALL_LOCKFILE_NAMES - frozenset({"go.sum"})
 
-assert all(
-    n == n.lower()
-    for spec in DEPENDENCY_ECOSYSTEMS.values()
-    for names in (spec.manifests, spec.lockfiles)
-    for n in names
-), "DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()"
-
 _DISMISS_TIME_TEST_RE = re.compile(
     r"(?:^|/)(?:__tests__|tests?|fixtures)/"
     r"|(?:^|/)test_[^/]+\.py$"

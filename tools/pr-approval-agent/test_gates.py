@@ -3,9 +3,11 @@
 import pytest
 
 from gates import (
+    DEPENDENCY_ECOSYSTEMS,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_title_scrutiny_flags,
+    has_dependency_changes,
     is_size_exempt,
     substantive_size,
 )
@@ -430,3 +432,33 @@ def test_dependency_manifests_without_lockfile(files: list[str], expected: list[
     # what routes them to the reviewer's scripts/hooks guard — if it breaks,
     # a package.json scripts edit sails through with no scrutiny at all.
     assert dependency_manifests_without_lockfile(files) == expected
+
+
+@pytest.mark.parametrize("ecosystem", list(DEPENDENCY_ECOSYSTEMS))
+def test_dependency_ecosystem_names_are_lowercase(ecosystem: str) -> None:
+    # Call sites match against Path(...).name.lower(); a mixed-case entry
+    # here would silently never match and go unrecognized in a security gate.
+    spec = DEPENDENCY_ECOSYSTEMS[ecosystem]
+    for name in (*spec.manifests, *spec.lockfiles):
+        assert name == name.lower()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("common/esbuilder/tsconfig.json", id="tsconfig"),
+        pytest.param("setup.py", id="setup-py"),
+        pytest.param("setup.cfg", id="setup-cfg"),
+        pytest.param("pipfile", id="pipfile-manifest"),
+        pytest.param("gemfile", id="gemfile-manifest"),
+        pytest.param("composer.json", id="composer-manifest"),
+        pytest.param("pipfile.lock", id="pipfile-lock"),
+        pytest.param("gemfile.lock", id="gemfile-lock"),
+        pytest.param("composer.lock", id="composer-lock"),
+    ],
+)
+def test_has_dependency_changes_covers_ecosystem_table_members(path: str) -> None:
+    # Pins the members that DEPENDENCY_ECOSYSTEMS added beyond the old
+    # curated set — a future narrowing of the table should fail here rather
+    # than silently stop flagging these as dependency changes.
+    assert has_dependency_changes([path]) is True
