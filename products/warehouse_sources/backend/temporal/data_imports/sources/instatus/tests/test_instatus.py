@@ -61,7 +61,8 @@ class TestInstatus:
         assert _build_url(path, {"per_page": 100, "page": 1}) == expected
 
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-    def test_fetch_page_retryable_statuses_raise(self, status_code):
+    @mock.patch("time.sleep")  # neutralize tenacity's exponential backoff so retries are instant
+    def test_fetch_page_retryable_statuses_raise(self, _mock_sleep, status_code):
         session = mock.MagicMock()
         session.get.return_value = _response([], status_code=status_code)
         # reraise=True surfaces the final InstatusRetryableError after retries are exhausted.
