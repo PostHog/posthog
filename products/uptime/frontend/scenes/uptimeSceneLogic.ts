@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,7 +38,10 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
         startEditing: (monitor: MonitorSummaryDTOApi) => ({ monitor }),
         stopEditing: true,
         confirmDeleteMonitor: (monitor: { id: string; name: string }) => ({ monitor }),
+        cancelDeleteMonitor: true,
         deleteMonitor: (monitorId: string) => ({ monitorId }),
+        deleteMonitorSuccess: true,
+        deleteMonitorFailure: true,
     }),
 
     reducers({
@@ -54,6 +56,22 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
             {
                 startEditing: (_, { monitor }) => monitor.id,
                 stopEditing: () => null,
+            },
+        ],
+        monitorPendingDelete: [
+            null as { id: string; name: string } | null,
+            {
+                confirmDeleteMonitor: (_, { monitor }) => monitor,
+                cancelDeleteMonitor: () => null,
+                deleteMonitorSuccess: () => null,
+            },
+        ],
+        monitorDeleting: [
+            false,
+            {
+                deleteMonitor: () => true,
+                deleteMonitorSuccess: () => false,
+                deleteMonitorFailure: () => false,
             },
         ],
     }),
@@ -104,25 +122,36 @@ export const uptimeSceneLogic = kea<uptimeSceneLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        setCreateModalOpen: ({ open }) => {
+            // Reopening starts from a clean slate — no stale values or validation errors.
+            if (open) {
+                actions.resetCreateMonitor()
+            }
+        },
         startEditing: ({ monitor }) => {
+            actions.resetEditMonitor()
             actions.setEditMonitorValues({ name: monitor.name, url: monitor.url })
         },
-        confirmDeleteMonitor: ({ monitor }) => {
-            LemonDialog.open({
-                title: `Delete monitor "${monitor.name}"?`,
-                description: 'Historical pings stay in the audit log; the monitor card disappears from the list.',
-                primaryButton: {
-                    children: 'Delete monitor',
-                    status: 'danger',
-                    onClick: () => actions.deleteMonitor(monitor.id),
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        },
         deleteMonitor: async ({ monitorId }) => {
-            await uptimeMonitorsDestroy(String(values.currentProjectId), monitorId)
-            lemonToast.success('Monitor deleted')
-            actions.loadMonitorSummaries()
+            try {
+                await uptimeMonitorsDestroy(String(values.currentProjectId), monitorId)
+                lemonToast.success('Monitor deleted')
+                actions.deleteMonitorSuccess()
+                actions.loadMonitorSummaries()
+            } catch {
+                lemonToast.error('Failed to delete monitor')
+                actions.deleteMonitorFailure()
+            }
+        },
+        submitCreateMonitorFailure: ({ error }) => {
+            if (error?.message !== 'Validation Failed') {
+                lemonToast.error('Failed to create monitor')
+            }
+        },
+        submitEditMonitorFailure: ({ error }) => {
+            if (error?.message !== 'Validation Failed') {
+                lemonToast.error('Failed to update monitor')
+            }
         },
     })),
 
