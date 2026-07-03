@@ -884,6 +884,17 @@ class TestDailyBackfillSensor:
         m.team_id = team_id
         return m
 
+    @staticmethod
+    def _daily_keys(team_id: int, start: date, end: date) -> list[str]:
+        # Build expected partition keys the same way prod does (strftime), so a formatting bug
+        # (e.g. a hand-rolled zero-pad that breaks on two-digit days) would be caught.
+        keys = []
+        d = start
+        while d <= end:
+            keys.append(f"{team_id}_{d.strftime('%Y-%m-%d')}")
+            d += timedelta(days=1)
+        return keys
+
     def _run_daily(self, backfills, *, now, existing=None, get_runs=None):
         from dagster import DagsterInstance, build_sensor_context
 
@@ -914,9 +925,10 @@ class TestDailyBackfillSensor:
     def test_catches_up_current_month_for_newly_enabled_team(self):
         # A team with no existing partitions (just enabled) gets every current-month day from
         # the 1st through yesterday, closing the gap the full-backfill sensor won't cover.
-        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 10, 12, 0, 0))
+        # now=the 15th so the range crosses the single/two-digit day boundary (01..14).
+        result = self._run_daily([self._team(1)], now=datetime(2020, 3, 15, 12, 0, 0))
         keys = [rr.partition_key for rr in result.run_requests]
-        assert keys == [f"1_2020-03-0{d}" for d in range(1, 10)]  # 2020-03-01 .. 2020-03-09
+        assert keys == self._daily_keys(1, date(2020, 3, 1), date(2020, 3, 14))
 
     def test_first_of_month_is_noop(self):
         # On the 1st, yesterday is in the previous month (owned by that month's now-complete
@@ -940,6 +952,28 @@ class TestDailyBackfillSensor:
         keys = [rr.partition_key for rr in result.run_requests]
         assert keys == ["1_2020-03-09"]
         assert result.run_requests[0].run_key == "1_2020-03-09_retry_deadbeef"
+
+    def test_catchup_is_bounded_per_tick_but_yesterday_always_emitted(self):
+        # With the catch-up cap at 3 and two freshly enabled teams on 2020-03-05 (older days
+        # 01/02/03, yesterday 04): the first team exhausts the cap with its three older days,
+        # the second team's older days are dropped this tick, but BOTH teams still get
+        # yesterday so freshness never starves behind the backlog.
+        with patch(
+            "posthog.dags.events_backfill_to_duckling.DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK",
+            3,
+        ):
+            result = self._run_daily(
+                [self._team(1), self._team(2)],
+                now=datetime(2020, 3, 5, 12, 0, 0),
+            )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == [
+            "1_2020-03-01",
+            "1_2020-03-02",
+            "1_2020-03-03",
+            "1_2020-03-04",
+            "2_2020-03-04",
+        ]
 
 
 class TestGetClusterRetry:

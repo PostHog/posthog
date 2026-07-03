@@ -2704,6 +2704,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             session.close()
 
 
+# Cap on current-month CATCH-UP partitions (every day older than yesterday) emitted in one
+# tick. Yesterday is always emitted on top of this so freshness never starves; the cap only
+# bounds the backlog a burst of newly enabled teams can create, which then drains over the
+# following hourly ticks. Execution is throttled independently by the duckling_events_v1
+# concurrency limit, so this only bounds sensor-eval work and Dagster queue depth.
+DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK = 1000
+
+
 @sensor(
     name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
@@ -2723,7 +2731,10 @@ def duckling_events_daily_backfill_sensor(
     1. Creates a daily partition for every day from the 1st of the current month through
        yesterday that doesn't exist yet. In steady state only yesterday is new; for a team
        enabled partway through the month this catches up the earlier days the full-backfill
-       sensor won't touch, closing the gap between its history and daily coverage.
+       sensor won't touch, closing the gap between its history and daily coverage. Yesterday
+       is always emitted; the older catch-up days are bounded per tick
+       (DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK) so a burst of newly enabled teams
+       can't flood one tick — the remainder drains over the following ticks.
     2. Retries yesterday's partition if its last run failed (bounding the per-tick run lookup
        to one query per team — older caught-up days are left as-is once they've run).
 
@@ -2747,14 +2758,20 @@ def duckling_events_daily_backfill_sensor(
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
     for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
         for partition_date in current_month_dates:
             date_str = partition_date.strftime("%Y-%m-%d")
             partition_key = f"{backfill.team_id}_{date_str}"
+            is_yesterday = partition_date == yesterday_date
 
             if partition_key not in existing:
-                # New partition - create and trigger run
+                # Yesterday is always emitted (freshness); older catch-up days are bounded per
+                # tick so a burst of newly enabled teams can't emit tens of thousands of run
+                # requests at once — the remainder drains over subsequent hourly ticks.
+                if not is_yesterday and catchup_emitted >= DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK:
+                    continue
                 new_partitions.append(partition_key)
                 run_requests.append(
                     RunRequest(
@@ -2762,8 +2779,10 @@ def duckling_events_daily_backfill_sensor(
                         run_key=f"{partition_key}_new",
                     )
                 )
+                if not is_yesterday:
+                    catchup_emitted += 1
                 context.log.info(f"Creating partition for team_id={backfill.team_id}, date={date_str}")
-            elif partition_date == yesterday_date:
+            elif is_yesterday:
                 # Existing freshest partition - check if the last run failed and needs retry.
                 # Only yesterday is retried, so the run lookup stays at one query per team.
                 runs = context.instance.get_runs(
