@@ -17,13 +17,7 @@ import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
-import {
-    MCP_DOCS_URL,
-    MCPAnalyticsTab,
-    TAB_AI_PROMPTS,
-    TAB_DESCRIPTIONS,
-    mcpAnalyticsSceneLogic,
-} from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
@@ -32,6 +26,8 @@ export const scene: SceneExport = {
     component: MCPAnalyticsScene,
     logic: mcpAnalyticsSceneLogic,
 }
+
+const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (

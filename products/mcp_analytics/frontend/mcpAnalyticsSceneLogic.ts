@@ -13,8 +13,6 @@ import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
 
 export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
 
-export const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
-
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     dashboard: 'Tool call volume, error rates, and latency across your MCP server.',
     sessions: 'Sessions where users interacted with your MCP tools.',
