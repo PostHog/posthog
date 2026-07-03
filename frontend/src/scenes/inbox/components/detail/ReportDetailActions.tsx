@@ -8,14 +8,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { captureInboxReportAction, captureInboxReportFeedback } from '../../inboxAnalytics'
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
-import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
 
 /**
  * One detail-pane action, rendered either inline as a `LemonButton` (wide layouts) or as a
@@ -52,13 +52,14 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Feedback (always), Archive/Restore, and Create PR. Task
+ * Detail-pane actions as data: Discuss (always), Archive/Restore, and Create PR. Task
  * creation/navigation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
  * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { createPrFromReport, discussReport } = useActions(inboxTaskKickoffLogic)
+    const { primaryTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -108,32 +109,38 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         }
     }
 
-    // Feedback is always available – it never changes the report's state, just records what the
-    // user thinks of it (and its PR), so it stays even for resolved/archived reports.
-    const feedback: ReportDetailAction = {
-        key: 'feedback',
-        label: 'Feedback',
+    // Discuss is always available – it never changes the report's state, it just opens a
+    // conversation with the agent, so it stays even for resolved/archived reports. When the report
+    // already has a linked run (e.g. the task that opened its PR), jump straight into that
+    // conversation so guidance reaches the agent already on the job; otherwise kick off a fresh
+    // research task seeded from the report.
+    const discuss: ReportDetailAction = {
+        key: 'discuss',
+        label: 'Discuss',
         icon: <IconMessage />,
-        tooltip: 'Tell us how useful this report was',
-        onClick: () =>
-            openFeedbackReportDialog({
-                reportTitle: report.title ?? 'Untitled report',
-                onConfirm: ({ sentiment, note }) => {
-                    captureInboxReportFeedback({ report, sentiment, note, surface: 'detail_pane' })
-                    lemonToast.success('Thanks for the feedback')
-                },
-            }),
+        loading: isDiscussing,
+        tooltip: primaryTask
+            ? 'Continue the conversation with the agent working on this report'
+            : 'Ask the agent about this report',
+        onClick: () => {
+            captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
+            if (primaryTask) {
+                router.actions.push(urls.taskDetail(primaryTask.task.id))
+                return
+            }
+            discussReport(report)
+        },
     }
 
-    // A resolved report is terminal – its PR already merged, so only feedback applies.
+    // A resolved report is terminal – its PR already merged, so only Discuss applies.
     if (isResolved) {
-        return [feedback]
+        return [discuss]
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
     if (isArchived) {
         return [
-            feedback,
+            discuss,
             {
                 key: 'restore',
                 label: 'Restore',
@@ -146,7 +153,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
-        feedback,
+        discuss,
         {
             key: 'archive',
             label: 'Archive',
