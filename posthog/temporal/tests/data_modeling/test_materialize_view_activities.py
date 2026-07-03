@@ -632,9 +632,28 @@ class TestSucceedMaterializationActivity:
             row_count=1,
             duration_seconds=1.0,
         )
-        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.enrich_view_semantics.enrichment_enabled", return_value=True
+        ):
+            result = await activity_environment.run(succeed_materialization_activity, inputs)
         assert result.enrichment_needed is True
         assert result.saved_query_id == str(anode.saved_query_id)
+
+    async def test_no_enrichment_when_flag_disabled(self, activity_environment, ateam, anode, ajob, adag):
+        # A changed view must not signal enrichment when the feature flag is off, even with no stored hash.
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.enrich_view_semantics.enrichment_enabled", return_value=False
+        ):
+            result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is False
 
     async def test_no_enrichment_when_hash_matches(self, activity_environment, ateam, anode, ajob, adag, asaved_query):
         # A steady-state re-materialization (stored hash still current) must not spawn an enrichment child.

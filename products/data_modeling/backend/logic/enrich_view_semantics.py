@@ -445,6 +445,19 @@ def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str
     )
 
 
+def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Feature-flag + AI-processing-approval gate shared by the save- and materialization-dispatch paths.
+
+    Both paths use this so a team where enrichment is off (or AI processing isn't approved) never enqueues
+    a workflow. The activity re-checks the same gates as the source of truth.
+    """
+    team = saved_query.team
+    return (
+        enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG)
+        and team.organization.is_ai_data_processing_approved is True
+    )
+
+
 def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
     """Dispatch view enrichment for a just-saved view, if it plausibly needs it.
 
@@ -461,14 +474,7 @@ def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
         return
     if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
         return
-
-    # Gate on the same feature-flag + AI-processing approval the activity enforces, so a save in a team
-    # where enrichment is off (or unapproved) never enqueues a workflow. The activity re-checks both as
-    # the source of truth.
-    team = saved_query.team
-    if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
-        return
-    if team.organization.is_ai_data_processing_approved is not True:
+    if not enrichment_gates_pass(saved_query):
         return
 
     # The serializer saves inside transaction.atomic(), so dispatch must wait for commit; on_commit runs

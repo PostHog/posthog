@@ -52,11 +52,19 @@ def _view_enrichment_needed(node) -> tuple[bool, str | None]:
     if node is None or node.saved_query_id is None:
         return False, None
     try:
-        from products.data_modeling.backend.facade.api import compute_enrichment_hash  # noqa: PLC0415
+        from products.data_modeling.backend.facade.api import (  # noqa: PLC0415
+            compute_enrichment_hash,
+            enrichment_gates_pass,
+        )
 
         saved_query = node.saved_query
-        needed = compute_enrichment_hash(saved_query) != saved_query.semantic_enrichment_hash
-        return needed, str(node.saved_query_id)
+        if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
+            return False, str(node.saved_query_id)
+        # Gate on the flag + AI-processing approval before enqueuing, so a disabled team's re-materialization
+        # never creates enrichment workflow work. The child activity re-checks both as the source of truth.
+        if not enrichment_gates_pass(saved_query):
+            return False, str(node.saved_query_id)
+        return True, str(node.saved_query_id)
     except Exception as e:
         capture_exception(e)
         return False, str(node.saved_query_id)
