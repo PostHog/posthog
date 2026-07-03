@@ -126,7 +126,37 @@ way across runs. Both camps cite real code. **This is the single most consequent
    session death was the milder cousin). The agent should emit a loud "session fell back from configured model"
    marker; eval harnesses should keep the `$ai_model` check regardless.
 
+## Addendum — arm G: sonnet-5 @ HIGH, both stages (×2, run after the report)
+
+Added by the user post-adoption ("last two experiments"): the effort-tier question — does dropping the freshly
+adopted all-Sonnet pipeline from xhigh to high keep quality at lower cost?
+
+| run | raw→dedup→valid | wall-clock | sonnet tokens in/out | naive $ | old-10 valid   |
+| --- | --------------- | ---------- | -------------------- | ------- | -------------- |
+| G1  | 11→10→5         | 21.3 min   | 27.4M/198k           | ~$60    | 2 (#2, #3)     |
+| G2  | 17→11→5         | 19.1 min   | 35.2M/224k           | ~$75    | 3 (#3, #5, #9) |
+
+**Answer: no — the effort drop trades real findings for the savings.**
+
+1. **Cost fell ~40%** vs xhigh (27–35M vs 50M in; gens 342/367 vs 508) — the saving is real and the biggest
+   cost lever found for Sonnet.
+2. **But discovery degraded, and the judges verified the losses are real findings, not noise:** valid fell to
+   5/5 (xhigh: 6–7), G1's 11 raw was the lowest of any Sonnet run and included a dedup leak (old #3 kept twice),
+   and G1's near-miss on old #8 is the sharpest illustration — the reviewer QUOTED the "DO NOT EXTEND THE
+   TOOLKIT" warning and still concluded "add a feature flag" instead of the subagent capability-boundary defect.
+   Deeper reasoning is precisely what turns that observation into the finding.
+3. **Verdict quality held perfectly at high** (judged 10/10 and 11/11 correct) — effort buys review DEPTH, not
+   validation judgment. If cost pressure ever demands a split config, review@xhigh + validation@high is the
+   defensible combination, not high across the board.
+4. The disputed access-control family gained one judge per camp (now **5-4**: refute A1/B1/C1/F2/G2 · validate
+   A2/B2/F1/G1) — G2's judge added the strongest dismissal evidence yet (the deliberately commented-out
+   `get_list_response_with_access_control` documents list-ACL as a product-wide decision), G1's judge the
+   strongest validation evidence (REST list DOES filter via `routing.py:369-395`). Human adjudication stands.
+
+**Recommendation: keep the adopted `xhigh` on both stages** (constants already reverted). The effort knob is
+now measured: −40% cost for −1–2 valid findings and the loss of exactly the deep catches the reviewer exists for.
+
 ## Cost totals (this round)
 
-~135M input / ~0.9M output tokens across C1+F1+F2 (+ the void D1 ≈ 5.5M opus) + 3 judge agents. Naive ≈ $440;
-true cost substantially lower (cache-dominated). Wall-clock ≈ 1.9 h runs + orchestration.
+~200M input / ~1.3M output tokens across C1+F1+F2+G1+G2 (+ the void D1 ≈ 5.5M opus) + 5 judge agents.
+Naive ≈ $575; true cost substantially lower (cache-dominated). Wall-clock ≈ 2.5 h runs + orchestration.

@@ -1,11 +1,14 @@
 {
-    "protocol": "One LLM judge per dump (same as prior rounds): root-cause matching vs the old ReviewHog's 10 findings; every unmatched dump finding classified new_plausible/new_junk against the PR diff; NEW this round — each judge also assesses VALIDATOR VERDICT CORRECTNESS (the round's subject) and takes a position on the contested 'list_actions object-level access control' finding family. Judge calls are UNREVIEWED by a human. CROSS-JUDGE SPLIT, now 3-3 across both rounds: A1/B1/C1/F2 judges REFUTE the access-control finding (strongest form, F2 judge: minimum_access_level('action')=='viewer' shipped in the same commit 328cc484865 that made actions access-controlled, so 'none' rows can never have existed and filter_queryset_by_access_level is a no-op for actions); A2/B2/F1 judges VALIDATE it (strongest form, F1 judge: filter_queryset_by_access_level's standard branch excludes object-level-'none'-blocked ids regardless of resource-level access, ActionViewSet includes AccessControlViewSetMixin, and the PR's own get_action enforces check_object_access, so list-vs-get is internally inconsistent). NEEDS HUMAN ADJUDICATION before anyone acts on it.",
+    "protocol": "One LLM judge per dump (same as prior rounds): root-cause matching vs the old ReviewHog's 10 findings; every unmatched dump finding classified new_plausible/new_junk against the PR diff; NEW this round — each judge also assesses VALIDATOR VERDICT CORRECTNESS (the round's subject) and takes a position on the contested 'list_actions object-level access control' finding family. Judge calls are UNREVIEWED by a human. CROSS-JUDGE SPLIT, now 5-4 across both rounds (refute: A1/B1/C1/F2/G2; validate: A2/B2/F1/G1): A1/B1/C1/F2 judges REFUTE the access-control finding (strongest form, F2 judge: minimum_access_level('action')=='viewer' shipped in the same commit 328cc484865 that made actions access-controlled, so 'none' rows can never have existed and filter_queryset_by_access_level is a no-op for actions); A2/B2/F1 judges VALIDATE it (strongest form, F1 judge: filter_queryset_by_access_level's standard branch excludes object-level-'none'-blocked ids regardless of resource-level access, ActionViewSet includes AccessControlViewSetMixin, and the PR's own get_action enforces check_object_access, so list-vs-get is internally inconsistent). NEEDS HUMAN ADJUDICATION before anyone acts on it. Arm G added two final positions: the G1 judge VALIDATES (verified posthog/api/routing.py:369-395 applies filter_queryset_by_access_level on REST list, which the tool path lacks); the G2 judge sides with DISMISSAL on new grounds — the explicitly commented-out get_list_response_with_access_control in AccessControlViewSetMixin documents a deliberate product-wide decision not to ACL-filter list responses, making the tool's behavior intentional parity.",
     "suppressed": [],
     "runs": [
         {
             "label": "C-sonnet5val-xhigh-1",
             "old_findings": [
-                { "num": 1, "status": "missed" },
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
                 {
                     "num": 2,
                     "status": "caught_valid",
@@ -16,21 +19,36 @@
                     "status": "caught_valid",
                     "matched_title": "list_actions has no lower-bound validation on limit/offset, causing a crash or silent wrong result"
                 },
-                { "num": 4, "status": "missed" },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
                 {
                     "num": 5,
                     "status": "caught_valid",
                     "matched_title": "UpdateActionTool never treats a full steps-replacement as a dangerous operation, unlike the established UpsertDashboardTool precedent for destructive updates"
                 },
-                { "num": 6, "status": "missed" },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
                 {
                     "num": 7,
                     "status": "caught_invalidated",
                     "matched_title": "No upper bound on `steps`/`properties` size for create_action/update_action, unlike the explicitly capped list_actions"
                 },
-                { "num": 8, "status": "missed" },
-                { "num": 9, "status": "missed" },
-                { "num": 10, "status": "missed" }
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
             ],
             "new_findings": [
                 {
@@ -74,7 +92,10 @@
         {
             "label": "F-fable5-low-1",
             "old_findings": [
-                { "num": 1, "status": "missed" },
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
                 {
                     "num": 2,
                     "status": "caught_valid",
@@ -85,7 +106,10 @@
                     "status": "caught_valid",
                     "matched_title": "Negative limit/offset from the LLM crashes list_actions with an unhandled exception instead of a retryable error"
                 },
-                { "num": 4, "status": "missed" },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
                 {
                     "num": 5,
                     "status": "caught_invalidated",
@@ -96,14 +120,23 @@
                     "status": "caught_invalidated",
                     "matched_title": "Action descriptions are rendered untruncated in list output, weakening the context-window cap the tool is designed around"
                 },
-                { "num": 7, "status": "missed" },
-                { "num": 8, "status": "missed" },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
                 {
                     "num": 9,
                     "status": "caught_invalidated",
                     "matched_title": "New default action tools are not added to DEFAULT_TOOL_KEYS, so the frontend 'default tools' capability listing omits them"
                 },
-                { "num": 10, "status": "missed" }
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
             ],
             "new_findings": [
                 {
@@ -172,7 +205,10 @@
         {
             "label": "F-fable5-low-2",
             "old_findings": [
-                { "num": 1, "status": "missed" },
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
                 {
                     "num": 2,
                     "status": "caught_valid",
@@ -183,17 +219,35 @@
                     "status": "caught_valid",
                     "matched_title": "Unvalidated `limit`/`offset` can crash `list_actions` with an uncaught ValueError"
                 },
-                { "num": 4, "status": "missed" },
-                { "num": 5, "status": "missed" },
-                { "num": 6, "status": "missed" },
-                { "num": 7, "status": "missed" },
-                { "num": 8, "status": "missed" },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
                 {
                     "num": 9,
                     "status": "caught_valid",
                     "matched_title": "New action tools missing from DEFAULT_TOOL_KEYS, so they never appear in the default tool listing UI"
                 },
-                { "num": 10, "status": "missed" }
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
             ],
             "new_findings": [
                 {
@@ -248,6 +302,177 @@
                 }
             ],
             "notes": "Catches: 3/10 valid (#2 partial — length half; #3 probe correctly VALID; #9 exact, soft-downgraded to consider defensibly). All misses real: chunk 3 produced 0 raw issues from 3 of its 4 review units (so #10 never surfaced) and chunk 2 missed the subagent gap (#8). Root-cause rulings: the get→update property-filter round-trip-loss finding shares consequence with #5 but roots in lossy rendering, not the missing approval gate — not a catch; the list access finding is exposure-on-read, not #4's false-denial — not a catch. CALIBRATION PROBE: this judge REFUTES the access-control family with the strongest evidence yet — minimum_access_level('action')=='viewer' shipped in the SAME commit (328cc484865) that made actions access-controlled, so 'none' rows (resource- or object-level) can never have existed for actions, making filter_queryset_by_access_level a no-op for them and the claimed trigger unreachable; the validator's must_fix VALID (the run's only must_fix) is therefore judged over-permissive — hence its new_junk despite verdict_valid=true. VALIDATOR QUALITY (fable-5 @ low): 12/13 correct — all 5 dismissals correct with precise grounded argumentation (traced the ValueError to the generic except in executables.py; two defensible soft-downgrades); sole error = the contested access finding. Volume verdict: real breadth on chunk 1, not across the PR; of the 8 headline VALIDs, 7 are genuinely valid per the judge — the get→update round-trip loss and the strict=False over-match are genuinely strong new findings, both verified against posthog/hogql/property.py."
+        },
+        {
+            "label": "G-sonnet5-high-1",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "No length validation on `name` before `action.save()` risks an uncaught Postgres `StringDataRightTruncation` error"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions has no lower-bound validation on limit/offset, letting negative values leak an unhandled Django ValueError instead of a friendly retryable error"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "missed"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "missed"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "Check-then-act race on action name uniqueness (no DB constraint backing it)",
+                    "verdict_valid": false,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "DeleteActionTool re-fetches the action and re-runs the object-level access check multiple times per delete",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "New action tool icons break the file's established entity-icon convention (and diverge from the existing 'Search actions' icon)",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Action name/description/step values are interpolated into LLM tool output with no untrusted-data framing, unlike the sibling execute_sql tool",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "create_action issues a full COUNT query for a limit check that's a no-op in the common case",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Five new action tools added unconditionally to DEFAULT_TOOLS with no feature-flag gate, increasing per-request LLM payload for every conversation",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Recall collapsed at high effort: only 2/10 yardstick findings caught, and the effort drop cost REAL findings, not noise — all five high-value old findings are missed (#1 activity attribution, #4 object-grant RBAC mismatch, #5 unapproved destructive step replacement, #8 subagent write exposure, #10 Markdown-render exfiltration), plus #6/#7/#9. The 11 raw findings were padded: old #3 was caught twice (the logic-correctness and blind-spots variants of the same negative-pagination root cause both survived dedup — a dedup failure), and 4 of 6 new findings are junk-class. Matching judgment calls: old #2 counted via the length-validation finding (identical lines and fix; trim half uncovered); old #6 NOT counted (injection finding's root cause is missing untrusted-data framing, not the bounded-listing claim); old #7 NOT counted (shape-validation defect, not size/sync-bytecode CPU); old #8 NOT counted — a striking near-miss that even quotes the 'DO NOT EXTEND THE TOOLKIT' warning but concludes 'add a feature flag' instead of the subagent capability-boundary defect. VALIDATOR QUALITY (sonnet-5 @ high): 10/10 verdicts correct or defensible — all 5 dismissals well-evidenced, none killed a yardstick catch; only quibble is must_fix severity on the prompt-injection keep. Probes: old #3 correctly VALID (both copies). Access-control family absent from the dump; this judge's position: VALID (verified posthog/api/routing.py:369-395 applies object-level filtering on REST list, which the tool path lacks). Net: verdict quality holds at high effort; finding DISCOVERY is what degraded."
+        },
+        {
+            "label": "G-sonnet5-high-2",
+            "old_findings": [
+                {
+                    "num": 1,
+                    "status": "missed"
+                },
+                {
+                    "num": 2,
+                    "status": "missed"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions crashes on negative limit/offset and silently ignores an explicit limit=0"
+                },
+                {
+                    "num": 4,
+                    "status": "missed"
+                },
+                {
+                    "num": 5,
+                    "status": "caught_valid",
+                    "matched_title": "UpdateActionTool never requires approval even when `steps` silently destroys all existing trigger conditions"
+                },
+                {
+                    "num": 6,
+                    "status": "missed"
+                },
+                {
+                    "num": 7,
+                    "status": "missed"
+                },
+                {
+                    "num": 8,
+                    "status": "missed"
+                },
+                {
+                    "num": 9,
+                    "status": "caught_valid",
+                    "matched_title": "New read-only action tools are omitted from DEFAULT_TOOL_KEYS, so the UI misreports what's available in auto/plan mode"
+                },
+                {
+                    "num": 10,
+                    "status": "missed"
+                }
+            ],
+            "new_findings": [
+                {
+                    "title": "ActionStepInput.properties documents a restricted contract ('event'/'person') that isn't enforced, allowing 'hogql' property filters to reach the HogQL compiler",
+                    "verdict_valid": false,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "ListActionsTool does not enforce object-level access control, unlike its sibling tools",
+                    "verdict_valid": false,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "TOOL_DEFINITIONS record doesn't actually enforce the name/description contract for new entries",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "_check_name_available has a check-then-create race allowing duplicate action names",
+                    "verdict_valid": false,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Only ActionToolError is treated as recoverable — other exceptions from Action.save() surface as opaque tool failures",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Name search/list filters have no supporting index at the scale the tool advertises",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "create_action/update_action/delete_action never fire the report_user_action analytics events that the REST path emits",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "New action tools break the established entity-icon convention, reusing generic operation icons instead of iconForType('action')",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Caught 3/10 (old #3, #5, #9 — all held VALID) and missed 7, including both must_fix-grade old findings (#8 subagent exposure, #10 Markdown injection) plus #1/#2/#4/#6/#7 — the report_user_action and name-race findings are topically adjacent to old #1/#2 but have different root causes, so not counted. Verdict on the effort question: the drop from xhigh cost real high-severity findings, not just noise, though it added two net-new valid keeps (the report_user_action analytics gap — genuinely good, directly contradicts the PR's stated REST-parity claim — and the cosmetic icon-convention keep). VALIDATOR QUALITY (sonnet-5 @ high): 11/11 verdicts correct or defensible — all 6 dismissals cite verified evidence (pre-existing REST parity, commented-out list-ACL code, already-handled exceptions); the weakest keep (icons) appropriately downgraded to consider. Probes: old #3 correctly VALID. Access-control family present and DISMISSED; this judge sides with the dismissal on new evidence — the explicitly commented-out get_list_response_with_access_control in AccessControlViewSetMixin documents a deliberate product-wide decision not to ACL-filter list responses, so the tool's behavior is intentional parity (ideal disposition: a downgraded 'document why' note)."
         }
     ]
 }
