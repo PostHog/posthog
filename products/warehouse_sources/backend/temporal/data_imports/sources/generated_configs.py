@@ -2469,7 +2469,8 @@ class PhylloSourceConfig(config.Config):
 
 @config.config
 class PicqerSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key: str
 
 
 @config.config
