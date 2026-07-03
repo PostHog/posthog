@@ -5,7 +5,7 @@ import { Group, ProjectId, TeamId } from '~/types'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { RaceConditionError } from '~/common/utils/utils'
 
-import { BatchWritingGroupStore } from './batch-writing-group-store'
+import { BatchWritingGroupStore, BatchWritingGroupStoreComponent } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
@@ -500,6 +500,23 @@ describe('BatchWritingGroupStore', () => {
 
             groupStore.releaseBatch(1)
             expect(groupStore.getGroupCache().getSize()).toBe(0)
+        })
+    })
+
+    describe('BatchWritingGroupStoreComponent', () => {
+        it('stop() swallows the dirty-cache shutdown error so scope teardown continues', async () => {
+            const { value: store, stop } = await new BatchWritingGroupStoreComponent(
+                mockOutputs,
+                groupRepository,
+                clickhouseGroupRepository
+            ).start()
+
+            // Leaves a dirty entry (needsWrite) without flushing.
+            await store.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+
+            // The store's own shutdown() throws on a dirty cache; the component
+            // must log and resolve so a real drain bug doesn't break teardown.
+            await expect(stop()).resolves.toBeUndefined()
         })
     })
 
