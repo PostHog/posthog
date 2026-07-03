@@ -56,11 +56,15 @@ impl RemoteStaging {
                     self.extractor_type.clone(),
                     self.max_plaintext_bytes,
                 );
-                let size = self.backend.stage_part(key, stream).await?;
+                let result = self.backend.stage_part(key, stream).await;
+                // The `.raw` is single-use: on success its bytes now live remotely; on
+                // failure the retry re-downloads from origin (the backend has no object,
+                // so prepare_key won't attach). Remove it either way so a failed or paused
+                // job doesn't hold staging disk or trip the staging guard on resume.
                 if let Err(e) = tokio::fs::remove_file(&raw).await {
                     warn!("Failed to remove staged raw file {}: {e}", raw.display());
                 }
-                Ok(size)
+                result
             }
         }
     }

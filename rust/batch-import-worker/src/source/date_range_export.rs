@@ -1852,6 +1852,13 @@ mod remote_staging_tests {
         );
         // Failed-stage atomicity: no readable object was published.
         assert_eq!(src.size(key).await.unwrap(), None);
+        // And the downloaded .raw is not left behind on the failure path (a paused job
+        // must not hold staging disk while awaiting resume).
+        assert_eq!(
+            count_raw_files_in(staging.path()),
+            0,
+            "a failed stage must not leak the downloaded .raw"
+        );
     }
 
     #[tokio::test]
