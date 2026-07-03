@@ -51,6 +51,10 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
     SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
     SurfacingScoringMetricsInterceptor,
 )
+from posthog.temporal.usage_report.metrics import (
+    USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
+    USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
@@ -301,6 +305,7 @@ async def create_worker(
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
                 EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,

@@ -37,6 +37,8 @@ export interface TimeSeriesBarChartConfig {
     showCrosshair?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
     showAxisLines?: boolean
+    /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
+    showTickMarks?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
@@ -86,6 +88,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barCornerRadius,
         showCrosshair,
         showAxisLines,
+        showTickMarks,
         tooltip: tooltipConfig,
         divergingStack,
         fillStyle,
@@ -121,6 +124,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid,
         showAxisLines,
+        showTickMarks,
         barLayout,
         axisOrientation,
         showCrosshair,

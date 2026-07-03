@@ -1675,7 +1675,8 @@ class SessionRecordingViewSet(
         return sse_streaming_response(
             self._generate_video_based_summary(
                 session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
-            )
+            ),
+            endpoint="session_recording_summary",
         )
 
     @extend_schema(exclude=True)

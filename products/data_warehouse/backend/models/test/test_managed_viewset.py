@@ -5,8 +5,15 @@ from django.db import IntegrityError
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.data_modeling.backend.models import DAG, REVENUE_ANALYTICS_DAG_NAME, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    REVENUE_ANALYTICS_DAG_NAME,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

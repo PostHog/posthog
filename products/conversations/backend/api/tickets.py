@@ -31,7 +31,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -1264,7 +1264,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1275,6 +1277,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1318,6 +1321,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 
