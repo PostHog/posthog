@@ -21,7 +21,7 @@ def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> st
     return f"JSONHas({column}, {args})"
 
 
-def compile_hogql_predicate(obj) -> tuple[str, dict]:
+def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -36,6 +36,11 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     lightweight DELETE: ClickHouse rewrites it into a mutation whose expression
     analyzer rejects table-qualified references like ``sharded_events.mat_$current_url``
     even when the column exists on every replica.
+
+    ``use_new_events_schema`` compiles property access for the native-JSON events tables
+    (``events_json`` / ``sharded_events_json``) — JSON subcolumn reads instead of
+    JSONExtract/materialized-column reads. Deletions target both physical events tables, so
+    callers compile one fragment per table.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -101,7 +106,7 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
             predicate,
             context,
             dialect="clickhouse",
-            events_table_use_new_schema=False,
+            events_table_use_new_schema=use_new_events_schema,
         )
     except ImportError:
         # A failed import means the runtime environment is broken (e.g. a Dagster worker that
@@ -181,18 +186,19 @@ def event_match_params(obj) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def event_removal_where(obj) -> tuple[str, dict]:
+def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
     when ``delete_all_events`` is set), and any compiled HogQL predicate. The
     compiled HogQL fragment uses unqualified column references, so the result
     is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree.
+    proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
+    when the query targets the native-JSON events tables.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
     params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
@@ -465,13 +471,19 @@ class DataDeletionRequest(UUIDModel):
 
 
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
-    """Count events still matching an event-removal request's criteria in ClickHouse."""
+    """Count events still matching an event-removal request's criteria in ClickHouse.
+
+    Counts across every events read table (legacy and native-JSON) — a request is only complete
+    once its events are gone from all of them.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
+    from posthog.models.event.deletion import events_read_tables_via_sync_execute
+    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
-    predicate, params = event_removal_where(request)
+    total = 0
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -479,16 +491,21 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
-        result = sync_execute(
-            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
+        for table in events_read_tables_via_sync_execute():
+            predicate, params = event_removal_where(
+                request, use_new_events_schema=table == DISTRIBUTED_EVENTS_JSON_TABLE
+            )
+            # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+            result = sync_execute(
+                f"SELECT count() FROM {table} WHERE {predicate} AND _row_exists = 1",
+                params,
+                team_id=request.team_id,
+                readonly=True,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.META,
+            )
+            total += int(result[0][0]) if result else 0
+    return total
 
 
 @dataclass

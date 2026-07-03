@@ -1,4 +1,5 @@
 import re
+from functools import cache
 
 from django.conf import settings
 
@@ -223,8 +224,37 @@ def PERSON_PROPERTIES_JSON_TYPE() -> str:
     return _json_column_type(6, 32, PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
+def json_property_presence_expr(column: str, prop: str) -> str:
+    """SQL predicate testing whether a (possibly dotted) property path is present in a native-JSON
+    events column, for deletion/mutation predicates that run against the JSON events tables.
+
+    Mirrors the HogQL resolver's JSONHas lowering: a typed subcolumn is present when non-null; a
+    dynamic path is present when its scalar read is non-null or its sub-object read is non-empty.
+    ClickHouse's JSONHas() cannot be used directly on a JSON-typed column — it does not see typed
+    paths or nested objects there.
+    """
+    if column not in ("properties", "person_properties"):
+        raise ValueError(f"unsupported JSON events column: {column}")
+    subcolumns = EVENTS_PROPERTIES_JSON_SUBCOLUMNS if column == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    parts = prop.split(".")
+    column_sql = _escape_clickhouse_identifier(column)
+    path_sql = ".".join(_escape_clickhouse_identifier(part) for part in parts)
+    scalar = f"{column_sql}.{path_sql}"
+    if len(parts) == 1 and prop in subcolumns:
+        return f"isNotNull({scalar})"
+    if parts[0] in subcolumns:
+        # Typed subcolumns are scalar; nothing can be nested beneath them.
+        return "0"
+    sub_object = f"{column_sql}.^{path_sql}"
+    return f"(isNotNull({scalar}) OR toJSONString({sub_object}) != '{{}}')"
+
+
 def TRUNCATE_EVENTS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def TRUNCATE_EVENTS_JSON_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_EVENTS_TABLE_SQL():
@@ -397,11 +427,11 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     elements_chain String,
     person_id UUID,
     person_properties {person_properties_json_type},
-    group0_properties String CODEC(Default),
-    group1_properties String CODEC(Default),
-    group2_properties String CODEC(Default),
-    group3_properties String CODEC(Default),
-    group4_properties String CODEC(Default),
+    group0_properties String CODEC(ZSTD(3)),
+    group1_properties String CODEC(ZSTD(3)),
+    group2_properties String CODEC(ZSTD(3)),
+    group3_properties String CODEC(ZSTD(3)),
+    group4_properties String CODEC(ZSTD(3)),
     person_created_at DateTime64(3),
     group0_created_at DateTime64(3),
     group1_created_at DateTime64(3),
@@ -499,7 +529,7 @@ def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:
         "INDEX `minmax_mat_$exception_sources` properties.`$exception_sources` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$exception_functions` properties.`$exception_functions` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1",
-        "INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE bloom_filter GRANULARITY 1",
+        "INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1",
         "INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1",
         "INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1",
         "INDEX `bloom_filter_$ai_trace_id` properties.`$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2",
@@ -519,6 +549,7 @@ def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:
     return "    , " + "\n    , ".join(indexes)
 
 
+@cache
 def EVENTS_JSON_INDEXED_PROPERTY_NAMES(field_name: str, index_type: str) -> frozenset[str]:
     indexed_property_names: set[str] = set()
     column_pattern = re.compile(
@@ -723,12 +754,27 @@ FROM {database}.{kafka_table}
     )
 
 
+def _poison_safe_json_cast(column: str, fallback_key: str) -> str:
+    """Cast a String properties payload to the JSON column type without ever throwing.
+
+    The JSON type's parser rejects some payloads that are valid JSON — notably integers outside
+    [-2^63, 2^64) fail with INCORRECT_DATA. A throwing cast inside a Kafka materialized view is a
+    poison message: kafka_skip_broken_messages only covers format parsing, so the consumer would
+    retry the same block forever and stall ingestion for the whole table. Unparseable payloads are
+    instead preserved verbatim under a single string property so they can be repaired later.
+    """
+    return (
+        f"ifNull(accurateCastOrNull({column}, 'JSON'), "
+        f"CAST(concat('{{\"{fallback_key}\":', toJSONString({column}), '}}'), 'JSON')) AS {column}"
+    )
+
+
 # Dual-write materialized view that writes events into the native-JSON schema
 # (writable_events_json). It reads from a dedicated Kafka consumer group so JSON-table retries do not
 # replay legacy writes through events_json_mv. The string properties/person_properties payloads are
-# implicitly cast to the destination JSON columns on insert. Unlike the legacy MV this does not
-# project the dmat_string_* columns — they don't exist on the JSON table, whose property reads come
-# from JSON subcolumns instead.
+# cast to the destination JSON columns via a poison-safe cast (see _poison_safe_json_cast). Unlike the
+# legacy MV this does not project the dmat_string_* columns — they don't exist on the JSON table,
+# whose property reads come from JSON subcolumns instead.
 def EVENTS_JSON_TABLE_MV_SQL(
     mv_name="events_json_table_mv",
     kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -744,7 +790,7 @@ TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
-properties,
+{properties_expr},
 timestamp,
 team_id,
 distinct_id,
@@ -752,7 +798,7 @@ elements_chain,
 created_at,
 person_id,
 person_created_at,
-person_properties,
+{person_properties_expr},
 group0_properties,
 group1_properties,
 group2_properties,
@@ -781,6 +827,8 @@ FROM {database}.{kafka_table}
         target_table=target_table,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
+        properties_expr=_poison_safe_json_cast("properties", "$unparseable_properties"),
+        person_properties_expr=_poison_safe_json_cast("person_properties", "$unparseable_properties"),
     )
 
 

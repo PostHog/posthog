@@ -2,6 +2,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import partial
 
 from django.conf import settings as django_settings
 
@@ -36,7 +37,8 @@ from posthog.models.data_deletion_request import (
     jsonhas_expr,
     verify_queued_request,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.deletion import events_data_tables
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE, json_property_presence_expr
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -119,6 +121,15 @@ def _property_filter_clause(props: list[str], prefix: str = "fp_", column: str =
     return f"({' OR '.join(exprs)})"
 
 
+def _json_property_filter_clause(props: list[str], column: str = "properties") -> str:
+    """Presence clause for the native-JSON events tables, where JSONHas over the JSON column does
+    not see typed paths or nested objects — subcolumn reads are the reliable form."""
+    exprs = [json_property_presence_expr(column, prop) for prop in props]
+    if len(exprs) == 1:
+        return exprs[0]
+    return f"({' OR '.join(exprs)})"
+
+
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
     params: dict[str, str] = {}
     for i, prop in enumerate(props):
@@ -167,6 +178,7 @@ def _property_removal_where(
     person_mat_cols: list[tuple[str, bool]] | None = None,
     inserted_at_max: str | None = None,
     hogql_compiled: tuple[str, dict] | None = None,
+    json_schema: bool = False,
 ) -> tuple[str, dict]:
     """Full WHERE predicate + params for property-removal queries.
 
@@ -194,12 +206,18 @@ def _property_removal_where(
     """
     presence_clauses: list[str] = []
     if ctx.properties:
-        presence_clauses.append(_property_filter_clause(ctx.properties))
+        presence_clauses.append(
+            _json_property_filter_clause(ctx.properties, column="properties")
+            if json_schema
+            else _property_filter_clause(ctx.properties)
+        )
     if mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
     if ctx.person_properties:
         presence_clauses.append(
-            _property_filter_clause(ctx.person_properties, prefix="pp_", column="person_properties")
+            _json_property_filter_clause(ctx.person_properties, column="person_properties")
+            if json_schema
+            else _property_filter_clause(ctx.person_properties, prefix="pp_", column="person_properties")
         )
     if person_mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(person_mat_cols))
@@ -379,29 +397,35 @@ def _run_immediate_event_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    table = EVENTS_DATA_TABLE()
+    tables = events_data_tables(cluster)
     shards = sorted(cluster.shards)
 
-    context.log.info(f"Starting immediate event deletion across {len(shards)} shards on table {table}")
+    context.log.info(f"Starting immediate event deletion across {len(shards)} shards on tables {tables}")
 
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
-
-        predicate, parameters = event_removal_where(deletion_request)
-        runner = LightweightDeleteMutationRunner(
-            table=table,
-            predicate=predicate,
-            parameters=parameters,
-            settings={"lightweight_deletes_sync": 0},
+    for table in tables:
+        # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
+        # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
+        predicate, parameters = event_removal_where(
+            deletion_request, use_new_events_schema=table == EVENTS_JSON_DATA_TABLE
         )
 
-        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
-        _host, mutation_waiter = next(iter(shard_result.items()))
-        cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
+        for idx, shard_num in enumerate(shards, 1):
+            context.log.info(f"Processing {table} shard {shard_num} ({idx}/{len(shards)})")
+            shard_start = time.monotonic()
 
-        elapsed = time.monotonic() - shard_start
-        context.log.info(f"Shard {shard_num} complete in {elapsed:.1f}s")
+            runner = LightweightDeleteMutationRunner(
+                table=table,
+                predicate=predicate,
+                parameters=parameters,
+                settings={"lightweight_deletes_sync": 0},
+            )
+
+            shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+            _host, mutation_waiter = next(iter(shard_result.items()))
+            cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
+
+            elapsed = time.monotonic() - shard_start
+            context.log.info(f"{table} shard {shard_num} complete in {elapsed:.1f}s")
 
     context.add_output_metadata(
         {"mode": dagster.MetadataValue.text("immediate"), "shards_processed": dagster.MetadataValue.int(len(shards))}
@@ -413,6 +437,9 @@ def _queue_events_for_deferred_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
+    # Reading candidates from the legacy table only is fine: the queue holds (team_id, uuid)
+    # pairs and event UUIDs are identical across the legacy and native-JSON tables, so the
+    # deletes_job drain applies them to both.
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
@@ -567,8 +594,6 @@ def process_property_removal_per_shard(
     """
     from django.utils import timezone
 
-    source = EVENTS_DATA_TABLE()
-    temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
@@ -579,15 +604,34 @@ def process_property_removal_per_shard(
     # with a truncated inserted_at and the originals-delete predicate to mismatch by sub-second
     # offsets. Passing as ISO string and casting in SQL preserves the full precision.
     marker_str = marker.strftime("%Y-%m-%d %H:%M:%S.%f")
+    base_temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     # HogQL compilation reaches into the Django ORM (Team lookup); compile once on the main
     # thread before dispatching per-shard work, otherwise the worker thread's DB connection
-    # may not see the request/test transaction.
-    hogql_compiled = compile_hogql_predicate(deletion_request)
+    # may not see the request/test transaction. Compiled per target schema: property access
+    # lowers differently on the legacy and native-JSON tables.
+    targets: list[tuple[str, str, bool, tuple[str, dict]]] = [
+        (EVENTS_DATA_TABLE(), base_temp, False, compile_hogql_predicate(deletion_request)),
+    ]
+    if EVENTS_JSON_DATA_TABLE in events_data_tables(cluster):
+        targets.append(
+            (
+                EVENTS_JSON_DATA_TABLE,
+                f"{base_temp}_json",
+                True,
+                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
+            )
+        )
 
     def _flatten_sql(sql: str) -> str:
         return " ".join(sql.split())
 
-    def process_shard(client: Client) -> dict:
+    def process_shard(
+        client: Client,
+        source: str,
+        temp: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> dict:
         def log_query(label: str, sql: str) -> None:
             context.log.info(f"[{label}] {_flatten_sql(sql)}")
 
@@ -595,16 +639,18 @@ def process_property_removal_per_shard(
             log_query(label, sql)
             return client.execute(sql, params, settings=settings)
 
+        # Materialized columns only exist on the legacy table; the JSON table reads properties
+        # through JSON subcolumns.
         affected_mat_cols = (
             _get_affected_mat_columns(client, "events", properties, table_column="properties", log=log_query)
-            if properties
+            if properties and not json_schema
             else []
         )
         affected_person_mat_cols = (
             _get_affected_mat_columns(
                 client, "events", person_properties, table_column="person_properties", log=log_query
             )
-            if person_properties
+            if person_properties and not json_schema
             else []
         )
         context.log.info(
@@ -619,6 +665,7 @@ def process_property_removal_per_shard(
             mat_cols=affected_mat_cols,
             person_mat_cols=affected_person_mat_cols,
             hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
         )
         execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
         execute(
@@ -631,11 +678,15 @@ def process_property_removal_per_shard(
 
         update_parts: list[str] = []
         mutation_params: dict = {"inserted_at_marker": marker_str}
+        # On the JSON table the column must round-trip through a string: serialize, drop the
+        # keys, and let the assignment cast the cleaned string back to the JSON column type.
         if properties:
-            update_parts.append("properties = JSONDropKeys(%(keys)s)(properties)")
+            properties_read = "toJSONString(properties)" if json_schema else "properties"
+            update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
             mutation_params["keys"] = properties
         if person_properties:
-            update_parts.append("person_properties = JSONDropKeys(%(person_keys)s)(person_properties)")
+            person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
+            update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")
             mutation_params["person_keys"] = person_properties
         # Cast to DateTime64(6) so microseconds survive the parameter binding —
         # mirrors the cast in the delete predicate so both sides agree on the marker.
@@ -657,10 +708,18 @@ def process_property_removal_per_shard(
 
         verify_clauses: list[str] = []
         if properties:
-            verify_clauses.append(_property_filter_clause(properties))
+            verify_clauses.append(
+                _json_property_filter_clause(properties, column="properties")
+                if json_schema
+                else _property_filter_clause(properties)
+            )
             verify_clauses.extend(_mat_col_presence_clauses(affected_mat_cols))
         if person_properties:
-            verify_clauses.append(_property_filter_clause(person_properties, prefix="pp_", column="person_properties"))
+            verify_clauses.append(
+                _json_property_filter_clause(person_properties, column="person_properties")
+                if json_schema
+                else _property_filter_clause(person_properties, prefix="pp_", column="person_properties")
+            )
             verify_clauses.extend(_mat_col_presence_clauses(affected_person_mat_cols))
         verify_predicate = f"({' OR '.join(verify_clauses)})" if len(verify_clauses) > 1 else verify_clauses[0]
         verify_params: dict = {**_property_filter_params(properties)}
@@ -688,6 +747,7 @@ def process_property_removal_per_shard(
             person_mat_cols=affected_person_mat_cols,
             inserted_at_max=marker_str,
             hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
         )
         delete_runner = LightweightDeleteMutationRunner(
             table=source,
@@ -714,17 +774,26 @@ def process_property_removal_per_shard(
         return {"copied": copied}
 
     shards = sorted(cluster.shards)
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
+    for source, temp, json_schema, hogql_compiled in targets:
+        for idx, shard_num in enumerate(shards, 1):
+            context.log.info(f"Processing {source} shard {shard_num} ({idx}/{len(shards)})")
+            shard_start = time.monotonic()
 
-        result = cluster.map_any_host_in_shards({shard_num: process_shard}).result()
-        _host, stats = next(iter(result.items()))
+            process_target_shard = partial(
+                process_shard,
+                source=source,
+                temp=temp,
+                json_schema=json_schema,
+                hogql_compiled=hogql_compiled,
+            )
+            result = cluster.map_any_host_in_shards({shard_num: process_target_shard}).result()
+            _host, stats = next(iter(result.items()))
 
-        elapsed = time.monotonic() - shard_start
-        context.log.info(
-            f"Shard {shard_num}: copied {stats['copied']} events, originals deleted, temp dropped in {elapsed:.1f}s"
-        )
+            elapsed = time.monotonic() - shard_start
+            context.log.info(
+                f"{source} shard {shard_num}: copied {stats['copied']} events, originals deleted, "
+                f"temp dropped in {elapsed:.1f}s"
+            )
 
     return deletion_request
 
@@ -842,24 +911,27 @@ def delete_person_events_op(
         context.log.info("No persons resolved; nothing to delete")
         return person_removal
 
-    table = EVENTS_DATA_TABLE()
+    # The predicate only references schema-agnostic columns (team_id, person_id, timestamp), so
+    # the same delete applies to both the legacy and native-JSON events tables.
+    tables = events_data_tables(cluster)
     predicate, params = _person_event_predicate(person_removal)
     shards = sorted(cluster.shards)
     context.log.info(f"Deleting events for {len(person_removal.person_uuids)} persons across {len(shards)} shards")
 
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
-        runner = LightweightDeleteMutationRunner(
-            table=table,
-            predicate=predicate,
-            parameters=params,
-            settings={"lightweight_deletes_sync": 0},
-        )
-        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
-        _host, waiter = next(iter(shard_result.items()))
-        cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
-        context.log.info(f"Shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
+    for table in tables:
+        for idx, shard_num in enumerate(shards, 1):
+            context.log.info(f"Processing {table} shard {shard_num} ({idx}/{len(shards)})")
+            shard_start = time.monotonic()
+            runner = LightweightDeleteMutationRunner(
+                table=table,
+                predicate=predicate,
+                parameters=params,
+                settings={"lightweight_deletes_sync": 0},
+            )
+            shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+            _host, waiter = next(iter(shard_result.items()))
+            cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
+            context.log.info(f"{table} shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
 
     context.add_output_metadata({"shards_processed": dagster.MetadataValue.int(len(shards))})
     return person_removal

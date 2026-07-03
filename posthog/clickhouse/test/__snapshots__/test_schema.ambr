@@ -1552,11 +1552,11 @@
       elements_chain String,
       person_id UUID,
       person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
-      group0_properties String CODEC(Default),
-      group1_properties String CODEC(Default),
-      group2_properties String CODEC(Default),
-      group3_properties String CODEC(Default),
-      group4_properties String CODEC(Default),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
       person_created_at DateTime64(3),
       group0_created_at DateTime64(3),
       group1_created_at DateTime64(3),
@@ -1647,7 +1647,7 @@
   AS SELECT
   uuid,
   event,
-  properties,
+  ifNull(accurateCastOrNull(properties, 'JSON'), CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')) AS properties,
   timestamp,
   team_id,
   distinct_id,
@@ -1655,7 +1655,7 @@
   created_at,
   person_id,
   person_created_at,
-  person_properties,
+  ifNull(accurateCastOrNull(person_properties, 'JSON'), CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')) AS person_properties,
   group0_properties,
   group1_properties,
   group2_properties,
@@ -6309,11 +6309,11 @@
       elements_chain String,
       person_id UUID,
       person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
-      group0_properties String CODEC(Default),
-      group1_properties String CODEC(Default),
-      group2_properties String CODEC(Default),
-      group3_properties String CODEC(Default),
-      group4_properties String CODEC(Default),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
       person_created_at DateTime64(3),
       group0_created_at DateTime64(3),
       group1_created_at DateTime64(3),
@@ -6417,7 +6417,7 @@
       , INDEX `minmax_mat_$exception_sources` properties.`$exception_sources` TYPE minmax GRANULARITY 1
       , INDEX `minmax_mat_$exception_functions` properties.`$exception_functions` TYPE minmax GRANULARITY 1
       , INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1
-      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1
       , INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1
       , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
       , INDEX `bloom_filter_$ai_trace_id` properties.`$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2
@@ -8532,11 +8532,11 @@
       elements_chain String,
       person_id UUID,
       person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
-      group0_properties String CODEC(Default),
-      group1_properties String CODEC(Default),
-      group2_properties String CODEC(Default),
-      group3_properties String CODEC(Default),
-      group4_properties String CODEC(Default),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
       person_created_at DateTime64(3),
       group0_created_at DateTime64(3),
       group1_created_at DateTime64(3),
@@ -10918,11 +10918,11 @@
       elements_chain String,
       person_id UUID,
       person_properties JSON(max_dynamic_types = 6, max_dynamic_paths = 32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String)),
-      group0_properties String CODEC(Default),
-      group1_properties String CODEC(Default),
-      group2_properties String CODEC(Default),
-      group3_properties String CODEC(Default),
-      group4_properties String CODEC(Default),
+      group0_properties String CODEC(ZSTD(3)),
+      group1_properties String CODEC(ZSTD(3)),
+      group2_properties String CODEC(ZSTD(3)),
+      group3_properties String CODEC(ZSTD(3)),
+      group4_properties String CODEC(ZSTD(3)),
       person_created_at DateTime64(3),
       group0_created_at DateTime64(3),
       group1_created_at DateTime64(3),
@@ -11026,7 +11026,7 @@
       , INDEX `minmax_mat_$exception_sources` properties.`$exception_sources` TYPE minmax GRANULARITY 1
       , INDEX `minmax_mat_$exception_functions` properties.`$exception_functions` TYPE minmax GRANULARITY 1
       , INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1
-      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE bloom_filter GRANULARITY 1
+      , INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1
       , INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1
       , INDEX `minmax_$session_id_uuid` toUInt128(toUUIDOrNull(properties.`$session_id`)) TYPE minmax GRANULARITY 1
       , INDEX `bloom_filter_$ai_trace_id` properties.`$ai_trace_id` TYPE bloom_filter(0.001) GRANULARITY 2

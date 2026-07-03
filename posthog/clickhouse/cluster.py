@@ -703,6 +703,24 @@ class MutationWaiter:
 
 
 @dataclass
+class MutationWaiters:
+    """Waits on several mutations as one unit — e.g. the same delete applied to the legacy and
+    native-JSON events tables."""
+
+    waiters: Sequence[MutationWaiter]
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
+    def is_done(self, client: Client) -> bool:
+        return all(waiter.is_done(client) for waiter in self.waiters)
+
+    def wait(self, client: Client) -> None:
+        for waiter in self.waiters:
+            waiter.wait(client)
+
+
+@dataclass
 class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)

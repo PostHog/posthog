@@ -1893,7 +1893,9 @@ def snapshot_clickhouse_queries(fn_or_class):
             fn_or_class(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query:
+            # system.columns / system.tables reads are schema bookkeeping (materialized-column
+            # discovery, events-table existence checks), not behavior worth snapshotting.
+            if "FROM system.columns" not in query and "FROM system.tables" not in query:
                 replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
