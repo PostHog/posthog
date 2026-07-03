@@ -64,7 +64,11 @@ export const experimentResultsNotificationLogic = kea<experimentResultsNotificat
             if (notify) {
                 cache.disposables.add(
                     () => {
-                        const handler = (e: BeforeUnloadEvent): void => e.preventDefault()
+                        const handler = (e: BeforeUnloadEvent): void => {
+                            e.preventDefault()
+                            // Legacy fallback (Chrome/Edge < 119); preventDefault is the modern trigger.
+                            e.returnValue = true
+                        }
                         window.addEventListener('beforeunload', handler)
                         return () => window.removeEventListener('beforeunload', handler)
                     },
