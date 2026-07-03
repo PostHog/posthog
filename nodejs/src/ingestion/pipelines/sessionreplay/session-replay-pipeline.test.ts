@@ -399,10 +399,10 @@ describe('session-replay-pipeline', () => {
             expect(offsets).toEqual(new Map([[0, 3]]))
         })
 
-        it('drops a session blocked in the resolve-key step but still tracks its offset', async () => {
-            // Block session-2 at the rate limiter. Unlike the restriction/parse drops above, this drop
-            // originates inside the batched resolve-key step, so it verifies that step's drop is wired
-            // into offset tracking the same way.
+        it('drops a rate-limited session before recording but still tracks its offset', async () => {
+            // Block session-2 at the rate limiter. The gate carries it through and the mark-seen step
+            // drops it; unlike the restriction/parse drops above, this verifies the session-key path's
+            // own drop is wired into offset tracking the same way.
             ;(sessionFilter.isBlocked as jest.Mock).mockImplementationOnce((sessions: SessionSet) => {
                 const map = new SessionMap<boolean>()
                 for (const { teamId, sessionId } of sessions) {

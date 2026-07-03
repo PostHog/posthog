@@ -1,6 +1,4 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
-import { Message } from 'node-rdkafka'
-
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
@@ -16,6 +14,7 @@ import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionre
 import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymize-step'
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
+import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
@@ -34,8 +33,8 @@ export function createMlMirrorReplayPipeline(
 ): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
-    { message: Message },
-    { message: Message },
+    MessageContext,
+    MessageContext,
     OverflowOutput
 > {
     const {
@@ -58,7 +57,7 @@ export function createMlMirrorReplayPipeline(
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
+    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
         .messageAware((b) =>
             b
                 .sequentially((b) =>
@@ -82,8 +81,9 @@ export function createMlMirrorReplayPipeline(
                     tries: 3,
                     sleepMs: 100,
                 })
-                // Track sessions and rate-limit/block new ones for the whole batch, tagging each with
-                // isNewSession; blocked sessions are dropped here, in their own retry scope.
+                // Track sessions and rate-limit new ones for the whole batch, tagging each with
+                // isNewSession and a gate verdict; blocked sessions are carried (not dropped) to the
+                // mark-seen step, all in this step's own retry scope.
                 .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     tries: 3,
                     sleepMs: 100,

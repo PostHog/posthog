@@ -1,4 +1,4 @@
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { PipelineResult, isOkResult } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
@@ -7,8 +7,6 @@ import { SessionReplayHeaders } from './pipeline-types'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-
-jest.mock('~/common/utils/logger', () => ({ logger: { debug: jest.fn() } }))
 
 // A hasSeen()/isBlocked() implementation that answers every queried session with the same value.
 const mapAll =
@@ -21,8 +19,14 @@ const mapAll =
         return Promise.resolve(map)
     }
 
+// Reads (isNewSession, blocked) off an ok result, or null if it isn't ok.
+const flags = (
+    result: PipelineResult<{ isNewSession: boolean; blocked: boolean }>
+): { isNewSession: boolean; blocked: boolean } | null =>
+    isOkResult(result) ? { isNewSession: result.value.isNewSession, blocked: result.value.blocked } : null
+
 describe('createTrackAndGateStep', () => {
-    let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'hasSeen' | 'markSeen'>>
+    let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'hasSeen'>>
     let mockSessionFilter: jest.Mocked<Pick<SessionFilter, 'handleNewSessions' | 'isBlocked'>>
 
     const element = (
@@ -55,25 +59,20 @@ describe('createTrackAndGateStep', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        mockSessionTracker = {
-            hasSeen: jest.fn(mapAll(true)),
-            markSeen: jest.fn().mockResolvedValue(undefined),
-        }
+        mockSessionTracker = { hasSeen: jest.fn(mapAll(true)) }
         mockSessionFilter = {
             handleNewSessions: jest.fn().mockResolvedValue(undefined),
             isBlocked: jest.fn(mapAll(false)),
         }
     })
 
-    it('tags a new session as new and rate-limits it', async () => {
+    it('tags a new, unblocked session as new and rate-limits it', async () => {
         mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
 
         const results = await createStep()([element(1, 'a')])
 
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
-        expect(isOkResult(results[0]) ? results[0].value.isNewSession : null).toBe(true)
-        // Marking seen happens only after the key resolves (createMarkSeenStep), never in this step.
-        expect(mockSessionTracker.markSeen).not.toHaveBeenCalled()
+        expect(flags(results[0])).toEqual({ isNewSession: true, blocked: false })
     })
 
     it('tags a seen session as existing and does not rate-limit it', async () => {
@@ -81,10 +80,21 @@ describe('createTrackAndGateStep', () => {
         const results = await createStep()([element(1, 'a')])
 
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet())
-        expect(isOkResult(results[0]) ? results[0].value.isNewSession : null).toBe(false)
+        expect(flags(results[0])).toEqual({ isNewSession: false, blocked: false })
     })
 
-    it('runs each Redis bootstrap once per batch and fans isNewSession to every message of a session', async () => {
+    it('tags a blocked session blocked without dropping it (the mark-seen step drops it later)', async () => {
+        mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
+        mockSessionFilter.isBlocked.mockImplementation(mapAll(true))
+
+        const results = await createStep()([element(1, 'a')])
+
+        // Carried through, not dropped — so the mark-seen step can mark it seen before dropping it.
+        expect(isOkResult(results[0])).toBe(true)
+        expect(flags(results[0])).toEqual({ isNewSession: true, blocked: true })
+    })
+
+    it('runs each Redis bootstrap once per batch and fans the flags to every message of a session', async () => {
         mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
 
         const results = await createStep()([element(1, 'a'), element(1, 'a'), element(1, 'a')])
@@ -93,35 +103,11 @@ describe('createTrackAndGateStep', () => {
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledTimes(1)
         expect(mockSessionFilter.isBlocked).toHaveBeenCalledTimes(1)
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
-        expect(results.map((r) => (isOkResult(r) ? r.value.isNewSession : null))).toEqual([true, true, true])
-    })
-
-    it('drops a blocked session and keeps the rest', async () => {
-        mockSessionFilter.isBlocked.mockImplementation((sessions: SessionSet) => {
-            const map = new SessionMap<boolean>()
-            for (const { teamId, sessionId } of sessions) {
-                map.set(teamId, sessionId, sessionId === 'blocked')
-            }
-            return Promise.resolve(map)
-        })
-
-        const results = await createStep()([element(1, 'blocked'), element(1, 'ok')])
-
-        expect(results[0].type).toBe(PipelineResultType.DROP)
-        expect(isOkResult(results[1])).toBe(true)
-    })
-
-    it('drops blocked sessions without marking them seen', async () => {
-        mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
-        mockSessionFilter.isBlocked.mockImplementation(mapAll(true))
-
-        const results = await createStep()([element(1, 'a'), element(1, 'b')])
-
-        expect(results[0].type).toBe(PipelineResultType.DROP)
-        expect(results[1].type).toBe(PipelineResultType.DROP)
-        // Blocked sessions stay unseen: while blocked they're re-dropped, and once unblocked they're
-        // treated as new so they get a key and record encrypted rather than resolving keyless to cleartext.
-        expect(mockSessionTracker.markSeen).not.toHaveBeenCalled()
+        expect(results.map(flags)).toEqual([
+            { isNewSession: true, blocked: false },
+            { isNewSession: true, blocked: false },
+            { isNewSession: true, blocked: false },
+        ])
     })
 
     it('keys new/blocked state by (teamId, sessionId) so identical ids on different teams do not collide', async () => {
@@ -135,7 +121,7 @@ describe('createTrackAndGateStep', () => {
 
         const results = await createStep()([element(1, 'shared'), element(2, 'shared')])
 
-        expect(results.map((r) => (isOkResult(r) ? r.value.isNewSession : null))).toEqual([true, false])
+        expect(results.map((r) => flags(r)?.isNewSession)).toEqual([true, false])
         expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'shared'))
     })
 })

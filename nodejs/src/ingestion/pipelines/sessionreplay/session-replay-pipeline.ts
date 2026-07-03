@@ -22,6 +22,7 @@ import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
+import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
@@ -78,8 +79,8 @@ export function createSessionReplayPipeline(
 ): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
-    { message: Message },
-    { message: Message },
+    MessageContext,
+    MessageContext,
     OverflowOutput
 > {
     const {
@@ -105,7 +106,7 @@ export function createSessionReplayPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
+    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
         .messageAware((b) =>
             b
                 .sequentially((b) =>
@@ -131,8 +132,9 @@ export function createSessionReplayPipeline(
                     tries: 3,
                     sleepMs: 100,
                 })
-                // Track sessions and rate-limit/block new ones for the whole batch, tagging each with
-                // isNewSession. Blocked sessions are dropped here. Its own retry scope means a later
+                // Track sessions and rate-limit new ones for the whole batch, tagging each with
+                // isNewSession and a gate verdict (blocked sessions are carried, not dropped, so the
+                // mark-seen step can mark them before dropping them). Its own retry scope means a later
                 // key-resolution failure never re-runs the rate limiter and double-charges the budget.
                 .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
                     tries: 3,

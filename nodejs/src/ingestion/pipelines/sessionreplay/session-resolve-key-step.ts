@@ -2,10 +2,10 @@ import { logger } from '~/common/utils/logger'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
+import { Gated, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'
 
 /**
  * Record-phase per-session step: resolve a session's encryption key, off the S3 write path. Wired under
@@ -13,11 +13,12 @@ import { NewSessionFlag, SessionReplayHeaders } from './pipeline-types'
  * out to the session's other messages, and under a per-session retry so a transient keystore blip
  * re-runs just that session rather than its batch-siblings.
  *
- * A new session generates a key (using the retention resolved upstream to set the key's expiry); an
- * existing one fetches it. A session whose key has been deleted is dropped. A transient keystore failure
- * (KMS/DynamoDB) throws so the retry wrapper can re-run it; the session is never marked seen before its
- * key exists (see {@link createMarkSeenStep}), so a retry regenerates rather than fetching a key that
- * was never generated — which would record cleartext.
+ * A blocked session rides through untouched (no key resolved) — the mark-seen step marks it seen and
+ * then drops it. An allowed new session generates a key (using the retention resolved upstream to set
+ * the key's expiry); an allowed existing one fetches it. A session whose key has been deleted is
+ * dropped. A transient keystore failure (KMS/DynamoDB) throws so the retry wrapper can re-run it; the
+ * session is never marked seen before its key exists (see {@link createMarkSeenStep}), so a retry
+ * regenerates rather than fetching a key that was never generated — which would record cleartext.
  */
 export function createResolveKeyStep<
     T extends {
@@ -25,8 +26,12 @@ export function createResolveKeyStep<
         headers: SessionReplayHeaders
         retentionPeriod: RetentionPeriod
     } & NewSessionFlag,
->(keyStore: KeyStore): ProcessingStep<T, T & { sessionKey: SessionKey }> {
+>(keyStore: KeyStore): ProcessingStep<Gated<T>, Resolved<T>> {
     return async function resolveKeyStep(value) {
+        if (value.blocked) {
+            return ok(value)
+        }
+
         const teamId = value.team.teamId
         const sessionId = value.headers.session_id
 
