@@ -73,7 +73,7 @@ def bump_flag_versions_on_cohort_definition_change(
     if raw or created:
         return
     before = instance.__dict__.pop(_DEFINITION_BEFORE_SAVE_ATTR, None)
-    if not before:
+    if before is None:
         return
     if all(getattr(instance, field) == value for field, value in before.items()):
         return
@@ -85,7 +85,9 @@ def bump_flag_versions_on_cohort_definition_change(
         # versions. Bypassing FeatureFlag.save() (and its signals) is intentional: the
         # cohort save already triggers the team's cache invalidation, and the flag rows'
         # own fields are untouched, so updated_at/last_modified_by stay as they were.
-        FeatureFlag.objects.filter(pk__in=flag_ids).update(version=Coalesce("version", Value(0)) + 1)
+        FeatureFlag.objects.filter(pk__in=flag_ids, team__project_id=instance.team.project_id).update(
+            version=Coalesce("version", Value(0)) + 1
+        )
 
 
 def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
@@ -98,15 +100,37 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
     reference some cohort at all — matching any cohort id (not just this one) is
     required, since a flag can reach this cohort transitively through another cohort.
     """
-    candidate_flags = (
-        FeatureFlag.objects.filter(team__project_id=cohort.team.project_id)
+    candidate_flags = list(
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
+        FeatureFlag.objects.filter(team__project_id=cohort.team.project_id)
         .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
         .select_related("team")
     )
     # Static cohorts stop the traversal: their membership is a materialized person
     # list, so upstream condition changes don't alter how flags evaluate them.
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.pk: cohort}
+    # Bulk-load every cohort the flags reference directly (the same cohort-property walk
+    # get_cohort_ids does), so the expansion below only point-queries cohorts nested
+    # behind another cohort's filters. Missing ids are cached as empty so a dangling
+    # reference doesn't re-query once per flag either. Guarded per flag: a malformed
+    # sibling here must not break the save — the expansion loop below logs it.
+    direct_ids: set[int] = set()
+    for flag in candidate_flags:
+        try:
+            for condition in flag.conditions:
+                for prop in condition.get("properties", []):
+                    if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit():
+                        direct_ids.add(int(prop["value"]))
+        except Exception:
+            continue
+    direct_ids -= seen_cohorts_cache.keys()
+    if direct_ids:
+        for direct_cohort in Cohort.objects.filter(
+            pk__in=direct_ids, team__project_id=cohort.team.project_id, deleted=False
+        ):
+            seen_cohorts_cache[direct_cohort.pk] = direct_cohort
+        for missing_id in direct_ids - seen_cohorts_cache.keys():
+            seen_cohorts_cache[missing_id] = ""
     flags: list[FeatureFlag] = []
     for flag in candidate_flags:
         try:
