@@ -218,10 +218,14 @@ function DatePickerLemon({
     const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {
         fullWidth,
         size,
-        type,
         className,
         disabledReason,
         'data-attr': dataAttr,
+    }
+    // Only forward `type` when the caller set one — LemonCalendarSelectInput defaults the trigger to
+    // `secondary` and spreads `buttonProps` after it, so a `type: undefined` here would clobber that default.
+    if (type) {
+        buttonProps.type = type
     }
     // The wrapped trigger only flips its own uncontrolled state; a controlled caller needs the
     // click to drive their `visible`, so forward `onOpen` as the trigger's onClick when given.

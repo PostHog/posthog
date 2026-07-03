@@ -116,6 +116,18 @@ describe('DatePicker', () => {
         expect(onChange).toHaveBeenCalledWith(null)
     })
 
+    it.each<[string, Partial<DatePickerProps>, string]>([
+        // No explicit type must keep LemonCalendarSelectInput's `secondary` trigger default rather than
+        // clobbering it with `type: undefined` (which would fall back to LemonButton's tertiary default).
+        ['no type keeps the secondary default', {}, 'LemonButton--secondary'],
+        ['type primary maps through', { type: 'primary' }, 'LemonButton--primary'],
+        ['type tertiary maps through', { type: 'tertiary' }, 'LemonButton--tertiary'],
+    ])('maps trigger %s onto the LemonUI button', (_name, props, expectedClass) => {
+        const { container } = renderDatePicker(dayjs('2023-01-15'), props)
+
+        expect(container.querySelector('.LemonButton')?.className).toContain(expectedClass)
+    })
+
     describe('when the QUILL_DATE_PICKER flag is enabled', () => {
         beforeEach(() => {
             mockQuillDatePickerFlag = true
