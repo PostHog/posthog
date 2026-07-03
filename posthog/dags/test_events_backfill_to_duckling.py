@@ -793,7 +793,6 @@ class TestFullBackfillSensorEarliestDate:
         )
         keys = [rr.partition_key for rr in result.run_requests]
         assert keys == ["1_2020-01", "1_2020-02"]
-        assert "1_2020-03" not in keys
 
     def test_team_with_only_current_month_history_gets_nothing(self):
         # A team whose earliest event is in the current month has no complete month to
