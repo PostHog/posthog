@@ -182,6 +182,7 @@ the row lists both.
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
+| instagram               | HTTP                        | requests                                                        | ✅                          |
 | instatus                | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | intruder                | HTTP                        | requests                                                        | ✅                          |

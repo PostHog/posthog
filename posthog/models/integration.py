@@ -233,6 +233,7 @@ class Integration(models.Model):
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
+        INSTAGRAM = "instagram"
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
@@ -387,6 +388,7 @@ class OauthIntegration:
         "tiktok-ads",
         "bing-ads",
         "meta-ads",
+        "instagram",
         "intercom",
         "linear",
         "clickup",
@@ -630,6 +632,23 @@ class OauthIntegration:
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "instagram":
+            if not settings.INSTAGRAM_APP_CLIENT_ID or not settings.INSTAGRAM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Instagram app not configured")
+
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{InstagramIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{InstagramIntegration.api_version}/me",
+                token_info_config_fields=["id", "name", "email"],
+                client_id=settings.INSTAGRAM_APP_CLIENT_ID,
+                client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
+                # Instagram professional-account data is read through the Facebook Graph API via
+                # the linked Facebook Page, hence the Pages scopes alongside the Instagram ones.
+                scope="instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement",
                 id_path="id",
                 name_path="name",
             )
@@ -3052,10 +3071,11 @@ class GitLabIntegration:
 class MetaAdsIntegration:
     integration: Integration
     api_version: str = "v25.0"
+    kind: str = "meta-ads"
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "meta-ads":
-            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        if integration.kind != self.kind:
+            raise Exception(f"{type(self).__name__} init called with Integration with wrong 'kind'")
         self.integration = integration
 
     def refresh_access_token(self):
@@ -3096,6 +3116,14 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+
+class InstagramIntegration(MetaAdsIntegration):
+    """Instagram professional accounts authenticate through the same Facebook OAuth flow
+    and long-lived-token exchange as Meta Ads — only the integration kind (and scopes,
+    declared in `oauth_config_for_kind`) differ."""
+
+    kind = "instagram"
 
 
 class TwilioIntegration:

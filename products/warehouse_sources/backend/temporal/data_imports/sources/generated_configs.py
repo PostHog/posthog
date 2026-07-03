@@ -1629,7 +1629,7 @@ class InsightlySourceConfig(config.Config):
 
 @config.config
 class InstagramSourceConfig(config.Config):
-    pass
+    instagram_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
