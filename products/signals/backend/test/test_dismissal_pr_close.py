@@ -1,13 +1,9 @@
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.test.base import BaseTest
-
-from products.signals.backend.implementation_pr import (
-    PrCloseReason,
-    close_implementation_pr_for_report,
-)
+from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import SignalReport
 from products.signals.backend.tasks import close_dismissed_report_pr
 
