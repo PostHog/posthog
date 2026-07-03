@@ -55,6 +55,7 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: 'true'
     # Database names passed to the plugins Docker service via env var substitution
     POSTHOG_DB_NAME: posthog_e2e_test
     POSTHOG_PERSONS_DB_NAME: posthog_persons_e2e_test

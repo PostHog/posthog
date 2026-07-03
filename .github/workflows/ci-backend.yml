@@ -50,7 +50,6 @@ env:
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
-    CLICKHOUSE_NEW_EVENTS_SCHEMA_PYTEST_TARGETS: 'posthog/hogql posthog/hogql_queries posthog/models/test/test_data_deletion_request.py'
     OBJECT_STORAGE_ENABLED: 'True'
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -672,25 +671,54 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 14
 
+    build-product-test-matrix:
+        name: Build product test matrix
+        needs: [turbo-discover]
+        if: >-
+            always() &&
+            needs.turbo-discover.result == 'success' &&
+            needs.turbo-discover.outputs.matrix != '[]' &&
+            needs.turbo-discover.outputs.matrix != ''
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            include: ${{ steps.build.outputs.include }}
+        steps:
+            - name: Build product matrix include list
+              id: build
+              env:
+                  PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
+              run: |
+                  include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" '
+                    [
+                      $matrix[] as $entry
+                      | [false, true][] as $new_events_schema
+                      | $entry + {"new-events-schema": $new_events_schema}
+                    ]
+                  ')
+                  echo "include=$include" >> "$GITHUB_OUTPUT"
+                  echo "Product test matrix size: $(jq -r 'length' <<< "$include")"
+
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode]
+        needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix]
         if: >-
             always() &&
             (github.event.pull_request.draft != true ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
-            needs.turbo-discover.outputs.matrix != '[]' &&
-            needs.turbo-discover.outputs.matrix != ''
+            needs.build-product-test-matrix.result == 'success' &&
+            needs.build-product-test-matrix.outputs.include != '[]' &&
+            needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 40
-        name: Product tests (${{ matrix.group }})
+        name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
+                include: ${{ fromJson(needs.build-product-test-matrix.outputs.include) }}
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -838,6 +866,7 @@ jobs:
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
@@ -1971,15 +2000,6 @@ jobs:
                       # segments with no selected files, drop compat entirely.
                       core_count=0
                       [[ -n "$CORE_FILES" ]] && core_count=1
-                      core_new_events_schema_count=0
-                      for target in $CORE_FILES; do
-                          case "$target" in
-                              posthog/hogql/*|posthog/hogql_queries/*|posthog/models/test/test_data_deletion_request.py)
-                                  core_new_events_schema_count=1
-                                  break
-                                  ;;
-                          esac
-                      done
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1993,7 +2013,7 @@ jobs:
                           compat: false
                         }]
                       ')
-                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_new_events_schema_count" '
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
@@ -2021,6 +2041,19 @@ jobs:
                           compat: false
                         }]
                       ')
+                      core_persons_on_events_new_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-poe-events-json-1",
+                          compat: false
+                        }]
+                      ')
                       temporal_count=0
                       [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
@@ -2036,13 +2069,25 @@ jobs:
                           compat: false
                         }]
                       ')
+                      temporal_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "temporal-events-json-1",
+                          compat: false
+                        }]
+                      ')
                       compat="[]"
                   else
                       # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
                       CORE_SHARDS=38
                       CORE_POE_SHARDS=7
-                      CORE_NEW_EVENTS_SCHEMA_SHARDS=8
                       TEMPORAL_SHARDS=7
                       if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
                         CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
@@ -2067,7 +2112,7 @@ jobs:
                         }]
                       ')
 
-                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_NEW_EVENTS_SCHEMA_SHARDS" '
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": false,
@@ -2095,6 +2140,20 @@ jobs:
                         }]
                       ')
 
+                      core_persons_on_events_new_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-poe-events-json-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
                         [range(1; $shards + 1) | {
                           segment: "Temporal",
@@ -2105,6 +2164,20 @@ jobs:
                           concurrency: $shards,
                           group: .,
                           artifact_key: ("temporal-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      temporal_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("temporal-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2130,15 +2203,20 @@ jobs:
                     # Only data warehouse import sources changed — the Temporal
                     # segment already covers posthog/temporal, so skip Core/CorePOE/compat.
                     echo "Only data warehouse import sources changed — running Temporal segment only"
-                    include="$temporal"
+                    include=$(jq -cn \
+                      --argjson temporal "$temporal" \
+                      --argjson temporal_new_events_schema "$temporal_new_events_schema" \
+                      '$temporal + $temporal_new_events_schema')
                   else
                     include=$(jq -cn \
                       --argjson core "$core" \
                       --argjson core_new_events_schema "$core_new_events_schema" \
                       --argjson core_persons_on_events "$core_persons_on_events" \
+                      --argjson core_persons_on_events_new_schema "$core_persons_on_events_new_schema" \
                       --argjson temporal "$temporal" \
+                      --argjson temporal_new_events_schema "$temporal_new_events_schema" \
                       --argjson compat "$compat" \
-                      '$core + $core_new_events_schema + $core_persons_on_events + $temporal + $compat')
+                      '$core + $core_new_events_schema + $core_persons_on_events + $core_persons_on_events_new_schema + $temporal + $temporal_new_events_schema + $compat')
                   fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
@@ -2515,20 +2593,7 @@ jobs:
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
                       # data with a partial run), no --reruns (selected runs should fail loud so flaky
                       # tests get fixed instead of masked; the ready-for-review full run has reruns).
-                      if [[ "${{ matrix.new-events-schema }}" == "true" ]]; then
-                          targets=""
-                          for target in $CORE_FILES; do
-                              case "$target" in
-                                  posthog/hogql/*|posthog/hogql_queries/*|posthog/models/test/test_data_deletion_request.py)
-                                      targets="$targets $target"
-                                      ;;
-                              esac
-                          done
-                          if [[ -z "${targets// }" ]]; then
-                              echo "No selected HogQL events-schema tests for this shard"
-                              exit 0
-                          fi
-                      elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
                           targets="$CORE_FILES"
@@ -2541,9 +2606,7 @@ jobs:
                   else
                     full_targets="posthog ee/"
                     full_ignores=()
-                    if [[ "${{ matrix.new-events-schema }}" == "true" ]]; then
-                        full_targets="$CLICKHOUSE_NEW_EVENTS_SCHEMA_PYTEST_TARGETS"
-                    elif [[ "${{ matrix.compat }}" == "true" ]]; then
+                    if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                         full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
@@ -2586,12 +2649,14 @@ jobs:
               env:
                   SHARD_GROUP: ${{ matrix.group }}
                   SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   COMMIT_SHA: ${{ github.sha }}
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
                   echo "=== Test Environment Diagnostics ==="
                   echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
                   echo "Python version: $(python --version)"
+                  echo "Events schema: $CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
                   echo "Commit: $COMMIT_SHA"
                   echo "Branch: $BRANCH_NAME"
                   echo "Runner: $(uname -a)"
@@ -2610,6 +2675,7 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
@@ -2881,6 +2947,7 @@ jobs:
                 check-openapi-types,
                 async-migrations,
                 turbo-discover,
+                build-product-test-matrix,
                 turbo-tests,
                 handle-snapshots,
                 repo-checks,
@@ -2902,6 +2969,7 @@ jobs:
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
+                    echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
                     if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
@@ -2962,6 +3030,7 @@ jobs:
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
+                  check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
 
@@ -3048,12 +3117,13 @@ jobs:
                   retention-days: 90
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
+        name: Async migrations tests - events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}, ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                new-events-schema: [false, true]
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -3181,6 +3251,8 @@ jobs:
                   fi
 
             - name: Run async migrations tests
+              env:
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   # Scope async migration tests directly and reuse the primed test database.
                   pytest posthog/async_migrations/test -m "async_migrations" --reuse-db --reruns 2 --reruns-delay 1 --durations=100 --durations-min=1.0 --junitxml=junit.xml
@@ -3189,7 +3261,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-async-migrations
+                  name: junit-results-async-migrations-${{ matrix.new-events-schema && 'events-json' || 'events-legacy' }}
                   path: junit.xml
 
     calculate-running-time:

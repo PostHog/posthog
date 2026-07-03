@@ -203,6 +203,7 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: 'true'
             KAFKA_HOSTS: 'kafka:9092'
 
         steps:
@@ -396,6 +397,7 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: 'true'
             KAFKA_HOSTS: 'kafka:9092'
         steps:
             - name: Code check out
