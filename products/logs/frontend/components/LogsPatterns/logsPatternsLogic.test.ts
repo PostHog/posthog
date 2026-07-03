@@ -23,8 +23,10 @@ const RESPONSE: _LogsPatternsResponseApi = {
         {
             pattern: 'User <*> not found',
             count: 3,
+            estimated_count: 3,
             volume_share_pct: 75,
             error_count: 3,
+            estimated_error_count: 3,
             first_seen: '2026-06-23T12:00:00+00:00',
             last_seen: '2026-06-23T12:05:00+00:00',
             examples: [],
@@ -34,6 +36,7 @@ const RESPONSE: _LogsPatternsResponseApi = {
     scanned_count: 3,
     total_count: 3,
     sampled: false,
+    sample_coverage_pct: 100,
 }
 
 describe('logsPatternsLogic', () => {
@@ -62,6 +65,20 @@ describe('logsPatternsLogic', () => {
                 query: expect.objectContaining({ severityLevels: [], serviceNames: [] }),
             })
         )
+    })
+
+    it('surfaces a load failure as patternsError and clears it on the next success', async () => {
+        // A failed mine (e.g. sampling query over budget) must not render as "no patterns".
+        mockCreate.mockRejectedValueOnce(new Error('estimated query execution time is too long'))
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPatterns', 'loadPatternsFailure'])
+        expect(logic.values.patternsError).toBeTruthy()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPatterns()
+        }).toDispatchActions(['loadPatternsSuccess'])
+        expect(logic.values.patternsError).toBeNull()
     })
 
     it('reloads when a shared filter changes', async () => {

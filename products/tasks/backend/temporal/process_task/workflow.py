@@ -50,7 +50,11 @@ from .activities.provision_sandbox import (
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.run_wizard import RunWizardInput, run_wizard
-from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
+    SendFollowupToSandboxInput,
+    send_followup_to_sandbox,
+)
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -1067,8 +1071,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_sandbox_events,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # A worker restart (deploy, eviction) kills the in-flight attempt while
+                # the sandbox agent keeps working — without retries the event stream is
+                # orphaned for good and the run looks dead to the user. Retrying is safe:
+                # the agent server buffers events while no relay is attached and replays
+                # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+                # exhausted) return cleanly, and application-level failures that write an
+                # error sentinel to the stream raise non-retryable ApplicationError, so
+                # retries only cover attempt-level deaths where no sentinel was written;
+                # schedule_to_close bounds the total.
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
         except asyncio.CancelledError:
@@ -1104,7 +1123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
                 workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1289,9 +1308,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
+                    message_id=str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # The activity heartbeats while blocked on the sync delivery
+                # call, so a worker restart is detected here instead of at
+                # start_to_close. Retries are safe: message_id lets the
+                # agent-server drop a redelivery it already accepted, and
+                # sentinel-writing failures raise non-retryable.
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                ),
             )
         except Exception as e:
             error_properties = self._activity_error_properties(e)
