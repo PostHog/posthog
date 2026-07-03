@@ -120,6 +120,10 @@ class TestColumnToExpr(SimpleTestCase):
             ("nested_range_generator", "length(range(1000000000))"),
             ("repeat_generator", "repeat(body, 1000000000)"),
             ("arraywithconstant_generator", "arrayWithConstant(1000000000, 'x')"),
+            # Window functions evaluate over a frame of rows, forcing ClickHouse to process every
+            # matching log before the page limit applies — same availability risk as aggregations.
+            ("window_row_number", "row_number() over (order by timestamp)"),
+            ("window_aggregate_over", "min(timestamp) over ()"),
         ]
     )
     def test_non_scalar_expressions_are_rejected(self, _name, text):

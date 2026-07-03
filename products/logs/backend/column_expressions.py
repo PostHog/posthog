@@ -87,6 +87,12 @@ class _ScalarValidator(TraversingVisitor):
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         raise ValueError("Custom columns cannot contain placeholders")
 
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        # Window functions (e.g. `row_number() over (order by timestamp)`) evaluate over a frame of
+        # rows, not per-row, forcing ClickHouse to process every matching log before the page limit
+        # applies — the same availability risk as aggregations, which we already reject.
+        raise ValueError("Custom columns cannot contain window functions")
+
     def visit_call(self, node: ast.Call) -> None:
         name = node.name.lower()
         if find_hogql_aggregation(node.name) is not None:
