@@ -5,6 +5,8 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import { RefObject } from 'react'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -137,6 +139,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             ['currentTeam'],
             projectLogic,
             ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             heatmapsBrowserLogic,
@@ -200,6 +204,14 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         ],
     })),
     selectors({
+        clickmapAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEATMAPS_RECORDING_CLICKMAP],
+        ],
+        clickmapActive: [
+            (s) => [s.clickmapAvailable, s.clickmapEnabled],
+            (clickmapAvailable, clickmapEnabled): boolean => clickmapAvailable && clickmapEnabled,
+        ],
         wantedDataAttributes: [
             (s) => [s.currentTeam],
             (currentTeam): string[] => Array.from(new Set(['data-attr', ...(currentTeam?.data_attributes ?? [])])),
@@ -217,7 +229,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             }
         },
         maybeLoadElementStats: () => {
-            if (values.clickmapEnabled && values.replayIframeData?.url?.trim()) {
+            if (values.clickmapActive && values.replayIframeData?.url?.trim()) {
                 actions.loadElementStats()
             }
         },
@@ -234,7 +246,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         },
         loadElementStatsSuccess: () => actions.recomputeClickmap(),
         recomputeClickmap: async (_, breakpoint) => {
-            if (!values.clickmapEnabled || !values.replayIframeData?.url?.trim()) {
+            if (!values.clickmapActive || !values.replayIframeData?.url?.trim()) {
                 return
             }
             await breakpoint(50)

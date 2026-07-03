@@ -59,8 +59,8 @@ export function RecordingClickmapOverlay({
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = recordingClickmapLogic({ iframeRef })
-    const { clickmapEnabled, clickmapBoxes, highestClickCount } = useValues(logic)
-    const showClickmap = clickmapEnabled && clickmapBoxes.length > 0
+    const { clickmapActive, clickmapBoxes, highestClickCount } = useValues(logic)
+    const showClickmap = clickmapActive && clickmapBoxes.length > 0
     const innerRef = useSnapshotScrollTransform(showClickmap, iframeRef)
 
     if (!showClickmap) {
@@ -68,7 +68,7 @@ export function RecordingClickmapOverlay({
     }
 
     return (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
                 {clickmapBoxes.map((box, index) => (
                     <div

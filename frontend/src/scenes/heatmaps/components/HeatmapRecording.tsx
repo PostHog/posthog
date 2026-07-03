@@ -51,7 +51,7 @@ export function HeatmapRecording(): JSX.Element {
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
-    const { clickmapEnabled } = useValues(clickmapLogic)
+    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
     const { setClickmapEnabled } = useActions(clickmapLogic)
 
     if (!hasValidReplayIframeData) {
@@ -72,7 +72,10 @@ export function HeatmapRecording(): JSX.Element {
                 <div className="overflow-hidden w-full min-h-screen">
                     <UrlSearchHeader />
                     <LemonDivider className="my-4" />
-                    <FilterPanel clickmapEnabled={clickmapEnabled} onClickmapEnabledChange={setClickmapEnabled} />
+                    <FilterPanel
+                        clickmapEnabled={clickmapAvailable ? clickmapEnabled : undefined}
+                        onClickmapEnabledChange={clickmapAvailable ? setClickmapEnabled : undefined}
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative flex flex-1 overflow-hidden min-h-screen">
                         <FixedReplayHeatmapBrowser iframeRef={iframeRef} />

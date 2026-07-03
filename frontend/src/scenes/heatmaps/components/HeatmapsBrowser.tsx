@@ -349,7 +349,7 @@ export function HeatmapsBrowser(): JSX.Element {
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
-    const { clickmapEnabled } = useValues(clickmapLogic)
+    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
     const { setClickmapEnabled } = useActions(clickmapLogic)
 
     return (
@@ -360,8 +360,10 @@ export function HeatmapsBrowser(): JSX.Element {
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel
-                        clickmapEnabled={hasValidReplayIframeData ? clickmapEnabled : undefined}
-                        onClickmapEnabledChange={hasValidReplayIframeData ? setClickmapEnabled : undefined}
+                        clickmapEnabled={hasValidReplayIframeData && clickmapAvailable ? clickmapEnabled : undefined}
+                        onClickmapEnabledChange={
+                            hasValidReplayIframeData && clickmapAvailable ? setClickmapEnabled : undefined
+                        }
                     />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
