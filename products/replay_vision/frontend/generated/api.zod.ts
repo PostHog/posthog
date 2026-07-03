@@ -232,7 +232,9 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
             .string()
             .max(visionObservationsLabelCreateBodyFeedbackMax)
             .default(visionObservationsLabelCreateBodyFeedbackDefault)
-            .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
     })
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
@@ -395,7 +397,9 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
             .string()
             .max(visionScannersObservationsLabelCreateBodyFeedbackMax)
             .default(visionScannersObservationsLabelCreateBodyFeedbackDefault)
-            .describe('Why the scanner got it wrong \/ what it should have concluded. Empty for correct labels.'),
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
     })
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 

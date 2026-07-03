@@ -71,6 +71,7 @@ export function buildImproveFromLabelsMessage({
         for (const e of correct) {
             lines.push(
                 `- Session ${e.sessionId}. Scanner output: ${e.outcome ?? 'n/a'}` +
+                    (e.feedback ? `. Note: ${e.feedback}` : '') +
                     (e.reasoning ? `. Its reasoning: ${truncateReasoning(e.reasoning)}` : '')
             )
         }
