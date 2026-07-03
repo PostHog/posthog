@@ -757,6 +757,57 @@ describe('stepsWithConversionMetrics', () => {
         expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
     })
 
+    it('breakdown + compare — every value shares its period’s height at the first step (larger period fills)', () => {
+        // Chrome current 100 / previous 80; Safari current 40 / previous 25. nested_breakdown pairs
+        // current+previous per value: [Chrome-cur, Chrome-prev, Safari-cur, Safari-prev].
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 140,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({
+                        count: 100,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 80,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'previous',
+                    }),
+                    makeStep({
+                        count: 40,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 25,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'previous',
+                    }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+        const nb = result[0].nested_breakdown!
+
+        // At the first step every value converts 100% of its own entrants, so within a period all values
+        // share one height: the period's share of the larger baseline. Current is larger (140 vs 105) →
+        // 100%; previous → 105/140. Chrome and Safari read the same height within each period.
+        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current
+        expect(nb[1].conversionRates.fromBasisStep).toBe(105 / 140) // Chrome previous
+        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current — same as Chrome current
+        expect(nb[3].conversionRates.fromBasisStep).toBe(105 / 140) // Safari previous — same as Chrome previous
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [
