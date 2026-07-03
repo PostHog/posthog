@@ -1,4 +1,5 @@
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     hasPinnedContext,
@@ -9,6 +10,7 @@ import {
 import { TaxonomicFilterGroupType } from './types'
 
 const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated__default'
+const DEFAULTS_SEEDED_KEY = 'taxonomicFilterPinnedProperties__defaultsSeeded__default'
 const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 describe('taxonomicFilterPinnedPropertiesLogic', () => {
@@ -278,6 +280,91 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             const filters = logic.values.pinnedFilters
             expect(filters).toHaveLength(1)
             expect(filters[0].value).toBe('$pageview')
+        })
+    })
+
+    describe('seeding default pinned filters', () => {
+        const mountFreshWith = (hasPageview: boolean, hasPersonEmail: boolean): void => {
+            logic.unmount()
+            localStorage.clear()
+            window.POSTHOG_APP_CONTEXT = {
+                has_pageview: hasPageview,
+                has_person_email: hasPersonEmail,
+            } as unknown as AppContext
+            initKeaTests()
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+        }
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
+        })
+
+        it.each([
+            {
+                description: 'pins both $current_url and $email when the team sends both',
+                hasPageview: true,
+                hasPersonEmail: true,
+                expected: [
+                    { value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties },
+                    { value: '$email', groupType: TaxonomicFilterGroupType.PersonProperties },
+                ],
+            },
+            {
+                description: 'pins only $email when the team sends no pageviews',
+                hasPageview: false,
+                hasPersonEmail: true,
+                expected: [{ value: '$email', groupType: TaxonomicFilterGroupType.PersonProperties }],
+            },
+            {
+                description: 'pins only $current_url when the team does not send $email',
+                hasPageview: true,
+                hasPersonEmail: false,
+                expected: [{ value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties }],
+            },
+            {
+                description: 'pins nothing when the team sends neither',
+                hasPageview: false,
+                hasPersonEmail: false,
+                expected: [],
+            },
+        ])('$description', ({ hasPageview, hasPersonEmail, expected }) => {
+            mountFreshWith(hasPageview, hasPersonEmail)
+
+            expect(logic.values.pinnedFilters.map((f) => ({ value: f.value, groupType: f.groupType }))).toEqual(
+                expected
+            )
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe('1')
+        })
+
+        it('does not seed over a user who already has pinned filters', () => {
+            mountFreshWith(false, false)
+            logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
+                name: '$browser',
+            })
+            logic.unmount()
+            localStorage.removeItem(DEFAULTS_SEEDED_KEY)
+            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
+
+            initKeaTests()
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$browser'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe('1')
+        })
+
+        it('does not seed again once defaults have been seeded', () => {
+            logic.unmount()
+            localStorage.clear()
+            localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
+            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
+
+            initKeaTests()
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+
+            expect(logic.values.pinnedFilters).toEqual([])
         })
     })
 

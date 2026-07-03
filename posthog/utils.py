@@ -572,6 +572,7 @@ def _build_template_context(
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
+                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(
@@ -842,6 +843,33 @@ def invalidate_default_event_info_cache(team_id: int) -> None:
 
 def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
+
+
+def _has_person_email_cache_key(team_id: int) -> str:
+    return f"has_person_email:{team_id}"
+
+
+@tracer.start_as_current_span("template.has_person_email")
+def get_has_person_email(team: "Team") -> bool:
+    from posthog.models import PropertyDefinition
+
+    cache_key = _has_person_email_cache_key(team.id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    has_person_email = PropertyDefinition.objects.filter(
+        team=team, type=PropertyDefinition.Type.PERSON, name="$email"
+    ).exists()
+
+    if has_person_email:
+        safe_cache_set(cache_key, has_person_email, timeout=BOTH_DEFAULTS_PRESENT_TTL_SECONDS)
+
+    return has_person_email
+
+
+def invalidate_has_person_email_cache(team_id: int) -> None:
+    safe_cache_delete(_has_person_email_cache_key(team_id))
 
 
 @tracer.start_as_current_span("template.frontend_apps")

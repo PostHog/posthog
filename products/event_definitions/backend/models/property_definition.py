@@ -2,10 +2,13 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
+from posthog.utils import invalidate_has_person_email_cache
 
 
 class PropertyType(models.TextChoices):
@@ -129,6 +132,14 @@ class PropertyDefinition(UUIDTModel):
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
     def is_seen_on_filtered_events(self) -> None:
         return None
+
+
+@receiver(post_delete, sender=PropertyDefinition)
+def _invalidate_has_person_email_on_delete(
+    sender: type[PropertyDefinition], instance: PropertyDefinition, **kwargs
+) -> None:
+    if instance.type == PropertyDefinition.Type.PERSON and instance.name == "$email":
+        invalidate_has_person_email_cache(instance.team_id)
 
 
 # ClickHouse Table DDL

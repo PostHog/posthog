@@ -66,6 +66,29 @@ const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.qu
 
 const teamId = typeof window !== 'undefined' ? window.POSTHOG_APP_CONTEXT?.current_team?.id : undefined
 const MIGRATION_KEY = `taxonomicFilterPinnedProperties__migrated__${teamId ?? 'default'}`
+const DEFAULTS_SEEDED_KEY = `taxonomicFilterPinnedProperties__defaultsSeeded__${teamId ?? 'default'}`
+
+function makeDefaultPinnedFilter(
+    groupType: TaxonomicFilterGroupType,
+    groupName: string,
+    value: string
+): PinnedTaxonomicFilter {
+    return { groupType, groupName, value, item: { name: value }, timestamp: Date.now() }
+}
+
+function buildDefaultPinnedFilters(): PinnedTaxonomicFilter[] {
+    const appContext = window.POSTHOG_APP_CONTEXT
+    const defaults: PinnedTaxonomicFilter[] = []
+    if (appContext?.has_pageview) {
+        defaults.push(
+            makeDefaultPinnedFilter(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$current_url')
+        )
+    }
+    if (appContext?.has_person_email) {
+        defaults.push(makeDefaultPinnedFilter(TaxonomicFilterGroupType.PersonProperties, 'Person properties', '$email'))
+    }
+    return defaults
+}
 
 export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPropertiesLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterPinnedPropertiesLogic']),
@@ -143,37 +166,52 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
             if (typeof window === 'undefined') {
                 return
             }
-            const alreadyMigrated = localStorage.getItem(MIGRATION_KEY)
-            if (alreadyMigrated) {
-                return
-            }
 
-            if (values.pinnedFilters.length > 0) {
+            const migrateOldQuickFilters = (): void => {
+                if (localStorage.getItem(MIGRATION_KEY)) {
+                    return
+                }
+                if (values.pinnedFilters.length > 0) {
+                    localStorage.setItem(MIGRATION_KEY, '1')
+                    return
+                }
+                try {
+                    const raw = localStorage.getItem(OLD_PERSIST_KEY)
+                    if (raw) {
+                        const oldProperties: string[] = JSON.parse(raw)
+                        if (Array.isArray(oldProperties) && oldProperties.length > 0) {
+                            const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) => ({
+                                groupType: TaxonomicFilterGroupType.PersonProperties,
+                                groupName: 'Person properties',
+                                value: prop,
+                                item: { name: prop },
+                                timestamp: Date.now(),
+                            }))
+                            actions.setPinnedFilters(migrated)
+                            localStorage.removeItem(OLD_PERSIST_KEY)
+                        }
+                    }
+                } catch {
+                    // ignore parse errors from old data
+                }
                 localStorage.setItem(MIGRATION_KEY, '1')
-                return
             }
 
-            try {
-                const raw = localStorage.getItem(OLD_PERSIST_KEY)
-                if (raw) {
-                    const oldProperties: string[] = JSON.parse(raw)
-                    if (Array.isArray(oldProperties) && oldProperties.length > 0) {
-                        const migrated: PinnedTaxonomicFilter[] = oldProperties.map((prop) => ({
-                            groupType: TaxonomicFilterGroupType.PersonProperties,
-                            groupName: 'Person properties',
-                            value: prop,
-                            item: { name: prop },
-                            timestamp: Date.now(),
-                        }))
-                        actions.setPinnedFilters(migrated)
-                        localStorage.removeItem(OLD_PERSIST_KEY)
+            const seedDefaultsForUntouchedUsers = (): void => {
+                if (localStorage.getItem(DEFAULTS_SEEDED_KEY)) {
+                    return
+                }
+                if (values.pinnedFilters.length === 0) {
+                    const defaults = buildDefaultPinnedFilters()
+                    if (defaults.length > 0) {
+                        actions.setPinnedFilters(defaults)
                     }
                 }
-            } catch {
-                // ignore parse errors from old data
+                localStorage.setItem(DEFAULTS_SEEDED_KEY, '1')
             }
 
-            localStorage.setItem(MIGRATION_KEY, '1')
+            migrateOldQuickFilters()
+            seedDefaultsForUntouchedUsers()
         },
     })),
     permanentlyMount(),

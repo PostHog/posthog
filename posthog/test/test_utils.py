@@ -20,7 +20,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
 from posthog.settings.utils import get_from_env
 
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ from posthog.utils import (
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
+    get_has_person_email,
     get_ip_address,
     get_js_url,
     get_self_capture_team_id,
@@ -561,6 +562,49 @@ class TestDefaultEventName(BaseTest):
         EventDefinition.objects.create(name="custom_event", team=self.team)
         with self.assertNumQueries(0):
             get_default_event_info(self.team)
+
+    @parameterized.expand(
+        [
+            ("person_email_present", "$email", PropertyDefinition.Type.PERSON, True),
+            ("no_matching_property", "$browser", PropertyDefinition.Type.PERSON, False),
+            ("event_email_ignored", "$email", PropertyDefinition.Type.EVENT, False),
+            ("plain_email_ignored", "email", PropertyDefinition.Type.PERSON, False),
+        ]
+    )
+    def test_get_has_person_email(self, _name, prop_name, prop_type, expected):
+        PropertyDefinition.objects.create(name=prop_name, type=prop_type, team=self.team)
+        assert get_has_person_email(self.team) is expected
+
+    def test_has_person_email_negative_is_not_cached(self):
+        with self.assertNumQueries(1):
+            assert get_has_person_email(self.team) is False
+        with self.assertNumQueries(1):
+            assert get_has_person_email(self.team) is False
+
+    def test_has_person_email_positive_is_cached(self):
+        PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        with self.assertNumQueries(1):
+            assert get_has_person_email(self.team) is True
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is True
+
+    def test_has_person_email_cache_invalidated_when_email_property_deleted(self):
+        pd = PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is True
+
+        pd.delete()
+        assert get_has_person_email(self.team) is False
+
+    def test_has_person_email_cache_not_invalidated_when_unrelated_property_deleted(self):
+        PropertyDefinition.objects.create(name="$email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
+
+        unrelated = PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
+        unrelated.delete()
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is True
 
 
 class TestLoadDataFromRequest(TestCase):
