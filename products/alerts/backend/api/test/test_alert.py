@@ -1535,6 +1535,21 @@ class TestAlertSimulateForecast(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_simulate_forecast_horizon_out_of_range_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+            {
+                "insight": self.insight["id"],
+                "forecast_config": {
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "future_breach",
+                    "horizon": 1000000,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
     @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_wraps_value_error_as_400(self, mock_simulate) -> None:
         mock_simulate.side_effect = ValueError("Not enough history to forecast.")
