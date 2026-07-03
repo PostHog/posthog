@@ -6,8 +6,106 @@ tier assignment, and file classification. No external dependencies.
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+
+# ── Dependency ecosystems ────────────────────────────────────────
+#
+# Source of truth for how each package ecosystem pairs manifests with
+# lockfiles. The deps_toolchain deny patterns, DISMISS_TIME_LOCKFILES, and
+# the manifest/lockfile helper sets all derive from this table — add a new
+# ecosystem here, not in several places. (requirements*.{txt,in} stays out:
+# a pinned requirements.txt is arguably both manifest and lockfile, so
+# has_dependency_changes recognizes it directly instead of forcing it into
+# one column of this table.)
+#
+# `manifests` entries are fnmatch patterns, not just literal names — a
+# plain filename like "package.json" matches itself, so ecosystems with no
+# glob needs can still write literal names.
+
+
+@dataclass(frozen=True)
+class Ecosystem:
+    manifests: frozenset[str]
+    lockfiles: frozenset[str]
+    # Whether this ecosystem's lockfiles are trivially trusted at dismiss
+    # time (a lockfile-only push retains a prior stamphog approval without
+    # LLM re-review). Defaults to NOT trusted so a newly added ecosystem
+    # narrows trust rather than silently widening it — dismiss-time trust
+    # is an explicit decision made here, not inherited from the deny list.
+    trusted_at_dismiss: bool = False
+
+
+DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
+    "node": Ecosystem(
+        manifests=frozenset({"package.json"}),
+        lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
+        trusted_at_dismiss=True,
+    ),
+    "python": Ecosystem(
+        # setup.py/setup.cfg execute code at install/build time even though
+        # no lockfile pairs with them in this repo.
+        manifests=frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
+        lockfiles=frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    "ruby": Ecosystem(
+        manifests=frozenset({"gemfile"}),
+        lockfiles=frozenset({"gemfile.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    # No composer usage in-repo today; listed so a future composer.json
+    # doesn't arrive ungated.
+    "php": Ecosystem(
+        manifests=frozenset({"composer.json"}),
+        lockfiles=frozenset({"composer.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    "rust": Ecosystem(
+        manifests=frozenset({"cargo.toml"}),
+        lockfiles=frozenset({"cargo.lock"}),
+        trusted_at_dismiss=True,
+    ),
+    # go.sum deliberately stays untrusted at dismiss time: it hashes what
+    # go.mod names rather than being the sole source of installed code.
+    "go": Ecosystem(
+        manifests=frozenset({"go.mod"}),
+        lockfiles=frozenset({"go.sum"}),
+    ),
+    # tsconfig configures the compiler, not dependencies — no lockfile ever
+    # pairs with it, so a tsconfig change is always flagged for scrutiny
+    # (empty `lockfiles` means dependency_manifests_without_lockfile can
+    # never find a paired lockfile to suppress it).
+    "typescript": Ecosystem(
+        manifests=frozenset({"tsconfig*.json"}),
+        lockfiles=frozenset(),
+    ),
+}
+
+_ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e.lockfiles for e in DEPENDENCY_ECOSYSTEMS.values()))
+
+# Call sites match against Path(...).name.lower(), so a mixed-case table entry
+# would silently never match — a fail-open hole in a security gate. Enforce the
+# invariant at import so a bad entry fails the gate closed (the tool crashes
+# instead of auto-approving). A raise, not an assert, so python -O can't strip
+# it; test_dependency_ecosystem_names_are_lowercase covers it once the suite is
+# wired into CI.
+if any(
+    n != n.lower()
+    for spec in DEPENDENCY_ECOSYSTEMS.values()
+    for names in (spec.manifests, spec.lockfiles)
+    for n in names
+):
+    raise ValueError("DEPENDENCY_ECOSYSTEMS names must be lowercase — call sites match against Path(...).name.lower()")
+
+
+def _ecosystem_for_manifest(name: str) -> str | None:
+    for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
+        if any(fnmatch(name, pattern) for pattern in spec.manifests):
+            return ecosystem
+    return None
+
 
 # ── Pattern data ─────────────────────────────────────────────────
 
@@ -159,13 +257,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         # lockfile involved. .nvmrc/.tool-versions stay: they change the
         # runtime for every CI job. Makefile/Dockerfile stay: they execute.
         "paths": [
-            "pnpm-lock",
-            "package-lock",
-            r"yarn\.lock",
-            r"uv\.lock",
-            r"cargo\.lock",
-            r"go\.sum",
-            r"poetry\.lock",
+            *(re.escape(name) for name in sorted(_ALL_LOCKFILE_NAMES)),
             r"requirements[-\w]*\.(txt|in)",
             "Makefile",
             "Dockerfile",
@@ -271,18 +363,11 @@ ALLOW_PATH_PATTERNS = [
 # pipeline (workflows, configs, build files) even though those paths may
 # be allow-listed at approve time.
 
-DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
-    {
-        "package-lock.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "uv.lock",
-        "cargo.lock",
-        "pipfile.lock",
-        "poetry.lock",
-        "gemfile.lock",
-        "composer.lock",
-    }
+# Derived from the ecosystems that explicitly opted in via trusted_at_dismiss
+# — dismiss-time trust is a per-ecosystem decision made in the table, never a
+# default a new deny-list entry inherits. See the field's comment on Ecosystem.
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
+    *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
 )
 
 _DISMISS_TIME_TEST_RE = re.compile(
@@ -479,52 +564,39 @@ def detect_title_scrutiny_flags(subject: str) -> list[str]:
 
 
 def has_dependency_changes(files: list[str]) -> bool:
-    dep_files = {
-        "package.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "package-lock.json",
-        "requirements.txt",
-        "pyproject.toml",
-        "uv.lock",
-        "Cargo.toml",
-        "go.mod",
-        "go.sum",
-    }
-    dep_files_lower = {d.lower() for d in dep_files}
-    return any(Path(f).name.lower() in dep_files_lower for f in files)
-
-
-_LOCKFILE_NAMES = DISMISS_TIME_LOCKFILES | frozenset({"go.sum"})
-
-# setup.py/setup.cfg/Pipfile/Gemfile execute code at install/build time even
-# though no lockfile pairs with them in this repo — they need the same
-# reviewer scrutiny as the lockfile-paired manifests.
-_DEP_MANIFEST_NAMES = frozenset(
-    {"package.json", "pyproject.toml", "cargo.toml", "go.mod", "setup.py", "setup.cfg", "pipfile", "gemfile"}
-)
+    for f in files:
+        name = Path(f).name.lower()
+        if name in _ALL_LOCKFILE_NAMES or _ecosystem_for_manifest(name) is not None:
+            return True
+        if name.startswith("requirements") and name.endswith((".txt", ".in")):
+            return True
+    return False
 
 
 def is_dependency_manifest(path: str) -> bool:
-    name = Path(path).name.lower()
-    if name in _DEP_MANIFEST_NAMES:
-        return True
-    return name.startswith("tsconfig") and name.endswith(".json")
+    return _ecosystem_for_manifest(Path(path).name.lower()) is not None
 
 
 def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
-    """Manifest files changed with no lockfile in the change set.
+    """Manifest files changed without their own ecosystem's lockfile.
 
     Such a change cannot install new third-party code (CI installs are
     frozen-lockfile), so it passes the deny-list — but manifest scripts/hooks
-    execute in CI, so the reviewer prompt gets these paths and must REFUSE if
-    scripts changed. Any lockfile in the change set suppresses the flag: the
-    lockfile itself hard-denies, which forces the stronger human-review path.
+    execute in CI, so these paths feed the deterministic scripts scan and the
+    reviewer prompt. The lockfile check is per-ecosystem: a Cargo.lock bump
+    hard-denies on its own but must not silence the scripts guard on an
+    unrelated package.json edit in the same PR.
     """
     names = {Path(f).name.lower() for f in files}
-    if names & _LOCKFILE_NAMES:
-        return []
-    return sorted(f for f in files if is_dependency_manifest(f))
+    ecosystems_with_lockfile_change = {
+        ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec.lockfiles
+    }
+    return sorted(
+        f
+        for f in files
+        if (ecosystem := _ecosystem_for_manifest(Path(f).name.lower())) is not None
+        and ecosystem not in ecosystems_with_lockfile_change
+    )
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:

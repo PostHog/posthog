@@ -35,7 +35,7 @@ rules:
           include:
               - 'products/*/backend/'
               # Test fixture lives here — must be in include so `semgrep --test` exercises the rule.
-              - '.semgrep/devex-rules/'
+              - '.semgrep/rules/devex/'
           exclude:
               - '**/tests/**'
               - '**/test_*.py'

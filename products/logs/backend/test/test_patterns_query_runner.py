@@ -68,6 +68,9 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert by_template["User <*> not found"]["error_count"] == 3
         assert by_template["User <*> not found"]["estimated_error_count"] == 3
         assert by_template["User <*> not found"]["services"] == ["auth"]
+        # Unsliced windows bucket uniformly; every sampled occurrence lands in some bucket.
+        assert len(results["sparkline_buckets"]) == 24
+        assert sum(by_template["User <*> not found"]["sparkline"]) == 3
 
     @freeze_time(_FROZEN_NOW)
     def test_sets_sampled_and_caps_scanned_count_above_the_limit(self) -> None:
@@ -117,6 +120,10 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         (pattern,) = results["patterns"]
         assert pattern["count"] == 30
         assert pattern["estimated_count"] == 60
+        # Sliced scans use the slices as sparkline buckets: 6 slices x 5 eligible rows each,
+        # extrapolated by the same x2 factor as estimated_count.
+        assert len(results["sparkline_buckets"]) == 6
+        assert pattern["sparkline"] == [10] * 6
 
     @parameterized.expand(
         [

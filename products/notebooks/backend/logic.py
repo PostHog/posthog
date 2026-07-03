@@ -244,6 +244,8 @@ def list_team_account_notes(
     team_id: int,
     *,
     account_ids: Iterable[UUID | str] | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: Iterable[int] | None = None,
     search: str | None = None,
     offset: int = 0,
     limit: int = 100,
@@ -251,18 +253,23 @@ def list_team_account_notes(
     """Team-wide account notes: internal notebooks linked to any account, newest-modified first.
 
     ``account_ids`` restricts to the given accounts (callers pass the caller-accessible set —
-    a lazy ``values_list`` queryset compiles to a SQL subquery). ``search`` is full-text over
-    notebook title/content plus substring over the linked account's name. Returns
-    ``(page, total_count)``.
+    a lazy ``values_list`` queryset compiles to a SQL subquery). ``account_id`` narrows to a
+    single account, ``created_by_ids`` to notes authored by the given users. ``search`` is
+    full-text over notebook title/content plus substring over the linked account's name.
+    Returns ``(page, total_count)``.
     """
     queryset = ResourceNotebook.objects.filter(
         account__isnull=False,
         notebook__team_id=team_id,
         notebook__deleted=False,
         notebook__visibility=Notebook.Visibility.INTERNAL,
-    ).select_related("notebook", "account")
+    ).select_related("notebook", "notebook__created_by", "account")
     if account_ids is not None:
         queryset = queryset.filter(account_id__in=account_ids)
+    if account_id is not None:
+        queryset = queryset.filter(account_id=account_id)
+    if created_by_ids is not None:
+        queryset = queryset.filter(notebook__created_by_id__in=created_by_ids)
     if search:
         queryset = queryset.filter(
             Q(notebook__title__search=search)
