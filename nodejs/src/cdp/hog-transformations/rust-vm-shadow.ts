@@ -37,6 +37,13 @@ export const shadowBatchDuration = new Histogram({
     buckets: [0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const shadowFlushSize = new Histogram({
+    name: 'hogvm_shadow_flush_invocations',
+    help: 'Captured invocations per shadow flush (scope=flush) and per function group within it (scope=function) — group size is what the rayon fan-out sees',
+    labelNames: ['scope'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
+})
+
 export const shadowComparison = new Counter({
     name: 'hogvm_shadow_comparison_total',
     help: 'Outcomes of node-vs-rust hogvm shadow comparisons',
@@ -137,6 +144,8 @@ export class RustVmShadow {
             return
         }
 
+        shadowFlushSize.observe({ scope: 'flush' }, items.length)
+
         const byFunction = new Map<string, ShadowCapturedInvocation[]>()
         for (const item of items) {
             const group = byFunction.get(item.functionId)
@@ -148,6 +157,7 @@ export class RustVmShadow {
         }
 
         for (const group of byFunction.values()) {
+            shadowFlushSize.observe({ scope: 'function' }, group.length)
             let rustResults: RustExecResult[] = []
             const stopTimer = shadowBatchDuration.startTimer()
             try {
