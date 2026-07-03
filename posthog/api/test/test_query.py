@@ -13,6 +13,8 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
+
 from rest_framework import status
 
 from posthog.schema import (
@@ -516,7 +518,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["event", "person", "person -- P"])
+            query = EventsQuery(
+                select=["event", "person", "person -- P"],
+                orderBy=["timestamp DESC"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else None,
+            )
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})

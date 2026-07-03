@@ -359,12 +359,71 @@ def _json_subcolumn_access(
     *,
     source: MaterializedPropertySource,
     is_nullable: bool,
+    access_type: Literal["path", "sub_object"] = "path",
 ) -> ast.JSONSubcolumnAccess:
     return ast.JSONSubcolumnAccess(
         expr=ast.Field(chain=[field_type.name], type=field_type),
         keys=keys,
+        access_type=access_type,
         value_type=source.json_value_type,
         type=ast.StringType(nullable=is_nullable),
+    )
+
+
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
+    dynamic_type = ast.Call(name="dynamicType", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    datetime_string = ast.Call(
+        name="replaceOne",
+        args=[
+            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+            _const(" "),
+            _const("T"),
+        ],
+        type=ast.StringType(nullable=False),
+    )
+    datetime_expr: ast.Expr
+    if as_json:
+        datetime_expr = ast.Call(
+            name="concat",
+            args=[_const('"'), datetime_string, _const('"')],
+            type=ast.StringType(nullable=False),
+        )
+    else:
+        datetime_expr = datetime_string
+
+    return ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="startsWith", args=[dynamic_type, _const("DateTime")], type=ast.BooleanType(nullable=False)),
+            datetime_expr,
+            ast.Call(
+                name="toJSONString" if as_json else "toString",
+                args=[clone_expr(value)],
+                type=ast.StringType(nullable=False),
+            ),
+        ],
+        type=ast.StringType(nullable=False),
+    )
+
+
+def _dynamic_json_object_string_expr(
+    field_type: ast.FieldType,
+    keys: list[str],
+    *,
+    source: MaterializedPropertySource,
+) -> ast.Expr:
+    return ast.Call(
+        name="toJSONString",
+        args=[
+            _json_subcolumn_access(
+                field_type,
+                keys,
+                source=source,
+                is_nullable=False,
+                access_type="sub_object",
+            )
+        ],
+        type=ast.StringType(nullable=False),
     )
 
 
@@ -378,13 +437,24 @@ def _json_subcolumn_value_expr(
 ) -> ast.Expr:
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
     if _is_dynamic_json_source(source):
-        string_function = "toJSONString" if as_json else "toString"
+        object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
+        object_present = _call("notEquals", [clone_expr(object_value), _const("{}")])
+        scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
+        scalar_or_null = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNull", args=[clone_expr(value)]),
+                ast.Constant(value=None, type=ast.StringType(nullable=True)),
+                scalar_value,
+            ],
+            type=ast.StringType(nullable=True),
+        )
         return ast.Call(
             name="if",
             args=[
-                ast.Call(name="isNull", args=[value]),
-                ast.Constant(value=None, type=ast.StringType(nullable=True)),
-                ast.Call(name=string_function, args=[value], type=ast.StringType(nullable=False)),
+                object_present,
+                object_value,
+                scalar_or_null,
             ],
             type=ast.StringType(nullable=True),
         )
@@ -904,6 +974,15 @@ class ClickHousePropertyResolver(CloningVisitor):
             raise QueryError("JSONHas cannot traverse a typed events JSON subcolumn")
 
         subcolumn = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
+        if _is_dynamic_json_source(source):
+            object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
+            return _call(
+                "or",
+                [
+                    _call("isNotNull", [subcolumn]),
+                    _call("notEquals", [object_value, _const("{}")]),
+                ],
+            )
         if source.is_nullable or _is_dynamic_json_source(source):
             return _call("isNotNull", [subcolumn])
         if _is_string_column(source):

@@ -1063,8 +1063,9 @@ class ClickHousePrinter(BasePrinter):
             expr = super().visit_field_type(node.expr.type)
         else:
             expr = self.visit(node.expr)
-        for key in node.keys:
-            expr = f"{expr}.{escape_clickhouse_json_subcolumn_identifier(key)}"
+        for index, key in enumerate(node.keys):
+            separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
+            expr = f"{expr}{separator}{escape_clickhouse_json_subcolumn_identifier(key)}"
         if node.value_type is not None:
             expr = f"{expr}.:{node.value_type}"
         return expr

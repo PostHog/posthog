@@ -99,15 +99,20 @@ def format_action_filter(
         if step.properties:
             from posthog.models.property.util import parse_prop_grouped_clauses
 
-            prop_query, prop_params = parse_prop_grouped_clauses(
-                team_id=team_id,
-                property_group=Filter(data={"properties": step.properties}).property_groups,
-                prepend=f"action_props_{action.pk}_{index}",
-                table_name=table_name,
-                person_properties_mode=person_properties_mode,
-                person_id_joined_alias=person_id_joined_alias,
-                hogql_context=hogql_context,
-            )
+            previous_use_new_events_schema = hogql_context.use_new_events_schema
+            hogql_context.use_new_events_schema = False
+            try:
+                prop_query, prop_params = parse_prop_grouped_clauses(
+                    team_id=team_id,
+                    property_group=Filter(data={"properties": step.properties}).property_groups,
+                    prepend=f"action_props_{action.pk}_{index}",
+                    table_name=table_name,
+                    person_properties_mode=person_properties_mode,
+                    person_id_joined_alias=person_id_joined_alias,
+                    hogql_context=hogql_context,
+                )
+            finally:
+                hogql_context.use_new_events_schema = previous_use_new_events_schema
             conditions.append(prop_query.replace("AND", "", 1))
             params.update(prop_params)
 

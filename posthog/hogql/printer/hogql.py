@@ -50,6 +50,10 @@ class HogQLPrinter(BasePrinter):
 
     def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess) -> str:
         parts = [self.visit(node.expr)]
+        if node.access_type == "sub_object" and node.keys:
+            parts.append("^" + self._print_identifier(node.keys[0]))
+            parts.extend(self._print_identifier(key) for key in node.keys[1:])
+            return ".".join(parts)
         parts.extend(self._print_identifier(key) for key in node.keys)
         return ".".join(parts)
 

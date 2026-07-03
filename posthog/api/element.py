@@ -154,11 +154,16 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 # unless someone is using this as an API client, this is only for the toolbar,
                 # which only ever queries date range, event type, and URL
-                prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-                    team_id=self.team.pk,
-                    property_group=filter.property_groups,
-                    hogql_context=filter.hogql_context,
-                )
+                previous_use_new_events_schema = filter.hogql_context.use_new_events_schema
+                filter.hogql_context.use_new_events_schema = False
+                try:
+                    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+                        team_id=self.team.pk,
+                        property_group=filter.property_groups,
+                        hogql_context=filter.hogql_context,
+                    )
+                finally:
+                    filter.hogql_context.use_new_events_schema = previous_use_new_events_schema
 
             span.set_attribute("team_id", self.team.pk)
             span.set_attribute("limit", limit)

@@ -362,6 +362,21 @@ def test_compose_filters_clause(
     assert result_values == expected_values
 
 
+def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
+
+    result_clause, result_values = compose_filters_clause(
+        [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+        team_id=ateam.id,
+    )
+
+    assert (
+        result_clause
+        == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
+    )
+    assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
+
+
 @pytest.mark.parametrize(
     "filters",
     (

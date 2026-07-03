@@ -18,6 +18,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -4689,7 +4690,10 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             printed_query = self._print_query(hogql_parsed_select)
 
             if poe_v1 or poe_v2:
-                assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    assert "events.person_properties.rgInternal" in printed_query
+                else:
+                    assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
             else:
                 assert re.search(
                     r"tupleElement\(argMax\(tuple\(replaceRegexpAll\(nullIf\(nullIf\(JSONExtractRaw\(person\.properties, %\(hogql_val_\d+\)s\), ''\), 'null'\), '^\"|\"\$', ''\)\), person\.version\), 1\) AS properties___rgInternal",

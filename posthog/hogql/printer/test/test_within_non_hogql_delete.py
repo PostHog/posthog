@@ -29,8 +29,6 @@ from posthog.test.base import (
     materialized,
 )
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
@@ -39,7 +37,7 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.data_deletion_request import compile_hogql_predicate
-from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE, EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import TableColumn
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -114,8 +112,6 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         assert not unexpected, f"fragment uses non-mutation-safe functions {unexpected} in: {sql}"
 
     def _expected_browser_property_sql(self) -> str:
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return "properties.`$browser`"
         return self._materialized_column_name("events", "$browser")
 
     def test_compiled_predicate_is_unqualified_and_mutation_safe_with_materialized_column(self) -> None:
@@ -142,7 +138,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
                 "properties.$browser = 'Chrome'",
                 context,
                 dialect="clickhouse",
-                events_table_use_new_schema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+                events_table_use_new_schema=False,
             )
             self._assert_unqualified_and_mutation_safe(sql, self._expected_browser_property_sql())
 
@@ -154,21 +150,14 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         sql_lower = sql.lower()
         assert "events." not in sql_lower, f"blob fragment must be unqualified, got: {sql}"
         assert "sharded_events." not in sql_lower, f"blob fragment must be unqualified, got: {sql}"
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "properties.`$browser`" in sql_lower, f"expected the JSON subcolumn form, got: {sql}"
-        else:
-            assert "jsonextractraw" in sql_lower, f"expected the JSON-blob extract form, got: {sql}"
+        assert "jsonextractraw" in sql_lower, f"expected the JSON-blob extract form, got: {sql}"
         called = {name.lower() for name in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", sql)}
         unexpected = called - _MUTATION_SAFE_FUNCTIONS
         assert not unexpected, f"blob fragment uses non-mutation-safe functions {unexpected} in: {sql}"
 
     def _count_browser_rows(self, team_id: int, browser: str) -> int:
-        table = DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
-        browser_predicate = (
-            "properties.`$browser` = %(b)s"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else "JSONExtractString(properties, '$browser') = %(b)s"
-        )
+        table = "events"
+        browser_predicate = "JSONExtractString(properties, '$browser') = %(b)s"
         result = sync_execute(
             f"SELECT count() FROM {table} WHERE team_id = %(team_id)s AND {browser_predicate}",
             {"team_id": team_id, "b": browser},
@@ -179,7 +168,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         # Mirror production ``LightweightDeleteMutationRunner.get_statement``: a lightweight ``DELETE FROM`` against the
         # local sharded table, scoped by team_id (the compiled fragment carries no team guard of its own) AND the
         # compiled predicate. Synchronous settings so the mutation completes before we assert.
-        table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+        table = EVENTS_DATA_TABLE()
         delete_sql = (
             f"DELETE FROM {CLICKHOUSE_DATABASE}.{table} "  # nosemgrep: clickhouse-fstring-param-audit
             f"WHERE team_id = %(_del_team_id)s AND ({predicate_fragment})"

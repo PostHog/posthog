@@ -6,7 +6,6 @@ from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
 
-from django.conf import settings
 from django.utils import timezone
 
 import posthoganalytics
@@ -176,17 +175,10 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         key = self.query.property_key
         is_virtual = key.startswith("$virt_")
         chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
-        field_expr = ast.Field(chain=chain)
+        field_expr: ast.Expr = ast.Field(chain=chain)
         value_expr: ast.Expr = field_expr
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
-        use_native_property_subcolumn = (
-            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not self.query.is_column and not is_virtual
-        )
-        if use_native_property_subcolumn:
-            value_expr = ast.Call(name="toJSONString", args=[field_expr])
-            presence_expr = ast.Call(name="isNotNull", args=[field_expr])
-            string_expr = ast.Call(name="toString", args=[field_expr])
 
         date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
@@ -203,16 +195,13 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 right=ast.Constant(value=date_to),
             ),
         ]
-        if use_native_property_subcolumn:
-            conditions.append(presence_expr)
-        else:
-            conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq,
-                    left=presence_expr,
-                    right=ast.Constant(value=None),
-                )
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=presence_expr,
+                right=ast.Constant(value=None),
             )
+        )
 
         if self.query.event_names:
             event_conditions: list[ast.Expr] = [

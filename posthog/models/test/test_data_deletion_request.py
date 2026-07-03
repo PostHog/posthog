@@ -6,7 +6,6 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import patch
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import override_settings
 
@@ -263,11 +262,7 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     sql, _ = compile_hogql_predicate(request)
     assert "events.`mat_$current_url`" not in sql
     assert "sharded_events.`mat_$current_url`" not in sql
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        assert "properties.`$current_url`" in sql
-        assert "`mat_$current_url`" not in sql
-    else:
-        assert "`mat_$current_url`" in sql
+    assert "`mat_$current_url`" in sql
     assert sql == snapshot
 
 
@@ -315,10 +310,7 @@ def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     )
     sql, _ = compile_hogql_predicate(request)
 
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        assert "person_properties.isEnterprise" in sql
-    else:
-        assert "person_properties_map_custom" in sql
+    assert "person_properties_map_custom" in sql
     assert "accurateCastOrNull" not in sql
     assert "transform(" not in sql
 

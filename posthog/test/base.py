@@ -121,6 +121,7 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
     WRITABLE_EVENTS_JSON_TABLE_SQL,
+    WRITABLE_EVENTS_TABLE_SQL,
 )
 from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
@@ -1715,6 +1716,7 @@ def clickhouse_events_distributed_table_sqls() -> list[str]:
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return [
             DISTRIBUTED_EVENTS_TABLE_SQL(),
+            WRITABLE_EVENTS_TABLE_SQL(),
             WRITABLE_EVENTS_JSON_TABLE_SQL(),
             DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
         ]

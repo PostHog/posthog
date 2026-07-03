@@ -59,89 +59,98 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 
 
-EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
-    "$active_feature_flags": "String",
-    "$ai_experiment_id": "Nullable(String)",
-    "$ai_http_status": "Nullable(String)",
-    "$ai_is_error": "Nullable(String)",
-    "$ai_model": "Nullable(String)",
-    "$ai_parent_id": "Nullable(String)",
-    "$ai_prompt_name": "Nullable(String)",
-    "$ai_provider": "Nullable(String)",
-    "$ai_session_id": "Nullable(String)",
-    "$ai_span_id": "Nullable(String)",
-    "$ai_total_cost_usd": "Nullable(String)",
-    "$ai_trace_id": "Nullable(String)",
-    "$anon_distinct_id": "Nullable(String)",
-    "$app_build": "String",
-    "$app_namespace": "String",
-    "$app_version": "String",
-    "$browser": "String",
-    "$browser_version": "String",
-    "$current_url": "String",
-    "$device": "String",
-    "$device_id": "String",
-    "$device_model": "String",
-    "$device_type": "String",
-    "$el_text": "String",
-    "$event_type": "String",
-    "$exception_fingerprint": "Nullable(String)",
-    "$exception_functions": "Nullable(String)",
-    "$exception_issue_id": "Nullable(String)",
-    "$exception_sources": "Nullable(String)",
-    "$exception_types": "Nullable(String)",
-    "$exception_values": "Nullable(String)",
-    "$feature_flag": "String",
-    "$feature_flag_payloads": "String",
-    "$feature_flag_response": "String",
-    "$geoip_city_name": "String",
-    "$geoip_country_code": "String",
-    "$geoip_country_name": "String",
-    "$geoip_subdivision_1_code": "String",
-    "$group_0": "String",
-    "$group_1": "String",
-    "$group_2": "String",
-    "$group_3": "String",
-    "$group_4": "String",
-    "$groups": "String",
-    "$host": "String",
-    "$initial_pathname": "String",
-    "$initial_referrer": "String",
-    "$initial_referring_domain": "String",
-    "$ip": "String",
-    "$is_identified": "Nullable(String)",
-    "$lib": "String",
-    "$lib_custom_api_host": "String",
-    "$lib_version": "String",
-    "$lib_version__minor": "String",
-    "$os": "String",
-    "$os_name": "String",
-    "$os_version": "String",
-    "$pathname": "String",
-    "$prev_pageview_max_content_percentage": "String",
-    "$prev_pageview_max_scroll_percentage": "String",
-    "$prev_pageview_pathname": "String",
-    "$process_person_profile": "Nullable(String)",
-    "$referrer": "String",
-    "$referring_domain": "String",
-    "$screen_height": "String",
-    "$screen_name": "String",
-    "$screen_width": "String",
-    "$sent_at": "String",
-    "$session_id": "String",
-    "$survey_id": "String",
-    "$survey_response": "String",
-    "$survey_response_1": "String",
-    "$time": "String",
-    "$user_id": "String",
-    "$viewport_height": "Nullable(String)",
-    "$viewport_width": "Nullable(String)",
-    "$web_vitals_CLS_value": "Nullable(String)",
-    "$web_vitals_FCP_value": "Nullable(String)",
-    "$web_vitals_INP_value": "Nullable(String)",
-    "$web_vitals_LCP_value": "Nullable(String)",
-    "$window_id": "String",
-}
+def _nullable_json_subcolumn_types(subcolumns: dict[str, str]) -> dict[str, str]:
+    return {
+        path: column_type if column_type.startswith("Nullable(") else f"Nullable({column_type})"
+        for path, column_type in subcolumns.items()
+    }
+
+
+EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_types(
+    {
+        "$active_feature_flags": "String",
+        "$ai_experiment_id": "Nullable(String)",
+        "$ai_http_status": "Nullable(String)",
+        "$ai_is_error": "Nullable(String)",
+        "$ai_model": "Nullable(String)",
+        "$ai_parent_id": "Nullable(String)",
+        "$ai_prompt_name": "Nullable(String)",
+        "$ai_provider": "Nullable(String)",
+        "$ai_session_id": "Nullable(String)",
+        "$ai_span_id": "Nullable(String)",
+        "$ai_total_cost_usd": "Nullable(String)",
+        "$ai_trace_id": "Nullable(String)",
+        "$anon_distinct_id": "Nullable(String)",
+        "$app_build": "String",
+        "$app_namespace": "String",
+        "$app_version": "String",
+        "$browser": "String",
+        "$browser_version": "String",
+        "$current_url": "String",
+        "$device": "String",
+        "$device_id": "String",
+        "$device_model": "String",
+        "$device_type": "String",
+        "$el_text": "String",
+        "$event_type": "String",
+        "$exception_fingerprint": "Nullable(String)",
+        "$exception_functions": "Nullable(String)",
+        "$exception_issue_id": "Nullable(String)",
+        "$exception_sources": "Nullable(String)",
+        "$exception_types": "Nullable(String)",
+        "$exception_values": "Nullable(String)",
+        "$feature_flag": "String",
+        "$feature_flag_payloads": "String",
+        "$feature_flag_response": "String",
+        "$geoip_city_name": "String",
+        "$geoip_country_code": "String",
+        "$geoip_country_name": "String",
+        "$geoip_subdivision_1_code": "String",
+        "$group_0": "String",
+        "$group_1": "String",
+        "$group_2": "String",
+        "$group_3": "String",
+        "$group_4": "String",
+        "$groups": "String",
+        "$host": "String",
+        "$initial_pathname": "String",
+        "$initial_referrer": "String",
+        "$initial_referring_domain": "String",
+        "$ip": "String",
+        "$is_identified": "Nullable(String)",
+        "$lib": "String",
+        "$lib_custom_api_host": "String",
+        "$lib_version": "String",
+        "$lib_version__minor": "String",
+        "$os": "String",
+        "$os_name": "String",
+        "$os_version": "String",
+        "$pathname": "String",
+        "$prev_pageview_max_content_percentage": "String",
+        "$prev_pageview_max_scroll_percentage": "String",
+        "$prev_pageview_pathname": "String",
+        "$process_person_profile": "Nullable(String)",
+        "$referrer": "String",
+        "$referring_domain": "String",
+        "$screen_height": "String",
+        "$screen_name": "String",
+        "$screen_width": "String",
+        "$sent_at": "String",
+        "$session_id": "String",
+        "$survey_id": "String",
+        "$survey_response": "String",
+        "$survey_response_1": "String",
+        "$time": "String",
+        "$user_id": "String",
+        "$viewport_height": "Nullable(String)",
+        "$viewport_width": "Nullable(String)",
+        "$web_vitals_CLS_value": "Nullable(String)",
+        "$web_vitals_FCP_value": "Nullable(String)",
+        "$web_vitals_INP_value": "Nullable(String)",
+        "$web_vitals_LCP_value": "Nullable(String)",
+        "$window_id": "String",
+    }
+)
 
 
 def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
@@ -163,30 +172,32 @@ def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
     )
 
 
-PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
-    "$app_version": "String",
-    "$browser": "String",
-    "$current_url": "String",
-    "$geoip_continent_name": "String",
-    "$geoip_country_code": "String",
-    "$geoip_country_name": "String",
-    "$initial_current_url": "String",
-    "$initial_fbclid": "String",
-    "$initial_gad_source": "String",
-    "$initial_gbraid": "String",
-    "$initial_gclid": "String",
-    "$initial_msclkid": "String",
-    "$initial_pathname": "String",
-    "$initial_referring_domain": "String",
-    "$initial_utm_campaign": "String",
-    "$initial_utm_content": "String",
-    "$initial_utm_medium": "String",
-    "$initial_utm_source": "String",
-    "$initial_utm_term": "String",
-    "$initial_wbraid": "String",
-    "$os_name": "String",
-    "$referring_domain": "String",
-}
+PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_types(
+    {
+        "$app_version": "String",
+        "$browser": "String",
+        "$current_url": "String",
+        "$geoip_continent_name": "String",
+        "$geoip_country_code": "String",
+        "$geoip_country_name": "String",
+        "$initial_current_url": "String",
+        "$initial_fbclid": "String",
+        "$initial_gad_source": "String",
+        "$initial_gbraid": "String",
+        "$initial_gclid": "String",
+        "$initial_msclkid": "String",
+        "$initial_pathname": "String",
+        "$initial_referring_domain": "String",
+        "$initial_utm_campaign": "String",
+        "$initial_utm_content": "String",
+        "$initial_utm_medium": "String",
+        "$initial_utm_source": "String",
+        "$initial_utm_term": "String",
+        "$initial_wbraid": "String",
+        "$os_name": "String",
+        "$referring_domain": "String",
+    }
+)
 
 
 def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:
@@ -331,13 +342,13 @@ def _json_subcolumn(column: str, path: str) -> str:
 
 
 EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS = f"""
-    , $group_0 String ALIAS {_json_subcolumn("properties", "$group_0")}
-    , $group_1 String ALIAS {_json_subcolumn("properties", "$group_1")}
-    , $group_2 String ALIAS {_json_subcolumn("properties", "$group_2")}
-    , $group_3 String ALIAS {_json_subcolumn("properties", "$group_3")}
-    , $group_4 String ALIAS {_json_subcolumn("properties", "$group_4")}
-    , $window_id String ALIAS {_json_subcolumn("properties", "$window_id")}
-    , $session_id String ALIAS {_json_subcolumn("properties", "$session_id")}
+    , $group_0 String ALIAS ifNull({_json_subcolumn("properties", "$group_0")}, '')
+    , $group_1 String ALIAS ifNull({_json_subcolumn("properties", "$group_1")}, '')
+    , $group_2 String ALIAS ifNull({_json_subcolumn("properties", "$group_2")}, '')
+    , $group_3 String ALIAS ifNull({_json_subcolumn("properties", "$group_3")}, '')
+    , $group_4 String ALIAS ifNull({_json_subcolumn("properties", "$group_4")}, '')
+    , $window_id String ALIAS ifNull({_json_subcolumn("properties", "$window_id")}, '')
+    , $session_id String ALIAS ifNull({_json_subcolumn("properties", "$session_id")}, '')
     , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull({_json_subcolumn("properties", "$session_id")}))
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))

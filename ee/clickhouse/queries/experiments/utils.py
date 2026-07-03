@@ -1,3 +1,4 @@
+import json
 from typing import Union
 
 from posthog.hogql import ast
@@ -7,6 +8,16 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
+
+
+def _has_feature_flag_property(properties: object) -> bool:
+    if isinstance(properties, str):
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            return "$feature/" in properties.replace("\\/", "/")
+
+    return isinstance(properties, dict) and any(key.startswith("$feature/") for key in properties)
 
 
 def requires_flag_warning(filter: Filter, team: Team) -> bool:
@@ -42,7 +53,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     for _event, property_group_list in response.results:
         for property_group in property_group_list:
-            if "$feature/" in property_group:
+            if _has_feature_flag_property(property_group):
                 return False
 
     return True

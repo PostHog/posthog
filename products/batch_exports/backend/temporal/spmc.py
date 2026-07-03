@@ -700,6 +700,7 @@ def compose_filters_clause(
         enable_select_queries=False,
         limit_top_select=False,
         within_non_hogql_query=False,
+        use_new_events_schema=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )

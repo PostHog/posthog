@@ -52,9 +52,25 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert physical_query.clickhouse is not None
         assert "events_json" in physical_query.clickhouse
         assert "events.properties.browser" in physical_query.clickhouse
+        assert "events.properties.^browser" in physical_query.clickhouse
         assert "JSONExtractRaw" not in physical_query.clickhouse
         assert "toJSONString" in physical_query.clickhouse
         assert "toString(events.properties)" not in physical_query.clickhouse
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_event_property_values_new_schema_includes_object_values(self):
+        _create_event(
+            event="$pageview",
+            distinct_id="u1",
+            team=self.team,
+            properties={"profile": {"first_name": "Mary", "last_name": "Smith"}},
+        )
+        _create_event(event="$pageview", distinct_id="u2", team=self.team, properties={"profile": "plain"})
+        flush_persons_and_events()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="profile"))
+
+        assert {r.name.replace(" ", "") for r in results} == {'{"first_name":"Mary","last_name":"Smith"}', "plain"}
 
     def test_event_property_values_excludes_null(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
