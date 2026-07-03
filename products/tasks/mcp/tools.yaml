@@ -42,9 +42,9 @@ tools:
         title: Create task automation
         description: >
             Create a task automation — a cron-scheduled prompt that runs against a GitHub repository. Requires `name`,
-            `prompt`, `repository` (in `organization/repository` format), and a valid 5-field `cron_expression`. Optionally
-            set `timezone` (IANA, defaults to UTC), `github_integration`, `template_id`, and `enabled`. Requires the
-            calling token's organization to have Tasks access enabled.
+            `prompt`, `repository` (in `organization/repository` format), and a valid 5-field `cron_expression`.
+            Optionally set `timezone` (IANA, defaults to UTC), `github_integration`, `template_id`, and `enabled`.
+            Requires the calling token's organization to have Tasks access enabled.
         feature_flag: tasks
     task-automations-destroy:
         operation: task_automations_destroy
@@ -87,9 +87,9 @@ tools:
             idempotent: false
         title: Update task automation
         description: >
-            Update a task automation by ID. Any field can be changed — `name`, `prompt`, `repository`, `cron_expression`,
-            `timezone`, `github_integration`, `template_id`, or `enabled`. Pass `enabled: false` to pause the schedule
-            without deleting the automation.
+            Update a task automation by ID. Any field can be changed — `name`, `prompt`, `repository`,
+            `cron_expression`, `timezone`, `github_integration`, `template_id`, or `enabled`. Pass `enabled: false` to
+            pause the schedule without deleting the automation.
         feature_flag: tasks
     task-automations-retrieve:
         operation: task_automations_retrieve

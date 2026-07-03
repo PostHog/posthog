@@ -21,6 +21,160 @@ import {
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const TaskAutomationsCreateSchema = TaskAutomationsCreateBody
+
+const taskAutomationsCreate = (): ToolBase<typeof TaskAutomationsCreateSchema, Schemas.TaskAutomationDTO> => ({
+    name: 'task-automations-create',
+    schema: TaskAutomationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.github_integration !== undefined) {
+            body['github_integration'] = params.github_integration
+        }
+        if (params.cron_expression !== undefined) {
+            body['cron_expression'] = params.cron_expression
+        }
+        if (params.timezone !== undefined) {
+            body['timezone'] = params.timezone
+        }
+        if (params.template_id !== undefined) {
+            body['template_id'] = params.template_id
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.TaskAutomationDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TaskAutomationsDestroySchema = TaskAutomationsDestroyParams.omit({ project_id: true })
+
+const taskAutomationsDestroy = (): ToolBase<typeof TaskAutomationsDestroySchema, unknown> => ({
+    name: 'task-automations-destroy',
+    schema: TaskAutomationsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const TaskAutomationsListSchema = TaskAutomationsListQueryParams
+
+const taskAutomationsList = (): ToolBase<
+    typeof TaskAutomationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedTaskAutomationDTOList>
+> => ({
+    name: 'task-automations-list',
+    schema: TaskAutomationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTaskAutomationDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/tasks')
+    },
+})
+
+const TaskAutomationsPartialUpdateSchema = TaskAutomationsPartialUpdateParams.omit({ project_id: true }).extend(
+    TaskAutomationsPartialUpdateBody.shape
+)
+
+const taskAutomationsPartialUpdate = (): ToolBase<
+    typeof TaskAutomationsPartialUpdateSchema,
+    Schemas.TaskAutomationDTO
+> => ({
+    name: 'task-automations-partial-update',
+    schema: TaskAutomationsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.github_integration !== undefined) {
+            body['github_integration'] = params.github_integration
+        }
+        if (params.cron_expression !== undefined) {
+            body['cron_expression'] = params.cron_expression
+        }
+        if (params.timezone !== undefined) {
+            body['timezone'] = params.timezone
+        }
+        if (params.template_id !== undefined) {
+            body['template_id'] = params.template_id
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.TaskAutomationDTO>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TaskAutomationsRetrieveSchema = TaskAutomationsRetrieveParams.omit({ project_id: true })
+
+const taskAutomationsRetrieve = (): ToolBase<typeof TaskAutomationsRetrieveSchema, Schemas.TaskAutomationDTO> => ({
+    name: 'task-automations-retrieve',
+    schema: TaskAutomationsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TaskAutomationDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const TaskAutomationsRunCreateSchema = TaskAutomationsRunCreateParams.omit({ project_id: true })
+
+const taskAutomationsRunCreate = (): ToolBase<typeof TaskAutomationsRunCreateSchema, Schemas.TaskAutomationDTO> => ({
+    name: 'task-automations-run-create',
+    schema: TaskAutomationsRunCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof TaskAutomationsRunCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TaskAutomationDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/run/`,
+        })
+        return result
+    },
+})
+
 const TasksListSchema = TasksListQueryParams
 
 const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>> => ({
@@ -183,170 +337,16 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
     },
 })
 
-const TaskAutomationsListSchema = TaskAutomationsListQueryParams
-
-const taskAutomationsList = (): ToolBase<
-    typeof TaskAutomationsListSchema,
-    Schemas.PaginatedTaskAutomationDTOList
-> => ({
-    name: 'task-automations-list',
-    schema: TaskAutomationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskAutomationDTOList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
-const TaskAutomationsCreateSchema = TaskAutomationsCreateBody
-
-const taskAutomationsCreate = (): ToolBase<typeof TaskAutomationsCreateSchema, Schemas.TaskAutomationDTO> => ({
-    name: 'task-automations-create',
-    schema: TaskAutomationsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.repository !== undefined) {
-            body['repository'] = params.repository
-        }
-        if (params.github_integration !== undefined) {
-            body['github_integration'] = params.github_integration
-        }
-        if (params.cron_expression !== undefined) {
-            body['cron_expression'] = params.cron_expression
-        }
-        if (params.timezone !== undefined) {
-            body['timezone'] = params.timezone
-        }
-        if (params.template_id !== undefined) {
-            body['template_id'] = params.template_id
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        const result = await context.api.request<Schemas.TaskAutomationDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/`,
-            body,
-        })
-        return result
-    },
-})
-
-const TaskAutomationsRetrieveSchema = TaskAutomationsRetrieveParams.omit({ project_id: true })
-
-const taskAutomationsRetrieve = (): ToolBase<typeof TaskAutomationsRetrieveSchema, Schemas.TaskAutomationDTO> => ({
-    name: 'task-automations-retrieve',
-    schema: TaskAutomationsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TaskAutomationDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const TaskAutomationsPartialUpdateSchema = TaskAutomationsPartialUpdateParams.omit({ project_id: true }).extend(
-    TaskAutomationsPartialUpdateBody.shape
-)
-
-const taskAutomationsPartialUpdate = (): ToolBase<
-    typeof TaskAutomationsPartialUpdateSchema,
-    Schemas.TaskAutomationDTO
-> => ({
-    name: 'task-automations-partial-update',
-    schema: TaskAutomationsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.repository !== undefined) {
-            body['repository'] = params.repository
-        }
-        if (params.github_integration !== undefined) {
-            body['github_integration'] = params.github_integration
-        }
-        if (params.cron_expression !== undefined) {
-            body['cron_expression'] = params.cron_expression
-        }
-        if (params.timezone !== undefined) {
-            body['timezone'] = params.timezone
-        }
-        if (params.template_id !== undefined) {
-            body['template_id'] = params.template_id
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        const result = await context.api.request<Schemas.TaskAutomationDTO>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const TaskAutomationsDestroySchema = TaskAutomationsDestroyParams.omit({ project_id: true })
-
-const taskAutomationsDestroy = (): ToolBase<typeof TaskAutomationsDestroySchema, unknown> => ({
-    name: 'task-automations-destroy',
-    schema: TaskAutomationsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsDestroySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const TaskAutomationsRunCreateSchema = TaskAutomationsRunCreateParams.omit({ project_id: true })
-
-const taskAutomationsRunCreate = (): ToolBase<typeof TaskAutomationsRunCreateSchema, Schemas.TaskAutomationDTO> => ({
-    name: 'task-automations-run-create',
-    schema: TaskAutomationsRunCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TaskAutomationsRunCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TaskAutomationDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_automations/${encodeURIComponent(String(params.id))}/run/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'task-automations-create': taskAutomationsCreate,
+    'task-automations-destroy': taskAutomationsDestroy,
+    'task-automations-list': taskAutomationsList,
+    'task-automations-partial-update': taskAutomationsPartialUpdate,
+    'task-automations-retrieve': taskAutomationsRetrieve,
+    'task-automations-run-create': taskAutomationsRunCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,
-    'task-automations-list': taskAutomationsList,
-    'task-automations-create': taskAutomationsCreate,
-    'task-automations-retrieve': taskAutomationsRetrieve,
-    'task-automations-partial-update': taskAutomationsPartialUpdate,
-    'task-automations-destroy': taskAutomationsDestroy,
-    'task-automations-run-create': taskAutomationsRunCreate,
 }
