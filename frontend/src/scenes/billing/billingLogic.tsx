@@ -80,6 +80,18 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
+export type BillingLimits = Pick<BillingType, 'custom_limits_usd' | 'next_period_custom_limits_usd'>
+
+/** Returns `map` with `key` set to `value`, or with `key` removed when `value` is null/undefined. */
+const withLimit = (
+    map: Record<string, number | null> | undefined,
+    key: string,
+    value: number | null | undefined
+): Record<string, number | null> => {
+    const { [key]: _discarded, ...rest } = map ?? {}
+    return value == null ? rest : { ...rest, [key]: value }
+}
+
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
@@ -177,6 +189,10 @@ export const billingLogic = kea<billingLogicType>([
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
         setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
+        updateBillingLimit: (productType: string, amount: number | null) => ({ productType, amount }),
+        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
+        updateBillingLimitSuccess: (productType: string, limits: BillingLimits) => ({ productType, limits }),
+        updateBillingLimitFailure: (productType: string) => ({ productType }),
     }),
     connect(() => ({
         values: [
@@ -306,7 +322,7 @@ export const billingLogic = kea<billingLogicType>([
         billing: [
             null as BillingType | null,
             {
-                loadBilling: async () => {
+                loadBilling: async (_: void, breakpoint) => {
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
@@ -314,22 +330,11 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.get(
                         'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                     )
+                    // Concurrent limit saves each trigger a refresh; discard superseded responses so a
+                    // stale one can't overwrite newer state.
+                    breakpoint()
 
                     return parseBillingResponse(response)
-                },
-
-                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
-                    try {
-                        const response = await api.update('api/billing', { custom_limits_usd: limits })
-                        lemonToast.success('Billing limits updated')
-                        actions.loadBilling()
-                        return parseBillingResponse(response)
-                    } catch (error: any) {
-                        lemonToast.error(
-                            'There was an error updating your billing limits. Please try again or contact support.'
-                        )
-                        throw error
-                    }
                 },
 
                 deactivateProduct: async (key: string, breakpoint) => {
@@ -516,6 +521,77 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     })),
+    reducers({
+        // Limit writes are per product: merging only the saved key keeps concurrent saves commutative.
+        // `billingSource` is the reducer behind the lazy `billing` selector (kea-loaders lazy mode
+        // stores state in `<key>Source`), and is the only way to extend lazy loader state.
+        billingSource: {
+            // The state param is annotated because typegen sees lazy loader state as `any`.
+            updateBillingLimitSuccess: (state: BillingType | null, { productType, limits }) =>
+                state && {
+                    ...state,
+                    custom_limits_usd: withLimit(
+                        state.custom_limits_usd,
+                        productType,
+                        limits.custom_limits_usd?.[productType]
+                    ),
+                    next_period_custom_limits_usd: withLimit(
+                        state.next_period_custom_limits_usd,
+                        productType,
+                        limits.next_period_custom_limits_usd?.[productType]
+                    ),
+                },
+        },
+        limitUpdatesInFlight: [
+            {} as Record<string, true>,
+            {
+                updateBillingLimit: (state, { productType }) => ({ ...state, [productType]: true as const }),
+                removeBillingLimitNextPeriod: (state, { productType }) => ({
+                    ...state,
+                    [productType]: true as const,
+                }),
+                updateBillingLimitSuccess: (state, { productType }) => {
+                    const { [productType]: _discarded, ...rest } = state
+                    return rest
+                },
+                updateBillingLimitFailure: (state, { productType }) => {
+                    const { [productType]: _discarded, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+    }),
+    listeners(({ actions }) => {
+        // Single write path for billing limits. The PATCH response echoes the server's decision for the
+        // saved product (a limit below current usage is clamped and deferred to next period), so the
+        // success payload carries both maps for the per-key merge above.
+        const patchLimits = async (
+            body: Record<string, unknown>,
+            productType: string,
+            successMessage: string
+        ): Promise<void> => {
+            try {
+                const limits: BillingLimits = await api.update('api/billing', body)
+                lemonToast.success(successMessage)
+                actions.updateBillingLimitSuccess(productType, limits)
+                actions.loadBilling() // background refresh of usage-derived fields; never gates the editors
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error('There was an error updating your billing limit. Please try again or contact support.')
+                actions.updateBillingLimitFailure(productType)
+            }
+        }
+        return {
+            updateBillingLimit: ({ productType, amount }) =>
+                patchLimits({ custom_limits_usd: { [productType]: amount } }, productType, 'Billing limit updated'),
+            removeBillingLimitNextPeriod: ({ productType }) =>
+                patchLimits(
+                    { reset_limit_next_period: productType },
+                    productType,
+                    'Billing limit for next period has been removed.'
+                ),
+        }
+    }),
     selectors({
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],

@@ -39,7 +39,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxUsageLogic']),
     connect(() => ({
         values: [billingLogic, ['billing', 'billingLoading', 'canAccessBilling']],
-        actions: [billingLogic, ['loadBilling', 'updateBillingLimits']],
+        actions: [billingLogic, ['loadBilling', 'updateBillingLimit']],
     })),
     actions({
         openModal: true,
@@ -78,7 +78,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                     return
                 }
                 const usd = Math.max(0, prs - freePrs) * pricePerPrUsd
-                actions.updateBillingLimits({ [product.type]: usd })
+                actions.updateBillingLimit(product.type, usd)
             },
         },
     })),
