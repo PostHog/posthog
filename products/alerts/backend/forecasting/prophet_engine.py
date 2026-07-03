@@ -1,4 +1,7 @@
+import time
 import logging
+
+import structlog
 
 from posthog.schema import IntervalType
 
@@ -7,6 +10,8 @@ from products.alerts.backend.forecasting.engine import ForecastResult
 # cmdstanpy INFO logs on every fit are pure noise at alert-check volume.
 logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
 logging.getLogger("prophet").setLevel(logging.WARNING)
+
+logger = structlog.get_logger(__name__)
 
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
@@ -31,10 +36,17 @@ class ProphetEngine:
         df = pd.DataFrame({"ds": pd.to_datetime(dates), "y": values})
         # mcmc_samples=0 pins the deterministic MAP fit; seasonalities stay on Prophet's auto-detection.
         model = Prophet(interval_width=interval_width, mcmc_samples=0)
+
+        start = time.monotonic()
         model.fit(df)
         freq = _FREQ.get(interval or IntervalType.DAY, "D")
         future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=True)
         prediction = model.predict(future)
+        duration_ms = (time.monotonic() - start) * 1000
+        logger.info(
+            "forecast_fit_completed", engine="prophet", horizon=horizon, n_points=len(values), duration_ms=duration_ms
+        )
+
         history, forecast = prediction.iloc[: len(values)], prediction.iloc[len(values) :]
 
         # In-sample fit quality: how far off the fitted values are, and whether the band's observed

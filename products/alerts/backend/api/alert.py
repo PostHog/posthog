@@ -789,6 +789,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             forecast_config = None
 
+        if forecast_config and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            raise ValidationError("Forecast alerts are not enabled for your account.")
+
         require_threshold_bounds = (
             detector_config is None
             and forecast_config is None
@@ -1053,6 +1056,8 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
         return value
 
     def validate_forecast_config(self, value):
+        if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+            raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
         # Shape is already validated by ForecastConfigField.to_internal_value; only bounds remain.
         try:
             validate_forecast_horizon_and_width(ForecastConfig.model_validate(value))
@@ -1483,7 +1488,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_from=date_from,
                 user=cast(User, request.user),
             )
-        except ValueError as e:
+        except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")

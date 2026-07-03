@@ -64,56 +64,51 @@ def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
     return f" ({', '.join(parts)})" if parts else ""
 
 
-def evaluate_with_forecast(
-    result: ExtractionResult, forecast_config: dict[str, Any], threshold: InsightThreshold | None
+def _evaluate_band_deviation(
+    dates: list[str],
+    values: list[float],
+    label: str,
+    engine: Any,
+    interval_width: float,
+    interval_type: IntervalType | None,
+    interval_value: str | None,
 ) -> AlertEvaluationResult:
-    """Evaluate an extracted trends series against a forecast (the third alert path).
+    """Fit on history excluding the latest completed point, predict one interval, fire if that
+    actual point sits outside the band."""
+    forecast = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
+    actual = values[-1]
+    lower, upper = forecast.lower[0], forecast.upper[0]
+    breaches: list[str] = []
+    if actual < lower or actual > upper:
+        breaches = [
+            f"The latest value for {label} ({actual:.2f}) is outside the expected range "
+            f"({lower:.2f} to {upper:.2f}){_decomposition_suffix(forecast, 0)}"
+        ]
+    return AlertEvaluationResult(
+        value=actual,
+        breaches=breaches,
+        interval=interval_value,
+        triggered_metadata={"forecast": {"lower": lower, "upper": upper, "yhat": forecast.yhat[0]}}
+        if breaches
+        else None,
+    )
 
-    future_breach: fit on the full history, predict `horizon` intervals, fire if the point
-    forecast crosses the threshold bounds. band_deviation: fit on history excluding the latest
-    completed point, predict one interval, fire if that actual point sits outside the band.
-    """
-    interval_value = result.interval_type.value if result.interval_type else None
 
-    if not result.series:
-        value: float | None = 0 if result.empty_query_result else None
-        return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
-
-    dates, values = _clean_points(result)
-    min_points = min_forecast_points(result.interval_type)
-    if len(values) < min_points:
-        raise AlertExtractionError(
-            f"Not enough history to forecast: need at least {min_points} completed intervals, "
-            f"got {len(values)}. The alert will work once the insight has more data."
-        )
-
-    label = result.series[0].label
-    condition = forecast_config.get("condition")
-    interval_width = float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
-    engine = get_forecast_engine(forecast_config)
-
-    if condition == ForecastConditionType.BAND_DEVIATION.value:
-        forecast = engine.forecast(dates[:-1], values[:-1], 1, interval_width, result.interval_type)
-        actual = values[-1]
-        lower, upper = forecast.lower[0], forecast.upper[0]
-        breaches: list[str] = []
-        if actual < lower or actual > upper:
-            breaches = [
-                f"The latest value for {label} ({actual:.2f}) is outside the expected range "
-                f"({lower:.2f} to {upper:.2f}){_decomposition_suffix(forecast, 0)}"
-            ]
-        return AlertEvaluationResult(
-            value=actual,
-            breaches=breaches,
-            interval=interval_value,
-            triggered_metadata={"forecast": {"lower": lower, "upper": upper, "yhat": forecast.yhat[0]}}
-            if breaches
-            else None,
-        )
-
-    # future_breach
+def _evaluate_future_breach(
+    dates: list[str],
+    values: list[float],
+    label: str,
+    forecast_config: dict[str, Any],
+    engine: Any,
+    interval_width: float,
+    interval_type: IntervalType | None,
+    threshold: InsightThreshold | None,
+    interval_value: str | None,
+) -> AlertEvaluationResult:
+    """Fit on the full history, predict `horizon` intervals, fire if the point forecast crosses
+    the threshold bounds."""
     horizon = int(forecast_config.get("horizon") or DEFAULT_HORIZON)
-    forecast = engine.forecast(dates, values, horizon, interval_width, result.interval_type)
+    forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
     bounds = threshold.bounds if threshold else None
     if bounds is None or (bounds.lower is None and bounds.upper is None):
         return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
@@ -150,6 +145,53 @@ def evaluate_with_forecast(
     return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
 
 
+def evaluate_with_forecast(
+    result: ExtractionResult, forecast_config: dict[str, Any], threshold: InsightThreshold | None
+) -> AlertEvaluationResult:
+    """Evaluate an extracted trends series against a forecast (the third alert path). Dispatches to
+    ``_evaluate_band_deviation`` or ``_evaluate_future_breach`` by ``forecast_config["condition"]``."""
+    interval_value = result.interval_type.value if result.interval_type else None
+
+    if not result.series:
+        value: float | None = 0 if result.empty_query_result else None
+        return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
+
+    dates, values = _clean_points(result)
+    condition = forecast_config.get("condition")
+    min_points = min_forecast_points(result.interval_type)
+    # band_deviation holds out the latest point as the actual to compare against, fitting on one
+    # fewer point than it's given — so it needs one extra point to still fit on a full min_points window.
+    required_points = min_points + 1 if condition == ForecastConditionType.BAND_DEVIATION.value else min_points
+    if len(values) < required_points:
+        raise AlertExtractionError(
+            f"Not enough history to forecast: need at least {required_points} completed intervals, "
+            f"got {len(values)}. The alert will work once the insight has more data."
+        )
+
+    label = result.series[0].label
+    interval_width = float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
+    engine = get_forecast_engine(forecast_config)
+
+    if condition == ForecastConditionType.BAND_DEVIATION.value:
+        return _evaluate_band_deviation(
+            dates, values, label, engine, interval_width, result.interval_type, interval_value
+        )
+    elif condition == ForecastConditionType.FUTURE_BREACH.value:
+        return _evaluate_future_breach(
+            dates,
+            values,
+            label,
+            forecast_config,
+            engine,
+            interval_width,
+            result.interval_type,
+            threshold,
+            interval_value,
+        )
+    else:
+        raise AlertExtractionError(f"Unknown forecast condition: {condition}")
+
+
 class TrendsForecastExtractor:
     """Forecast-path extractor for trends insights — same shape as TrendsDetectorExtractor, but the
     lookback is sized by the forecast config instead of a detector window."""
@@ -179,7 +221,7 @@ class TrendsForecastExtractor:
             insight,
             ctx.team,
             trends_query,
-            _forecast_min_samples(ctx.detector_config),
+            _forecast_min_samples(ctx.extractor_config),
             execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
@@ -220,7 +262,7 @@ def simulate_forecast_on_insight(
         raise ValueError(f"Forecast simulation isn't supported for {kind} insights")
 
     ctx = SimulationContext(
-        team=team, detector_config=forecast_config, user=user, series_index=series_index, date_from=date_from
+        team=team, extractor_config=forecast_config, user=user, series_index=series_index, date_from=date_from
     )
     result, interval_value = extractor.simulate(insight, query, ctx)
 
