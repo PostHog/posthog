@@ -1,10 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
 
+import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
 
@@ -162,7 +162,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], activeCloudRunLogic, ['activeCloudRun']],
-        actions: [eventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
+        actions: [onboardingEventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
     })),
     actions({
         connect: true,

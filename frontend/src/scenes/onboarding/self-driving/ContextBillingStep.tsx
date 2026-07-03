@@ -4,10 +4,10 @@ import { IconCheck } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -99,7 +99,7 @@ function PlanChoice({
     onContinue: () => void
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-    const { reportContextOnboardingPlanSelected } = useActions(eventUsageLogic)
+    const { reportContextOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
     // Guard the subscribe button against double-submit: `isLoading` covers the returning-customer
     // activate call, `paymentEntryModalOpen` covers a new customer once the Stripe modal is up.
     const { isLoading, paymentEntryModalOpen } = useValues(paymentEntryLogic)

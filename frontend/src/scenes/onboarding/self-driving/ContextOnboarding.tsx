@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useEffect, useState } from 'react'
 
@@ -12,7 +12,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { type ContextOnboardingStepId, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -25,6 +24,7 @@ import {
     useWizardTakeoverActive,
     WizardProgressTracker,
 } from '../legacy/sdks/OnboardingInstallStep/WizardProgressTracker'
+import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { useWizardCommand } from '../shared/SetupWizardBanner'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 import { ContextBillingStep } from './ContextBillingStep'
@@ -72,7 +72,7 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
     const { isCloudOrDev } = useWizardCommand()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
-    const { reportContextOnboardingInstallModeSelected } = useActions(eventUsageLogic)
+    const { reportContextOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     const [mode, setMode] = useState<InstallMode>('cloud')
     const offerCloud = cloudRunEnabled && isCloudOrDev
     // GROW-95: once a cloud run is spawned you cannot also run it locally, so the local tab is blocked and
@@ -395,8 +395,8 @@ export function SourcesStepInner({
     codebase: CodebaseAccess
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { reportContextOnboardingSourceToggled } = useActions(eventUsageLogic)
+    const { updateCurrentTeam } = useAsyncActions(teamLogic)
+    const { reportContextOnboardingSourceToggled } = useActions(onboardingEventUsageLogic)
 
     const autocaptureOn = !currentTeam?.autocapture_opt_out
     const replayOn = !!currentTeam?.session_recording_opt_in
@@ -406,11 +406,13 @@ export function SourcesStepInner({
     // installed and sending. Until then, turned-on sources read as "Needs install".
     const sdkInstalled = !!currentTeam?.ingested_event
 
-    // Report and write together so every switch flip lands in the v2 funnel (GROW-89) alongside the
-    // team patch it caused. `toggle` names the switch — a card can carry several.
+    // Report to the v2 funnel (GROW-89) only after the PATCH lands: on failure the switch snaps back
+    // to the team's real state, so a funnel event would record a toggle that never happened.
+    // `toggle` names the switch — a card can carry several.
     const toggleSource = (productKey: ProductKey, toggle: string, enabled: boolean, patch: Partial<TeamType>): void => {
-        reportContextOnboardingSourceToggled(productKey, toggle, enabled)
-        updateCurrentTeam(patch)
+        void updateCurrentTeam(patch)
+            .then(() => reportContextOnboardingSourceToggled(productKey, toggle, enabled))
+            .catch(() => {}) // a failed write is not a toggle; the UI already reflects the revert
     }
 
     const sources: ToolSource[] = [
@@ -585,7 +587,7 @@ export function ContextOnboarding(): JSX.Element {
         reportContextOnboardingStepViewed,
         reportContextOnboardingStepCompleted,
         reportContextOnboardingStepSkipped,
-    } = useActions(eventUsageLogic)
+    } = useActions(onboardingEventUsageLogic)
     // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
     // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
     const [stepIndex, setStepIndex] = useState(() => {

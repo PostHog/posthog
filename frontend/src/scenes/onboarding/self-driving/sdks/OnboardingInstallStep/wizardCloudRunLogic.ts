@@ -4,7 +4,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +11,7 @@ import { IntegrationType, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from '../../../legacy/onboardingLogic'
 import { sdksLogic } from '../../../legacy/sdks/sdksLogic'
+import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { wizardCloudRunLogicType } from './wizardCloudRunLogicType'
 
@@ -57,7 +57,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             ['loadIntegrations'],
             activeCloudRunLogic,
             ['setActiveCloudRun'],
-            eventUsageLogic,
+            onboardingEventUsageLogic,
             ['reportContextOnboardingCloudRunQueued'],
         ],
     })),
