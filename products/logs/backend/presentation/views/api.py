@@ -25,7 +25,7 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import QueryError
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
@@ -39,7 +39,7 @@ from posthog.models import User
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.logs.backend.column_expressions import canonical_key, column_to_expr
+from products.logs.backend.column_expressions import canonical_key
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
@@ -802,15 +802,6 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
         custom_columns = query_data.get("customColumns") or []
-        # Validate up front so a bad expression is a clean 400 instead of a mid-query failure.
-        for custom_column in custom_columns:
-            try:
-                column_to_expr(custom_column)
-            except (ValueError, ExposedHogQLError) as e:
-                return Response(
-                    {"error": f"Invalid custom column {custom_column!r}: {e}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
@@ -864,20 +855,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
-        if live_logs_checkpoint:
-            response = LogsQueryRunner(query, self.team).run(
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
-            )
-            results = list(response.results)
-        else:
-            results = list(
-                time_sliced_results(
-                    runner=LogsQueryRunner(query, self.team),
-                    order_by_earliest=order_by == LogsOrderBy.EARLIEST,
-                    make_runner=make_runner,
-                    analytics_props=analytics_props,
+        try:
+            if live_logs_checkpoint:
+                response = LogsQueryRunner(query, self.team).run(
+                    ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
-            )
+                results = list(response.results)
+            else:
+                results = list(
+                    time_sliced_results(
+                        runner=LogsQueryRunner(query, self.team),
+                        order_by_earliest=order_by == LogsOrderBy.EARLIEST,
+                        make_runner=make_runner,
+                        analytics_props=analytics_props,
+                    )
+                )
+        except QueryError as e:
+            # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
