@@ -376,12 +376,11 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const theme = useMemo(() => buildTheme(), [])
     const [mode, setMode] = useState<ChartMode>('session')
-    const [badgePositionsRaw, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
+    const [badgePositions, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
     // Bail on identical positions so the measure->report->render loop settles instead of cycling.
     const setBadgePositions = useCallback((next: VersionBadgePosition[]) => {
         setBadgePositionsRaw((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
     }, [])
-    const badgePositions = mode === 'session' ? badgePositionsRaw : []
     const chart = useMemo(
         () =>
             labelStats
@@ -389,10 +388,10 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 : null,
         [labelStats, mode]
     )
-    // Prompt-version markers only make sense on the session-day axis; rendered as badges under the dates.
+    // Prompt-version markers sit on calendar time, so they render under the dates in both views.
     const versionMarkers = useMemo(
         () =>
-            mode === 'session' && labelStats && chart
+            labelStats && chart
                 ? labelStats.version_markers
                       .map((marker) => ({
                           version: marker.version,
@@ -401,7 +400,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                       }))
                       .filter((marker) => chart.labels.includes(marker.label))
                 : [],
-        [labelStats, chart, mode]
+        [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
 
