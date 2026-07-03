@@ -14,7 +14,6 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import structlog
-from asgiref.sync import sync_to_async
 from google.genai import (
     Client as GoogleGenAIClient,
     types,
@@ -24,6 +23,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
@@ -73,9 +73,12 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
+    # The two ORM reads share one serialized hop through `database_sync_to_async` so they reuse a single
+    # connection sequentially with `close_old_connections` lifecycle management. Gathering them as separate
+    # concurrent `sync_to_async` calls risked reusing a stale/interrupted connection on the pooled activity
+    # thread and desyncing the psycopg wire protocol. The Redis load is native-async, so it still runs concurrently.
+    (snapshot, team_name), llm_inputs = await asyncio.gather(
+        database_sync_to_async(_load_orm_inputs)(inputs.observation_id, inputs.team_id),
         _load_llm_inputs(inputs.observation_id),
     )
     scanner = scanner_from_snapshot(snapshot)
@@ -137,6 +140,11 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     if trailing:
         segments.append(TextSegment(value=trailing))
     return "".join(plain_parts), segments
+
+
+def _load_orm_inputs(observation_id: UUID, team_id: int) -> tuple[ScannerSnapshot, str]:
+    """Load the snapshot and team name sequentially on one connection (see `_call_scanner_provider`)."""
+    return _load_snapshot(observation_id, team_id), _load_team_name(team_id)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
