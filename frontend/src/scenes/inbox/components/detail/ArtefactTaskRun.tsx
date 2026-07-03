@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { identifierToHuman } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
@@ -80,30 +81,41 @@ export function ArtefactTaskRun({
 
     return (
         <div>
-            <button
-                type="button"
-                disabled={!task}
-                onClick={() => setExpanded((v) => !v)}
-                className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs transition-colors enabled:hover:bg-fill-highlight-50 disabled:cursor-default"
-            >
-                {expanded ? (
-                    <IconChevronDown className="shrink-0 text-tertiary" />
-                ) : (
-                    <IconChevronRight className="shrink-0 text-tertiary" />
-                )}
-                <TaskRunStatusDot status={status} />
-                <LemonTag size="small" type="muted">
-                    {taskRunTypeLabel(content)}
-                </LemonTag>
-                {isCustom ? (
-                    <LemonTag size="small" type="completion">
-                        {identifierToHuman(content.product)}
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    disabled={!task}
+                    onClick={() => setExpanded((v) => !v)}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-0.5 text-left text-xs transition-colors enabled:hover:bg-fill-highlight-50 disabled:cursor-default"
+                >
+                    {expanded ? (
+                        <IconChevronDown className="shrink-0 text-tertiary" />
+                    ) : (
+                        <IconChevronRight className="shrink-0 text-tertiary" />
+                    )}
+                    <TaskRunStatusDot status={status} />
+                    <LemonTag size="small" type="muted">
+                        {taskRunTypeLabel(content)}
                     </LemonTag>
+                    {isCustom ? (
+                        <LemonTag size="small" type="completion">
+                            {identifierToHuman(content.product)}
+                        </LemonTag>
+                    ) : null}
+                    <span className="truncate text-secondary">
+                        {loading ? 'Loading task…' : (task?.title ?? content.task_id)}
+                    </span>
+                </button>
+                {task ? (
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconExternal />}
+                        to={urls.taskDetail(task.id)}
+                        tooltip="Open in task view to resume the conversation"
+                        className="shrink-0"
+                    />
                 ) : null}
-                <span className="truncate text-secondary">
-                    {loading ? 'Loading task…' : (task?.title ?? content.task_id)}
-                </span>
-            </button>
+            </div>
 
             {expanded && task && runId ? (
                 <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">

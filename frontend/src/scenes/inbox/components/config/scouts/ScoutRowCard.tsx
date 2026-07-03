@@ -33,7 +33,9 @@ export function ScoutRowCard({
 }): JSX.Element {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
-    const displayName = prettifyScoutSkillName(config.skill_name)
+    // Prefer the skill's explicit display name (e.g. "Owner - <plan title>" on plan owner scouts)
+    // over a prettified version of the deterministic skill name.
+    const displayName = config.display_name || prettifyScoutSkillName(config.skill_name)
 
     return (
         <div

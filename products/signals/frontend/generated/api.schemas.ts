@@ -7,6 +7,108 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * List representation of a plan report ("project").
+ *
+ * A plan report is an ordinary `SignalReport` surfaced in the Plan tab; this serializer exposes only
+ * the fields the list needs. Ordering (most-recent-first) is established upstream from the backing
+ * `inbox`/`plan` signal timestamps, not from these fields.
+ */
+export interface InboxPlanReportApi {
+    readonly id: string
+    /**
+     * The plan's title. Placeholder until the planning agent finalizes it.
+     * @nullable
+     */
+    readonly title: string | null
+    /**
+     * The plan's summary/description. Seeded from the user's initial description.
+     * @nullable
+     */
+    readonly summary: string | null
+    /** Report lifecycle status (e.g. ready, resolved, suppressed). */
+    readonly status: string
+    /** Whether the plan is still a draft (its planning conversation hasn't been finished). */
+    readonly is_draft: boolean
+    /** When the plan report was created. */
+    readonly created_at: string
+    /** When the plan report was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedInboxPlanReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: InboxPlanReportApi[]
+}
+
+/**
+ * Body for creating a new plan: the user's brief initial description of the idea.
+ */
+export interface InboxPlanCreateApi {
+    /**
+     * A brief initial description of the feature or change to plan. Seeds the plan's summary and the planning agent's first message.
+     * @maxLength 4000
+     */
+    initial_description: string
+}
+
+/**
+ * Response for a created plan: the new report and its planning conversation.
+ */
+export interface InboxPlanCreatedApi {
+    /** The new plan report's id. */
+    report_id: string
+    /** The planning conversation's task id. */
+    task_id: string
+    /**
+     * The planning conversation's initial run id, when already started.
+     * @nullable
+     */
+    run_id: string | null
+}
+
+/**
+ * Response for a finished plan.
+ */
+export interface InboxPlanFinishedApi {
+    /** Always true on success. */
+    finished: boolean
+    /** The owner scout's skill name (signals-scout-plan-*). */
+    scout_skill_name: string
+    /**
+     * Id of the auto-started first implementation task, or null when kickoff wasn't possible (the owner scout starts the work on its next activation instead).
+     * @nullable
+     */
+    implementation_task_id: string | null
+}
+
+/**
+ * 400 response when a plan can't be finished yet.
+ */
+export interface InboxPlanNotReadyApi {
+    /** Human-readable labels of what the plan still needs (e.g. title, repository selection). */
+    missing: string[]
+}
+
+/**
+ * Response for a manually started implementation pass.
+ */
+export interface InboxPlanImplementationStartedApi {
+    /** Id of the implementation task that was created. */
+    task_id: string
+    /**
+     * Id of the task's initial run, when started.
+     * @nullable
+     */
+    task_run_id: string | null
+    /** Repository the implementation pass targets. */
+    repository: string
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -133,7 +235,7 @@ export interface PatchedSignalReportContentUpdateApi {
      */
     title?: string
     /**
-     * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+     * New summary (the report's description) explaining what the report is about. The report's title + summary must stay under 8,000 tokens so the report remains embeddable — keep the summary a concise status view; detail belongs in the artefact log. Omit to leave the summary unchanged.
      * @minLength 1
      * @maxLength 10000
      */
@@ -211,6 +313,8 @@ export interface SignalReportStateRequestApi {
  * * `commit` - Commit
  * * `task_run` - Task Run
  * * `note` - Note
+ * * `question` - Question
+ * * `associated_report` - Associated Report
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
  */
@@ -230,6 +334,8 @@ export const SignalReportArtefactTypeEnumApi = {
     Commit: 'commit',
     TaskRun: 'task_run',
     Note: 'note',
+    Question: 'question',
+    AssociatedReport: 'associated_report',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
 } as const
@@ -277,7 +383,7 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, associated_report, code_reference, commit, dismissal, note, priority_judgment, question, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -414,6 +520,8 @@ export interface SignalScoutConfigApi {
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** Human-facing name for this scout, sourced from the scout skill's `metadata.display_name` (plan owner scouts carry `Owner - <plan title>`). Empty when unset — fall back to the `skill_name`. */
+    readonly display_name: string
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -470,6 +578,8 @@ export interface PatchedSignalScoutConfigApi {
     readonly description?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin?: ScoutOriginEnumApi
+    /** Human-facing name for this scout, sourced from the scout skill's `metadata.display_name` (plan owner scouts carry `Owner - <plan title>`). Empty when unset — fall back to the `skill_name`. */
+    readonly display_name?: string
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -1264,7 +1374,7 @@ export interface EditReportRequestApi {
      */
     title?: string | null
     /**
-     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
+     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. Title + summary must stay under 8,000 tokens (the report embeddability cap). The pipeline may later re-research and overwrite it.
      * @nullable
      */
     summary?: string | null
@@ -1419,7 +1529,7 @@ export interface EmitReportRequestApi {
      * @maxLength 300
      */
     title: string
-    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. */
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. Title + summary must stay under 8,000 tokens (the report embeddability cap). */
     summary: string
     /**
      * The observations backing the report — each becomes a bound signal. At least one.
@@ -1574,6 +1684,28 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+}
+
+/**
+ * Request body for `start-implementation`.
+ */
+export interface StartImplementationRequestApi {
+    /** Id of the report to implement (must belong to this project). The report must carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers. */
+    report_id: string
+}
+
+export interface StartImplementationResponseApi {
+    /** Id of the report the pass was started for. */
+    report_id: string
+    /** Id of the implementation task that was created. */
+    task_id: string
+    /**
+     * Id of the task's initial run, when started.
+     * @nullable
+     */
+    task_run_id: string | null
+    /** Repository the implementation pass targets. */
+    repository: string
 }
 
 /**
@@ -1808,6 +1940,17 @@ export interface SignalUserAutonomyConfigApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
+}
+
+export type SignalsPlansListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalsProcessingListParams = {

@@ -20,7 +20,14 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * Skeleton (W1): back link, the shared `ScoutRowCard` as the header, and the recent-window
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
-export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
+export function ScoutDetailView({
+    skillName,
+    embedded = false,
+}: {
+    skillName: string
+    /** Rendered inside another surface (e.g. a plan's Owner tab): no back link, no own padding. */
+    embedded?: boolean
+}): JSX.Element {
     const { scoutConfigs, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
@@ -37,16 +44,18 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const rollup = rollups.get(skillName)
 
     return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto gap-4 px-4 py-3">
-            <LemonButton
-                type="tertiary"
-                size="small"
-                icon={<IconArrowLeft />}
-                onClick={() => setSelectedScoutSkillName(null)}
-                className="self-start"
-            >
-                Scouts
-            </LemonButton>
+        <div className={`flex flex-col min-h-0 flex-1 overflow-auto gap-4 ${embedded ? '' : 'px-4 py-3'}`}>
+            {!embedded && (
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setSelectedScoutSkillName(null)}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            )}
 
             {scoutConfigs === null ? (
                 // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed

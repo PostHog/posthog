@@ -382,6 +382,26 @@ class SignalReport(UUIDModel):
             return S(prior)
         return S.POTENTIAL
 
+    def save(self, *args, **kwargs):
+        # Embeddability backstop: every report's title + summary must fit the embedding cap (its
+        # backing signals embed them). Interactive paths 400 before reaching here; this truncation
+        # covers pipeline/LLM writers, which must not crash a workflow over an oversized summary.
+        # Only writes that touch the content are enforced — a targeted save of other columns on a
+        # legacy oversized row is left alone.
+        from products.signals.backend.report_content_limits import (  # noqa: PLC0415 — keeps tiktoken off django.setup
+            truncate_summary_to_embeddable,
+        )
+
+        update_fields = kwargs.get("update_fields")
+        touches_content = update_fields is None or bool({"title", "summary"} & set(update_fields))
+        if touches_content and self.summary:
+            truncated = truncate_summary_to_embeddable(self.title, self.summary, report_id=str(self.id))
+            if truncated != self.summary:
+                self.summary = truncated
+                if update_fields is not None and "summary" not in update_fields:
+                    kwargs["update_fields"] = [*update_fields, "summary"]
+        super().save(*args, **kwargs)
+
     def update_authored_content(self, *, title: str | None = None, summary: str | None = None) -> list[str]:
         """Rewrite an agent-authored report's `title`/`summary` in place, independent of status.
 
@@ -731,6 +751,8 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        QUESTION = "question"
+        ASSOCIATED_REPORT = "associated_report"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
 
@@ -760,6 +782,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.QUESTION,
+            ArtefactType.ASSOCIATED_REPORT,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
         }

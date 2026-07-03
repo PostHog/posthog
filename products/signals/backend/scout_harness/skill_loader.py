@@ -14,7 +14,7 @@ SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 # This single set is read in three places that must agree: the runner picks the MCP scope posture from
 # it (`runner.py`), the prompt builder steers a report scout differently because of it (`prompt.py`),
 # and the viewset fail-closes the write on it (`views.py`). Keep them resolving the same set.
-REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report", "start_implementation"})
 
 
 def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:

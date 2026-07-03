@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconExternal, IconTerminal } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
@@ -68,19 +70,30 @@ function TaskRow({
 
     return (
         <div>
-            <button
-                type="button"
-                onClick={() => toggleExpandedTask(task.id)}
-                className="group flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-fill-highlight-50"
-            >
-                {expanded ? (
-                    <IconChevronDown className="shrink-0 text-tertiary" />
-                ) : (
-                    <IconChevronRight className="shrink-0 text-tertiary" />
-                )}
-                <TaskRunStatusDot status={status} />
-                <span className="shrink-0 text-secondary">{purposeLabel}</span>
-            </button>
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => toggleExpandedTask(task.id)}
+                    className="group flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-fill-highlight-50"
+                >
+                    {expanded ? (
+                        <IconChevronDown className="shrink-0 text-tertiary" />
+                    ) : (
+                        <IconChevronRight className="shrink-0 text-tertiary" />
+                    )}
+                    <TaskRunStatusDot status={status} />
+                    <span className="shrink-0 text-secondary">{purposeLabel}</span>
+                </button>
+                {/* Straight to the full task view — the embedded surface is read-only, so this is how a
+                    finished conversation (e.g. the planning session) is resumed. */}
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconExternal />}
+                    to={urls.taskDetail(task.id)}
+                    tooltip="Open in task view to resume the conversation"
+                    className="shrink-0"
+                />
+            </div>
 
             {expanded ? (
                 <div className="mt-1.5 mb-1 ml-1.5">

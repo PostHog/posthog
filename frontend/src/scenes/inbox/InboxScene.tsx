@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
+import { PlanDetail } from './components/detail/plan/PlanDetail'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
@@ -22,6 +23,7 @@ import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ArchivedTab } from './components/tabs/ArchivedTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
+import { PlanTab } from './components/tabs/PlanTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
@@ -48,6 +50,8 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
             return <PullRequestsTab />
         case 'reports':
             return <ReportsTab />
+        case 'plan':
+            return <PlanTab />
         case 'not-actionable':
             return <NotActionableTab />
         case 'archived':
@@ -127,6 +131,15 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 overflow-auto">
                 <InboxDetailHeader report={report} tab={activeTab} />
                 <AgentRunDetail report={report} />
+            </div>
+        )
+    }
+
+    // Plans get their own detail surface (Status / Owner / Feed sub-tabs), not the generic report view.
+    if (activeTab === 'plan') {
+        return (
+            <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+                <PlanDetail report={report} />
             </div>
         )
     }

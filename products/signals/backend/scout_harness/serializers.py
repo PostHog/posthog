@@ -642,7 +642,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
             "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
             "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
-            "full markdown in the detail view."
+            "full markdown in the detail view. Title + summary must stay under 8,000 tokens (the report "
+            "embeddability cap)."
         ),
     )
     evidence = serializers.ListField(
@@ -741,6 +742,7 @@ class EditReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
             "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
+            "Title + summary must stay under 8,000 tokens (the report embeddability cap). "
             "The pipeline may later re-research and overwrite it."
         ),
     )
@@ -770,6 +772,22 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+
+
+class StartImplementationRequestSerializer(serializers.Serializer):
+    """Request body for `start-implementation`."""
+
+    report_id = serializers.CharField(
+        help_text="Id of the report to implement (must belong to this project). The report must carry a "
+        "repo_selection artefact and at least one resolvable owner in suggested_reviewers."
+    )
+
+
+class StartImplementationResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(help_text="Id of the report the pass was started for.")
+    task_id = serializers.CharField(help_text="Id of the implementation task that was created.")
+    task_run_id = serializers.CharField(allow_null=True, help_text="Id of the task's initial run, when started.")
+    repository = serializers.CharField(help_text="Repository the implementation pass targets.")
 
 
 # --- Project profile ------------------------------------------------------
@@ -1361,6 +1379,13 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "name list. Defaults to `custom` if the skill is not currently present on the team."
         ),
     )
+    display_name = serializers.SerializerMethodField(
+        help_text=(
+            "Human-facing name for this scout, sourced from the scout skill's "
+            "`metadata.display_name` (plan owner scouts carry `Owner - <plan title>`). Empty "
+            "when unset — fall back to the `skill_name`."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -1395,6 +1420,11 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.origin if info else "custom"
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_display_name(self, obj: SignalScoutConfig) -> str:
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.display_name if info else ""
+
     class Meta:
         model = SignalScoutConfig
         fields = [
@@ -1402,6 +1432,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "skill_name",
             "description",
             "scout_origin",
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",

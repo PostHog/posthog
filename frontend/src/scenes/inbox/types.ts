@@ -112,13 +112,22 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'plan' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
+export const INBOX_TAB_KEYS: InboxTabKey[] = [
+    'pulls',
+    'reports',
+    'plan',
+    'not-actionable',
+    'runs',
+    'archived',
+    'config',
+]
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
+    plan: 'Plans',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
@@ -207,6 +216,8 @@ export interface SignalScoutConfig {
     skill_name: string
     /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
     description: string
+    /** Human-facing name from the skill's `metadata.display_name` (e.g. "Owner - <plan title>"). Empty if unset. */
+    display_name: string
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */

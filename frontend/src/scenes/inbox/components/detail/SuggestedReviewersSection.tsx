@@ -25,7 +25,14 @@ import {
  * editing. Mirrors desktop's `SuggestedReviewersSection`: a search popover to add org members (current
  * user pinned "Me"), per-row remove, and an optimistic update that converges on the reloaded artefact.
  */
-export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
+export function SuggestedReviewersSection({
+    report,
+    title = 'Reviewers',
+}: {
+    report: SignalReport
+    /** Section heading — plan mode relabels the same reviewer set "Owners". */
+    title?: string
+}): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const {
         reportReviewers,
@@ -107,7 +114,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     return (
         <RightColumnSection
             icon={<IconPeople />}
-            title="Reviewers"
+            title={title}
             rightSlot={
                 <div className="flex items-center gap-2">
                     <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">

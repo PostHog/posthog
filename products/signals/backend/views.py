@@ -74,6 +74,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_content_limits import summary_embedding_error
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -550,9 +551,19 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
         max_length=SIGNAL_REPORT_SUMMARY_MAX_LENGTH,
         help_text=(
             "New summary (the report's description) explaining what the report is about. "
-            "Omit to leave the summary unchanged."
+            "The report's title + summary must stay under 8,000 tokens so the report remains "
+            "embeddable — keep the summary a concise status view; detail belongs in the artefact "
+            "log. Omit to leave the summary unchanged."
         ),
     )
+
+    def validate_summary(self, value: str) -> str:
+        # The summary feeds the embedding pipeline; the char cap alone doesn't protect against
+        # token-dense content (CJK/emoji) blowing the embedding model's input limit.
+        error = summary_embedding_error(value)
+        if error:
+            raise serializers.ValidationError(error)
+        return value
 
     def validate(self, attrs: dict) -> dict:
         if "title" not in attrs and "summary" not in attrs:

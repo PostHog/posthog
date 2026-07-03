@@ -25,10 +25,12 @@ from products.signals.backend.scout_harness.tools.report import (
     EditReportResult,
     EmitReportResult,
     ReportEvidence,
+    StartImplementationResult,
     edit_report,
     edit_report_sync,
     emit_report,
     emit_report_sync,
+    start_implementation_sync,
 )
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
@@ -50,6 +52,7 @@ __all__ = [
     "DEFAULT_RUN_SEARCH_LIMIT",
     "EditReportResult",
     "EmitReportResult",
+    "StartImplementationResult",
     "EmitResult",
     "EvidenceEntry",
     "InvalidEmitError",
@@ -69,6 +72,7 @@ __all__ = [
     "edit_report_sync",
     "emit_finding",
     "emit_report",
+    "start_implementation_sync",
     "emit_report_sync",
     "forget",
     "get_project_profile",

@@ -39,6 +39,8 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
+    SignalsScoutStartImplementationBody,
+    SignalsScoutStartImplementationParams,
     SignalsSourceConfigsCreateBody,
     SignalsSourceConfigsListQueryParams,
     SignalsSourceConfigsPartialUpdateBody,
@@ -687,6 +689,31 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
     },
 })
 
+const SignalsScoutStartImplementationSchema = SignalsScoutStartImplementationParams.omit({ project_id: true }).extend(
+    SignalsScoutStartImplementationBody.shape
+)
+
+const signalsScoutStartImplementation = (): ToolBase<
+    typeof SignalsScoutStartImplementationSchema,
+    Schemas.StartImplementationResponse
+> => ({
+    name: 'signals-scout-start-implementation',
+    schema: SignalsScoutStartImplementationSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutStartImplementationSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        const result = await context.api.request<Schemas.StartImplementationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/start-implementation/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
     SignalsScoutEmitSignalBody.shape
 )
@@ -996,6 +1023,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
+    'signals-scout-start-implementation': signalsScoutStartImplementation,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-members-list': signalsScoutMembersList,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,

@@ -100,7 +100,7 @@
             "type": "array"
         },
         "summary": {
-            "description": "The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view.",
+            "description": "The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. Title + summary must stay under 8,000 tokens (the report embeddability cap).",
             "type": "string"
         },
         "title": {

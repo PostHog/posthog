@@ -99,6 +99,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    StartImplementationRequestSerializer,
+    StartImplementationResponseSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import (
@@ -122,6 +124,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReviewerInput,
     edit_report_sync,
     emit_report_sync,
+    start_implementation_sync,
 )
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
@@ -943,6 +946,55 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @validated_request(
+        request_serializer=StartImplementationRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=StartImplementationResponseSerializer, description="Implementation pass started."
+            ),
+            400: OpenApiResponse(
+                description="Report not found, a pass is already in flight, or the report lacks a "
+                "repository / resolvable owner."
+            ),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Start an implementation pass for a report",
+        description=(
+            "Deterministically start ONE implementation pass for a report: a background cloud agent that "
+            "reads the report and its artefact log and implements the latest described work item, opening "
+            "a PR. Always starts, with a single guard: it fails (400) while a previous implementation pass "
+            "is still in flight, so passes never stack. Requires the report to carry a repo_selection "
+            "artefact and at least one resolvable owner in suggested_reviewers. Write a note describing "
+            "the work item BEFORE calling this, so the implementation agent knows what to build."
+        ),
+        operation_id="signals_scout_start_implementation",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="start-implementation",
+        required_scopes=["signal_scout_report:write"],
+        pagination_class=None,
+    )
+    def start_implementation(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs, required_tool="start_implementation")
+        try:
+            result = start_implementation_sync(team=run.team, run=run, report_id=request.validated_data["report_id"])
+        except InvalidScoutReportError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            StartImplementationResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "task_id": result.task_id,
+                    "task_run_id": result.task_run_id,
+                    "repository": result.repository,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports
     # it directly inside this module.
@@ -1301,12 +1353,13 @@ def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
 class _ScoutSkillInfo:
     """Per-skill metadata the config serializer needs but doesn't store on the config row.
 
-    Both fields come from the team's latest `LLMSkill` row for the scout, resolved by the
+    All fields come from the team's latest `LLMSkill` row for the scout, resolved by the
     view in one query so the list endpoint stays a single lookup rather than one per config.
     """
 
     description: str
     origin: str  # "canonical" | "custom" — see `_scout_origin`.
+    display_name: str  # Human-facing name from `metadata.display_name`; "" when unset.
 
 
 def _scout_origin(skill_name: str, metadata: dict | None) -> str:
@@ -1340,7 +1393,11 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
         "name", "description", "metadata"
     )
     return {
-        name: _ScoutSkillInfo(description=description or "", origin=_scout_origin(name, metadata))
+        name: _ScoutSkillInfo(
+            description=description or "",
+            origin=_scout_origin(name, metadata),
+            display_name=str((metadata or {}).get("display_name") or ""),
+        )
         for name, description, metadata in rows
     }
 

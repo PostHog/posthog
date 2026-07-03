@@ -147,6 +147,20 @@ def _build_actionability(*, explanation: str, choice: str, already_addressed: bo
     )
 
 
+def _assert_summary_embeddable(summary: str | None) -> None:
+    # The summary feeds the embedding pipeline; the char cap alone doesn't protect against
+    # token-dense content (CJK/emoji) blowing the embedding model's input limit.
+    if summary is None:
+        return
+    from products.signals.backend.report_content_limits import (  # noqa: PLC0415 — keeps tiktoken off the import path
+        summary_embedding_error,
+    )
+
+    error = summary_embedding_error(summary)
+    if error:
+        raise InvalidScoutReportError(error)
+
+
 def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidence]) -> None:
     if not title or not title.strip():
         raise InvalidScoutReportError("title must not be empty")
@@ -154,6 +168,7 @@ def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidenc
         raise InvalidScoutReportError(f"title exceeds {MAX_REPORT_TITLE_LENGTH} chars ({len(title)})")
     if len(summary) > MAX_REPORT_SUMMARY_LENGTH:
         raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
+    _assert_summary_embeddable(summary)
     if not evidence:
         raise InvalidScoutReportError("emit_report needs at least one piece of evidence")
     # Enforce the service's evidence cap here, before the expensive safety-judge LLM call below — an
@@ -907,6 +922,7 @@ def _validate_edit_inputs(team: Team, run: SignalScoutRun, title, summary, appen
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, suggested_reviewers"
         )
+    _assert_summary_embeddable(summary)
 
 
 async def edit_report(
@@ -977,3 +993,155 @@ def edit_report_sync(
     )
     _forward_report_event_to_team(team=team, forward=forward)
     return result
+
+
+# --- start_implementation -------------------------------------------------
+#
+# The deterministic implementation trigger for report-channel scouts (the plan "owner" scout in
+# particular). Deliberately NOT the autostart path: `maybe_autostart_implementation_task` is gated
+# to once-per-report and by per-user autonomy thresholds, so it can never drive increment N+1. This
+# tool always starts a pass, with exactly one guard — it refuses while a previous implementation
+# pass is still in flight.
+
+_TERMINAL_TASK_RUN_STATUS_VALUES = frozenset({"completed", "failed", "cancelled"})
+
+
+@dataclass(frozen=True)
+class StartImplementationResult:
+    report_id: str
+    task_id: str
+    task_run_id: str | None
+    repository: str
+
+
+def _latest_artefact_content(report_id: str, artefact_type: str) -> dict | list | None:
+    from products.signals.backend.models import SignalReportArtefact  # noqa: PLC0415 — mirrors sibling deferred imports
+
+    artefact = (
+        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
+    )
+    if artefact is None:
+        return None
+    try:
+        import json as _json  # noqa: PLC0415
+
+        parsed = _json.loads(artefact.content)
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict | list) else None
+
+
+def start_implementation_sync(*, team: Team, run: SignalScoutRun, report_id: str) -> StartImplementationResult:
+    """Scout-run entry for `start_implementation_for_report` — see it for semantics."""
+    return start_implementation_for_report(team=team, report_id=report_id, triggered_by=f"scout_run:{run.id}")
+
+
+def start_implementation_for_report(*, team: Team, report_id: str, triggered_by: str) -> StartImplementationResult:
+    """Start one implementation pass for a report: a background cloud-agent task that reads the
+    report + artefact log and implements the latest described work item.
+
+    Fail-closed on team scope. Refuses while a previous implementation pass is in flight (any
+    implementation task whose latest run is non-terminal); otherwise always starts — the caller's
+    own gate (scout config, the user's Finish plan click) is the control plane, not the autostart
+    autonomy thresholds. The task is recorded as a `task_run` artefact so the report's feed shows
+    the pass. `triggered_by` is a label for logs only.
+    """
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
+        resolve_org_github_login_to_users,
+    )
+    from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME  # noqa: PLC0415
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415
+        SIGNALS_PRODUCT,
+        TASK_RUN_TYPE_IMPLEMENTATION,
+        record_implementation_task,
+    )
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — break worker-boot import cycle
+
+    report = (
+        SignalReport.objects.filter(team_id=team.id, id=report_id).exclude(status=SignalReport.Status.DELETED).first()
+    )
+    if report is None:
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team.id}")
+
+    # In-flight guard: one pass at a time. Terminal-only history never blocks the next increment.
+    associations = SignalReport.associated_task_runs_for_reports(
+        report_ids=[report_id], team_id=team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+    )
+    existing_task_ids = [str(entry.task_id) for entry in associations.get(report_id, [])]
+    if existing_task_ids:
+        latest_runs = tasks_facade.get_latest_run_by_task(existing_task_ids)
+        in_flight = [
+            task_id
+            for task_id, latest in latest_runs.items()
+            if latest is not None and str(latest.status) not in _TERMINAL_TASK_RUN_STATUS_VALUES
+        ]
+        if in_flight:
+            raise InvalidScoutReportError(
+                f"an implementation pass is already in flight for report {report_id} (task {in_flight[0]}); "
+                "wait for it to finish before starting another"
+            )
+
+    repo_content = _latest_artefact_content(report_id, "repo_selection")
+    repository = (repo_content or {}).get("repository") if isinstance(repo_content, dict) else None
+    if not repository:
+        raise InvalidScoutReportError(
+            f"report {report_id} has no repo_selection artefact — record the repository before starting implementation"
+        )
+
+    reviewers_content = _latest_artefact_content(report_id, "suggested_reviewers")
+    logins = [
+        entry.get("github_login")
+        for entry in (reviewers_content if isinstance(reviewers_content, list) else [])
+        if isinstance(entry, dict) and entry.get("github_login")
+    ]
+    users_by_login = resolve_org_github_login_to_users(team.id, logins)
+    acting_user = next(
+        (users_by_login[login.strip().lower()] for login in logins if login.strip().lower() in users_by_login), None
+    )
+    if acting_user is None:
+        raise InvalidScoutReportError(
+            f"report {report_id} has no resolvable owner in suggested_reviewers — the implementation task "
+            "must be attributable to an org member"
+        )
+
+    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    title = f"Implement: {report.title or report_id}"[:200]
+    description = (
+        f"{report.summary or ''}\n\n"
+        f"Repository: {repository}\n\n"
+        f"This task is ONE implementation pass over the report above (report id `{report_id}`). Before "
+        "writing code, read the report and its full artefact log via the posthog MCP "
+        "(`inbox-reports-retrieve`, `inbox-report-artefacts-list`) — the latest `note` artefacts describe "
+        "the specific work item for this pass. Implement that work item, open a PR, and record pushed "
+        "commits as `commit` artefacts on the report.\n\n"
+        "When opening the PR, include this report deep link in the description footer, making the footer "
+        "'*Created with [PostHog Code](https://posthog.com/code?ref=pr) from "
+        f"[an inbox report]({report_deep_link}).' - so the human reviewer can jump straight to it."
+    )
+
+    created = tasks_facade.create_and_run_task(
+        team=team,
+        title=title,
+        description=description,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        user_id=acting_user.id,
+        repository=repository,
+        signal_report_id=report_id,
+        posthog_mcp_scopes="full",
+        interaction_origin="signal_report",
+        ai_stage="implementation",
+    )
+    task_run_id = str(created.latest_run.id) if created.latest_run else None
+    record_implementation_task(team_id=team.id, report_id=report_id, task_id=str(created.task_id), run_id=task_run_id)
+    logger.info(
+        "signals_scout.start_implementation",
+        extra={
+            "team_id": team.id,
+            "report_id": report_id,
+            "task_id": str(created.task_id),
+            "triggered_by": triggered_by,
+        },
+    )
+    return StartImplementationResult(
+        report_id=report_id, task_id=str(created.task_id), task_run_id=task_run_id, repository=repository
+    )

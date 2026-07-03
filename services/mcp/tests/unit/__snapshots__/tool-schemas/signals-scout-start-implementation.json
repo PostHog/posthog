@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "report_id": {
+            "description": "Id of the report to implement (must belong to this project). The report must carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers.",
+            "type": "string"
+        },
+        "run_id": {
+            "description": "UUID of the `SignalScoutRun` bridge row.",
+            "type": "string"
+        }
+    },
+    "required": ["run_id", "report_id"],
+    "type": "object"
+}

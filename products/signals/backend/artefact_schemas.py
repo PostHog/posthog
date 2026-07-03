@@ -354,6 +354,7 @@ SIGNALS_PRODUCT = "signals"
 TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+TASK_RUN_TYPE_PLANNING = "planning"
 
 # Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
 # unlabelled link from the brief link-only window before associations carried identifiers.
@@ -385,6 +386,47 @@ class NoteArtefact(BaseModel):
     @field_validator("note")
     @classmethod
     def note_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class AssociatedReport(BaseModel):
+    """Content schema for an `associated_report` artefact: a soft link to another report.
+
+    Written to BOTH sides of the association — each report carries an entry pointing at the other.
+    Advisory only: it doesn't move signals, merge reports, or change either lifecycle. Used e.g. by a
+    plan's owner scout when an auto-detected signal report looks related to the plan's feature.
+    """
+
+    report_id: str = Field(description="Id of the other report this one is associated with.")
+    reason: str = Field(description="Why the two reports are related (markdown allowed).")
+
+    @field_validator("report_id", "reason")
+    @classmethod
+    def fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class QuestionArtefact(BaseModel):
+    """Content schema for a `question` artefact: a question flowing between the humans and the agents.
+
+    The direction comes from the artefact's attribution, not the content: a question attributed to
+    a task (task_id set) comes from an agent and is answered by the user in the UI, while a question
+    attributed to a user (created_by set) is feedback or direction from the human, to be answered by
+    an agent on its next pass. Answering in place sets `answer` and flips `answered`; open questions
+    are the ones with `answered=False`.
+    """
+
+    question: str = Field(description="The question (markdown allowed).")
+    answer: str | None = Field(default=None, description="The answer, once given (markdown allowed).")
+    answered: bool = Field(default=False, description="Whether the question has been answered.")
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
@@ -442,7 +484,16 @@ class SummaryChange(BaseModel):
 StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
-LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange
+LogArtefactContent = (
+    CodeReference
+    | Commit
+    | TaskRunArtefact
+    | NoteArtefact
+    | QuestionArtefact
+    | AssociatedReport
+    | TitleChange
+    | SummaryChange
+)
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -460,6 +511,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "question": QuestionArtefact,
+    "associated_report": AssociatedReport,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
 }

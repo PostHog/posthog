@@ -5191,7 +5191,8 @@ const api = {
         async updateArtefact(
             reportId: SignalReport['id'],
             artefactId: string,
-            content: Record<string, any>[]
+            // List for `suggested_reviewers`, object for single-content artefacts like `note`.
+            content: Record<string, any>[] | Record<string, any>
         ): Promise<SignalReportArtefact> {
             return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
         },

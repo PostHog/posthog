@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -102,7 +102,7 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
             .max(signalsReportsPartialUpdateBodySummaryMax)
             .optional()
             .describe(
-                "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged."
+                "New summary (the report's description) explaining what the report is about. The report's title + summary must stay under 8,000 tokens so the report remains embeddable — keep the summary a concise status view; detail belongs in the artefact log. Omit to leave the summary unchanged."
             ),
     })
     .describe(
@@ -222,7 +222,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, associated_report, code_reference, commit, dismissal, note, priority_judgment, question, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -635,7 +635,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.'
+                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. Title + summary must stay under 8,000 tokens (the report embeddability cap). The pipeline may later re-research and overwrite it.'
             ),
         append_note: zod
             .string()
@@ -732,7 +732,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
         summary: zod
             .string()
             .describe(
-                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view.'
+                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. Title + summary must stay under 8,000 tokens (the report embeddability cap).'
             ),
         evidence: zod
             .array(
@@ -925,6 +925,29 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Deterministically start ONE implementation pass for a report: a background cloud agent that reads the report and its artefact log and implements the latest described work item, opening a PR. Always starts, with a single guard: it fails (400) while a previous implementation pass is still in flight, so passes never stack. Requires the report to carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers. Write a note describing the work item BEFORE calling this, so the implementation agent knows what to build.
+ * @summary Start an implementation pass for a report
+ */
+export const SignalsScoutStartImplementationParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const SignalsScoutStartImplementationBody = /* @__PURE__ */ zod
+    .object({
+        report_id: zod
+            .string()
+            .describe(
+                'Id of the report to implement (must belong to this project). The report must carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers.'
+            ),
+    })
+    .describe('Request body for `start-implementation`.')
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).

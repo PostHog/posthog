@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
+from products.signals.backend.plan_mode.views import InboxPlanViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
     SignalScoutConfigViewSet,
@@ -23,6 +24,8 @@ def register_routes(routers: RouterRegistry) -> None:
         "environment_signal_report_artefacts",
         ["team_id", "report_id"],
     )
+    # Inbox "plan mode" (Projects) — read surface for plan reports; membership resolved from ClickHouse.
+    routers.projects.register(r"signals/plans", InboxPlanViewSet, "environment_signal_plans", ["team_id"])
     routers.projects.register(
         r"signals/source_configs", signals.SignalSourceConfigViewSet, "environment_signal_source_configs", ["team_id"]
     )

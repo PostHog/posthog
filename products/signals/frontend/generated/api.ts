@@ -19,6 +19,11 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxPlanCreateApi,
+    InboxPlanCreatedApi,
+    InboxPlanFinishedApi,
+    InboxPlanImplementationStartedApi,
+    PaginatedInboxPlanReportListApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
@@ -51,6 +56,7 @@ import type {
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalsPlansListParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
@@ -61,6 +67,8 @@ import type {
     SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    StartImplementationRequestApi,
+    StartImplementationResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -79,6 +87,99 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsPlansListUrl = (projectId: string, params?: SignalsPlansListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/plans/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/plans/`
+}
+
+/**
+ * The inbox Plan tab's surface — plan reports ("projects").
+ *
+ * List membership and ordering come from ClickHouse (the backing `inbox`/`plan` signals,
+ * most-recent-first); rows are enriched from Postgres. `create` starts the interactive planning
+ * conversation; `finish` finalizes a draft plan (user-driven defaults, backing signal, owner scout).
+ */
+export const signalsPlansList = async (
+    projectId: string,
+    params?: SignalsPlansListParams,
+    options?: RequestInit
+): Promise<PaginatedInboxPlanReportListApi> => {
+    return apiMutator<PaginatedInboxPlanReportListApi>(getSignalsPlansListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsPlansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/plans/`
+}
+
+/**
+ * Create a draft plan report and start its interactive planning conversation with a cloud agent. The plan stays a draft until it is finalized via the finish endpoint.
+ * @summary Create a new plan
+ */
+export const signalsPlansCreate = async (
+    projectId: string,
+    inboxPlanCreateApi: InboxPlanCreateApi,
+    options?: RequestInit
+): Promise<InboxPlanCreatedApi> => {
+    return apiMutator<InboxPlanCreatedApi>(getSignalsPlansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxPlanCreateApi),
+    })
+}
+
+export const getSignalsPlansFinishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/plans/${id}/finish/`
+}
+
+/**
+ * Finalize a draft plan: write the user-driven defaults (P1, safe, immediately actionable), create the plan's owner scout, and auto-start the first implementation pass (best-effort; the owner scout progresses the work on its schedule regardless). Requires title, summary, repository selection, owners, and priority to be in place. Idempotent — finishing again never starts a second pass.
+ * @summary Finish a plan
+ */
+export const signalsPlansFinishCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InboxPlanFinishedApi> => {
+    return apiMutator<InboxPlanFinishedApi>(getSignalsPlansFinishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsPlansStartImplementationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/plans/${id}/start_implementation/`
+}
+
+/**
+ * Manually start one implementation pass for the plan — the same in-flight-guarded path the owner scout and Finish plan use. Fails (400) while a previous pass is still running.
+ * @summary Start an implementation pass
+ */
+export const signalsPlansStartImplementationCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InboxPlanImplementationStartedApi> => {
+    return apiMutator<InboxPlanImplementationStartedApi>(getSignalsPlansStartImplementationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -767,6 +868,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutStartImplementationUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/start-implementation/`
+}
+
+/**
+ * Deterministically start ONE implementation pass for a report: a background cloud agent that reads the report and its artefact log and implements the latest described work item, opening a PR. Always starts, with a single guard: it fails (400) while a previous implementation pass is still in flight, so passes never stack. Requires the report to carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers. Write a note describing the work item BEFORE calling this, so the implementation agent knows what to build.
+ * @summary Start an implementation pass for a report
+ */
+export const signalsScoutStartImplementation = async (
+    projectId: string,
+    runId: string,
+    startImplementationRequestApi: StartImplementationRequestApi,
+    options?: RequestInit
+): Promise<StartImplementationResponseApi> => {
+    return apiMutator<StartImplementationResponseApi>(getSignalsScoutStartImplementationUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(startImplementationRequestApi),
     })
 }
 

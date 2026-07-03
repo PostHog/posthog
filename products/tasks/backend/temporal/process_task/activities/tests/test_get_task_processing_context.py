@@ -298,6 +298,26 @@ class TestGetTaskProcessingContextActivity:
         called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
         assert "tasks-pr-loop" not in called_flags
 
+    @pytest.mark.django_db(transaction=True)
+    def test_pr_loop_disabled_when_run_opens_no_pr(self, activity_environment, test_task):
+        # A run that won't open a PR (create_pr=False, e.g. an interactive planning
+        # conversation) has nothing to babysit — the loop stays off even for the
+        # signal_report origin, and the org flag is never consulted.
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), create_pr=False)
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=lambda flag_key, **kwargs: False,
+        ) as feature_enabled_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is False
+        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
+        assert "tasks-pr-loop" not in called_flags
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [

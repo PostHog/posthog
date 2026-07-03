@@ -47,6 +47,17 @@ export interface NoteContent {
     author?: string
 }
 
+export interface QuestionContent {
+    question: string
+    answer?: string | null
+    answered?: boolean
+}
+
+export interface AssociatedReportContent {
+    report_id: string
+    reason?: string
+}
+
 export interface SignalFindingContent {
     signal_id: string
     relevant_code_paths?: string[]
@@ -77,6 +88,8 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     commit: 'Commit pushed',
     task_run: 'Task run',
     note: 'Note added',
+    question: 'Question asked',
+    associated_report: 'Report linked',
     priority_judgment: 'Priority assessed',
     actionability_judgment: 'Actionability assessed',
     safety_judgment: 'Safety assessed',

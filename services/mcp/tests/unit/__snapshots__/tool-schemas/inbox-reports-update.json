@@ -6,7 +6,7 @@
             "type": "string"
         },
         "summary": {
-            "description": "New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.",
+            "description": "New summary (the report's description) explaining what the report is about. The report's title + summary must stay under 8,000 tokens so the report remains embeddable — keep the summary a concise status view; detail belongs in the artefact log. Omit to leave the summary unchanged.",
             "maxLength": 10000,
             "minLength": 1,
             "type": "string"

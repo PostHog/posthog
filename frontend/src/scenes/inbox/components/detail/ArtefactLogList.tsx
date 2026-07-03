@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 
@@ -21,11 +22,13 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     artefactTypeLabel,
+    AssociatedReportContent,
     CodeReferenceContent,
     CommitContent,
     DismissalContent,
     LineReferenceContent,
     NoteContent,
+    QuestionContent,
     SignalFindingContent,
     SummaryChangeContent,
     TaskRunArtefactContent,
@@ -125,6 +128,38 @@ function CollapsibleReasoning({ text }: { text: string }): JSX.Element {
                 {expanded ? 'Hide reasoning' : 'Show reasoning'}
             </button>
             {expanded ? <span className="text-secondary text-xs">{text}</span> : null}
+        </div>
+    )
+}
+
+/** A `code_reference` artefact: the relevance note as a one-line preview, expanding to the code block. */
+function CollapsibleCodeRef({
+    note,
+    code,
+    language,
+}: {
+    note?: string
+    code?: string
+    language: Language
+}): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const preview = note?.trim() || 'Show code'
+    return (
+        <div className="flex w-full min-w-0 flex-col gap-1">
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
+            >
+                {expanded ? <IconChevronDown className="shrink-0" /> : <IconChevronRight className="shrink-0" />}
+                <span className="truncate">{expanded ? 'Hide code' : preview}</span>
+            </button>
+            {expanded ? (
+                <div className="min-w-0">
+                    <RelevanceNote note={note} />
+                    {code ? <CodeRefBlock code={code} language={language} /> : null}
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -279,10 +314,11 @@ function ArtefactBody({
         case 'code_reference': {
             const c = content as CodeReferenceContent
             return (
-                <div>
-                    <RelevanceNote note={c.relevance_note} />
-                    {c.contents ? <CodeRefBlock code={c.contents} language={languageFromPath(c.file_path)} /> : null}
-                </div>
+                <CollapsibleCodeRef
+                    note={c.relevance_note}
+                    code={c.contents}
+                    language={languageFromPath(c.file_path)}
+                />
             )
         }
         case 'line_reference': {
@@ -303,6 +339,55 @@ function ArtefactBody({
         case 'note': {
             const c = content as NoteContent
             return <CollapsibleNote note={c.note} author={c.author} />
+        }
+        case 'associated_report': {
+            const c = content as AssociatedReportContent
+            return (
+                <div className="flex flex-col gap-1">
+                    {c.report_id ? (
+                        <Link
+                            to={urls.inboxReport('reports', c.report_id)}
+                            className="font-mono text-[11px] text-secondary"
+                        >
+                            {c.report_id}
+                        </Link>
+                    ) : null}
+                    {c.reason ? (
+                        <LemonMarkdown className="text-xs text-tertiary break-words" disableImages>
+                            {c.reason}
+                        </LemonMarkdown>
+                    ) : null}
+                </div>
+            )
+        }
+        case 'question': {
+            const c = content as QuestionContent
+            // Direction is the attribution: user-authored questions are feedback for the agents,
+            // task/system-authored ones are questions for the user.
+            const isUserFeedback = !!artefact.created_by
+            return (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <LemonTag size="small" type={isUserFeedback ? 'highlight' : 'default'}>
+                            {isUserFeedback ? 'Feedback' : 'Question'}
+                        </LemonTag>
+                        <LemonTag size="small" type={c.answered ? 'success' : 'warning'}>
+                            {c.answered ? 'Answered' : isUserFeedback ? 'Waiting on agent' : 'Open'}
+                        </LemonTag>
+                    </div>
+                    <LemonMarkdown className="text-xs text-secondary break-words" disableImages>
+                        {c.question}
+                    </LemonMarkdown>
+                    {c.answered && c.answer ? (
+                        <LemonMarkdown
+                            className="text-xs text-tertiary break-words border-l-2 border-primary pl-2"
+                            disableImages
+                        >
+                            {c.answer}
+                        </LemonMarkdown>
+                    ) : null}
+                </div>
+            )
         }
         case 'priority_judgment': {
             const c = content as { priority?: SignalReportPriority; explanation?: string }

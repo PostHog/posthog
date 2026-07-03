@@ -33,7 +33,7 @@ AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_repor
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
-REPORT_TOOLS = ["emit_report", "edit_report"]
+REPORT_TOOLS = ["emit_report", "edit_report", "start_implementation"]
 
 
 def _safe_judge(choice: bool = True, explanation: str = ""):
@@ -512,3 +512,149 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         with patch(resolver) as resolve_mock, pytest.raises(InvalidScoutReportError):
             _build_suggested_reviewers(self.team.id, entries)
         resolve_mock.assert_not_called()
+
+
+class TestScoutSummaryEmbeddingLimit(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="opted-in scout",
+            body="# scout",
+            allowed_tools=REPORT_TOOLS,
+        )
+        _authenticate_as_scout(self, scopes="signals_scout_reports")
+
+    def test_edit_report_rejects_summary_too_large_to_embed(self):
+        # Same guard as the report edit API: token-dense content under the 20k char cap must not
+        # reach the embedding pipeline through the scout channel.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/edit-report/",
+            data={"report_id": str(report.id), "summary": "🦔" * 4000},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "too long to embed" in str(response.json())
+
+
+CREATE_AND_RUN_PATH = "products.tasks.backend.facade.api.create_and_run_task"
+LATEST_RUN_BY_TASK_PATH = "products.tasks.backend.facade.api.get_latest_run_by_task"
+
+
+class TestStartImplementationAPI(APIBaseTest):
+    """The deterministic implementation trigger for report-channel scouts (plan owner scouts)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="opted-in scout",
+            body="# scout",
+            allowed_tools=REPORT_TOOLS,
+        )
+        _authenticate_as_scout(self, scopes="signals_scout_reports")
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-owner", extra_data={"login": "owner"})
+
+    def _url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/start-implementation/"
+
+    def _make_plan_report(self, *, with_repo: bool = True, with_owner: bool = True) -> SignalReport:
+        from products.signals.backend.artefact_schemas import SuggestedReviewerEntry, SuggestedReviewers
+        from products.signals.backend.models import ArtefactAttribution
+        from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Plan: widget", summary="Build the widget"
+        )
+        attribution = ArtefactAttribution.system()
+        if with_repo:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                attribution=attribution,
+                reevaluate_autostart=False,
+            )
+        if with_owner:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=SuggestedReviewers([SuggestedReviewerEntry(github_login="owner", relevant_commits=[])]),
+                attribution=attribution,
+                reevaluate_autostart=False,
+            )
+        return report
+
+    def _mock_created_task(self):
+        from unittest.mock import MagicMock
+
+        from products.tasks.backend.models import Task  # tach-ignore
+
+        task = Task.objects.create(
+            team=self.team,
+            title="Implement: Plan: widget",
+            description="impl",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=self.user,
+        )
+        created = MagicMock()
+        created.task_id = task.id
+        created.latest_run = MagicMock()
+        created.latest_run.id = uuid4()
+        return created
+
+    def test_start_implementation_creates_task_and_records_artefact(self) -> None:
+        run = _make_run(self.team)
+        report = self._make_plan_report()
+        with patch(CREATE_AND_RUN_PATH, return_value=self._mock_created_task()) as create_mock:
+            response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["report_id"] == str(report.id)
+        assert body["repository"] == "posthog/posthog"
+        kwargs = create_mock.call_args.kwargs
+        assert kwargs["ai_stage"] == "implementation"
+        assert kwargs["repository"] == "posthog/posthog"
+        assert kwargs["user_id"] == self.user.id
+        assert SignalReportArtefact.objects.filter(report_id=report.id, type="task_run").exists()
+
+    def test_start_implementation_refuses_while_pass_in_flight(self) -> None:
+        from unittest.mock import MagicMock
+
+        from products.signals.backend.task_run_artefacts import record_implementation_task
+
+        run = _make_run(self.team)
+        report = self._make_plan_report()
+        existing = self._mock_created_task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(existing.task_id))
+        in_flight_run = MagicMock()
+        in_flight_run.status = "in_progress"
+        with (
+            patch(LATEST_RUN_BY_TASK_PATH, return_value={str(existing.task_id): in_flight_run}),
+            patch(CREATE_AND_RUN_PATH) as create_mock,
+        ):
+            response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "in flight" in response.json()["detail"]
+        create_mock.assert_not_called()
+
+    @parameterized.expand([("no_repo", False, True, "repo_selection"), ("no_owner", True, False, "resolvable owner")])
+    def test_start_implementation_requires_repo_and_owner(self, _name, with_repo, with_owner, expected_error) -> None:
+        run = _make_run(self.team)
+        report = self._make_plan_report(with_repo=with_repo, with_owner=with_owner)
+        response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["detail"]
+
+    def test_start_implementation_denied_when_skill_not_opted_in(self) -> None:
+        # The fail-closed allowed_tools gate: right scope, but the run's skill doesn't list the tool.
+        self.skill.allowed_tools = ["emit_report", "edit_report"]
+        self.skill.save(update_fields=["allowed_tools"])
+        run = _make_run(self.team)
+        report = self._make_plan_report()
+        response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN

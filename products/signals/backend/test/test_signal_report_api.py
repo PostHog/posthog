@@ -1932,6 +1932,35 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert report.title == "New title"
         assert report.summary == "New summary"
 
+    def test_save_truncates_unembeddable_summary_from_pipeline_writers(self):
+        # Pipeline/LLM writers don't go through the 400-validating API paths — the model's save()
+        # backstop must truncate so every persisted report stays embeddable (title + summary within
+        # the 8,000-token cap) instead of crashing a workflow or poisoning the embedding write.
+        from products.signals.backend.report_content_limits import MAX_EMBEDDABLE_REPORT_TOKENS, embedding_token_count
+
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Dense report",
+            summary="🦔" * 4000,  # ~12,000 tokens
+        )
+        report.refresh_from_db()
+        combined = embedding_token_count(report.title) + embedding_token_count(report.summary)
+        assert combined <= MAX_EMBEDDABLE_REPORT_TOKENS
+        assert len(report.summary) > 0
+
+    def test_update_rejects_summary_too_large_to_embed(self):
+        # Token-dense content (emoji/CJK) can blow the embedding model's 8191-token input cap while
+        # staying well under the 10k char cap — the edit path must reject it up front, or the
+        # summary poisons the embedding write when the report's backing signal is emitted.
+        report = self._create_report()
+        dense_summary = "🦔" * 4000  # 4,000 chars but ~12,000 tokens
+        response = self.client.patch(self._url(str(report.id)), data={"summary": dense_summary}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "too long to embed" in str(response.json())
+        report.refresh_from_db()
+        assert report.summary == "Original summary"
+
     def test_update_title_only_leaves_summary_unchanged(self):
         report = self._create_report()
         response = self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")

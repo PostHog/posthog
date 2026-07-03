@@ -39,7 +39,15 @@ tools:
             always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report
             association: content.task_id defaults to your own task, product/type label the run and default to
             tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry),
-            `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one
+            `note` (free-form: note), `question` (a question between the humans and the agents: question, plus answer
+            and an answered bool set when someone responds. Direction is derived from attribution: questions you create
+            are attributed to your task and are FOR the human user — use them whenever you need user input to keep the
+            report moving, and check for answers on your next activation. Questions attributed to a user (created_by
+            set) are feedback or direction FROM the human for the agents — answer them via
+            inbox-report-artefacts-update, setting answer and answered=true, once you have acted on them),
+            `associated_report` (a soft link to another related
+            report: report_id, reason — write one entry on EACH report, pointing at the other; advisory only, it
+            moves no signals and changes neither lifecycle). Status types are latest-wins — appending a new version supersedes the previous one
             as the report's canonical status: `priority_judgment` (explanation, priority P0–P4),
             `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice),
             `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments
@@ -246,7 +254,9 @@ tools:
             report's title or rewrite its summary when you understand the underlying issue better than the
             auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed
             by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and
-            its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.
+            its judgments by appending artefacts with inbox-report-artefacts-create. The title + summary must stay
+            under 8,000 tokens (the report embeddability cap) — keep the summary a concise status view; detail
+            belongs in the artefact log. Returns the full updated report.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
@@ -467,6 +477,25 @@ tools:
             server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
             opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.
             Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
+    signals-scout-start-implementation:
+        operation: signals_scout_start_implementation
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start an implementation pass for a report
+        description: >
+            Deterministically start ONE implementation pass for a report: a background cloud agent reads the report
+            and its full artefact log and implements the latest described work item, opening a PR. Always starts, with
+            a single guard — it fails while a previous implementation pass is still in flight, so passes never stack.
+            The report must carry a repo_selection artefact and at least one resolvable owner in suggested_reviewers.
+            Write a note describing the work item BEFORE calling this, so the implementation agent knows exactly what
+            to build. The task is recorded as a task_run artefact on the report, so the pass shows in the report's
+            feed. Unlike autostart (which is once-per-report and threshold-gated), this is the sanctioned way for an
+            owning scout to drive increment after increment of a plan.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

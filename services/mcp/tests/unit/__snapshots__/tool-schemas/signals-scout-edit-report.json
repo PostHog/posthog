@@ -49,7 +49,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it."
+            "description": "Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. Title + summary must stay under 8,000 tokens (the report embeddability cap). The pipeline may later re-research and overwrite it."
         },
         "title": {
             "anyOf": [
