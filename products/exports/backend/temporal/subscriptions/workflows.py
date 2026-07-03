@@ -533,7 +533,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
             # A report whose every generated query failed computed no metrics — recording that as
             # "completed" misrepresents an empty report, so mark it FAILED with the failure detail
-            # the delivery history surfaces on hover. Partial failures stay COMPLETED; their
+            # the delivery history surfaces on hover. The report email already went out above (with
+            # the leading failure notice), so FAILED here means "empty report", not "not delivered" —
+            # recipient_results can still show successful sends. Partial failures stay COMPLETED; their
             # per-query diagnostics (generated HogQL + error type) live in content_snapshot for
             # the delivery detail view.
             if generate_result.all_queries_failed:
