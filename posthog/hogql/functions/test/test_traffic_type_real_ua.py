@@ -189,6 +189,85 @@ class TestTrafficTypeIntegration(BaseTest):
         assert category == "search_crawler"
         assert bot_name == "Googlebot"
 
+    def test_virt_properties_signature_agent(self):
+        # Web Bot Auth: signed agents (e.g. ChatGPT agent) use real browser user agents but
+        # self-identify via the Signature-Agent header, forwarded as $signature_agent.
+        browser_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+        cases = [
+            # (case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name)
+            (
+                "sig-quoted",
+                {"$raw_user_agent": browser_ua, "$signature_agent": '"https://chatgpt.com"'},
+                1,
+                "AI Agent",
+                "ChatGPT agent",
+            ),
+            (
+                "sig-bare-url",
+                {"$raw_user_agent": browser_ua, "$signature_agent": "https://chatgpt.com"},
+                1,
+                "AI Agent",
+                "ChatGPT agent",
+            ),
+            (
+                "sig-bare-domain",
+                {"$raw_user_agent": browser_ua, "$signature_agent": "chatgpt.com"},
+                1,
+                "AI Agent",
+                "ChatGPT agent",
+            ),
+            (
+                "sig-unknown",
+                {"$raw_user_agent": browser_ua, "$signature_agent": '"https://example.com"'},
+                0,
+                "Regular",
+                "",
+            ),
+            ("sig-missing", {"$raw_user_agent": browser_ua}, 0, "Regular", ""),
+            # UA classification keeps precedence over the signature lookup
+            (
+                "ua-bot-with-sig",
+                {"$raw_user_agent": "Googlebot/2.1", "$signature_agent": '"https://chatgpt.com"'},
+                1,
+                "Bot",
+                "Googlebot",
+            ),
+            # Signature beats the IP-range lookup when both match
+            (
+                "sig-and-google-ip",
+                {"$raw_user_agent": browser_ua, "$ip": "66.249.84.5", "$signature_agent": '"https://chatgpt.com"'},
+                1,
+                "AI Agent",
+                "ChatGPT agent",
+            ),
+        ]
+
+        tag = uuid4().hex
+        for case_id, properties, *_ in cases:
+            self._create_tagged_event(
+                tag=tag,
+                distinct_id=case_id,
+                event="test_signature_agent",
+                team=self.team,
+                properties={**properties, "case_id": case_id},
+            )
+        flush_persons_and_events()
+
+        response = self._query_tagged(
+            "properties.case_id, `$virt_is_bot`, `$virt_traffic_type`, `$virt_bot_name`, `$virt_bot_operator`", tag
+        )
+        results_by_case = {row[0]: row for row in response.results}
+
+        for case_id, _properties, expected_is_bot, expected_traffic_type, expected_bot_name in cases:
+            row = results_by_case.get(case_id)
+            assert row is not None, f"No result for case {case_id}"
+            _case, is_bot, traffic_type, bot_name, bot_operator = row
+            assert is_bot == expected_is_bot, f"is_bot mismatch for {case_id}: got {is_bot}"
+            assert traffic_type == expected_traffic_type, f"traffic_type mismatch for {case_id}: got {traffic_type}"
+            assert bot_name == expected_bot_name, f"bot_name mismatch for {case_id}: got {bot_name}"
+            if expected_bot_name == "ChatGPT agent":
+                assert bot_operator == "OpenAI", f"bot_operator mismatch for {case_id}: got {bot_operator}"
+
     def test_virt_properties_ignore_user_agent_without_raw(self):
         # $user_agent alone (no $raw_user_agent) is intentionally not read — it has no
         # materialized column, so a fallback would force a properties-blob read on every
