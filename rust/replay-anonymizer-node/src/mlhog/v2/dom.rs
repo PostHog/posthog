@@ -1,9 +1,13 @@
-// Bench-only verbatim copy of MLHog prep/labeling/src/v2/dom.rs (paths adapted to crate::mlhog).
+// Ported from MLHog prep/labeling/src/v2/dom.rs — bench-only. Adapted: leaf scrubs go through
+// `crate::mlhog::leaf` / the crate's `assets`/`blur` modules (shared with the tree walk), and blur
+// runs through the shared `Ctx` memo. Traversal mechanics are unchanged.
 use std::cell::Cell;
 
 use super::scan;
-use crate::mlhog::context::Ctx;
-use crate::mlhog::scrub::{assets, blur, css, text, url};
+use crate::assets::{MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
+use crate::blur::is_image_data_uri;
+use crate::context::Ctx;
+use crate::mlhog::leaf;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Parent {
@@ -67,6 +71,7 @@ fn child_parent(ty: Option<u8>, kind: Kind) -> Parent {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn text_content(
     ctx: &Ctx<'_>,
     b: &[u8],
@@ -82,26 +87,26 @@ fn text_content(
             if parent == Parent::Script {
                 scan::copy_value(b, vp, out)
             } else if parent == Parent::Style || is_style {
-                scrub(b, vp, out, changed, css_into)
+                scrub(b, vp, out, changed, |s, buf| leaf::css_into(ctx, s, buf))
             } else {
-                scrub(b, vp, out, changed, |s, buf| text::scrub_into(ctx, s, buf))
+                scrub(b, vp, out, changed, |s, buf| leaf::text_into(ctx, s, buf))
             }
         }
         Some(T_CDATA) | Some(T_COMMENT) => {
-            scrub(b, vp, out, changed, |s, buf| text::scrub_into(ctx, s, buf))
+            scrub(b, vp, out, changed, |s, buf| leaf::text_into(ctx, s, buf))
         }
         _ => scan::copy_value(b, vp, out),
     }
 }
 
 pub fn has_media_src_attr(b: &[u8], obj_pos: usize) -> bool {
-    assets::MEDIA_SRC_ATTRS
+    MEDIA_SRC_ATTRS
         .iter()
         .any(|a| scan::find_member(b, obj_pos, a.as_bytes()).is_some())
 }
 
 fn is_media_src_attr(name: &[u8]) -> bool {
-    assets::MEDIA_SRC_ATTRS.iter().any(|a| a.as_bytes() == name)
+    MEDIA_SRC_ATTRS.iter().any(|a| a.as_bytes() == name)
 }
 
 pub fn walk_attrs(
@@ -116,8 +121,7 @@ pub fn walk_attrs(
         return scan::walk_members(b, pos, out, |name, vp, o| attr_scrub(ctx, b, name, vp, o, changed));
     }
     // Media: media-src attrs → placeholder/blur (+ stash); other attrs → normal rules; then append
-    // the stashed `data-anon-original-*`. Media always counts as changed.
-    changed.set(true);
+    // the stashed `data-anon-original-*`.
     if b.get(pos) != Some(&b'{') {
         return scan::copy_value(b, pos, out);
     }
@@ -143,6 +147,8 @@ pub fn walk_attrs(
             i = scan::skip_ws(
                 b,
                 if is_media_src_attr(name) && b.get(vp) == Some(&b'"') {
+                    // Matches `crate::assets::apply_blur`: acting on a media-src attr is a change.
+                    changed.set(true);
                     media_src(ctx, b, name, vp, out, &mut stash)?
                 } else {
                     attr_scrub(ctx, b, name, vp, out, changed)?
@@ -178,17 +184,16 @@ fn media_src(
 ) -> Option<usize> {
     let mut owned = String::new();
     let (s, end) = scan::string_str(b, vp, &mut owned)?;
-    if blur::is_image_data_uri(s) {
-        let v = blur::blur_image_data_uri(s).unwrap_or_else(|| assets::PLACEHOLDER_SRC.to_string());
+    if is_image_data_uri(s) {
+        let v = ctx
+            .blur_data_uri(s)
+            .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
         scan::emit_str(&v, out);
     } else {
-        scan::emit_str(assets::PLACEHOLDER_SRC, out);
-        let mut buf = String::new();
-        let stashed = if url::scrub_into_authority(ctx, s, &mut buf) {
-            buf
-        } else {
-            s.to_string()
-        };
+        scan::emit_str(PLACEHOLDER_SRC, out);
+        // Host-scrubbed too so a CDN host can't leak (crate::assets::apply_blur).
+        let stashed =
+            crate::url::scrub_url_opts(ctx.allow, s, true).unwrap_or_else(|| s.to_string());
         let key = format!("data-anon-original-{}", std::str::from_utf8(name).ok()?);
         stash.push((key, stashed));
     }
@@ -207,23 +212,23 @@ fn attr_scrub(
         return scan::copy_value(b, vp, out);
     }
     if name == b"rr_dataURL" {
-        return scrub(b, vp, out, changed, inline_image_into);
+        return scrub(b, vp, out, changed, |s, buf| leaf::inline_image_into(ctx, s, buf));
     }
     if is_url_attr(name) {
-        return scrub(b, vp, out, changed, |s, buf| url::scrub_into(ctx, s, buf));
+        return scrub(b, vp, out, changed, |s, buf| leaf::url_into(ctx, s, buf));
     }
     if name == b"style" {
-        return scrub(b, vp, out, changed, css_into);
+        return scrub(b, vp, out, changed, |s, buf| leaf::css_into(ctx, s, buf));
     }
     if is_user_text_attr(name) {
-        return scrub(b, vp, out, changed, |s, buf| text::scrub_into(ctx, s, buf));
+        return scrub(b, vp, out, changed, |s, buf| leaf::text_into(ctx, s, buf));
     }
     if is_data_attr(name) {
         return scrub(b, vp, out, changed, |s, buf| {
             if data_attr_sensitive(s) {
-                text::scrub_into(ctx, s, buf)
+                leaf::text_into(ctx, s, buf)
             } else {
-                text::redact_emails_into(s, buf)
+                leaf::redact_emails_into(s, buf)
             }
         });
     }
@@ -240,25 +245,6 @@ fn scrub<F: FnOnce(&str, &mut String) -> bool>(
     let (e, c) = scan::scrub_string(b, vp, out, f)?;
     changed.set(changed.get() | c);
     Some(e)
-}
-
-fn css_into(s: &str, buf: &mut String) -> bool {
-    match css::scrub_css_images(s) {
-        Some(r) => {
-            buf.push_str(&r);
-            true
-        }
-        None => false,
-    }
-}
-
-fn inline_image_into(s: &str, buf: &mut String) -> bool {
-    if blur::is_image_data_uri(s) {
-        buf.push_str(&blur::blur_image_data_uri(s).unwrap_or_else(blur::blank_image_data_uri));
-        true
-    } else {
-        false
-    }
 }
 
 fn node_kind(b: &[u8], pos: usize) -> Kind {

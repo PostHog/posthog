@@ -1,10 +1,12 @@
-// Copied from MLHog prep/labeling/src/v2/mod.rs — bench-only. Adapted: `crate::` import paths
-// point at `crate::mlhog::`; `crate::timed!` is the no-op passthrough in `crate::mlhog`; the
-// `#[cfg(test)] mod tests` v1↔v2 parity suite is not ported (it needs MLHog's v1 Worker).
+// Ported from MLHog prep/labeling/src/v2/mod.rs — bench-only. Adapted: leaf scrubs go through
+// `crate::mlhog::leaf` (this crate's parity-locked scrubbers); routing is aligned with
+// `crate::event::route_data` (missing `data` passes through, the `cv` marker gates compressed
+// handling, canvas honors the commands-vs-flattened split); the `#[cfg(test)] mod tests` v1↔v2
+// parity suite is not ported (parity is asserted against this crate in tests/mlhog_parity.rs).
 
 //! Parse-free byte-scanning anonymizer. Scans the raw JSON (and decompressed cv payloads), splices
-//! scrubbed values in place, and never builds a struct tree. Matches v1's output; Canvas delegates
-//! to v1. Shares routing (`schema::scan_event`), gzip, allow-lists and leaf scrubs with v1.
+//! scrubbed values in place, and never builds a struct tree. Routing and leaf scrubs match
+//! `crate::event::route_data`; only the traversal architecture differs.
 
 mod canvas;
 mod dom;
@@ -13,9 +15,9 @@ mod value;
 
 use std::cell::Cell;
 
-use crate::mlhog::context::Ctx;
+use crate::context::Ctx;
+use crate::mlhog::leaf;
 use crate::mlhog::schema::{self, EventType as E, IncrementalSource as S};
-use crate::mlhog::scrub;
 
 #[derive(Default)]
 pub struct V2Worker {
@@ -37,6 +39,12 @@ impl V2Worker {
         let scan = schema::scan_event(line);
         let ty = scan.ty.and_then(E::from_u8);
         let source = scan.source.and_then(S::from_u8);
+
+        // route_data: an event without a `data` member is passed through unchanged.
+        if scan.data_range.is_none() {
+            out.extend_from_slice(line);
+            return Some(());
+        }
 
         match (ty, source) {
             (Some(E::IncrementalSnapshot), Some(S::CanvasMutation)) => {
@@ -92,7 +100,9 @@ impl V2Worker {
         out: &mut Vec<u8>,
     ) -> Option<()> {
         let (ds, de) = scan.data_range?;
-        if !scan.compressed {
+        // route_data: only a string `data` under a non-null `cv` marker is whole-blob compressed;
+        // anything else scrubs as a plain object.
+        if !scan.compressed || line.get(ds) != Some(&b'"') {
             return self.splice(line, scan, out, |b, ds, o| transform_full_payload(ctx, b, ds, o));
         }
         let V2Worker { dec, tmp, .. } = &mut *self;
@@ -117,6 +127,7 @@ impl V2Worker {
         out: &mut Vec<u8>,
     ) -> Option<()> {
         let (ds, de) = scan.data_range?;
+        let compressed = scan.compressed;
         let V2Worker { tmp, dec, dec2, tmp2, .. } = &mut *self;
         tmp.clear();
         let changed = Cell::new(false);
@@ -127,7 +138,7 @@ impl V2Worker {
                 b"adds" => Field::Adds,
                 _ => return scan::copy_value(line, vp, o),
             };
-            transform_subfield(ctx, line, vp, o, field, &changed, dec, dec2, tmp2)
+            transform_subfield(ctx, line, vp, o, field, &changed, compressed, dec, dec2, tmp2)
         })?;
         if changed.get() {
             out.extend_from_slice(&line[..ds]);
@@ -147,8 +158,10 @@ enum Field {
     Adds,
 }
 
-// A Mutation sub-field: a gzipped string (cv) or a plain array. Decompress if needed, transform the
-// array, recompress if it arrived compressed.
+// A Mutation sub-field: a gzipped string (cv, only when the event carries the `cv` marker —
+// matching `route_data`) or a plain array. Decompress if needed, transform the array, recompress if
+// it arrived compressed. Without the marker a string sub-field is copied verbatim, like
+// `crate::dom::scrub_mutation`.
 #[allow(clippy::too_many_arguments)]
 fn transform_subfield(
     ctx: &Ctx<'_>,
@@ -157,11 +170,12 @@ fn transform_subfield(
     out: &mut Vec<u8>,
     field: Field,
     changed: &Cell<bool>,
+    compressed: bool,
     dec: &mut Vec<u8>,
     _dec2: &mut Vec<u8>,
     tmp2: &mut Vec<u8>,
 ) -> Option<usize> {
-    if b.get(vp) != Some(&b'"') {
+    if !compressed || b.get(vp) != Some(&b'"') {
         return transform_field_array(ctx, b, vp, out, field, changed);
     }
     let mut owned = String::new();
@@ -195,7 +209,7 @@ fn transform_field_array(
     scan::walk_elements(b, pos, out, |_, ep, o| match field {
         Field::Texts => scan::walk_members(b, ep, o, |k, vp, o| {
             if k == b"value" {
-                let (e, c) = scan::scrub_string(b, vp, o, |s, buf| scrub::text::scrub_into(ctx, s, buf))?;
+                let (e, c) = scan::scrub_string(b, vp, o, |s, buf| leaf::text_into(ctx, s, buf))?;
                 changed.set(changed.get() | c);
                 Some(e)
             } else {
@@ -224,9 +238,7 @@ fn transform_meta(ctx: &Ctx<'_>, b: &[u8], ds: usize, out: &mut Vec<u8>) -> Opti
     let changed = Cell::new(false);
     scan::walk_members(b, ds, out, |key, vp, o| {
         if key == b"href" {
-            let (e, c) = scan::scrub_string(b, vp, o, |s, buf| {
-                scrub::url::scrub_into_authority(ctx, s, buf)
-            })?;
+            let (e, c) = scan::scrub_string(b, vp, o, |s, buf| leaf::url_authority_into(ctx, s, buf))?;
             changed.set(changed.get() | c);
             Some(e)
         } else {
@@ -240,7 +252,7 @@ fn transform_input(ctx: &Ctx<'_>, b: &[u8], ds: usize, out: &mut Vec<u8>) -> Opt
     let changed = Cell::new(false);
     scan::walk_members(b, ds, out, |key, vp, o| {
         if key == b"text" {
-            let (e, c) = scan::scrub_string(b, vp, o, |s, buf| scrub::text::scrub_into(ctx, s, buf))?;
+            let (e, c) = scan::scrub_string(b, vp, o, |s, buf| leaf::text_into(ctx, s, buf))?;
             changed.set(changed.get() | c);
             Some(e)
         } else {

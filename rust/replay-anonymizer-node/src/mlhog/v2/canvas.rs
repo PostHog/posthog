@@ -1,24 +1,34 @@
-// Bench-only verbatim copy of MLHog prep/labeling/src/v2/canvas.rs (paths adapted to crate::mlhog).
-//! Byte-scan CanvasMutation events (no simd-json). Mirrors `scrub::canvas`: redact fill/strokeText,
+// Ported from MLHog prep/labeling/src/v2/canvas.rs — bench-only. Adapted: leaf scrubs and blur go
+// through the crate's own modules (`crate::blur`, `crate::mlhog::leaf`) via the shared memoizing
+// `Ctx`; the commands-vs-flattened routing and the fillText text+blur ordering mirror
+// `crate::canvas::scrub_canvas_mutation`. Traversal mechanics are unchanged.
+//! Byte-scan CanvasMutation events (no simd-json). Mirrors `crate::canvas`: redact fill/strokeText,
 //! blur drawn images. Data is `commands: [...]` or a flattened `property`/`args`; image-bearing arg
 //! shapes: `"data:image/…"`, `{rr_type, src}`, `{rr_type:'Blob', type, data:[ab]}`,
 //! `{rr_type:'ImageData', args:[pixels, w, h]}`, `{rr_type:'ArrayBuffer', base64}`.
 
 use std::cell::Cell;
 
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 
 use super::scan;
-use crate::mlhog::context::Ctx;
-use crate::mlhog::scrub::{blur, text, url};
+use crate::blur::{blank_image_data_uri, is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
+use crate::context::Ctx;
+use crate::mlhog::leaf;
 
 pub fn transform(ctx: &Ctx<'_>, b: &[u8], ds: usize, out: &mut Vec<u8>) -> Option<bool> {
     let changed = Cell::new(false);
+    // Matches `crate::canvas::scrub_canvas_mutation`: a `commands` array wins; otherwise the
+    // flattened single-command form only applies when `property` is a string.
+    let has_commands = scan::find_member(b, ds, b"commands")
+        .is_some_and(|p| b.get(p) == Some(&b'['));
     let prop = scan::member_string(b, ds, b"property");
     scan::walk_members(b, ds, out, |key, vp, o| match key {
-        b"commands" => scan::walk_elements(b, vp, o, |_, ep, o| command(ctx, b, ep, o, &changed)),
-        b"args" => args(ctx, b, vp, o, prop.as_deref(), &changed),
+        b"commands" if has_commands => {
+            scan::walk_elements(b, vp, o, |_, ep, o| command(ctx, b, ep, o, &changed))
+        }
+        b"args" if !has_commands && prop.is_some() => args(ctx, b, vp, o, prop.as_deref(), &changed),
         _ => scan::copy_value(b, vp, o),
     })?;
     Some(changed.get())
@@ -43,7 +53,22 @@ fn args(
     let is_text = matches!(property, Some("fillText") | Some("strokeText"));
     scan::walk_elements(b, pos, out, |_, ep, o| {
         if is_text && b.get(ep) == Some(&b'"') {
-            scrub(b, ep, o, changed, |s, buf| text::scrub_into(ctx, s, buf))
+            // crate::canvas runs the text scrub first, then the blur pass over the (possibly
+            // scrubbed) value — a data-URI string that survives the text scrub still gets blurred.
+            scrub(b, ep, o, changed, |s, buf| {
+                let text_changed = leaf::text_into(ctx, s, buf);
+                let current: &str = if text_changed { buf } else { s };
+                if is_image_data_uri(current) {
+                    let blurred = ctx
+                        .blur_data_uri(current)
+                        .unwrap_or_else(blank_image_data_uri);
+                    buf.clear();
+                    buf.push_str(&blurred);
+                    true
+                } else {
+                    text_changed
+                }
+            })
         } else {
             blur_arg(ctx, b, ep, o, changed)
         }
@@ -52,7 +77,7 @@ fn args(
 
 fn blur_arg(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> Option<usize> {
     match b.get(pos) {
-        Some(b'"') => scrub(b, pos, out, changed, image_data_uri_into),
+        Some(b'"') => scrub(b, pos, out, changed, |s, buf| leaf::inline_image_into(ctx, s, buf)),
         Some(b'[') => scan::walk_elements(b, pos, out, |_, ep, o| blur_arg(ctx, b, ep, o, changed)),
         Some(b'{') => blur_object(ctx, b, pos, out, changed),
         _ => scan::copy_value(b, pos, out),
@@ -66,10 +91,10 @@ fn blur_object(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: 
         return scan::walk_members(b, pos, out, |key, vp, o| {
             if key == b"src" {
                 scrub(b, vp, o, changed, |s, buf| {
-                    if blur::is_image_data_uri(s) {
-                        image_data_uri_into(s, buf)
+                    if is_image_data_uri(s) {
+                        leaf::inline_image_into(ctx, s, buf)
                     } else {
-                        url::scrub_into(ctx, s, buf)
+                        leaf::url_into(ctx, s, buf)
                     }
                 })
             } else {
@@ -82,10 +107,10 @@ fn blur_object(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: 
     if rr.as_deref() == Some("Blob")
         && scan::member_string(b, pos, b"type").is_some_and(|t| t.starts_with("image/"))
     {
-        return blur_blob(b, pos, out, changed);
+        return blur_blob(ctx, b, pos, out, changed);
     }
     if rr.as_deref() == Some("ImageData") {
-        return blur_image_data(b, pos, out, changed);
+        return blur_image_data(ctx, b, pos, out, changed);
     }
 
     scan::walk_members(b, pos, out, |key, vp, o| match key {
@@ -94,7 +119,7 @@ fn blur_object(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: 
     })
 }
 
-fn blur_blob(b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> Option<usize> {
+fn blur_blob(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> Option<usize> {
     let mime = scan::member_string(b, pos, b"type").unwrap_or_else(|| "image/png".to_string());
     let Some(data_vp) = scan::find_member(b, pos, b"data") else {
         return scan::copy_value(b, pos, out);
@@ -103,11 +128,13 @@ fn blur_blob(b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> O
         return scan::copy_value(b, pos, out);
     };
     changed.set(true);
-    let (new_b64, new_type) =
-        match blur::blur_image_data_uri(&format!("data:{mime};base64,{orig}")).and_then(|u| split_data_uri(&u)) {
-            Some((m, b64)) => (b64, m),
-            None => (blur::BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
-        };
+    let (new_b64, new_type) = match ctx
+        .blur_data_uri(&format!("data:{mime};base64,{orig}"))
+        .and_then(|u| split_data_uri(&u))
+    {
+        Some((m, b64)) => (b64, m),
+        None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
+    };
     let done = Cell::new(false);
     scan::walk_members(b, pos, out, |key, vp, o| match key {
         b"type" => scan::replace_string(b, vp, o, &new_type),
@@ -123,9 +150,9 @@ fn blur_blob(b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> O
     })
 }
 
-fn blur_image_data(b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> Option<usize> {
+fn blur_image_data(ctx: &Ctx<'_>, b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>) -> Option<usize> {
     changed.set(true);
-    let new_b64 = pixelated_buffer_base64(b, pos);
+    let new_b64 = pixelated_buffer_base64(ctx, b, pos);
     match new_b64 {
         Some((ab_pos, b64)) => scan::walk_members(b, pos, out, |key, vp, o| {
             if key == b"args" {
@@ -157,7 +184,7 @@ fn blur_image_data(b: &[u8], pos: usize, out: &mut Vec<u8>, changed: &Cell<bool>
 }
 
 // Locate the target ArrayBuffer for an ImageData and compute its pixelated (or blanked) base64.
-fn pixelated_buffer_base64(b: &[u8], obj_pos: usize) -> Option<(usize, String)> {
+fn pixelated_buffer_base64(ctx: &Ctx<'_>, b: &[u8], obj_pos: usize) -> Option<(usize, String)> {
     let args_vp = scan::find_member(b, obj_pos, b"args")?;
     let w = scan::array_elem(b, args_vp, 1).and_then(|p| scan::uint_at(b, p))?;
     let h = scan::array_elem(b, args_vp, 2).and_then(|p| scan::uint_at(b, p))?;
@@ -187,7 +214,7 @@ fn pixelated_buffer_base64(b: &[u8], obj_pos: usize) -> Option<(usize, String)> 
     let mut blanked = full.clone();
     blanked[start..start + length].fill(0);
     // (let-chain flattened: this crate is edition 2021)
-    if let Some(px) = blur::pixelate_raw_rgba(&rgba, w, h) {
+    if let Some(px) = ctx.pixelate_raw(&rgba, w, h) {
         if let Ok(px) = STANDARD.decode(px.as_bytes()) {
             if px.len() == length {
                 blanked[start..start + length].copy_from_slice(&px);
@@ -216,15 +243,6 @@ fn blank_array_buffers(b: &[u8], pos: usize, out: &mut Vec<u8>) -> Option<usize>
             }
         }
         _ => scan::copy_value(b, pos, out),
-    }
-}
-
-fn image_data_uri_into(s: &str, buf: &mut String) -> bool {
-    if blur::is_image_data_uri(s) {
-        buf.push_str(&blur::blur_image_data_uri(s).unwrap_or_else(blur::blank_image_data_uri));
-        true
-    } else {
-        false
     }
 }
 
@@ -263,13 +281,6 @@ fn set_base64(b: &[u8], obj_pos: usize, out: &mut Vec<u8>, new_b64: &str) -> Opt
     scan::walk_members(b, obj_pos, out, |k, vp, o| {
         if k == b"base64" { scan::replace_string(b, vp, o, new_b64) } else { scan::copy_value(b, vp, o) }
     })
-}
-
-fn split_data_uri(uri: &str) -> Option<(String, String)> {
-    let rest = uri.strip_prefix("data:")?;
-    let comma = uri.find(',')?;
-    let mime = rest.split(';').next().filter(|m| !m.is_empty()).unwrap_or("image/png");
-    Some((mime.to_string(), uri[comma + 1..].to_string()))
 }
 
 fn scrub<F: FnOnce(&str, &mut String) -> bool>(

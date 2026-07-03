@@ -1,19 +1,21 @@
-// Bench-only verbatim copy of MLHog prep/labeling/src/v2/value.rs (paths adapted to crate::mlhog).
+// Ported from MLHog prep/labeling/src/v2/value.rs — bench-only. Adapted: leaf scrubs go through
+// `crate::mlhog::leaf` (this crate's text/url scrubbers). Traversal mechanics are unchanged; the
+// routing mirrors `crate::value` (generic/network/console plugin scrubs).
 use std::cell::Cell;
 
 use super::scan;
-use crate::mlhog::context::Ctx;
-use crate::mlhog::scrub::{text, url};
+use crate::context::Ctx;
+use crate::mlhog::leaf;
 
 fn looks_like_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }
 
-fn leaf(ctx: &Ctx<'_>, s: &str, buf: &mut String) -> bool {
+fn leaf_value_into(ctx: &Ctx<'_>, s: &str, buf: &mut String) -> bool {
     if looks_like_url(s) {
-        url::scrub_into(ctx, s, buf)
+        leaf::url_into(ctx, s, buf)
     } else {
-        text::scrub_into(ctx, s, buf)
+        leaf::text_into(ctx, s, buf)
     }
 }
 
@@ -26,7 +28,7 @@ pub fn scrub_generic(
 ) -> Option<usize> {
     match b.get(pos) {
         Some(b'"') => {
-            let (e, c) = scan::scrub_string(b, pos, out, |s, buf| leaf(ctx, s, buf))?;
+            let (e, c) = scan::scrub_string(b, pos, out, |s, buf| leaf_value_into(ctx, s, buf))?;
             changed.set(changed.get() | c);
             Some(e)
         }
@@ -66,14 +68,14 @@ fn scrub_request(
     changed: &Cell<bool>,
 ) -> Option<usize> {
     scan::walk_members(b, pos, out, |key, vp, o| match key {
-        b"name" => scrub_leaf_member(b, vp, o, changed, |s, buf| url::scrub_into(ctx, s, buf)),
+        b"name" => scrub_leaf_member(b, vp, o, changed, |s, buf| leaf::url_into(ctx, s, buf)),
         b"requestBody" | b"responseBody" => {
-            scrub_leaf_member(b, vp, o, changed, |s, buf| text::scrub_into(ctx, s, buf))
+            scrub_leaf_member(b, vp, o, changed, |s, buf| leaf::text_into(ctx, s, buf))
         }
         b"requestHeaders" | b"responseHeaders" => {
             if b.get(vp) == Some(&b'{') {
                 scan::walk_members(b, vp, o, |_, hvp, o| {
-                    scrub_leaf_member(b, hvp, o, changed, |s, buf| text::scrub_into(ctx, s, buf))
+                    scrub_leaf_member(b, hvp, o, changed, |s, buf| leaf::text_into(ctx, s, buf))
                 })
             } else {
                 scan::copy_value(b, vp, o)
@@ -96,7 +98,7 @@ pub fn scrub_console(
     scan::walk_members(b, pos, out, |key, vp, o| {
         if key == b"payload" || key == b"trace" {
             scan::walk_elements(b, vp, o, |_, ep, o| {
-                scrub_leaf_member(b, ep, o, changed, |s, buf| leaf(ctx, s, buf))
+                scrub_leaf_member(b, ep, o, changed, |s, buf| leaf_value_into(ctx, s, buf))
             })
         } else {
             scan::copy_value(b, vp, o)

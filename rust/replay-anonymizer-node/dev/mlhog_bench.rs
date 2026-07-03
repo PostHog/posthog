@@ -1,8 +1,9 @@
-//! Side-by-side benchmark: the verbatim MLHog v2 byte-scanning scrubber (`src/mlhog/`, bench-only)
-//! against this crate's paths, on the same fixtures. MLHog's unit of work is one event line (its
-//! pipeline reads JSONL), so events are pre-serialized outside the timed loop and the walk is timed
-//! per message worth of lines — comparable to this crate's "inner only" numbers, which also pay
-//! envelope scanning and metadata extraction on top.
+//! Side-by-side benchmark: the MLHog v2 byte-scanning walk (`src/mlhog/`, bench-only, now driving
+//! this crate's own leaf scrubs and allow lists — see `mlhog::leaf`) against this crate's paths, on
+//! the same fixtures. Both sides share leaf scrubs, so this compares traversal architectures only.
+//! MLHog's unit of work is one event line (its pipeline reads JSONL), so events are pre-serialized
+//! outside the timed loop and the walk is timed per message worth of lines — comparable to this
+//! crate's "inner only" numbers, which also pay envelope scanning and metadata extraction on top.
 //!
 //! Run: cargo run --release --features mlhog-bench --example mlhog_bench -p replay-anonymizer-node
 //! (fixtures come from un-skipping the Node bench; see dev/anonymize_bench.rs)
@@ -10,9 +11,8 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use replay_anonymizer_node::mlhog::dict::AllowLists;
-use replay_anonymizer_node::mlhog::v2::V2Worker;
-use replay_anonymizer_node::mlhog::Ctx;
+use replay_anonymizer_node::mlhog::V2Worker;
+use replay_anonymizer_node::{AllowLists, Ctx};
 
 fn p50<F: FnMut()>(warmup: usize, n: usize, mut f: F) -> f64 {
     for _ in 0..warmup {

@@ -16,7 +16,6 @@ base64 = { workspace = true }
 flate2 = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"
-rustc-hash = { version = "2", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 # `external-buffers`: the JSONL lines cross the FFI as an externally-backed Buffer (no copy).
 # Safe here: the addon only runs in PostHog's Node ingestion workers, never in V8
@@ -27,10 +26,12 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 simd-json = { version = "0.15", features = ["serde_impl"] }
 
 [features]
-# Compiles the verbatim MLHog v2 scrubber copy for the side-by-side benchmark only.
-mlhog-bench = ["dep:rustc-hash"]
+# Compiles the MLHog v2 scrubber walk for the side-by-side benchmark and its parity test only.
+mlhog-bench = []
 
 [dev-dependencies]
+# flate2: the mlhog parity test gunzips `cv` payloads to compare them semantically.
+flate2 = { workspace = true }
 serde_json = { workspace = true }
 
 [[example]]

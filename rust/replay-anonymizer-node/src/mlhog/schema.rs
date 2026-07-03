@@ -114,7 +114,12 @@ pub fn scan_event(line: &[u8]) -> EventScan {
                     if out.ty.is_none() && rest.starts_with(b"\"type\":") {
                         out.ty = read_uint(line, pos + b"\"type\":".len());
                     } else if !out.compressed && rest.starts_with(b"\"cv\":") {
-                        out.compressed = true;
+                        // Matches `crate::event::is_compressed_marker`: a null `cv` is not compressed.
+                        let mut vp = pos + b"\"cv\":".len();
+                        while line.get(vp).is_some_and(|b| b.is_ascii_whitespace()) {
+                            vp += 1;
+                        }
+                        out.compressed = line.get(vp) != Some(&b'n');
                     } else if out.data_range.is_none() && rest.starts_with(b"\"data\":") {
                         out.data_range = locate_value(line, pos + b"\"data\":".len());
                     }
