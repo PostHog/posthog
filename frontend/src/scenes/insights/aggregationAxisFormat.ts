@@ -91,8 +91,7 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    // Skip the prefix only for currency format, where the symbol is already embedded in the formatted value
-    // (e.g. currency "$" + prefix "$" → "$$"). Other formats keep their prefix even if it shares a leading char.
+    // Currency format already embeds the symbol, so a matching prefix ("$" + "$94.02") would double it.
     const effectivePrefix =
         aggregationAxisFormat === 'currency' &&
         aggregationAxisPrefix &&
