@@ -155,7 +155,9 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     obj.set(&mut cx, "reason", null)?;
                     let null = cx.null();
                     obj.set(&mut cx, "error", null)?;
-                    let lines = JsBuffer::from_slice(&mut cx, &lines)?;
+                    // Externally-backed: the JS Buffer wraps the Vec directly (freed by the GC's
+                    // finalizer) instead of copying the whole JSONL block across the boundary.
+                    let lines = JsBuffer::external(&mut cx, lines);
                     obj.set(&mut cx, "lines", lines)?;
                     let meta = cx.string(meta);
                     obj.set(&mut cx, "meta", meta)?;
