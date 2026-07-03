@@ -14,6 +14,7 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -21,6 +22,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
@@ -246,6 +248,45 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         assert "Report operational friction" in prompt
         assert "Output format" in prompt
+
+    @parameterized.expand(
+        [
+            # (label, skill_name, metadata, allowed_tools, expect_section). A canonical scout
+            # (harness-seeded row on an on-disk fleet name) must never see the self-improvement
+            # section — applying an `improve:` suggestion would mark its row diverged and cut it
+            # off from upstream sync. Custom scouts get it on both channels.
+            ("custom_signal_scout", "signals-scout-errors", {}, [], True),
+            ("custom_report_scout", "signals-scout-errors", {}, ["emit_report", "edit_report"], True),
+            ("canonical_scout", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, [], False),
+        ]
+    )
+    def test_self_improvement_section_gated_on_custom_origin(
+        self,
+        _name: str,
+        skill_name: str,
+        metadata: dict,
+        allowed_tools: list[str],
+        expect_section: bool,
+    ) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=skill_name,
+            description="d",
+            body="b",
+            allowed_tools=allowed_tools,
+            metadata=metadata,
+        )
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, skill_name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert ("Suggest improvements to your own skill" in prompt) is expect_section
+        # The `improve:` key contract is what the meta-skills document — it must ride with the section.
+        assert ("improve:<domain>:<topic>" in prompt) is expect_section
+        # The upstream friction channel is origin-independent: canonical defects still route there.
+        assert "agent-feedback" in prompt
 
     def _report_prompt_for(self, allowed_tools: list[str]) -> str:
         name = "signals-scout-" + "-".join(allowed_tools)

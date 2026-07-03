@@ -50,6 +50,11 @@ class LoadedSkill:
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str
+    # "canonical" | "custom" — who owns the skill row (see `lazy_seed.scout_skill_origin`). The
+    # prompt builder gates the self-improvement section on it: a custom scout is invited to record
+    # `improve:` suggestions for its own body (the team owns that body and can apply them); a
+    # canonical scout is not, so the prompt never nudges a team into diverging a seeded row.
+    origin: str
 
 
 def is_signals_scout_skill(skill: LLMSkill) -> bool:
@@ -62,9 +67,10 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
     Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
     """
-    # Lazy import: `products.skills.backend.api` triggers a temporal module load
-    # that this package is itself imported from at temporal-worker boot, so a top-level
-    # import here cycles. Models only is fine.
+    # Lazy imports, both to break cycles: `lazy_seed` imports this module at top level
+    # (SIGNALS_SCOUT_SKILL_PREFIX), and `products.skills.backend.api` triggers a temporal module
+    # load that this package is itself imported from at temporal-worker boot. Models only is fine.
+    from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
     from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 
     skill = get_skill_by_name_from_db(team, skill_name, version=version)
@@ -82,4 +88,5 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
         allowed_tools=list(skill.allowed_tools or []),
         files=[LoadedSkillFile(path=f.path, content_type=f.content_type) for f in file_rows],
         skill_id=str(skill.id),
+        origin=scout_skill_origin(skill.name, skill.metadata),
     )

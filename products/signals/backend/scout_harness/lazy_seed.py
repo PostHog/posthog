@@ -293,13 +293,32 @@ def canonical_skill_names() -> frozenset[str]:
     canonical scout is added or removed. Cached for the process — the shipped fleet only
     changes on deploy. A malformed canonical skill degrades to an empty set (everything reads
     `custom`) rather than 500-ing read endpoints; the parse error still fails loud on the
-    harness's own sync path. See `views._scout_origin` for the consumer.
+    harness's own sync path. See `scout_skill_origin` for the consumer.
     """
     try:
         return frozenset(skill.name for skill in discover_canonical_skills())
     except CanonicalSkillParseError:
         logger.warning("canonical_skill_names: malformed canonical skill on disk; treating fleet as empty")
         return frozenset()
+
+
+def scout_skill_origin(skill_name: str, metadata: dict | None) -> str:
+    """Classify a scout skill row as `"canonical"` or `"custom"` by who owns it.
+
+    A scout is `canonical` when the harness seeded its skill row (tagged
+    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
+    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
+    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
+    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
+    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
+    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
+    list would.
+
+    Consumers: the config serializer's `scout_origin` field (`views._skill_info_for`) and the
+    prompt builder's self-improvement gate (`skill_loader.load_skill_for_run` → `prompt.py`).
+    """
+    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
+    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
 
 
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
