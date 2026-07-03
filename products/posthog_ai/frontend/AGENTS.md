@@ -18,12 +18,12 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                               | What's in it                                                                                                                                                                        |
-| ------------------------------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts                                                       |
-| **2 — Compound primitives**    | `api/primitives`                     | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces |
-| **3 — Headless logic + types** | `api/logics` + `api/types`           | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                      |
-| **4 — Extension seam**         | `api/tools`                          | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                    |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
+| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces         |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                            |
 
 **Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
@@ -56,6 +56,12 @@ The headline exports per module:
   (`scenes/TaskTracker/TaskRunChat`) composes its own live-composer layout. Because the compound is eager, import
   it only from an already route-split scene (the `/tasks` runner) or another lazily-loaded layout module — a
   light bundle that should stay split uses `api/readableRun` instead.
+- **`api/runner`** — **`EmbeddedRunner`** (`<EmbeddedRunner taskId? />`), the lazy, code-split TaskTracker
+  product (tasks list + composer + agent-run detail) for hosts that render the whole `/tasks` experience
+  inline (the Max scene surfaces it behind the sandbox view toggle). The heavy scene chunk loads only via
+  `EmbeddedRunner`'s dynamic `import()`, so importing this module never statically pulls the scene. Task
+  selection/creation still routes through the scene's own `/tasks/:id` URLs — it's the standalone product
+  embedded, not a route-decoupled widget.
 - **`api/primitives`** — **`Thread`** (Radix-style compound: `Thread.Root` is the virtualized presenter, the
   atoms `Thread.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall` are the building blocks for
   bespoke threads), **`Composer`** (logic-free compound input — the caller owns
@@ -131,6 +137,16 @@ loosely typed — guard at the parse boundary with runtime checks; never assume 
   `useMemo`, wrap child callbacks in `useCallback`, and subscribe narrowly (select only what you render).
 - **Keep the projection pure.** `foldLogToThread` is pure and deterministic; item ids stay stable across
   re-folds. Listeners fire only side effects, each with a fire-once guard, suppressed on `source: 'replay'`.
+- **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
+  renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
+  the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other
+  presentable information a tool produces — parsed output, commit/repo lists, file contents, diffs, raw
+  text — must go in the collapsible `body`, never the always-visible `children`.** The body is the
+  `Activity` accordion: it auto-expands while the tool runs and collapses once it completes, so the
+  thread stays scannable (one or two lines per tool) and a reader expands only the cards they care about.
+  Reserve `children` (always-visible) for genuinely interactive payloads that would be useless collapsed
+  (e.g. the `AskUserQuestion` recap the user must act on) — not for output. When in doubt, it goes in the
+  accordion.
 
 ## 5. Layout
 
@@ -138,6 +154,7 @@ loosely typed — guard at the parse boundary with runtime checks; never assume 
 api/                # public API facade — the contract (import api/<module>, never deep paths)
   readableRun.ts    #   Tier 1: ReadonlyRunSurface (lazy read-only embed)
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
+  runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question/resource
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types (pure types)

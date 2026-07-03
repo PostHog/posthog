@@ -631,3 +631,31 @@ def test_validate_credentials_blocks_oauth_when_flag_off():
 
     assert ok is False
     assert error is not None and "isn't available" in error
+
+
+@pytest.mark.parametrize(
+    "api_message,expected_fragment",
+    [
+        # The reported case: an uploaded .xlsx the Sheets API refuses to open.
+        (
+            "This operation is not supported for this document. The document must not be an Office file.",
+            "Save as Google Sheets",
+        ),
+        # Any other 400 from the Sheets API falls back to a clean, actionable message.
+        ("Some other bad request", "shared with our service account"),
+    ],
+)
+def test_validate_credentials_maps_api_error_to_friendly_message(api_message, expected_fragment):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = _api_error(
+            400, message=api_message, status="INVALID_ARGUMENT"
+        )
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert expected_fragment in (error_message or "")
+    # The raw gspread "APIError: [400]: ..." dump must not reach the user.
+    assert "APIError" not in (error_message or "")

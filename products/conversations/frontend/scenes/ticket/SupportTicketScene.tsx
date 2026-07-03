@@ -23,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import {
@@ -36,6 +37,7 @@ import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -60,6 +62,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -142,6 +145,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         <SceneContent>
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
+                nameSuffix={
+                    ticket && ticket.identity_verified !== true ? (
+                        <IdentityBadge verified={ticket.identity_verified} />
+                    ) : undefined
+                }
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
@@ -200,27 +208,30 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay
-                                    person={
-                                        ticket.person
-                                            ? {
-                                                  id: ticket.person.id,
-                                                  distinct_id: ticket.distinct_id,
-                                                  distinct_ids: ticket.person.distinct_ids,
-                                                  // Merge anonymous_traits as fallback for missing person properties
-                                                  properties: {
-                                                      ...ticket.anonymous_traits,
-                                                      ...ticket.person.properties,
-                                                  },
-                                              }
-                                            : {
-                                                  distinct_id: ticket.distinct_id,
-                                                  properties: ticket.anonymous_traits || {},
-                                              }
-                                    }
-                                    withIcon
-                                    withComposeTicketButton
-                                />
+                                <div className="flex items-center gap-2">
+                                    <PersonDisplay
+                                        person={
+                                            ticket.person
+                                                ? {
+                                                      id: ticket.person.id,
+                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_ids: ticket.person.distinct_ids,
+                                                      // Merge anonymous_traits as fallback for missing person properties
+                                                      properties: {
+                                                          ...ticket.anonymous_traits,
+                                                          ...ticket.person.properties,
+                                                      },
+                                                  }
+                                                : {
+                                                      distinct_id: ticket.distinct_id,
+                                                      properties: ticket.anonymous_traits || {},
+                                                  }
+                                        }
+                                        withIcon
+                                        withComposeTicketButton
+                                    />
+                                    <IdentityBadge verified={ticket.identity_verified} />
+                                </div>
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -253,14 +264,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             detail={ticket.channel_detail}
                                             to={getChannelThreadUrl(ticket)}
                                         />
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.organization_id && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Organization</span>
-                                    <span className="text-xs truncate text-right" title={ticket.organization_id}>
-                                        {ticket.organization_id}
                                     </span>
                                 </div>
                             )}
@@ -404,6 +407,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Related Groups Panel */}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
 
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}

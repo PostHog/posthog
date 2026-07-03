@@ -261,6 +261,24 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("There was an unknown error running this query.", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_surfaces_error_in_response_dict(self, mock_process_query):
+        # A failed query (e.g. a direct-SQL timeout) can return a structurally-valid response with an
+        # `error` field and empty `results` instead of raising. That must surface as an error, not be
+        # formatted as a header-only table indistinguishable from "zero rows matched".
+        mock_process_query.return_value = {
+            "results": [],
+            "columns": ["count"],
+            "error": "Query has hit the max execution time before completing.",
+        }
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+
+        with self.assertRaises(MaxToolRetryableError) as context:
+            await self.query_runner.arun_and_format_query(query)
+
+        self.assertIn("max execution time", str(context.exception))
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
     async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
         """Test successful async query polling"""

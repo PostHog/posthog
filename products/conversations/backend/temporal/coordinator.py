@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.business_knowledge.backend.logic import has_ready_sources
     from products.conversations.backend.models import Ticket
+    from products.conversations.backend.models.constants import Status
     from products.conversations.backend.temporal.pipeline import SupportReplyInput, SupportReplyWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -81,19 +82,28 @@ class CollectEligibleTicketsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            MASTER_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
+    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
+    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MASTER_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
         )
-    )
+    except Exception:
+        # A flag-service blip must skip the ticket, not throw inside the scan loop and fail the
+        # whole coordinator tick. Fail closed: treat as disabled.
+        logger.warning("support_reply coordinator: master flag eval failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[EligibleTicket]:
@@ -103,7 +113,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
     # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
     recent_tickets = Ticket.objects.filter(
-        Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff)
+        Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff),
+        status__in=[Status.NEW, Status.OPEN],
     ).select_related("team__organization")
 
     # First pass: the cheap per-ticket gates that don't touch the comments table. We keep

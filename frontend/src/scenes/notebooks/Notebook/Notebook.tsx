@@ -75,7 +75,7 @@ export function Notebook({
         comments,
     } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
-    const { isExpanded } = useValues(notebookSettingsLogic)
+    const { isExpanded, isMarkdownExpanded } = useValues(notebookSettingsLogic)
     const { isCommandOpen } = useValues(commandLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -116,9 +116,10 @@ export function Notebook({
     }, [size]) // oxlint-disable-line exhaustive-deps
 
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ shortId, content, comments, setLocalContent })
     }
 
     return (
@@ -133,8 +134,8 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        !isExpanded && 'Notebook--compact',
-                        isExpanded && 'Notebook--expanded',
+                        !isContentWidthExpanded && 'Notebook--compact',
+                        isContentWidthExpanded && 'Notebook--expanded',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',

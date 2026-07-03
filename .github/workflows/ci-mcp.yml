@@ -22,10 +22,6 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -246,6 +242,8 @@ jobs:
         # skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -632,7 +630,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
-                  workflow-type: backend
+                  workflow-type: mcp
                   patch-path: /tmp/snapshot-patches
                   snapshot-path: 'services/mcp/tests/unit/'
                   commit-message: 'test(mcp): update unit test snapshots'

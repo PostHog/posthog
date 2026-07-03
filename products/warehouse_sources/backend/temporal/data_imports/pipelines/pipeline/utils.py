@@ -921,11 +921,19 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                         if py_type is decimal.Decimal
                         else [_convert_to_decimal_or_none(x) for x in all_values]
                     )
-                    number_arr = _decimal_array_from_values(decimal_values)
-                    new_field_type = number_arr.type
-
-                    py_type = decimal.Decimal
-                    unique_types_in_column = {decimal.Decimal}
+                    try:
+                        number_arr = _decimal_array_from_values(decimal_values)
+                        new_field_type = number_arr.type
+                        py_type = decimal.Decimal
+                        unique_types_in_column = {decimal.Decimal}
+                    except ValueError:
+                        # A value is too large even for decimal256 (e.g. an unconstrained Postgres
+                        # `numeric` with more than 76 significant digits) — keep the column as text
+                        # rather than crash the sync, mirroring the huge-int fallback below.
+                        number_arr = pa.array([None if v is None else str(v) for v in decimal_values], type=pa.string())
+                        new_field_type = pa.string()
+                        py_type = str
+                        unique_types_in_column = {str}
                 else:
                     raise
 

@@ -19,6 +19,8 @@ jest.mock('../logics/runStreamLogic', () => ({
         status != null && ['completed', 'failed', 'cancelled'].includes(status),
 }))
 
+jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
+
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
 jest.mock('./ResourcesBar', () => ({ ResourcesBar: () => <div data-attr="resources" /> }))
 jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
@@ -32,6 +34,8 @@ function setValues(overrides: Partial<{ pendingPermissionRequest: PermissionRequ
         threadItems: [{ id: 'x' }],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
+        task: null,
+        taskLoading: false,
         ...overrides,
     })
 }
@@ -39,7 +43,7 @@ function setValues(overrides: Partial<{ pendingPermissionRequest: PermissionRequ
 describe('ReadonlyRunSurfaceImpl', () => {
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn() })
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn(), loadTask: jest.fn() })
         setValues()
     })
 
@@ -57,11 +61,12 @@ describe('ReadonlyRunSurfaceImpl', () => {
         expect(screen.queryByTestId('question')).not.toBeInTheDocument()
     })
 
-    it('renders the thread plus meta bars for a live run, but never a composer or approval prompt', () => {
+    it('renders the thread plus the resources bar for a live run, but never a composer or approval prompt', () => {
         render(<ReadonlyRunSurfaceImpl taskId="task-1" runId="run-1" interaction="live" />)
         expect(screen.getByTestId('thread')).toBeInTheDocument()
         expect(screen.getByTestId('resources')).toBeInTheDocument()
-        expect(screen.getByTestId('context')).toBeInTheDocument()
+        // Context usage now rides the thread footer (inside ThreadView), not a standalone bar.
+        expect(screen.queryByTestId('context')).not.toBeInTheDocument()
         expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
         expect(screen.queryByTestId('permission')).not.toBeInTheDocument()
         expect(screen.queryByTestId('question')).not.toBeInTheDocument()

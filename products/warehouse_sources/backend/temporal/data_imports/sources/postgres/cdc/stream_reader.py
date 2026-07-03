@@ -92,11 +92,15 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
-                # Server-side ceiling (30m) so a stalled WAL decode can't hang the streaming
-                # connection indefinitely. Bounds a single peek; the caller's soft deadline
-                # bounds the whole run. Dropped if the source sits behind a pooler that rejects
-                # the libpq `options` parameter (CDC sources never do).
-                options="-c statement_timeout=1800000",
+                # statement_timeout (30m) is a server-side ceiling so a stalled WAL decode can't
+                # hang the streaming connection indefinitely; it bounds a single peek, the caller's
+                # soft deadline bounds the whole run. idle_in_transaction_session_timeout=0 stops the
+                # source culling our backend (SQLSTATE 25P03) while the named cursor's transaction
+                # sits idle between yields as the caller flushes to S3 and advances the slot —
+                # statement_timeout doesn't apply there because no statement is running. Both are
+                # dropped if the source sits behind a pooler that rejects the libpq `options`
+                # parameter (CDC sources never do).
+                options="-c statement_timeout=1800000 -c idle_in_transaction_session_timeout=0",
             ),
             logger,
         )

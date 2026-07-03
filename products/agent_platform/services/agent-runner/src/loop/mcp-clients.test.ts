@@ -121,7 +121,9 @@ describe('openMcpClients', () => {
 
     it('opens an external ref and lists+calls remote tools', async () => {
         const { factory, calls, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
 
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
@@ -150,8 +152,20 @@ describe('openMcpClients', () => {
     it('preserves the prefix as the entry id for external refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { id: 'linear', url: 'https://example.com/linear', secrets: [] },
-            { id: 'github', url: 'https://example.com/github', secrets: [] },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+            },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'github',
+                url: 'https://example.com/github',
+                secrets: [],
+            },
         ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
@@ -165,8 +179,8 @@ describe('openMcpClients', () => {
     it('rejects duplicate prefixes across refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { id: 'dup', url: 'https://example.com/a', secrets: [] },
-            { id: 'dup', url: 'https://example.com/b', secrets: [] },
+            { kind: 'agent', default_tool_approval: 'allow', id: 'dup', url: 'https://example.com/a', secrets: [] },
+            { kind: 'agent', default_tool_approval: 'allow', id: 'dup', url: 'https://example.com/b', secrets: [] },
         ]
         await expect(openMcpClients(refs, { secrets: {}, transportFactory: factory })).rejects.toThrow(
             /duplicate_mcp_prefix: dup/
@@ -180,6 +194,8 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'tenant',
                 url: 'https://example.com/${TENANT}/mcp',
                 secrets: ['TENANT'],
@@ -204,6 +220,8 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -226,7 +244,16 @@ describe('openMcpClients', () => {
 
     it('auth.provider stamps the asker bearer when the identity resolves ok', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
-        const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
+        const refs: McpRef[] = [
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
+        ]
         const { close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -245,7 +272,16 @@ describe('openMcpClients', () => {
 
     it('auth.provider unlinked → ref fails to open in the auth category', async () => {
         const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
+        const refs: McpRef[] = [
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
+        ]
         const { clients, failures, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -277,7 +313,14 @@ describe('openMcpClients', () => {
                 async close() {},
             }) as unknown as Transport
         const refs: McpRef[] = [
-            { id: 'posthog', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'posthog' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'posthog',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'posthog' },
+            },
         ]
         const relink = vi.fn(async () => 'https://app.posthog.test/oauth/authorize/?reconnect=1')
         const { clients, failures } = await openMcpClients(refs, {
@@ -302,7 +345,14 @@ describe('openMcpClients', () => {
     it('auth.provider refuses a host outside the resolved credential allowlist', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { id: 'gh', url: 'https://evil.example/mcp', secrets: [], auth: { provider: 'github' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://evil.example/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
         ]
         const { clients, failures, close } = await openMcpClients(refs, {
             secrets: {},
@@ -324,7 +374,14 @@ describe('openMcpClients', () => {
     it('auth.provider allows the local MCP over http loopback even on a different port than the credential host', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { id: 'posthog', url: 'http://localhost:8787/mcp', secrets: [], auth: { provider: 'posthog' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'posthog',
+                url: 'http://localhost:8787/mcp',
+                secrets: [],
+                auth: { provider: 'posthog' },
+            },
         ]
         const { close } = await openMcpClients(refs, {
             secrets: {},
@@ -352,6 +409,8 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://example.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -375,6 +434,8 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'tenant',
                 url: 'https://example.com/${TENANT}/mcp',
                 secrets: ['TENANT'],
@@ -401,6 +462,8 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'exfil',
                 url: 'https://attacker.example.com/collect',
                 secrets: ['SLACK_BOT_TOKEN'],
@@ -428,6 +491,8 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -454,6 +519,8 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -477,6 +544,8 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'tenant',
                 url: 'https://attacker.example.com/${TENANT}/mcp',
                 secrets: ['TENANT'],
@@ -500,6 +569,8 @@ describe('openMcpClients', () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
+                kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'svc',
                 url: 'https://api.example.com/mcp',
                 secrets: ['SVC_TOKEN'],
@@ -518,7 +589,9 @@ describe('openMcpClients', () => {
 
     it('surfaces remote tool errors as isError on the McpCallResult', async () => {
         const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -553,7 +626,9 @@ describe('openMcpClients', () => {
                 },
             }) as Transport
         }
-        const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -574,11 +649,22 @@ describe('openMcpClients', () => {
     describe('devMcpBearerToken (dev-only auth fallback)', () => {
         it('attaches Authorization: Bearer when ref has no auth and a dev bearer is configured', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
-            const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
-                secrets: {},
-                transportFactory: factory,
-                devMcpBearerToken: 'phx_dev_token',
-            })
+            const { close } = await openMcpClients(
+                [
+                    {
+                        kind: 'agent',
+                        default_tool_approval: 'allow',
+                        id: 'x',
+                        url: 'https://mcp.example.com/sse',
+                        secrets: [],
+                    },
+                ],
+                {
+                    secrets: {},
+                    transportFactory: factory,
+                    devMcpBearerToken: 'phx_dev_token',
+                }
+            )
             expect(targets[0].headers.Authorization).toBe('Bearer phx_dev_token')
             await close()
             await closePairs(pairs)
@@ -586,11 +672,183 @@ describe('openMcpClients', () => {
 
         it('omits Authorization entirely when no auth and no dev bearer is set', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
-            const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
+            const { close } = await openMcpClients(
+                [
+                    {
+                        kind: 'agent',
+                        default_tool_approval: 'allow',
+                        id: 'x',
+                        url: 'https://mcp.example.com/sse',
+                        secrets: [],
+                    },
+                ],
+                {
+                    secrets: {},
+                    transportFactory: factory,
+                }
+            )
+            expect(targets[0].headers.Authorization).toBeUndefined()
+            await close()
+            await closePairs(pairs)
+        })
+    })
+
+    describe('connection (agent-level shared credential)', () => {
+        it('uses the URL + bearer from the connection resolver, ignoring ref.url/auth/secrets', async () => {
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: {
+                    resolve: async () => ({
+                        kind: 'resolved',
+                        url: 'https://mcp.incident.io/mcp',
+                        bearer: 'shared-tok',
+                    }),
+                },
+            })
+            expect(clients).toHaveLength(1)
+            expect(targets[0].url).toBe('https://mcp.incident.io/mcp')
+            expect(targets[0].headers.Authorization).toBe('Bearer shared-tok')
+            await close()
+            await closePairs(pairs)
+        })
+
+        // A dead SHARED connection (owner's token revoked, install disabled, or
+        // install deleted) is persistent and only the owner/admin can fix it —
+        // the asker can't reconnect someone else's credential. All three
+        // terminal states classify as `connection_dead` so the system prompt
+        // tells the asker an admin must reconnect (vs. a misleading "retry
+        // shortly"). A TRANSIENT refresh blip stays `auth` (see below).
+        it('needs_reauth → fails in the connection_dead category (owner must reconnect)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'needs_reauth' }) },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('connection_dead')
+            expect(failures[0].devReason).toMatch(/mcp_connection_needs_reauth: conn-1/)
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('disabled → fails in the connection_dead category (owner must re-enable)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'disabled' }) },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('connection_dead')
+            expect(failures[0].devReason).toMatch(/mcp_connection_disabled: conn-1/)
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('not_found → fails in the connection_dead category (install gone)', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'gone',
+                    secrets: [],
+                },
+            ]
+            const { failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: { resolve: async () => ({ kind: 'not_found' }) },
+            })
+            expect(failures[0].category).toBe('connection_dead')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('a transient refresh failure stays in the retryable auth category (not connection_dead)', async () => {
+            // The store throws `mcp_connection_refresh_failed` for a transient
+            // 5xx/429/network blip during token refresh — that SELF-HEALS next
+            // session, so it must NOT be classified as the persistent
+            // owner-must-reconnect `connection_dead`.
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
+                secrets: {},
+                transportFactory: factory,
+                connections: {
+                    resolve: async () => {
+                        throw new Error('mcp_connection_refresh_failed: conn-1 (502)')
+                    },
+                },
+            })
+            expect(clients).toEqual([])
+            expect(failures[0].category).toBe('auth')
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('refuses a connection ref when the resolver is not wired', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const refs: McpRef[] = [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'conn-1',
+                    secrets: [],
+                },
+            ]
+            const { clients, failures, close } = await openMcpClients(refs, {
                 secrets: {},
                 transportFactory: factory,
             })
-            expect(targets[0].headers.Authorization).toBeUndefined()
+            expect(clients).toEqual([])
+            expect(failures[0].devReason).toMatch(/mcp_connection_not_wired: conn-1/)
             await close()
             await closePairs(pairs)
         })

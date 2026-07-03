@@ -738,7 +738,11 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -747,9 +751,12 @@ def send_matview_failure_digest() -> None:
     cutoff = timezone.now() - datetime.timedelta(hours=24)
 
     # Latest DataModelingJob is the failure source of truth — v2 MaterializeViewWorkflow doesn't update SavedQuery.status.
-    latest_job = DataModelingJob.objects.filter(
-        saved_query_id=OuterRef("id"),
-    ).order_by("-last_run_at")
+    # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not stand in for the serving job.
+    latest_job = (
+        DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        .order_by("-last_run_at")
+    )
 
     failed_queries = (
         DataWarehouseSavedQuery.objects.filter(deleted=False, sync_frequency_interval__isnull=False)
@@ -806,7 +813,11 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import (
+        DataModelingJob,
+        DataModelingJobEngine,
+        DataWarehouseSavedQuery,
+    )
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -827,6 +838,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
         DataModelingJob.objects.filter(saved_query_id__in=all_ids)
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
         .order_by("saved_query_id", "-last_run_at")
         .distinct("saved_query_id")
     ):

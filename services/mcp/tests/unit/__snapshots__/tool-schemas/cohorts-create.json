@@ -383,6 +383,66 @@
                                                 "required": ["type", "key"],
                                                 "type": "object"
                                             },
+                                            {
+                                                "description": "Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.",
+                                                "properties": {
+                                                    "bytecode": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {},
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "bytecode_error": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "conditionHash": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "negation": {
+                                                        "default": false,
+                                                        "type": "boolean"
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "const": "person_metadata",
+                                                        "type": "string"
+                                                    },
+                                                    "value": {}
+                                                },
+                                                "required": ["type", "key"],
+                                                "type": "object"
+                                            },
                                             {}
                                         ]
                                     },

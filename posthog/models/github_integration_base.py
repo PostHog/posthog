@@ -20,32 +20,16 @@ from django.utils import timezone
 import jwt
 import requests
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
-github_api_request_counter = Counter(
-    "github_integration_api_requests",
-    "Number of GitHub API requests made through a GitHub integration.",
-    labelnames=["integration_id", "method", "endpoint", "status_code"],
-)
-github_api_rate_limit_remaining_gauge = Gauge(
-    "github_integration_api_rate_limit_remaining",
-    "Most recently observed GitHub API rate limit remaining count by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_limit_gauge = Gauge(
-    "github_integration_api_rate_limit_limit",
-    "Most recently observed GitHub API rate limit limit by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_reset_timestamp_gauge = Gauge(
-    "github_integration_api_rate_limit_reset_timestamp_seconds",
-    "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
+# This client always knows its installation, so it records under source="integration" with a real id.
+_OBSERVABILITY_SOURCE = "integration"
+
 github_cache_access_counter = Counter(
     "github_integration_cache_accesses",
     "Number of GitHub integration cache accesses by cache type, repository, and result.",
@@ -68,25 +52,24 @@ class GitHubCommitAuthor:
 
 
 class GitHubIntegrationError(Exception):
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        is_rate_limit: bool = False,
-        retry_after_seconds: float | None = None,
-    ) -> None:
+    """A GitHub API call failed for a non-rate-limit reason (bad response, auth failure, network
+    error after retry). Rate limits raise ``GitHubRateLimitError`` from ``posthog.egress.github``
+    instead — a transient limit isn't an integration failure."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
-        self.is_rate_limit = is_rate_limit
-        self.retry_after_seconds = retry_after_seconds
 
 
 class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
+    # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
+    # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
+    # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
+    source: str = _OBSERVABILITY_SOURCE
 
     @property
     def github_installation_id(self) -> str | None:
@@ -131,14 +114,13 @@ class GitHubIntegrationBase:
                 "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
             )
 
-        return requests.request(
+        # Identity-blind on purpose: App-JWT calls are metered per App, not per installation, so
+        # gating them under an installation budget would be wrong — but volume telemetry still counts.
+        return github_request(
             method,
             f"https://api.github.com/app/{endpoint}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source=_OBSERVABILITY_SOURCE,
+            headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=timeout,
         )
 
@@ -245,13 +227,15 @@ class GitHubIntegrationBase:
         when GitHub returns 404 (no access).  Raises on network errors or
         unexpected status codes so callers can surface an appropriate error.
         """
-        response = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only by callers
+        # installation_id stays None: this call is authenticated with the *user's* OAuth token, so
+        # GitHub meters it against the user's budget, not the installation's — gating or writing
+        # gauges under the installation would consume/clobber a budget the call never draws from.
+        response = github_request(
+            "GET",
             f"https://api.github.com/user/installations/{installation_id}/repositories",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {user_access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source=_OBSERVABILITY_SOURCE,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
         )
@@ -266,92 +250,10 @@ class GitHubIntegrationBase:
         )
         raise requests.RequestException(f"Unexpected status {response.status_code} verifying installation access")
 
-    @staticmethod
-    def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
-        if headers is None:
-            return None
-        value = headers.get(name)
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
-        integration_id = str(self.integration.id)
-        status_code = str(response.status_code)
-        github_api_request_counter.labels(integration_id, method, endpoint, status_code).inc()
-
-        headers = response.headers if isinstance(response.headers, Mapping) else None
-        resource = headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown"
-        remaining = self._rate_limit_header(headers, "X-RateLimit-Remaining")
-        limit = self._rate_limit_header(headers, "X-RateLimit-Limit")
-        reset_at = self._rate_limit_header(headers, "X-RateLimit-Reset")
-
-        if remaining is not None:
-            github_api_rate_limit_remaining_gauge.labels(integration_id, resource).set(remaining)
-        if limit is not None:
-            github_api_rate_limit_limit_gauge.labels(integration_id, resource).set(limit)
-        if reset_at is not None:
-            github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
-
-    def _record_github_api_exception(self, method: str, endpoint: str) -> None:
-        github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
-
     def _record_github_cache_access(
         self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
     ) -> None:
         github_cache_access_counter.labels(str(self.integration.id), cache_type, repository.casefold(), result).inc()
-
-    def _github_api_get(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        params: dict[str, str | int] | None = None,
-        timeout: int | None = None,
-    ) -> requests.Response:
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=timeout)
-        except requests.RequestException:
-            self._record_github_api_exception("GET", endpoint)
-            raise
-        self._record_github_api_response(response, "GET", endpoint)
-        return response
-
-    def _github_api_post(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        json_body: Mapping[str, object] | None = None,
-    ) -> requests.Response:
-        try:
-            response = requests.post(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        return response
-
-    def _github_api_put(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        json_body: Mapping[str, object],
-    ) -> requests.Response:
-        try:
-            response = requests.put(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("PUT", endpoint)
-            raise
-        self._record_github_api_response(response, "PUT", endpoint)
-        return response
 
     # --- Installation access token ---
 
@@ -380,13 +282,9 @@ class GitHubIntegrationBase:
         hook is called *before* ``save()`` so it can mutate extra fields that
         will be included in a single write.
         """
-        endpoint = "/app/installations/{installation_id}/access_tokens"
-        try:
-            response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
+        # client_request records the call via the egress transport — no manual recording here,
+        # or every refresh would count twice.
+        response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
         try:
             data = response.json()
         except ValueError:
@@ -455,42 +353,12 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
-        """GET with installation token; refreshes on expiry or 401."""
+        """GET with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
         try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch() -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return self._github_api_get(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                params=params,
-                timeout=timeout,
-            )
-
-        try:
-            response = fetch()
-            if response.status_code == 401:
-                try:
-                    self.refresh_access_token()
-                except Exception as exc:
-                    logger.exception(
-                        "GitHubIntegration: token refresh after 401 failed",
-                        integration_id=self.integration.id,
-                        status_code=getattr(exc, "status_code", None),
-                    )
-                    return None
-                response = fetch()
-            return response
-        except Exception:
+            return self.api_request("GET", path, endpoint=endpoint, params=params, timeout=timeout)
+        except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
             return None
 
@@ -778,65 +646,31 @@ class GitHubIntegrationBase:
     def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
-        Mirrors ``_gh_api_get``'s auth lifecycle: proactive token refresh, one
-        retry on 401 (refresh) or transient network error, and secondary
-        rate-limit detection bubbled up as a retryable ``GitHubIntegrationError``.
+        GraphQL queries are read-only, so a POST retry on transient failures is safe —
+        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle.
         """
-        url = "https://api.github.com/graphql"
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def post() -> requests.Response:
-            return self._github_api_post(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                json_body={"query": query, "variables": variables},
+        response = self.api_request(
+            "POST",
+            "/graphql",
+            endpoint=endpoint,
+            json_body={"query": query, "variables": variables},
+            timeout=timeout,
+            retry_transient=True,
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
+                status_code=response.status_code,
             )
-
-        for attempt in range(2):
-            try:
-                response = post()
-            except requests.RequestException as exc:
-                if attempt == 0:
-                    logger.info("GitHubIntegration: _gh_graphql retrying network error", exc_info=True)
-                    continue
-                raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql network error on {endpoint}") from exc
-
-            if response.status_code == 401 and attempt == 0:
-                self.refresh_access_token()
-                continue
-            if self._is_secondary_rate_limit(response):
-                retry_after = self._parse_retry_after_seconds(response) or 60.0
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: secondary rate limit on {endpoint}",
-                    status_code=response.status_code,
-                    is_rate_limit=True,
-                    retry_after_seconds=retry_after,
-                )
-            if response.status_code != 200:
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
-                    status_code=response.status_code,
-                )
-            body = response.json()
-            data = body.get("data")
-            errors = body.get("errors")
-            if errors:
-                # GitHub can return useful partial data with field-level permission errors.
-                logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
-                if not data:
-                    raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
-            return data or {}
-
-        raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql exhausted retries on {endpoint}")
+        body = response.json()
+        data = body.get("data")
+        errors = body.get("errors")
+        if errors:
+            # GitHub can return useful partial data with field-level permission errors.
+            logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
+            if not data:
+                raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
+        return data or {}
 
     @staticmethod
     def _map_pr_state(gql_state: str | None, is_draft: bool) -> str:
@@ -932,24 +766,6 @@ class GitHubIntegrationBase:
         page = max(1, page)
         per_page = max(1, min(100, per_page))
 
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch() -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page={per_page}",
-                endpoint="/installation/repositories",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-            )
-
         def extract_repos(body: dict) -> list[dict]:
             repositories = body.get("repositories")
             if not isinstance(repositories, list):
@@ -972,79 +788,31 @@ class GitHubIntegrationBase:
                 and isinstance(repo.get("full_name"), str)
             ]
 
-        def raise_repository_error(message: str, *, status_code: int | None = None, exc_info: bool = False) -> None:
+        response = self.api_request(
+            "GET",
+            f"/installation/repositories?page={page}&per_page={per_page}",
+            endpoint="/installation/repositories",
+        )
+        try:
+            body = response.json()
+        except Exception:
             logger.warning(
-                message,
-                integration_id=self.integration.id,
-                status_code=status_code,
-                exc_info=exc_info,
-            )
-            raise GitHubIntegrationError(message)
-
-        transient_status_codes = {502, 503, 504}
-
-        for attempt in range(2):
-            try:
-                response = fetch()
-            except requests.RequestException:
-                raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
-
-            if response.status_code == 401:
-                try:
-                    self.refresh_access_token()
-                except Exception as exc:
-                    refresh_status = getattr(exc, "status_code", None)
-                    logger.exception(
-                        "GitHubIntegration: token refresh after 401 failed",
-                        integration_id=self.integration.id,
-                        status_code=refresh_status,
-                    )
-                    raise GitHubIntegrationError(
-                        "GitHubIntegration: token refresh after 401 failed",
-                        status_code=refresh_status,
-                    ) from exc
-                try:
-                    response = fetch()
-                except requests.RequestException:
-                    raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
-
-            try:
-                body = response.json()
-            except Exception:
-                if response.status_code in transient_status_codes and attempt == 0:
-                    logger.info(
-                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
-                        status_code=response.status_code,
-                    )
-                    continue
-                logger.warning(
-                    "GitHubIntegration: list_repositories non-JSON response",
-                    integration_id=self.integration.id,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
-
-            if response.status_code == 200 and isinstance(body, dict):
-                page_repos = extract_repos(body)
-                has_more = len(page_repos) == per_page
-                return page_repos, has_more
-
-            if response.status_code in transient_status_codes and attempt == 0:
-                logger.info(
-                    "GitHubIntegration: list_repositories retrying transient error",
-                    status_code=response.status_code,
-                    error=body if isinstance(body, dict) else None,
-                )
-                continue
-
-            logger.warning(
-                "GitHubIntegration: failed to list repositories",
+                "GitHubIntegration: list_repositories non-JSON response",
                 integration_id=self.integration.id,
                 status_code=response.status_code,
-                error=body if isinstance(body, dict) else None,
             )
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
-        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
+            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+        if response.status_code == 200 and isinstance(body, dict):
+            page_repos = extract_repos(body)
+            has_more = len(page_repos) == per_page
+            return page_repos, has_more
+        logger.warning(
+            "GitHubIntegration: failed to list repositories",
+            integration_id=self.integration.id,
+            status_code=response.status_code,
+            error=body if isinstance(body, dict) else None,
+        )
+        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
 
     def list_all_repositories(self) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""
@@ -1071,23 +839,11 @@ class GitHubIntegrationBase:
         """
         GITHUB_PER_PAGE = 100
 
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
         def fetch(page: int) -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
+            return self.api_request(
+                "GET",
+                f"/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
                 endpoint="/repos/{owner}/{repo}/branches",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                timeout=10,
             )
 
         def extract_names(data: list) -> list[str]:
@@ -1100,29 +856,13 @@ class GitHubIntegrationBase:
         skip = offset % GITHUB_PER_PAGE
         needed = skip + limit
 
-        # Fetch the first required page (with 401-retry logic).
+        # Fetch the first required page.
         current_page = first_page
         try:
             response = fetch(current_page)
-        except requests.RequestException:
-            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: list_branches request failed", repo=repo, exc_info=True)
             return [], False
-
-        if response.status_code == 401:
-            try:
-                self.refresh_access_token()
-            except Exception as exc:
-                logger.exception(
-                    "GitHubIntegration: token refresh after 401 failed",
-                    integration_id=self.integration.id,
-                    status_code=getattr(exc, "status_code", None),
-                )
-                return [], False
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
-                return [], False
 
         if response.status_code != 200:
             logger.warning(
@@ -1152,7 +892,7 @@ class GitHubIntegrationBase:
             current_page += 1
             try:
                 response = fetch(current_page)
-            except requests.RequestException:
+            except GitHubIntegrationError:
                 break
             if response.status_code != 200:
                 logger.warning(
@@ -1197,32 +937,12 @@ class GitHubIntegrationBase:
         Returns the full repository name in format 'org/repo', or None if no repos available.
         """
         try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch(page: int = 1) -> requests.Response:
-            access_token = (self.integration.sensitive_config or {}).get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
-                endpoint="/installation/repositories",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
+            response = self.api_request(
+                "GET", "/installation/repositories?page=1&per_page=100", endpoint="/installation/repositories"
             )
-
-        response = fetch()
-
-        if response.status_code == 401:
-            try:
-                self.refresh_access_token()
-            except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: get_top_starred_repository request failed", exc_info=True)
+            return None
 
         try:
             body = response.json()
@@ -1256,20 +976,7 @@ class GitHubIntegrationBase:
         if isinstance(cached, str):
             return cached
 
-        access_token = (self.integration.sensitive_config or {}).get("access_token")
-        if not access_token:
-            raise ValueError("GitHub access token not configured")
-
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{repo_path}",
-            endpoint="/repos/{owner}/{repo}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            timeout=10,
-        )
+        response = self.api_request("GET", f"/repos/{repo_path}", endpoint="/repos/{owner}/{repo}")
 
         if response.status_code == 200:
             repo_data = response.json()
@@ -1490,88 +1197,84 @@ class GitHubIntegrationBase:
         return result, default_branch, has_more
 
     def get_access_token(self) -> str:
-        """Return a valid installation access token, refreshing it if expired."""
+        """Return a valid installation access token, refreshing it past the half-life threshold."""
         if self.access_token_expired():
-            self.refresh_access_token()
+            try:
+                self.refresh_access_token()
+            except Exception:
+                # The refresh threshold is the token's half-life, so the stored token is typically
+                # still valid — use it rather than failing the request on a transient App-endpoint
+                # error; a genuinely dead token gets the 401 refresh-retry as the backstop.
+                logger.warning("GitHubIntegration: proactive token refresh failed, using stored token", exc_info=True)
         token = (self.integration.sensitive_config or {}).get("access_token")
         if not token:
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
 
-    @staticmethod
-    def _is_secondary_rate_limit(response: requests.Response) -> bool:
-        """GitHub signals secondary rate limits via 429, or 403 + ``Retry-After`` /
-        ``X-RateLimit-Remaining: 0``, or 403 with a body marker (no headers)."""
-        if response.status_code == 429:
-            return True
-        if response.status_code != 403:
-            return False
-        if response.headers.get("Retry-After"):
-            return True
-        if response.headers.get("X-RateLimit-Remaining") == "0":
-            return True
-        # Some 403s carry the secondary-limit signal only in the body.
-        body = (response.text or "").lower()
-        return "secondary rate limit" in body or "abuse detection" in body
+    def api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        endpoint: str | None = None,
+        params: dict[str, str | int] | None = None,
+        json_body: Mapping[str, object] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 10,
+        retry_transient: bool | None = None,
+    ) -> requests.Response:
+        """Authenticated request against ``https://api.github.com`` returning the raw response.
 
-    @staticmethod
-    def _parse_retry_after_seconds(response: requests.Response) -> float | None:
-        header = response.headers.get("Retry-After")
-        if header:
-            try:
-                return max(0.0, float(header))
-            except ValueError:
-                return None
-        reset = response.headers.get("X-RateLimit-Reset")
-        if reset:
-            try:
-                return max(0.0, float(reset) - time.time())
-            except ValueError:
-                return None
-        return None
+        Owns the shared token lifecycle — proactive refresh, one refresh-retry on 401, and one retry
+        on a transient network error or 5xx where a repeat is safe (``retry_transient`` defaults to
+        GET only; read-only POSTs like GraphQL opt in). Raises :class:`GitHubRateLimitError` when
+        GitHub rate-limits the call; every other response is returned as-is for the caller's
+        status-driven handling. ``_gh_api_get`` layers JSON parsing and non-2xx raising on top for
+        callers that want dict-or-raise semantics.
 
-    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
-        """Authenticated GET against ``https://api.github.com`` returning parsed JSON."""
-        # 1. Validate path + assemble URL.
+        ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
+        recorder template the raw URL. Attribution uses ``self.source``.
+        """
         if not path.startswith("/"):
-            raise ValueError(f"_gh_api_get path must start with '/', got {path!r}")
+            raise ValueError(f"api_request path must start with '/', got {path!r}")
         url = f"https://api.github.com{path}"
         transient_status_codes = {502, 503, 504}
-        # 2. Proactively refresh expiring tokens (failure here is non-fatal — fetch will retry on 401).
+        if retry_transient is None:
+            retry_transient = method.upper() == "GET"
+        # Proactively refresh expiring tokens (failure here is non-fatal — the loop retries on 401).
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        def fetch() -> requests.Response:
-            return self._github_api_get(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                timeout=timeout,
-            )
-
-        # 3. Try up to twice — second attempt covers token refresh after 401 or one transient 5xx.
-        last_error_message = "GitHubIntegration: _gh_api_get exhausted retries"
         for attempt in range(2):
-            # Network call (one retry on connection-level failure).
+            # Outside the try: a failing token refresh must fail fast, not be retried as a
+            # transient network error.
+            token = self.get_access_token()
             try:
-                response = fetch()
+                response = github_request(
+                    method,
+                    url,
+                    source=self.source,
+                    # Token last: a caller-supplied Authorization must not bypass the managed lifecycle.
+                    headers={**(headers or {}), "Authorization": f"Bearer {token}"},
+                    installation_id=self.github_installation_id,
+                    endpoint=endpoint,
+                    params=params,
+                    json=json_body,
+                    timeout=timeout,
+                )
             except requests.RequestException as exc:
-                if attempt == 0:
+                if retry_transient and attempt == 0:
                     logger.info(
-                        "GitHubIntegration: _gh_api_get retrying network error",
+                        "GitHubIntegration: api_request retrying network error",
                         path=path,
                         exc_info=True,
                     )
                     continue
-                raise GitHubIntegrationError(f"GitHubIntegration: _gh_api_get network error on {path}") from exc
-            # Auth failure → refresh token and retry once.
+                raise GitHubIntegrationError(f"GitHubIntegration: api_request network error on {path}") from exc
+            # Auth failure → refresh token and retry once (safe for any method: 401 means nothing ran).
             if response.status_code == 401 and attempt == 0:
                 try:
                     self.refresh_access_token()
@@ -1580,50 +1283,47 @@ class GitHubIntegrationBase:
                         f"GitHubIntegration: token refresh after 401 failed on {path}"
                     ) from exc
                 continue
-            # Secondary rate limit → bubble up with retry hint (no in-method retry).
-            if self._is_secondary_rate_limit(response):
-                # When headers don't give us a delay (body-only signal), GitHub recommends ≥60s.
-                retry_after = self._parse_retry_after_seconds(response) or 60.0
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: secondary rate limit on {path}",
-                    status_code=response.status_code,
-                    is_rate_limit=True,
-                    retry_after_seconds=retry_after,
-                )
-            # Transient 5xx → retry once.
-            if response.status_code in transient_status_codes and attempt == 0:
+            # Rate limit → bubble up with retry hints (no in-method retry; the caller owns backoff).
+            raise_if_github_rate_limited(response)
+            if retry_transient and response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
-                    "GitHubIntegration: _gh_api_get retrying transient error",
+                    "GitHubIntegration: api_request retrying transient error",
                     path=path,
                     status_code=response.status_code,
                 )
                 continue
-            # Any remaining non-2xx is terminal.
-            if response.status_code < 200 or response.status_code >= 300:
-                logger.warning(
-                    "GitHubIntegration: _gh_api_get non-2xx response",
-                    path=path,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get failed on {path}",
-                    status_code=response.status_code,
-                )
-            # 4. Parse + shape-check the response body.
-            try:
-                body = response.json()
-            except Exception as exc:
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
-                    status_code=response.status_code,
-                ) from exc
-            if not isinstance(body, dict):
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
-                    status_code=response.status_code,
-                )
-            return body
-        raise GitHubIntegrationError(last_error_message)
+            return response
+        raise GitHubIntegrationError(f"GitHubIntegration: api_request exhausted retries on {path}")
+
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+        """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
+
+        Dict-or-raise sugar over :meth:`api_request`: any non-2xx (or non-dict body) becomes a
+        :class:`GitHubIntegrationError`; rate limits propagate as :class:`GitHubRateLimitError`."""
+        response = self.api_request("GET", path, endpoint=endpoint, timeout=timeout)
+        if response.status_code < 200 or response.status_code >= 300:
+            logger.warning(
+                "GitHubIntegration: _gh_api_get non-2xx response",
+                path=path,
+                status_code=response.status_code,
+            )
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: _gh_api_get failed on {path}",
+                status_code=response.status_code,
+            )
+        try:
+            body = response.json()
+        except Exception as exc:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
+                status_code=response.status_code,
+            ) from exc
+        if not isinstance(body, dict):
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
+                status_code=response.status_code,
+            )
+        return body
 
     @database_sync_to_async_pool
     def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:

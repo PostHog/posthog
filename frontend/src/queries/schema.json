@@ -1033,6 +1033,9 @@
                     "$ref": "#/definitions/PersonPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/PersonMetadataPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
@@ -1051,6 +1054,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonMetadataPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/ElementPropertyFilter"
@@ -4669,6 +4675,167 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AssistantWebAnalyticsQueryBase": {
+            "additionalProperties": false,
+            "description": "Shared filter set across all web-analytics assistant queries.\n\nMirrors `WebAnalyticsQueryBase` but drops noisy fields agents shouldn't set (`samplingFactor`, `aggregation_group_type_index`, `dataColorTheme`, deprecated/legacy options).",
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison."
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
+                },
+                "doPathCleaning": {
+                    "default": false,
+                    "description": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the team's test-account filter.",
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters",
+                    "default": [],
+                    "description": "Property filters applied to the query. Accepts event, person, session, or cohort filters."
+                }
+            },
+            "type": "object"
+        },
+        "AssistantWebOverviewQuery": {
+            "additionalProperties": false,
+            "description": "High-level web-analytics KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison.\n\nUse this when the user asks \"how is the site doing?\", \"what are the topline web numbers?\", or wants a snapshot of overall traffic health.",
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison."
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
+                },
+                "doPathCleaning": {
+                    "default": false,
+                    "description": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the team's test-account filter.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebOverviewQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters",
+                    "default": [],
+                    "description": "Property filters applied to the query. Accepts event, person, session, or cohort filters."
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantWebStatsTableQuery": {
+            "additionalProperties": false,
+            "description": "Tabular web-analytics breakdown — top pages, UTMs, devices, browsers, countries, etc. — with visitors, pageviews, and optional bounce rate / average time on page columns.\n\nThis is the right query for \"top pages with bounce rate\" (set `breakdownBy=Page` and `includeBounceRate=true`) and for entry/exit-page navigation analysis (`breakdownBy=InitialPage|ExitPage|PreviousPage`).",
+            "properties": {
+                "breakdownBy": {
+                    "$ref": "#/definitions/WebStatsBreakdown",
+                    "description": "Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison."
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
+                },
+                "doPathCleaning": {
+                    "default": false,
+                    "description": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "default": false,
+                    "description": "Exclude internal and test users by applying the team's test-account filter.",
+                    "type": "boolean"
+                },
+                "includeAvgTimeOnPage": {
+                    "default": false,
+                    "description": "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.",
+                    "type": "boolean"
+                },
+                "includeBounceRate": {
+                    "default": false,
+                    "description": "Add a bounce-rate column. Most useful with a path-style breakdown.",
+                    "type": "boolean"
+                },
+                "includeHost": {
+                    "default": false,
+                    "description": "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebStatsTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.",
+                    "maximum": 200
+                },
+                "offset": {
+                    "$ref": "#/definitions/non_negative_integer",
+                    "description": "Pagination offset."
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters",
+                    "default": [],
+                    "description": "Property filters applied to the query. Accepts event, person, session, or cohort filters."
+                }
+            },
+            "required": ["kind", "breakdownBy"],
             "type": "object"
         },
         "AttributeBreakdownRow": {
@@ -12587,6 +12754,9 @@
                 "showNullsAsZero": {
                     "type": "boolean"
                 },
+                "showPieTotal": {
+                    "type": "boolean"
+                },
                 "showTotalRow": {
                     "type": "boolean"
                 },
@@ -19556,9 +19726,9 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "description": "Property filters (event, person, and other supported types). Pass an empty array if no filters needed.",
                     "items": {
-                        "$ref": "#/definitions/EventPropertyFilter"
+                        "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
                 }
@@ -21819,6 +21989,7 @@
                 "InforNexus",
                 "Insightful",
                 "Insightly",
+                "Instantly",
                 "Instatus",
                 "Intruder",
                 "Invoiced",
@@ -22119,7 +22290,16 @@
                 "Talkwalker",
                 "NextdoorAds",
                 "AppLovin",
-                "Baserow"
+                "Baserow",
+                "Plunk",
+                "Dub",
+                "AirOps",
+                "Podium",
+                "Loops",
+                "Redis",
+                "Mercury",
+                "Gojiberry",
+                "Teachable"
             ],
             "type": "string"
         },
@@ -23128,6 +23308,10 @@
             "additionalProperties": false,
             "description": "Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step.",
             "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used.",
+                    "type": "boolean"
+                },
                 "funnel_step": {
                     "anyOf": [
                         {
@@ -25772,7 +25956,9 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
-                "postgresql"
+                "postgresql",
+                "aws-s3",
+                "s3-compatible"
             ],
             "type": "string"
         },
@@ -31849,6 +32035,30 @@
             "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
             "type": "object"
         },
+        "PersonMetadataPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "person_metadata",
+                    "description": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
@@ -32178,6 +32388,8 @@
                 "llm_dataset_created",
                 "llm_evaluation_created",
                 "llm_prompt_created",
+                "mcp_analytics_viewed",
+                "mcp_analytics_connected",
                 "logs_docs_viewed",
                 "logs_set_filters",
                 "logs_settings_opened",
@@ -32394,6 +32606,7 @@
                 "internal_event",
                 "event_metadata",
                 "person",
+                "person_metadata",
                 "element",
                 "feature",
                 "session",
@@ -43070,7 +43283,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
+            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
             "type": "string"
         },
         "SlashCommandName": {
@@ -44613,6 +44826,7 @@
                 "cohorts",
                 "cohorts_with_all",
                 "data_warehouse",
+                "data_warehouse_source_tables",
                 "data_warehouse_properties",
                 "data_warehouse_person_properties",
                 "elements",
@@ -44624,6 +44838,7 @@
                 "event_metadata",
                 "numerical_event_properties",
                 "person_properties",
+                "person_metadata",
                 "pageview_urls",
                 "pageview_events",
                 "screens",
@@ -48913,6 +49128,10 @@
                 }
             },
             "type": "object"
+        },
+        "non_negative_integer": {
+            "minimum": 0,
+            "type": "integer"
         },
         "positive_integer": {
             "minimum": 1,

@@ -428,6 +428,11 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "access_control",
 }
 
+# Fields that are not member-safe but carry their own `field_access_control` (enforced in
+# UserAccessControlSerializerMixin.validate). The request-level scope can be downgraded for these so
+# the field-level check is the real authority — e.g. `app_urls` is governed by web_analytics:editor.
+TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
+
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
@@ -1843,7 +1848,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
+                # Member-safe fields, plus fields whose write is governed by their own field-level
+                # access control — keep the request gate from demanding project:write (admin) for the
+                # latter, otherwise e.g. a web analytics editor on a restricted project is blocked
+                # before UserAccessControlSerializerMixin.validate can authorize the field.
+                downgradable_fields = TEAM_CONFIG_MEMBER_FIELDS_SET | TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS
+                if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1916,8 +1926,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
-        from posthog.tasks.tasks import delete_project_data_and_notify_task
-
         # Check if bulk deletion operations are disabled via environment variable
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
@@ -1931,27 +1939,15 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         user = cast(User, self.request.user)
 
         # Hand off all deletion work (bulky postgres, batch exports, team record,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_project_data_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_project_data_workflow(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
-        else:
-            delete_project_data_and_notify_task.delay(
-                team_ids=[team_id],
-                project_id=None,  # Only deleting a team, not the whole project
-                user_id=user.id,
-                project_name=team_name,
-            )
+        start_delete_project_data_workflow(
+            team_ids=[team_id],
+            project_id=None,  # Only deleting a team, not the whole project
+            user_id=user.id,
+            project_name=team_name,
+        )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),

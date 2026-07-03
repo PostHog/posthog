@@ -10,14 +10,14 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 /**
  * Findings stat card for the scout troop list, above the scratchpad callout. Advertises the troop's
  * recent findings (count · scouts · recency) and links into the cross-fleet findings page. Reads the
- * cheap `emittedFindingsSummary` so it never triggers the per-run fetch the page does on open. Renders
- * nothing until there's at least one finding.
+ * cheap `emittedFindingsSummary` (a single backend query) so it appears as soon as that lands rather
+ * than after the full paginated runs-window walk. Renders nothing until there's at least one finding.
  */
 export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
-    const { emittedFindingsSummary, runsWindowLoadedOnce } = useValues(scoutFleetLogic)
+    const { emittedFindingsSummary, fleetFindingsSummaryLoadedOnce } = useValues(scoutFleetLogic)
 
-    // Hold until the first runs-window load settles, then only show when there's something to read.
-    if (!runsWindowLoadedOnce || emittedFindingsSummary.count === 0) {
+    // Hold until the cheap summary lands, then only show when there's something to read.
+    if (!fleetFindingsSummaryLoadedOnce || emittedFindingsSummary.count === 0) {
         return null
     }
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from parameterized import parameterized
 
@@ -134,6 +134,7 @@ def _create_ai_embedding_event(
 @freeze_time("2025-01-16T00:00:00Z")
 class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
     def _execute_sessions_query(self) -> list[dict]:
+        flush_persons_and_events()
         query = get_sessions_query(order_by="last_seen", order_direction="DESC")
         response = execute_hogql_query(query, team=self.team)
         columns = response.columns or []

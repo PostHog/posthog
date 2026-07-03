@@ -36,6 +36,9 @@ export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_se
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_session_replay_features${suffix}`
 
+// anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
+export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
@@ -49,6 +52,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
 
+// metadata rows for sent message assets (rendered emails stored in object storage)
+export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`
+
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
@@ -58,7 +64,6 @@ export const KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = `${prefix}cl
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
 export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`
-export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requests${suffix}`
 
 // Error tracking topics
 export const KAFKA_ERROR_TRACKING_INGESTION = `${prefix}ingestion-errortracking-main${suffix}` // Partition count varies by env

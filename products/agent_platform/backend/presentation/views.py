@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -190,6 +191,22 @@ class JanitorUpstreamError(APIException):
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
@@ -591,6 +608,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -786,10 +804,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.
@@ -990,6 +1008,47 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             payload = _janitor().get_models()
         except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_spec_schema",
+        parameters=[
+            OpenApiParameter(
+                "section",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only this top-level slice of the spec schema to save tokens — one of "
+                    "`models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, "
+                    "`limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema."
+                ),
+            ),
+        ],
+        description=(
+            "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the "
+            "discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. "
+            "Emitted from the same source the runner validates against (fields with a default are optional "
+            "on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of "
+            "guessing the shape. Pass `section` to fetch just one part."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="spec_schema")
+    def spec_schema(self, request: Request, **kwargs) -> Response:
+        """The agent-spec JSON Schema, proxied from the janitor, which emits it
+        from the canonical zod `AgentSpecSchema` (no Python mirror — the schema
+        an author reads can't drift from the one the runner parses). Optional
+        `section` slices one top-level property."""
+        section = request.query_params.get("section") or None
+        try:
+            payload = _janitor().get_spec_schema(section=section)
+        except JanitorClientError as e:
+            # A bad `section` is a client error — the janitor returns 400 with the
+            # valid section list. Surface that as a clean 400, not a 502.
+            if e.status_code == status.HTTP_400_BAD_REQUEST:
+                body = e.body if isinstance(e.body, dict) else {"detail": e.message}
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
             raise JanitorUpstreamError(e) from e
         return Response(payload)
 

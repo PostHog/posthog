@@ -18,3 +18,12 @@ export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInter
 
 // --- Thinking-message helpers ---
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
+
+// --- Composer model/effort helpers (pure — no component imports) ---
+export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
+
+// --- Panel view state (headless) ---
+// Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a
+// header back button — outside the lazy panel chunk (Tier 1 `api/runner`).
+export { runnerPanelLogic } from '../logics/runnerPanelLogic'
+export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPanelLogic'

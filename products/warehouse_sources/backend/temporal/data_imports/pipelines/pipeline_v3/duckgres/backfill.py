@@ -78,7 +78,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 logger = structlog.get_logger(__name__)
 
-MAX_CONCURRENT_BACKFILLS_PER_ORG = 1  # best-effort across pods (see _plan_pending)
+MAX_CONCURRENT_BACKFILLS_PER_ORG = 3  # best-effort across pods (see _plan_pending)
+# Global ceiling on backfills in flight across ALL orgs. Backfill chunks and live
+# batches share the consumer's group-concurrency pool (BatchConsumerConfig.max_concurrency),
+# so this bounds how much of the duckgres worker budget backfills may consume and
+# reserves headroom for live application. Tune to (worker ceiling − live headroom);
+# keep <= max_concurrency. The per-org cap then keeps one org from eating the whole budget.
+MAX_CONCURRENT_BACKFILLS_GLOBAL = 5
 # A claim that never produced a durable run plan within this window is
 # considered crashed and is returned to PENDING by the reconciler. Planning is
 # metadata-only (Delta log read + row inserts), so minutes of lease are ample.
@@ -99,6 +105,7 @@ __all__ = [
     "mark_primed",
     "replan_backfill",
     "run_backfill_planner",
+    "sink_eligible_schema_ids",
 ]
 
 
@@ -140,6 +147,53 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
         primed = primed.filter(team_id__in=team_ids)
     primed_ids = {str(s) for s in primed.values_list("schema_id", flat=True)}
     return [str(sid) for sid in schemas.values_list("id", flat=True) if str(sid) not in primed_ids]
+
+
+def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
+    """Schema ids whose (team, source_type) is on warehouse-pipelines-v3.
+
+    The sink claims batches ONLY for these schemas, keeping consumption in
+    lockstep with the v3 routing flag — the same gate that decides which source
+    types the v3 pipeline produces for and which schemas get primed here. The
+    shared queue can hold batches for non-v3 source types (a source_type that
+    was v3 during an earlier flag window, or the flag-independent CDC writer);
+    without this gate the team-scoped claim applies them anyway, and replace-head
+    batches (full_refresh / first-ever incremental) even bypass the unprimed
+    block. Enabling a source_type later lets its schemas bootstrap, prime, and
+    begin live application through the normal path.
+
+    Evaluated per (team_id, source_type) with a local cache — the same gate
+    ``_bootstrap_state_rows`` uses to decide priming, so consumption and priming
+    never disagree. Raises on app-DB errors so the caller keeps its previous
+    cached set; a transient blip must not silently empty the allow-list.
+
+    Prod only: the consumer calls this with a concrete team list. Dev mode
+    (no team filter) is left ungated by the caller.
+    """
+    close_old_connections()
+    if not team_ids:
+        return []
+
+    # Lazy import: create_job_model pulls in temporalio.activity + the data
+    # warehouse facade, kept off the planner module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    schemas = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id__in=team_ids)
+        .values("id", "team_id", "source__source_type")
+    )
+    v3_enabled: dict[tuple[int, str], bool] = {}
+    eligible: list[str] = []
+    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+        key = (schema["team_id"], schema["source__source_type"])
+        if key not in v3_enabled:
+            v3_enabled[key] = is_pipeline_v3_enabled(schema["team_id"], schema["source__source_type"])
+        if v3_enabled[key]:
+            eligible.append(str(schema["id"]))
+    return eligible
 
 
 def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
@@ -186,28 +240,62 @@ def replan_backfill(schema_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+BOOTSTRAP_BATCH_SIZE = 1000
+
+
 def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
     """Create state rows for enabled teams' schemas that have none.
+
+    Only schemas whose source is on warehouse-pipelines-v3 get a row: the sink
+    follows v3 sources only, so priming a non-v3 source would create state the
+    consumer never advances (and never primes).
 
     Straight to PRIMED when no priming is needed:
     - full_refresh: every run's batch 0 replaces the table completely.
     - no Delta table yet: the first sync creates everything.
     - cdc: the sink rejects CDC batches outright; do not block the queue on it.
+
+    Memory-bounded: a single team can own tens of thousands of schemas, so we
+    anti-join in Postgres to skip schemas that already have a state row, stream
+    the rest with a server-side cursor instead of materializing the whole set,
+    and flush in fixed batches so the in-flight list never grows unbounded.
     """
-    schemas = ExternalDataSchema.objects.exclude(deleted=True).select_related("team")
+    # Lazy import: create_job_model pulls in temporalio.activity + the data_warehouse
+    # facade, which we don't want on the planner module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    schemas = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .exclude(id__in=DuckgresSinkSchemaState.objects.values("schema_id"))
+        .values("id", "team_id", "sync_type", "table_id", "source__source_type")
+    )
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
-    existing = {str(s) for s in DuckgresSinkSchemaState.objects.all().values_list("schema_id", flat=True)}
 
+    # The sink only follows v3 sources (warehouse-pipelines-v3 is evaluated per
+    # team+source_type), so only prime schemas the consumer will actually mirror.
+    # Memoized per (team_id, source_type) — the flag does a network eval, and a
+    # team has only a handful of source types, so this stays cheap even with many schemas.
+    v3_enabled: dict[tuple[int, str], bool] = {}
+
+    def _source_is_v3(team_id: int, source_type: str) -> bool:
+        key = (team_id, source_type)
+        if key not in v3_enabled:
+            v3_enabled[key] = is_pipeline_v3_enabled(team_id, source_type)
+        return v3_enabled[key]
+
+    created = 0
     to_create: list[DuckgresSinkSchemaState] = []
-    for schema in schemas:
-        if str(schema.id) in existing:
+    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+        if not _source_is_v3(schema["team_id"], schema["source__source_type"]):
             continue
-        needs_backfill = schema.sync_type not in ("full_refresh", "cdc", None) and schema.table_id is not None
+        needs_backfill = schema["sync_type"] not in ("full_refresh", "cdc", None) and schema["table_id"] is not None
         to_create.append(
             DuckgresSinkSchemaState(
-                team_id=schema.team_id,
-                schema_id=schema.id,
+                team_id=schema["team_id"],
+                schema_id=schema["id"],
                 state=(
                     DuckgresSinkSchemaState.State.PENDING_BACKFILL
                     if needs_backfill
@@ -215,9 +303,16 @@ def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
                 ),
             )
         )
+        if len(to_create) >= BOOTSTRAP_BATCH_SIZE:
+            DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
+            created += len(to_create)
+            to_create = []
+
     if to_create:
         DuckgresSinkSchemaState.objects.bulk_create(to_create, ignore_conflicts=True)
-        logger.info("duckgres_backfill_bootstrapped", created=len(to_create))
+        created += len(to_create)
+    if created:
+        logger.info("duckgres_backfill_bootstrapped", created=created)
 
 
 def _plan_pending(team_ids: list[int] | None) -> None:
@@ -227,8 +322,15 @@ def _plan_pending(team_ids: list[int] | None) -> None:
 
     # Oldest-touched first so a failing schema cannot starve the rest of the slice.
     for state in pending.select_related("team").order_by("updated_at")[:50]:
+        # Global ceiling: backfills share the consumer worker pool with live
+        # application, so once the global budget is full no org may claim —
+        # stop scanning this tick. Re-evaluated each iteration since earlier
+        # iterations may have claimed slots.
+        if _global_at_capacity():
+            break
+
         org_id = state.team.organization_id
-        if _org_busy(org_id):
+        if _org_at_capacity(org_id):
             continue
 
         # Lease claim: exactly one pod proceeds past this line per schema.
@@ -238,17 +340,11 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         if not claimed:
             continue
 
-        # Re-check the org cap after winning the claim; the pre-check raced
-        # against other pods. (Still best-effort across orgs — a transient
-        # second concurrent backfill per org is wasteful, not incorrect.)
-        if (
-            DuckgresSinkSchemaState.objects.filter(
-                state=DuckgresSinkSchemaState.State.BACKFILLING,
-                team__organization_id=org_id,
-            )
-            .exclude(id=state.id)
-            .exists()
-        ):
+        # Re-check both caps after winning the claim; the pre-checks raced against
+        # other pods. Excluding self (now BACKFILLING), revert if either the org or
+        # the global budget is already at capacity. (Still best-effort across pods —
+        # a transient over-the-cap backfill is wasteful, not incorrect.)
+        if _org_at_capacity(org_id, exclude_id=state.id) or _global_at_capacity(exclude_id=state.id):
             _revert_to_pending(state.id)
             continue
 
@@ -267,14 +363,25 @@ def _plan_pending(team_ids: list[int] | None) -> None:
             _revert_to_pending(state.id, error=str(e)[:2000])
 
 
-def _org_busy(org_id: Any) -> bool:
-    return (
-        DuckgresSinkSchemaState.objects.filter(
-            state=DuckgresSinkSchemaState.State.BACKFILLING,
-            team__organization_id=org_id,
-        ).count()
-        >= MAX_CONCURRENT_BACKFILLS_PER_ORG
+def _org_at_capacity(org_id: Any, *, exclude_id: Any = None) -> bool:
+    """Is this org at its per-org backfill cap? Pass exclude_id to ignore the
+    just-claimed row when re-checking after a claim."""
+    qs = DuckgresSinkSchemaState.objects.filter(
+        state=DuckgresSinkSchemaState.State.BACKFILLING,
+        team__organization_id=org_id,
     )
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    return qs.count() >= MAX_CONCURRENT_BACKFILLS_PER_ORG
+
+
+def _global_at_capacity(*, exclude_id: Any = None) -> bool:
+    """Is the global backfill budget (across all orgs) full? Counts every
+    BACKFILLING row, since all backfills draw from one shared worker pool."""
+    qs = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.BACKFILLING)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    return qs.count() >= MAX_CONCURRENT_BACKFILLS_GLOBAL
 
 
 def _revert_to_pending(state_id: Any, error: str | None = None) -> None:

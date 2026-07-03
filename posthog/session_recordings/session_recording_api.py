@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse
 
 import requests
 import structlog
@@ -58,6 +58,7 @@ from posthog.schema import (
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -89,7 +90,6 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -1672,15 +1672,12 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
-        response = StreamingHttpResponse(
+        return sse_streaming_response(
             self._generate_video_based_summary(
                 session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
             ),
-            content_type=ServerSentEventRenderer.media_type,
+            endpoint="session_recording_summary",
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True, url_path="summarize/cancel")
