@@ -11,6 +11,7 @@ import {
     drawBars,
     drawBarTracks,
     drawGrid,
+    resolveAxisLineColor,
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
@@ -118,14 +119,18 @@ export function drawBarChartStatic(
         labels: drawLabels,
     }
 
+    // Grid sits behind the bars; the L-axis is drawn after them (below) so a bar doesn't paint over
+    // the baseline where it meets the axis.
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
+            gridDash: theme.gridDashPattern,
+            frame: !showAxisLines,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
-            categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
+            // In the axis-line style only the value-axis grid guides reading; category lines
+            // through the band gaps are noise (line charts never draw them either).
+            categoryTicks: showAxisLines ? [] : computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
-    } else if (showAxisLines) {
-        drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
     }
 
     const seriesBars = buildBarLayers({
@@ -157,7 +162,13 @@ export function drawBarChartStatic(
     if (barTrack && barLayout === 'grouped') {
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
         for (const { series: s, bars } of seriesBars) {
-            const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
+            const tracks = bars.map((b) => {
+                // `trackData` caps the track at a per-bar ceiling (funnel compare's entry level); the
+                // region beyond is left blank rather than drawn as track.
+                const ceiling = s.trackData?.[b.dataIndex]
+                const farEnd = ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : axisEnd
+                return computeBarTrackRect(b, axisStart, farEnd, isHorizontal)
+            })
             drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
         }
     }
@@ -174,6 +185,10 @@ export function drawBarChartStatic(
             ctx.restore()
         }
     })
+
+    if (showAxisLines) {
+        drawAxes(baseDrawCtx, { axisColor: resolveAxisLineColor(theme) })
+    }
 }
 
 export interface DrawBarHoverArgs {
@@ -211,9 +226,12 @@ export function drawBarHoverItems(
             } else {
                 trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
             }
+            const ceiling = s.trackData?.[bar.dataIndex]
+            const trackFarEnd =
+                ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : trackAxisEnd
             drawBarHighlight(
                 ctx,
-                computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
+                computeBarTrackRect(bar, trackAxisStart, trackFarEnd, isHorizontal),
                 trackColor,
                 highlightRadius
             )

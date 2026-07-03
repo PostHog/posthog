@@ -1,17 +1,18 @@
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
-import {
-    RetentionPeriod,
-    RetentionPeriodToDaysMap,
-    ValidRetentionPeriods,
-} from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { RedisPool, TeamId } from '~/types'
 
 import { RetentionServiceMetrics } from './metrics'
 
-function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is RetentionPeriod {
-    return ValidRetentionPeriods.includes(retentionPeriod as RetentionPeriod)
-}
+/**
+ * Outcome of resolving one session's retention. `resolved: false` is the expected, permanent
+ * "can't determine retention" case (deleted/unknown team, invalid stored value) — the caller drops
+ * that session. A transient failure (e.g. Redis unavailable) is thrown, not returned, so a retry
+ * wrapper can re-run the lookup.
+ */
+export type RetentionResolution = { resolved: true; retentionPeriod: RetentionPeriod } | { resolved: false }
 
 export class RetentionService {
     constructor(
@@ -24,58 +25,77 @@ export class RetentionService {
         return `${this.keyPrefix}session-retention-${sessionId}`
     }
 
-    public async getRetentionByTeamId(teamId: TeamId): Promise<RetentionPeriod> {
-        const retentionPeriod = await this.teamService.getRetentionPeriodByTeamId(teamId)
-
-        if (retentionPeriod === null) {
-            RetentionServiceMetrics.incrementLookupErrors()
-            throw new Error(`Error during retention period lookup: Unknown team id ${teamId}`)
+    /**
+     * Resolves retention for a set of sessions (already deduped by `(teamId, sessionId)`). Cache hits
+     * come from one Redis MGET; misses fall back to the team service (Postgres-backed) — one lookup
+     * per distinct team — and are written back to Redis in a single pipeline. Returns a
+     * {@link SessionMap} keyed by `(teamId, sessionId)`. Permanent failures map to `{ resolved: false }`;
+     * a transient Redis or team service failure throws so the caller's retry wrapper can re-run the
+     * whole lookup.
+     */
+    public async resolveSessionRetentions(sessions: SessionSet): Promise<SessionMap<RetentionResolution>> {
+        const resolutions = new SessionMap<RetentionResolution>()
+        if (sessions.size === 0) {
+            return resolutions
         }
 
-        return retentionPeriod
-    }
-
-    public async getSessionRetention(teamId: TeamId, sessionId: string): Promise<RetentionPeriod> {
-        let retentionPeriod: string | null = null
+        const unique = [...sessions]
 
         const startTime = performance.now()
         const client = await this.redisPool.acquire()
-        const redisKey = this.generateRedisKey(sessionId)
-
         try {
-            // Attempt to look up the retention period for the session in Redis
-            retentionPeriod = await client.get(redisKey)
+            const redisKeys = unique.map(({ sessionId }) => this.generateRedisKey(sessionId))
+            const cached = await client.mget(redisKeys)
 
-            // ...if no retention period exists for the session
-            if (retentionPeriod === null) {
-                // ...get the value from Postgres
-                retentionPeriod = await this.getRetentionByTeamId(teamId)
-
-                // ...and then set it in Redis for future batches, with a TTL of 24 hours
-                await client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
+            const missIndexes: number[] = []
+            for (let i = 0; i < unique.length; i++) {
+                const { teamId, sessionId } = unique[i]
+                const value = cached[i]
+                if (value === null) {
+                    missIndexes.push(i)
+                } else if (isValidRetentionPeriod(value)) {
+                    resolutions.set(teamId, sessionId, { resolved: true, retentionPeriod: value })
+                } else {
+                    // A retention value the cache should never hold — crash rather than record with a
+                    // wrong retention. Thrown without isRetriable so it propagates and takes the
+                    // consumer down (same stance as an invalid value from the team service).
+                    throw new Error(`Invalid cached retention value '${value}' for team ${teamId} session ${sessionId}`)
+                }
             }
+
+            if (missIndexes.length > 0) {
+                // One team service lookup per distinct team, resolved concurrently, not per session.
+                const teamRetentions = new Map<TeamId, RetentionPeriod | null>()
+                await Promise.all(
+                    [...new Set(missIndexes.map((i) => unique[i].teamId))].map(async (teamId) => {
+                        teamRetentions.set(teamId, await this.teamService.getRetentionPeriodByTeamId(teamId))
+                    })
+                )
+
+                const writeBack = client.pipeline()
+                let hasWriteBack = false
+                for (const i of missIndexes) {
+                    const { teamId, sessionId } = unique[i]
+                    const retentionPeriod = teamRetentions.get(teamId) ?? null
+                    if (retentionPeriod === null) {
+                        RetentionServiceMetrics.incrementLookupErrors()
+                        resolutions.set(teamId, sessionId, { resolved: false })
+                    } else {
+                        resolutions.set(teamId, sessionId, { resolved: true, retentionPeriod })
+                        // Cache for future batches, with a TTL of 24 hours.
+                        writeBack.set(redisKeys[i], retentionPeriod, 'EX', 24 * 60 * 60)
+                        hasWriteBack = true
+                    }
+                }
+                if (hasWriteBack) {
+                    await writeBack.exec()
+                }
+            }
+
+            return resolutions
         } finally {
             await this.redisPool.release(client)
             SessionBatchMetrics.observeRetentionRedisLatency((performance.now() - startTime) / 1000)
-        }
-
-        if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {
-            return retentionPeriod
-        } else {
-            RetentionServiceMetrics.incrementLookupErrors()
-            throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
-        }
-    }
-
-    public async getSessionRetentionDays(teamId: TeamId, sessionId: string): Promise<number> {
-        const retentionPeriod = await this.getSessionRetention(teamId, sessionId)
-        const retentionPeriodDays = RetentionPeriodToDaysMap[retentionPeriod]
-
-        if (retentionPeriodDays !== null) {
-            return retentionPeriodDays
-        } else {
-            RetentionServiceMetrics.incrementLookupErrors()
-            throw new Error(`Error during retention period lookup: Got invalid value ${retentionPeriod}`)
         }
     }
 }

@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     NotionNotFoundError,
     NotionResumeConfig,
     NotionRetryableError,
+    _blocks_stream,
     _comments_stream,
     _get_headers,
     _iter_block_children,
@@ -145,18 +146,54 @@ class TestNotion:
         assert len(blocks) == 1
         assert blocks[0]["_page_id"] == "page-42"
 
-    def test_block_children_respect_depth_limit(self) -> None:
-        # Every fetched block has children, so recursion would be unbounded without the depth cap.
+    def test_block_children_recurse_to_depth_limit_and_warn_on_truncation(self) -> None:
+        # Every fetched block has children, so recursion would be unbounded without the depth cap. When
+        # the cap is reached the truncation must be logged rather than silently dropping deeper blocks —
+        # that silent drop was the reported data-loss bug.
         def always_has_children(_index: int) -> FakeResponse:
             return _list_response([{"id": "child", "has_children": True}], has_more=False, next_cursor=None)
 
         session = FakeSession(always_has_children)
-        blocks = list(
-            _iter_block_children(cast(requests.Session, session), "block-root", "page-1", mock.MagicMock(), 0)
-        )
+        logger = mock.MagicMock()
+        blocks = list(_iter_block_children(cast(requests.Session, session), "block-root", "page-1", logger, 0))
 
         # depth 0 yields one block, then recurses up to MAX_BLOCK_DEPTH levels.
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
+        assert any("exceeds max depth" in str(call.args[0]) for call in logger.warning.call_args_list)
+
+    def test_blocks_stream_resumes_from_saved_queue(self) -> None:
+        # On retry the blocks stream must consume the persisted page queue instead of re-running the
+        # full page search from scratch — restarting from zero was what burned API quota on retries.
+        session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
+
+        tables = list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 1
+        # Only the resumed page's block-children fetch runs; no /v1/search re-enumeration.
+        assert len(session.calls) == 1
+        assert session.calls[0]["url"].endswith("/v1/blocks/p2/children")
+
+    def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
+        # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
+        # crash resumes there. CHUNK_SIZE is patched to 1 to force a yield per block.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": f"b{index}", "has_children": False}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
+            list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        # p1 flushed -> head p1 with p2 queued; p2 flushed -> head p2, nothing left.
+        assert saved == [["p1", "p2"], ["p2"]]
 
     def test_block_children_respect_page_cap(self) -> None:
         # Endpoint always reports another page; the per-parent cap must stop the scan.

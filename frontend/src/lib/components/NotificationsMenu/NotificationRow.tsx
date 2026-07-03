@@ -7,7 +7,7 @@ import { getNotificationDescriber } from 'lib/components/NotificationsMenu/notif
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { dayjs } from 'lib/dayjs'
-import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
@@ -124,9 +124,13 @@ export function NotificationRow({
     onNavigate?: () => void
 }): JSX.Element {
     const { navigateToNotification, toggleRead, markAsRead } = useActions(sidePanelNotificationsLogic)
-    const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
+    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds } =
+        useValues(sidePanelNotificationsLogic)
 
-    const autoMarkRef = useAutoMarkRead(!notification.read, () => markAsRead(notification.id))
+    // Don't auto-mark a notification the user deliberately toggled this session — respect their intent.
+    const autoMarkRef = useAutoMarkRead(!notification.read && !manuallyToggledIds.has(notification.id), () =>
+        markAsRead(notification.id)
+    )
 
     const otherProjectName = projectNameForNotification(notification)
     const describer = getNotificationDescriber(notification)
@@ -150,10 +154,19 @@ export function NotificationRow({
         toggleRead(notification.id)
     }
 
+    const handleNavigate = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        handleOpen()
+    }
+
+    const resourceLabel = notification.resource_type
+        ? `View ${notification.resource_type.replace(/_/g, ' ')}`
+        : 'Go to source'
+
     return (
         <div
             ref={autoMarkRef}
-            className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
+            className={`group/row relative flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
             onClick={handleOpen}
@@ -177,9 +190,20 @@ export function NotificationRow({
                             </span>
                         </Tooltip>
                     )}
+                    {hasNavigationTarget && (
+                        <button
+                            onClick={handleNavigate}
+                            className="inline-flex items-center gap-0.5 text-[10px] text-secondary opacity-0 transition-opacity hover:text-primary group-hover/row:opacity-100"
+                        >
+                            {resourceLabel}
+                            <IconOpenInNew className="size-3" />
+                        </button>
+                    )}
                 </div>
             </div>
-            <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
+            <div className="absolute bottom-1.5 right-1.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+                <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
+            </div>
         </div>
     )
 }

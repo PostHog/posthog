@@ -201,6 +201,13 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
     await userEvent.click(await canvas.findByRole('tab', { name: tab }))
 }
 
+// The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
+// and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
+// expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+const EXPANDED_ROW_TEST_OPTIONS = {
+    waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
+}
+
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
         const body = (await request.json()) as { query?: { kind?: string } }
@@ -269,6 +276,7 @@ export const FeatureGateOff: Story = {
 
 export const RowExpandedEmpty: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
             get: {
@@ -287,6 +295,7 @@ export const RowExpandedEmpty: Story = {
 
 export const RowExpandedWithNote: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
             get: {
@@ -337,6 +346,7 @@ export const RowExpandedWithNote: Story = {
 
 export const RowExpandedLinksDisabled: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         mswDecorator({
             get: {
@@ -355,6 +365,11 @@ export const RowExpandedLinksDisabled: Story = {
 
 export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
+        },
+    },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
