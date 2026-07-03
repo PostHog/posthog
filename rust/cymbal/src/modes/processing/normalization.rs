@@ -138,6 +138,14 @@ fn parse_lenient(version: &str) -> Option<Version> {
 /// - `Some(cutoff)`: normalize only versions strictly below the cutoff. A
 ///   version at/above the cutoff is left alone; an unparseable version is
 ///   treated as old, so it still normalizes.
+///
+/// The cutoff path deliberately does no work for post-flip payloads. It does
+/// not need to: a flipped SDK's canonical events fingerprint identically to the
+/// pre-flip legacy events this normalizer already reorders. While the cutoff is
+/// `None` (the normalization window), those legacy events are aliased so the
+/// canonical fingerprint already maps to the pre-flip issue, so the first
+/// post-flip canonical event hits the fast `load_by_fingerprint` path and joins
+/// the same issue with no split.
 fn should_normalize(canonical_since: Option<&Version>, lib_version: Option<&str>) -> bool {
     let Some(cutoff) = canonical_since else {
         return true;
