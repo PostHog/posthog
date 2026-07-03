@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 
+from celery.exceptions import MaxRetriesExceededError
 from parameterized import parameterized
 
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -872,3 +873,20 @@ class TestSupporthogInteractivity(BaseTest):
         client = mock_get_client.return_value
         client.chat_update.assert_called_once()
         assert expected_text in client.chat_update.call_args.kwargs["text"].lower()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_retries_exhausted(self, mock_create, mock_get_client):
+        # A persistent failure retries and eventually exhausts — the prompt must still be
+        # replaced with the error state, not left with live buttons forever.
+        mock_create.side_effect = RuntimeError("boom")
+
+        with patch.object(process_supporthog_interactivity, "retry", side_effect=MaxRetriesExceededError()):
+            process_supporthog_interactivity(
+                self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+                "T123",
+            )
+
+        client = mock_get_client.return_value
+        client.chat_update.assert_called_once()
+        assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()

@@ -19,6 +19,7 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -277,7 +278,14 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                     )
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
-                    raise cast(Any, process_supporthog_interactivity).retry(exc=e)
+                    # Retry transient failures — the retried run redoes the whole handler,
+                    # so the prompt still resolves on eventual success. Once retries are
+                    # exhausted, fall through to the error update below rather than leaving
+                    # the user staring at live buttons forever.
+                    try:
+                        raise cast(Any, process_supporthog_interactivity).retry(exc=e)
+                    except MaxRetriesExceededError:
+                        pass
             # Replace the prompt in place: a confirmation when we have a ticket (created or
             # already open), or an explicit error so a failed open never reads as success.
             # post_confirmation=False above means no separate confirmation was posted.
