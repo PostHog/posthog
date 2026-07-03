@@ -90,13 +90,13 @@ class Producer:
             )
         with TRACER.start_as_current_span("batch_export.producer") as span:
             async with get_s3_client() as s3_client:
-                keys = await self._list_keys(s3_client, stage_folder)
-                span.set_attribute("batch_export.producer.num_files", len(keys))
-                if not keys:
-                    return
-
-                # Read in batches
                 try:
+                    keys = await self._list_keys(s3_client, stage_folder)
+                    span.set_attribute("batch_export.producer.num_files", len(keys))
+                    if not keys:
+                        return
+
+                    # Read in batches
                     await self._stream_record_batches_from_s3(
                         s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
                     )
