@@ -11365,6 +11365,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
@@ -35965,6 +35966,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
+      /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
          * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
