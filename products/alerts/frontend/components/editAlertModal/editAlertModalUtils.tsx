@@ -73,12 +73,20 @@ export const ALERT_INTERVAL_OPTIONS: AlertCalculationInterval[] = [
 ]
 
 export function getAlertIntervalOptions(
-    hasHighFrequencyAlertsEntitlement: boolean
+    hasHighFrequencyAlertsEntitlement: boolean,
+    hasRealTimeAlertsEntitlement: boolean,
+    showRealTimeOption: boolean
 ): Array<{ label: string | JSX.Element; value: AlertCalculationInterval }> {
-    const intervals = [AlertCalculationInterval.EVERY_15_MINUTES, ...ALERT_INTERVAL_OPTIONS]
+    const intervals = [
+        ...(showRealTimeOption ? [AlertCalculationInterval.REAL_TIME] : []),
+        AlertCalculationInterval.EVERY_15_MINUTES,
+        ...ALERT_INTERVAL_OPTIONS,
+    ]
     return intervals.map((interval) => {
         const labelText = alertCalculationIntervalToLabel(interval)
-        const showLock = interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement
+        const showLock =
+            (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) ||
+            (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement)
         return {
             label: showLock ? (
                 <span className="flex items-center gap-1.5">
