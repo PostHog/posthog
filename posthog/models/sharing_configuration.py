@@ -4,8 +4,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
+    from posthog.models.user import User
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -53,6 +55,18 @@ class SharingConfiguration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     enabled = models.BooleanField(default=False)
+    # db_constraint=False: an FK constraint to the hot posthog_user table would lock the parent
+    # (HotTableAlterPolicy); db_index=False: only ever read through the instance, never queried by user.
+    enabled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="Member who last enabled sharing; public-link queries execute with their access",
+    )
     access_token = models.CharField(
         max_length=400,
         null=True,
@@ -71,13 +85,16 @@ class SharingConfiguration(models.Model):
 
     @classmethod
     def shareable_resource_fields(cls) -> frozenset[str]:
-        """The FK fields that point at a shareable resource - every relation except the team tenant FK.
+        """The FK fields that point at a shareable resource - every relation except the team tenant FK
+        and the enabled_by attribution FK.
 
         The sharing API cross-checks this against its per-resource edit-permission registry at import
         time, so a newly added shareable resource cannot ship without an explicit access-control decision.
         """
         return frozenset(
-            field.name for field in cls._meta.fields if field.is_relation and field.many_to_one and field.name != "team"
+            field.name
+            for field in cls._meta.fields
+            if field.is_relation and field.many_to_one and field.name not in ("team", "enabled_by")
         )
 
     @classmethod
@@ -213,6 +230,8 @@ class SharingConfiguration(models.Model):
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
+                # Rotation is token hygiene, not a publish decision — the publisher stays the principal.
+                enabled_by=source.enabled_by,
                 settings=source.settings,
                 password_required=source.password_required,
             )
@@ -255,6 +274,25 @@ class SharingConfiguration(models.Model):
             expiry_delta=timedelta(hours=24),  # 24-hour session duration
             audience=PosthogJwtAudience.SHARING_PASSWORD_PROTECTED,
         )
+
+    def effective_execution_user(self) -> "User | None":
+        """The principal that queries triggered by this share's public link execute as.
+
+        Anonymous viewers run the underlying queries with the access of the member who last
+        enabled sharing — publishing is the act that exposes the data, so the publisher's access
+        governs the link. Revoking their access to e.g. an access-controlled warehouse table
+        propagates to already-published links on their next refresh. Fail-closed: returns None
+        for legacy shares (enabled before enabled_by existed) and when the publisher was deleted
+        or deactivated.
+        """
+        try:
+            user = self.enabled_by
+        except ObjectDoesNotExist:
+            # db_constraint=False on enabled_by: a raw delete of the user can leave a dangling id.
+            return None
+        if user is None or not user.is_active:
+            return None
+        return user
 
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore

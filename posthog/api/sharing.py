@@ -340,6 +340,14 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             return []
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
+    def update(self, instance: SharingConfiguration, validated_data: dict[str, Any]) -> SharingConfiguration:
+        request = self.context.get("request")
+        if validated_data.get("enabled") and not instance.enabled and request is not None:
+            # Enabling sharing is the publish act: the enabling member becomes the principal that
+            # public-link queries execute as (see SharingConfiguration.effective_execution_user).
+            validated_data["enabled_by"] = request.user
+        return super().update(instance, validated_data)
+
 
 @extend_schema(extensions={"x-product": "core"})
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -698,13 +706,16 @@ def custom_404_response(request):
     return render(request, "shared_resource_404.html", status=404)
 
 
-def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: Team) -> dict[str, Any]:
+def _compute_inline_query_results_for_shared_notebook(
+    notebook: Notebook, team: Team, execution_user: Optional[User]
+) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use.
+    stale — the same throttle dashboards use. Queries run as ``execution_user`` — the member
+    who enabled sharing (see ``SharingConfiguration.effective_execution_user``).
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline
@@ -723,7 +734,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
                 team,
                 query,
                 execution_mode=execution_mode,
-                user=None,
+                user=execution_user,
             )
             if isinstance(result, BaseModel):
                 serialized = result.model_dump(mode="json")
@@ -924,6 +935,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     message="Failed to parse cache_keys parameter - continuing without it",
                 )
 
+        # Anonymous viewers execute queries as the member who enabled sharing, so access-control
+        # changes to the publisher propagate to already-published links (fail-closed when the
+        # publisher is gone or the share predates enabled_by). Only this share-token path resolves
+        # a publisher principal — authenticated app views always run as the requesting user.
+        shared_execution_user = (
+            resource.effective_execution_user() if isinstance(resource, SharingConfiguration) else None
+        )
+
         context = {
             "view": self,
             "request": request,
@@ -932,6 +951,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
+            "shared_execution_user": shared_execution_user,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1240,7 +1260,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update(
                 {
                     "inline_query_results": _compute_inline_query_results_for_shared_notebook(
-                        resource.notebook, resource.team
+                        resource.notebook, resource.team, shared_execution_user
                     )
                 }
             )
