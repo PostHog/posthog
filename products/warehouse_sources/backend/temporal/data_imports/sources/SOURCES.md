@@ -154,6 +154,7 @@ the row lists both.
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
+| fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
@@ -445,6 +446,7 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshcaller
 - freshchat
+- freshservice
 - fulcrum
 - gainsight_px
 - gitbook

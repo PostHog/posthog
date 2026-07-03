@@ -1285,7 +1285,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FulcrumSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
