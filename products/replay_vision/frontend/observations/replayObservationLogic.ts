@@ -5,10 +5,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { visionObservationsRetrieve, visionObservationsRetryCreate } from '../generated/api'
+import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
-import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { requestObservationRetry } from '../logics/observationRetry'
 import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -94,22 +94,19 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservationFailure: reschedulePoll,
 
             retryObservation: async () => {
-                const teamId = teamLogic.values.currentTeamId
-                const scannerId = values.observation?.scanner_id
-                if (!teamId || !scannerId) {
+                const retried = await requestObservationRetry(
+                    props.id,
+                    'Retrying scan — the new observation will appear on the scanner page shortly.'
+                )
+                if (!retried) {
                     actions.retryObservationFailure()
                     return
                 }
-                try {
-                    await visionObservationsRetryCreate(String(teamId), props.id)
-                    actions.retryObservationSuccess()
-                    refreshVisionQuota()
-                    lemonToast.success('Retrying scan — the new observation will appear on the scanner page shortly.')
-                    // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
+                actions.retryObservationSuccess()
+                // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
+                const scannerId = values.observation?.scanner_id
+                if (scannerId) {
                     router.actions.push(urls.replayVision(scannerId))
-                } catch (error: any) {
-                    actions.retryObservationFailure()
-                    lemonToast.error(`Failed to retry observation${error.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

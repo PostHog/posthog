@@ -3,9 +3,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionObservationsList, visionObservationsRetryCreate, visionScannersObserveCreate } from '../generated/api'
+import { visionObservationsList, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
+import { requestObservationRetry } from './observationRetry'
 import type { observationsDockLogicType } from './observationsDockLogicType'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -175,21 +176,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             retryObservation: async ({ observationId }) => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
+                if (!(await requestObservationRetry(observationId))) {
                     actions.retryObservationFailure(observationId)
                     return
                 }
-                try {
-                    await visionObservationsRetryCreate(String(teamId), observationId)
-                    actions.retryObservationSuccess(observationId)
-                    lemonToast.success('Retrying scan — the new observation will appear shortly.')
-                    actions.loadObservations()
-                    refreshVisionQuota()
-                } catch (error: any) {
-                    actions.retryObservationFailure(observationId)
-                    lemonToast.error(`Failed to retry observation${error.detail ? `: ${error.detail}` : ''}`)
-                }
+                actions.retryObservationSuccess(observationId)
+                actions.loadObservations()
             },
         }
     }),

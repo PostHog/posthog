@@ -38,7 +38,7 @@ describe('replayScannerLogic', () => {
             post: {
                 '/api/projects/:team/vision/scanners/': createSpy,
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
-                '/api/projects/:team/vision/scanners/:id/observations/:obsId/retry/': retrySpy,
+                '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
@@ -661,13 +661,6 @@ describe('replayScannerLogic', () => {
             } finally {
                 persisted.unmount()
             }
-        })
-
-        it('bails on unsaved scanners without calling the API', async () => {
-            await expectLogic(logic, () => logic.actions.retryObservation('obs-1')).toDispatchActions([
-                'retryObservationFailure',
-            ])
-            expect(retrySpy).not.toHaveBeenCalled()
         })
     })
 

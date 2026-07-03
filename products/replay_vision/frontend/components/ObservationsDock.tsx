@@ -170,9 +170,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                                 key={observation.id}
                                 observation={observation}
                                 onSeek={seekToTime}
-                                onRetry={
-                                    observation.status === 'failed' ? () => retryObservation(observation.id) : undefined
-                                }
+                                onRetry={() => retryObservation(observation.id)}
                                 retrying={retryingObservationIds.includes(observation.id)}
                             />
                         ))

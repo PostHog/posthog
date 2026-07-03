@@ -457,8 +457,6 @@ class ReplayObservationViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    # Retrying deletes and re-runs, so it carries the same write posture as the scanner's own /observe/.
-    scope_object_write_actions = ["retry"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
@@ -532,7 +530,8 @@ class ReplayObservationViewSet(
         if observation.status != ObservationStatus.FAILED:
             raise ValidationError("Only failed observations can be retried.")
         check_observation_quota(self.team.organization_id)
-        scanner = observation.scanner
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         session_id = observation.session_id
         # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
         observation.delete()

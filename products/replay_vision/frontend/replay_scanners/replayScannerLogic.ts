@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import {
     visionScannersCreate,
-    visionScannersObservationsRetryCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -30,6 +29,7 @@ import type {
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
+import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -876,21 +876,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             triggerOnDemandObservationSuccess: () => refreshVisionQuota(),
 
             retryObservation: async ({ observationId }) => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId || props.id === 'new') {
+                if (props.id === 'new' || !(await requestObservationRetry(observationId))) {
                     actions.retryObservationFailure(observationId)
                     return
                 }
-                try {
-                    await visionScannersObservationsRetryCreate(String(teamId), props.id, observationId)
-                    actions.retryObservationSuccess(observationId)
-                    lemonToast.success('Retrying scan — the new observation will appear shortly.')
-                    reloadObservationsAndStats()
-                    refreshVisionQuota()
-                } catch (error: any) {
-                    actions.retryObservationFailure(observationId)
-                    lemonToast.error(`Failed to retry observation${error.detail ? `: ${error.detail}` : ''}`)
-                }
+                actions.retryObservationSuccess(observationId)
+                reloadObservationsAndStats()
             },
 
             refreshObservations: () => reloadObservationsAndStats(),
