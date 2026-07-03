@@ -101,6 +101,36 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    // The label format flips on a >= 24h window threshold (time-of-day vs date-prefixed) and
+    // early-returns on empty buckets — none of the above tests read `sparklineLabels`, so a
+    // flipped threshold or a broken dayjs format would otherwise go undetected.
+    const labelCases: [string, { start: string; end: string }[], string[]][] = [
+        ['empty buckets yield no labels', [], []],
+        [
+            'a sub-day window uses time-of-day labels',
+            [
+                { start: '2026-06-23T12:00:00+00:00', end: '2026-06-23T12:30:00+00:00' },
+                { start: '2026-06-23T12:30:00+00:00', end: '2026-06-23T13:00:00+00:00' },
+            ],
+            ['12:00 – 12:30', '12:30 – 13:00'],
+        ],
+        [
+            'a multi-day window prefixes the date',
+            [
+                { start: '2026-06-23T00:00:00+00:00', end: '2026-06-24T00:00:00+00:00' },
+                { start: '2026-06-24T00:00:00+00:00', end: '2026-06-25T00:00:00+00:00' },
+            ],
+            ['Jun 23 00:00 – Jun 24 00:00', 'Jun 24 00:00 – Jun 25 00:00'],
+        ],
+    ]
+    it.each(labelCases)('builds sparkline labels: %s', async (_name, sparkline_buckets, expected) => {
+        mockCreate.mockResolvedValue({ ...RESPONSE, sparkline_buckets })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        expect(logic.values.sparklineLabels).toEqual(expected)
+    })
+
     it('scopes mining to the embedding viewer pinned filters', async () => {
         // A scoped embedded viewer (e.g. person/trace logs) pins a filter so Patterns mode
         // can't mine project-wide logs — assert it reaches the query via `queryFilterGroup`.
