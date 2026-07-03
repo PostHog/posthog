@@ -5,12 +5,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    visionObservationsLabelCreate,
-    visionObservationsLabelDestroy,
-    visionObservationsRetrieve,
-} from '../generated/api'
-import type { ReplayObservationApi, ReplayObservationLabelApi } from '../generated/api.schemas'
+import { visionObservationsRetrieve } from '../generated/api'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { observationProgressLogic } from './observationProgressLogic'
@@ -38,11 +34,6 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         retryObservation: true,
         retryObservationSuccess: true,
         retryObservationFailure: true,
-        setLabel: (isCorrect: boolean, feedback: string) => ({ isCorrect, feedback }),
-        clearLabel: true,
-        labelUpdated: (label: ReplayObservationLabelApi | null) => ({ label }),
-        setLabelSaving: (saving: boolean) => ({ saving }),
-        setFeedbackDraft: (feedback: string) => ({ feedback }),
     }),
 
     reducers({
@@ -50,7 +41,6 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             null as ReplayObservationApi | null,
             {
                 loadObservationSuccess: (_, { observation }) => observation,
-                labelUpdated: (state, { label }) => (state ? { ...state, label } : state),
             },
         ],
         observationLoading: [
@@ -69,23 +59,6 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 retryObservationFailure: () => false,
             },
         ],
-        labelSaving: [
-            false,
-            {
-                setLabelSaving: (_, { saving }) => saving,
-            },
-        ],
-        feedbackDraft: [
-            '',
-            {
-                setFeedbackDraft: (_, { feedback }) => feedback,
-                // Seed from the saved label on first load, but don't clobber in-progress typing on later reloads.
-                loadObservationSuccess: (state, { observation }) => state || (observation.label?.feedback ?? ''),
-                // Keep the working draft for an active "incorrect" label so an autosave round-trip can't clobber
-                // characters typed while it was in flight; clear it when the label is removed or set to correct.
-                labelUpdated: (state, { label }) => (label && label.is_correct === false ? state : ''),
-            },
-        ],
     }),
 
     listeners(({ actions, props, values, cache }) => {
@@ -95,22 +68,6 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
         return {
-            // Autosave feedback once the user pauses typing, so they don't have to remember to press a button.
-            setFeedbackDraft: async ({ feedback }, breakpoint) => {
-                const label = values.observation?.label
-                // Only feedback on an existing "incorrect" label autosaves; correct labels carry none.
-                if (!label || label.is_correct !== false || (label.feedback ?? '') === feedback) {
-                    return
-                }
-                const epoch = cache.labelEpoch ?? 0
-                await breakpoint(800)
-                // A Correct/Clear click while the debounce was pending wins over the stale autosave.
-                if ((cache.labelEpoch ?? 0) !== epoch) {
-                    return
-                }
-                actions.setLabel(false, feedback)
-            },
-
             loadObservation: async () => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
@@ -156,43 +113,6 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             // When the stream reports the observation has settled, reload once to render the final result.
             streamCompleted: () => {
                 actions.loadObservation()
-            },
-
-            setLabel: async ({ isCorrect, feedback }) => {
-                cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-                actions.setLabelSaving(true)
-                try {
-                    const label = await visionObservationsLabelCreate(String(teamId), props.id, {
-                        is_correct: isCorrect,
-                        feedback,
-                    })
-                    actions.labelUpdated(label)
-                } catch (error: any) {
-                    lemonToast.error(`Failed to save label${error.detail ? `: ${error.detail}` : ''}`)
-                } finally {
-                    actions.setLabelSaving(false)
-                }
-            },
-
-            clearLabel: async () => {
-                cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-                actions.setLabelSaving(true)
-                try {
-                    await visionObservationsLabelDestroy(String(teamId), props.id)
-                    actions.labelUpdated(null)
-                } catch (error: any) {
-                    lemonToast.error(`Failed to remove label${error.detail ? `: ${error.detail}` : ''}`)
-                } finally {
-                    actions.setLabelSaving(false)
-                }
             },
         }
     }),
