@@ -861,8 +861,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
     # Ingestion writes property definitions with raw SQL (property-defs-rs), which
     # bypasses the Django signals — so for a project still setting up, this TTL is
     # the only thing standing between "started sending email" and the flag flipping.
-    project_created_at = team.project.created_at if team.project else team.created_at
-    if timezone.now() - project_created_at < YOUNG_PROJECT_AGE:
+    if timezone.now() - team.project.created_at < YOUNG_PROJECT_AGE:
         return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
     return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
 
