@@ -379,10 +379,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
                     // this timer also runs on scenes that never mount an iframe
-                    // (screenshot detail, the new-heatmap form), so only capture when one exists
-                    if (document.getElementById('heatmap-iframe')) {
-                        posthog.capture('in-app heatmap load failed')
+                    // (screenshot detail, the new-heatmap form), where a load-failure
+                    // banner would be a false positive
+                    if (!document.getElementById('heatmap-iframe')) {
+                        actions.stopTrackingLoading()
+                        return
                     }
+                    posthog.capture('in-app heatmap load failed')
                     actions.setIframeBanner({
                         level: 'error',
                         message: 'The heatmap failed to load (or is very slow).',
