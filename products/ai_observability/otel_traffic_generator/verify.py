@@ -159,15 +159,19 @@ def _fetch_ai_event_props(
     base_time_ns: int,
     query_timeout: float,
     log: Any,
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], set[int]]:
     """Map span_id (hex) -> event properties from ai_events, via TraceQuery.
 
     $ai_input / $ai_output_choices only exist on the ai_events table, which is
     not directly queryable in HogQL — the product's TraceQuery runner reads it.
     We query only the traces that actually have an input/output expectation.
+
+    Returns the props map plus the set of trace indices whose TraceQuery errored,
+    so a query failure is reported as "unverifiable" rather than "empty".
     """
     date_from = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(base_time_ns // 1_000_000_000 - 1800))
     out: dict[str, dict[str, Any]] = {}
+    failed: set[int] = set()
     for trace in plan["traces"]:
         if not _needs_ai_event_props(trace):
             continue
@@ -177,6 +181,7 @@ def _fetch_ai_event_props(
             data = _query(api_host, project_id, api_key, query, query_timeout)
         except _ApiError as exc:
             log(f"  TraceQuery({trace['scenario']}) error: {exc}")
+            failed.add(trace["index"])
             continue
         for result in data.get("results", []):
             for event in result.get("events", []):
@@ -184,11 +189,15 @@ def _fetch_ai_event_props(
                 span_id = props.get("$ai_span_id")
                 if span_id is not None:
                     out[str(span_id)] = props
-    return out
+    return out, failed
 
 
 def _check_props(
-    plan: Plan, run_id: str, rows: list[dict[str, Any]], ai_props: dict[str, dict[str, Any]]
+    plan: Plan,
+    run_id: str,
+    rows: list[dict[str, Any]],
+    ai_props: dict[str, dict[str, Any]],
+    ai_fetch_failed: set[int],
 ) -> list[Check]:
     by_span = {str(r["span_id"]): r for r in rows}
     checks: list[Check] = []
@@ -215,10 +224,17 @@ def _check_props(
                 failures.append("$ai_total_cost_usd not > 0")
             if exp.get("latency_positive") and float(row["latency"] or 0) <= 0:
                 failures.append("$ai_latency not > 0")
-            if exp.get("input_present") and not aep.get("$ai_input"):
-                failures.append("$ai_input empty (ai_events)")
-            if exp.get("output_present") and not aep.get("$ai_output_choices"):
-                failures.append("$ai_output_choices empty (ai_events)")
+            fetch_failed = trace["index"] in ai_fetch_failed
+            if exp.get("input_present"):
+                if fetch_failed:
+                    failures.append("$ai_input unverifiable (TraceQuery failed)")
+                elif not aep.get("$ai_input"):
+                    failures.append("$ai_input empty (ai_events)")
+            if exp.get("output_present"):
+                if fetch_failed:
+                    failures.append("$ai_output_choices unverifiable (TraceQuery failed)")
+                elif not aep.get("$ai_output_choices"):
+                    failures.append("$ai_output_choices empty (ai_events)")
             if "cache_read_tokens" in exp and int(row["cache_read_tokens"] or 0) != exp["cache_read_tokens"]:
                 failures.append(f"$ai_cache_read_input_tokens={row['cache_read_tokens']} != {exp['cache_read_tokens']}")
             if exp.get("is_error") and str(row["is_error"]).lower() != "true":
@@ -360,8 +376,10 @@ def verify(
         got = observed_totals.get(event, 0)
         checks.append({"name": f"count:{event}", "ok": got >= count, "detail": f"observed {got}, expected {count}"})
 
-    ai_props = _fetch_ai_event_props(api_host, project_id, api_key, plan, run_id, base_time_ns, query_timeout, log)
-    checks.extend(_check_props(plan, run_id, rows, ai_props))
+    ai_props, ai_fetch_failed = _fetch_ai_event_props(
+        api_host, project_id, api_key, plan, run_id, base_time_ns, query_timeout, log
+    )
+    checks.extend(_check_props(plan, run_id, rows, ai_props, ai_fetch_failed))
 
     metrics = _metrics_from_rows(rows)
     non_otel = {k: v for k, v in metrics["ingestion_sources"].items() if k != "otel"}
