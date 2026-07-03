@@ -13,13 +13,16 @@ from pathlib import Path
 # ── Dependency ecosystems ────────────────────────────────────────
 #
 # Source of truth for how each package ecosystem pairs manifests with
-# lockfiles. The deps_toolchain deny patterns and the manifest/lockfile
-# helper sets derive from this table — add a new ecosystem here, not in
-# three places. (DISMISS_TIME_LOCKFILES stays separate: it serves the
-# dismiss-time gate with its own, stricter rationale. requirements*.{txt,in}
-# also stays out: a pinned requirements.txt is arguably both manifest and
-# lockfile, so has_dependency_changes recognizes it directly instead of
-# forcing it into one column of this table.)
+# lockfiles. The deps_toolchain deny patterns, DISMISS_TIME_LOCKFILES, and
+# the manifest/lockfile helper sets all derive from this table — add a new
+# ecosystem here, not in several places. (requirements*.{txt,in} stays out:
+# a pinned requirements.txt is arguably both manifest and lockfile, so
+# has_dependency_changes recognizes it directly instead of forcing it into
+# one column of this table.)
+#
+# `manifests` entries are fnmatch patterns, not just literal names — a
+# plain filename like "package.json" matches itself, so ecosystems with no
+# glob needs can still write literal names.
 
 
 @dataclass(frozen=True)
@@ -43,8 +46,7 @@ DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
         manifests=frozenset({"gemfile"}),
         lockfiles=frozenset({"gemfile.lock"}),
     ),
-    # No composer usage in-repo today; listed so the deny/suppression sets
-    # stay a superset of DISMISS_TIME_LOCKFILES and a future composer.json
+    # No composer usage in-repo today; listed so a future composer.json
     # doesn't arrive ungated.
     "php": Ecosystem(
         manifests=frozenset({"composer.json"}),
@@ -58,22 +60,22 @@ DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
         manifests=frozenset({"go.mod"}),
         lockfiles=frozenset({"go.sum"}),
     ),
+    # tsconfig configures the compiler, not dependencies — no lockfile ever
+    # pairs with it, so a tsconfig change is always flagged for scrutiny
+    # (empty `lockfiles` means dependency_manifests_without_lockfile can
+    # never find a paired lockfile to suppress it).
+    "typescript": Ecosystem(
+        manifests=frozenset({"tsconfig*.json"}),
+        lockfiles=frozenset(),
+    ),
 }
 
 _ALL_LOCKFILE_NAMES: frozenset[str] = frozenset().union(*(e.lockfiles for e in DEPENDENCY_ECOSYSTEMS.values()))
 
 
 def _dependency_ecosystem(name: str) -> str | None:
-    # tsconfig configures the compiler, not dependencies — no lockfile ever
-    # pairs with it, so a tsconfig change is always flagged for scrutiny.
-    # "typescript-config" is a sentinel, not a real DEPENDENCY_ECOSYSTEMS key:
-    # callers only check membership, so it must never collide with an actual
-    # ecosystem name or it would wrongly start pairing with that ecosystem's
-    # lockfile.
-    if name.startswith("tsconfig") and name.endswith(".json"):
-        return "typescript-config"
     for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items():
-        if name in spec.manifests:
+        if any(fnmatch(name, pattern) for pattern in spec.manifests):
             return ecosystem
     return None
 
@@ -334,23 +336,13 @@ ALLOW_PATH_PATTERNS = [
 # pipeline (workflows, configs, build files) even though those paths may
 # be allow-listed at approve time.
 
-DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
-    {
-        "package-lock.json",
-        "pnpm-lock.yaml",
-        "yarn.lock",
-        "uv.lock",
-        "cargo.lock",
-        "pipfile.lock",
-        "poetry.lock",
-        "gemfile.lock",
-        "composer.lock",
-    }
-)
-
-assert DISMISS_TIME_LOCKFILES <= _ALL_LOCKFILE_NAMES, (
-    "every dismiss-time lockfile must also be a hard-deny lockfile in DEPENDENCY_ECOSYSTEMS"
-)
+# Derived from DEPENDENCY_ECOSYSTEMS rather than hand-listed, so a new
+# ecosystem's lockfile is trusted at dismiss time by default. go.sum is the
+# one exception, carried over unchanged from before this table existed:
+# go.sum only records checksums for the versions go.mod resolves — unlike
+# the other lockfiles here, it isn't the sole source of what gets installed,
+# so it's kept out of the trivially-safe set.
+DISMISS_TIME_LOCKFILES: frozenset[str] = _ALL_LOCKFILE_NAMES - frozenset({"go.sum"})
 
 assert all(
     n == n.lower()

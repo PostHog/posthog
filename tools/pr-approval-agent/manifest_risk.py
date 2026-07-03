@@ -34,18 +34,20 @@ _RISKY_LINE_PATTERNS: dict[str, re.Pattern[str]] = {
 _TSCONFIG_LINE_PATTERN = re.compile(r'"(?:plugins|extends)"\s*:')
 
 
-def _package_json_risky_subtree(text: str) -> object:
+def _json_object(text: str, label: str) -> dict[str, object]:
     data = json.loads(text) if text.strip() else {}
     if not isinstance(data, dict):
-        raise ValueError("package.json root is not an object")
+        raise ValueError(f"{label} root is not an object")
+    return data
+
+
+def _package_json_risky_subtree(text: str) -> object:
+    data = _json_object(text, "package.json")
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
 
 
 def _composer_json_risky_subtree(text: str) -> object:
-    data = json.loads(text) if text.strip() else {}
-    if not isinstance(data, dict):
-        raise ValueError("composer.json root is not an object")
-    return data.get("scripts")
+    return _json_object(text, "composer.json").get("scripts")
 
 
 _TOML_RISKY_KEYS = frozenset({"scripts", "entry-points", "entry_points"})
@@ -83,9 +85,7 @@ def _cargo_risky_subtree(text: str) -> object:
 
 
 def _tsconfig_risky_subtree(text: str) -> object:
-    data = json.loads(text) if text.strip() else {}
-    if not isinstance(data, dict):
-        raise ValueError("tsconfig root is not an object")
+    data = _json_object(text, "tsconfig")
     return (data.get("extends"), (data.get("compilerOptions") or {}).get("plugins"))
 
 
