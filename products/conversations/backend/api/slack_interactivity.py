@@ -50,6 +50,8 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
         payload = json.loads(request.POST.get("payload", "{}"))
     except (json.JSONDecodeError, TypeError):
         return HttpResponse("Invalid JSON", status=400)
+    if not isinstance(payload, dict):
+        return HttpResponse("Invalid payload", status=400)
 
     slack_team_id = (payload.get("team") or {}).get("id", "")
     if not slack_team_id:
