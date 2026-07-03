@@ -14,6 +14,8 @@ import type {
     AlertSimulateResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
+    ForecastSimulateRequestApi,
+    ForecastSimulateResponseApi,
     InsightsThresholdsListParams,
     PaginatedAlertListApi,
     PaginatedThresholdWithAlertListApi,
@@ -174,6 +176,26 @@ export const alertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertSimulateApi),
+    })
+}
+
+export const getAlertsSimulateForecastCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/alerts/simulate_forecast/`
+}
+
+/**
+ * Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
+export const alertsSimulateForecastCreate = async (
+    projectId: string,
+    forecastSimulateRequestApi: ForecastSimulateRequestApi,
+    options?: RequestInit
+): Promise<ForecastSimulateResponseApi> => {
+    return apiMutator<ForecastSimulateResponseApi>(getAlertsSimulateForecastCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forecastSimulateRequestApi),
     })
 }
 

@@ -172,7 +172,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
             "insight_id": alert.insight.short_id,
             "state": alert.state,
             "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-            **derive_detector_event_fields(alert.detector_config),
+            **derive_detector_event_fields(alert.detector_config, alert.forecast_config),
             **properties,
         }
 

@@ -148,6 +148,9 @@ tools:
     alerts-simulate-create:
         operation: alerts_simulate_create
         enabled: false
+    alerts-simulate-forecast-create:
+        operation: alerts_simulate_forecast_create
+        enabled: false
     alerts-update:
         operation: alerts_update
         enabled: false

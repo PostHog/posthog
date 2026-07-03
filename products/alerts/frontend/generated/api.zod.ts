@@ -1133,3 +1133,41 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })
+
+/**
+ * Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
+export const alertsSimulateForecastCreateBodyForecastConfigOneEngineDefault = `prophet`
+export const alertsSimulateForecastCreateBodyForecastConfigOneTypeDefault = `ForecastConfig`
+export const alertsSimulateForecastCreateBodySeriesIndexDefault = 0
+
+export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number().describe('Insight ID to simulate the forecast on.'),
+    forecast_config: zod
+        .object({
+            condition: zod.enum(['future_breach', 'band_deviation']),
+            engine: zod.literal('prophet').default(alertsSimulateForecastCreateBodyForecastConfigOneEngineDefault),
+            horizon: zod
+                .union([zod.number(), zod.null()])
+                .optional()
+                .describe(
+                    'How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30.'
+                ),
+            interval_width: zod
+                .union([zod.number(), zod.null()])
+                .optional()
+                .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+            type: zod.literal('ForecastConfig').default(alertsSimulateForecastCreateBodyForecastConfigOneTypeDefault),
+        })
+        .describe('Forecast configuration to simulate.'),
+    series_index: zod
+        .number()
+        .default(alertsSimulateForecastCreateBodySeriesIndexDefault)
+        .describe('Zero-based index of the series to analyze (trends insights only).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only."
+        ),
+})

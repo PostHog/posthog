@@ -47,7 +47,7 @@ class InvestigationVerdict(models.TextChoices):
     INCONCLUSIVE = "inconclusive", "inconclusive"
 
 
-def derive_detector_event_fields(detector_config: dict | None) -> dict:
+def derive_detector_event_fields(detector_config: dict | None, forecast_config: dict | None = None) -> dict:
     """Shared derivation of alert_mode/detector_type/ensemble_operator from a detector config.
 
     Used by both `alert created`/`alert updated` user-action events and the
@@ -55,10 +55,18 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
     """
     detector_config = detector_config or {}
     detector_type = detector_config.get("type")
+    if forecast_config:
+        alert_mode = "forecast"
+    elif detector_type:
+        alert_mode = "detector"
+    else:
+        alert_mode = "threshold"
     return {
-        "alert_mode": "detector" if detector_type else "threshold",
+        "alert_mode": alert_mode,
         "detector_type": detector_type,
         "ensemble_operator": detector_config.get("operator") if detector_type == "ensemble" else None,
+        "forecast_engine": (forecast_config or {}).get("engine"),
+        "forecast_condition": (forecast_config or {}).get("condition"),
     }
 
 
@@ -147,6 +155,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # Detector-based anomaly detection configuration (alternative to threshold)
     detector_config = models.JSONField(null=True, blank=True)
+
+    # Forecast-based alert configuration (third mode alongside threshold and detector_config)
+    forecast_config = models.JSONField(null=True, blank=True)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
@@ -282,7 +293,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "hogql_has_explicit_column": bool(alert_config.get("column")) if is_hogql_config else None,
             "hogql_has_label_column": bool(alert_config.get("label_column")) if is_hogql_config else None,
             "subscribed_users_count": subscribed_users_count,
-            **derive_detector_event_fields(detector_config),
+            **derive_detector_event_fields(detector_config, self.forecast_config),
             "ensemble_detector_types": ensemble_detector_types,
             "has_preprocessing": has_preprocessing,
             "schedule_restriction_blocked_window_count": blocked_window_count,

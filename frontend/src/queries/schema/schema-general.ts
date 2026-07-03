@@ -5149,6 +5149,29 @@ export interface AlertScheduleRestriction {
     blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
+// Forecast alerts (third alert mode alongside threshold and detector)
+export enum ForecastEngineType {
+    PROPHET = 'prophet',
+}
+
+export enum ForecastConditionType {
+    /** Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals. */
+    FUTURE_BREACH = 'future_breach',
+    /** Fire when the latest completed actual value falls outside the forecast's uncertainty band. */
+    BAND_DEVIATION = 'band_deviation',
+}
+
+/** Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. */
+export interface ForecastConfig {
+    type: 'ForecastConfig'
+    engine: ForecastEngineType
+    condition: ForecastConditionType
+    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30. */
+    horizon?: integer
+    /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
+    interval_width?: number
+}
+
 // Detector types for anomaly detection alerts
 export enum DetectorType {
     ZSCORE = 'zscore',
