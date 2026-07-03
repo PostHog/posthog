@@ -1,13 +1,15 @@
-import re
 import ast
+import json
 from pathlib import Path
 
-# Guards the `data_import_sources_only` optimization in .github/workflows/ci-backend.yml.
-# That step trims a sources-only PR to the Django Temporal segment, dropping Core/CorePOE.
-# That is only safe for sources NOT imported by Core/CorePOE-collected code. The workflow
-# excludes the coupled ones via its `coupled` list; this test fails if a Core/CorePOE file
-# gains a runtime import of a source missing from that list — which would otherwise let a
-# sources-only PR silently skip the Core test that exercises it.
+# Guards the backend:contract-check isolation of warehouse_sources.
+# When only isolated-product internals change, turbo-discover.js skips the Django suite
+# (Core/CorePOE) — sound only for sources NOT reverse-imported by Core/CorePOE-collected
+# code. The ones that ARE reverse-imported must land in the product's turbo.json
+# contract-check `inputs`, so a change to them counts as a contract change and re-runs
+# Django. This test fails if a Core/CorePOE file gains a runtime import of a source vendor
+# missing from those inputs — which would otherwise let a change to it silently skip the
+# Core test that exercises it.
 #
 # Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
 # does not descend products/warehouse_sources/backend/temporal/data_imports/ (an implicit namespace package — no
@@ -66,16 +68,22 @@ def _runtime_imported_sources(tree: ast.AST) -> set[str]:
     return found
 
 
-def _workflow_coupled(root: Path) -> set[str]:
-    text = (root / ".github" / "workflows" / "ci-backend.yml").read_text()
-    match = re.search(r'coupled="([^"]*)"', text)
-    assert match, 'could not find `coupled="..."` in ci-backend.yml sources step'
-    coupled = set(match.group(1).split())
-    assert coupled, "parsed an empty `coupled` list from ci-backend.yml"
-    return coupled
+_INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
 
 
-def test_core_coupled_sources_are_excluded_from_ci_trim():
+def _contract_covered_sources(root: Path) -> set[str]:
+    turbo = json.loads((root / "products" / "warehouse_sources" / "turbo.json").read_text())
+    inputs = turbo["tasks"]["backend:contract-check"]["inputs"]
+    covered = {
+        rest.split("/")[0]
+        for entry in inputs
+        if (rest := entry[len(_INPUTS_PREFIX) :]) and entry.startswith(_INPUTS_PREFIX) and "/" in rest
+    }
+    assert covered, "parsed no source-vendor inputs from turbo.json backend:contract-check"
+    return covered
+
+
+def test_core_coupled_sources_are_covered_by_contract_check():
     root = _repo_root()
     excluded = root / "posthog" / "temporal"  # the Temporal segment; always runs
 
@@ -96,10 +104,11 @@ def test_core_coupled_sources_are_excluded_from_ci_trim():
                 continue
             imported |= _runtime_imported_sources(tree)
 
-    coupled = _workflow_coupled(root)
-    missing = imported - coupled
+    covered = _contract_covered_sources(root)
+    missing = imported - covered
     assert not missing, (
-        f"Core/CorePOE code imports warehouse sources {sorted(missing)} not in the CI "
-        f"`coupled` list {sorted(coupled)}. A sources-only PR touching them would skip "
-        f"their Core tests. Add them to `coupled` in .github/workflows/ci-backend.yml."
+        f"Core/CorePOE code runtime-imports warehouse sources {sorted(missing)} not covered by "
+        f"products/warehouse_sources/turbo.json backend:contract-check inputs {sorted(covered)}. "
+        f"A change to those sources would skip the Core tests that exercise them. Add "
+        f"backend/temporal/data_imports/sources/<vendor>/** to the contract-check inputs."
     )
