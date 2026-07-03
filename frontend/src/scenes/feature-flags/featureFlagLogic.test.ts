@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    CohortType,
     FeatureFlagGroupType,
     FeatureFlagType,
     PropertyFilterType,
@@ -27,7 +28,9 @@ import {
     NEW_FLAG,
     convertIndexBasedPayloadsToVariantKeys,
     featureFlagLogic,
+    hasDirectFlagDependency,
     hasMultipleVariantsActive,
+    hasStaticCohortDependency,
     hasZeroRollout,
     indexToVariantKeyFeatureFlagPayloads,
     scheduleDateFromStoredISO,
@@ -967,6 +970,531 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('copying flags', () => {
+        it('sends dependency copy options and resets them after success', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let capturedCopyBody: Record<string, unknown> | null = null
+            let capturedRequirementsBody: Record<string, unknown> | null = null
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/feature_flags/:feature_flag_key': () => [200, []],
+                },
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        capturedRequirementsBody = (await request.json()) as Record<string, unknown>
+                        return [
+                            200,
+                            {
+                                can_copy_dependencies: true,
+                                dependency_count: 1,
+                                copied_dependency_keys: ['parent-flag'],
+                                reused_dependency_keys: [],
+                                warnings: [],
+                                reason: '1 dependency flag can be copied.',
+                                dependency_requirements_cache_key: 'cached-dependency-graph',
+                            },
+                        ]
+                    },
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        capturedCopyBody = (await request.json()) as Record<string, unknown>
+                        return [
+                            200,
+                            {
+                                success: [
+                                    {
+                                        id: MOCK_FEATURE_FLAG.id,
+                                        key: MOCK_FEATURE_FLAG.key,
+                                        name: MOCK_FEATURE_FLAG.name,
+                                        active: true,
+                                        team_id: targetProjectId,
+                                        copied_dependency_keys: ['parent-flag'],
+                                    },
+                                ],
+                                failed: [],
+                            },
+                        ]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...MOCK_FEATURE_FLAG,
+                    filters: {
+                        ...MOCK_FEATURE_FLAG.filters,
+                        groups: [
+                            {
+                                rollout_percentage: 100,
+                                properties: [
+                                    {
+                                        key: '123',
+                                        type: PropertyFilterType.Flag,
+                                        value: 'true',
+                                        operator: PropertyOperator.FlagEvaluatesTo,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            expect(capturedRequirementsBody).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+            })
+
+            logic.actions.setCopySchedule(true)
+            logic.actions.setDisableCopiedFlag(true)
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyFlag()
+            }).toDispatchActions(['copyFlagSuccess'])
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDependencies).toBe(false)
+
+            expect(capturedCopyBody).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+                copy_schedule: true,
+                disable_copied_flag: true,
+                copy_dependencies: true,
+                dependency_requirements_cache_key: 'cached-dependency-graph',
+            })
+        })
+
+        it('refreshes dependency requirements after copy rejects a stale cache key', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            const capturedCopyBodies: Record<string, unknown>[] = []
+            let requirementsCallCount = 0
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/feature_flags/:feature_flag_key': () => [200, []],
+                },
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': () => {
+                        requirementsCallCount += 1
+                        return [
+                            200,
+                            {
+                                can_copy_dependencies: true,
+                                dependency_count: 1,
+                                copied_dependency_keys: ['parent-flag'],
+                                reused_dependency_keys: [],
+                                warnings: [],
+                                reason: '1 dependency flag can be copied.',
+                                dependency_requirements_cache_key:
+                                    requirementsCallCount === 1 ? 'stale-dependency-graph' : 'fresh-dependency-graph',
+                            },
+                        ]
+                    },
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        capturedCopyBodies.push(body)
+
+                        if (body.dependency_requirements_cache_key === 'stale-dependency-graph') {
+                            return [
+                                400,
+                                {
+                                    error: 'The dependency list changed. Try copying again so PostHog can re-check dependencies.',
+                                },
+                            ]
+                        }
+
+                        return [
+                            200,
+                            {
+                                success: [
+                                    {
+                                        id: MOCK_FEATURE_FLAG.id,
+                                        key: MOCK_FEATURE_FLAG.key,
+                                        name: MOCK_FEATURE_FLAG.name,
+                                        active: true,
+                                        team_id: targetProjectId,
+                                        copied_dependency_keys: ['parent-flag'],
+                                    },
+                                ],
+                                failed: [],
+                            },
+                        ]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...MOCK_FEATURE_FLAG,
+                    filters: {
+                        ...MOCK_FEATURE_FLAG.filters,
+                        groups: [
+                            {
+                                rollout_percentage: 100,
+                                properties: [
+                                    {
+                                        key: '123',
+                                        type: PropertyFilterType.Flag,
+                                        value: 'true',
+                                        operator: PropertyOperator.FlagEvaluatesTo,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.copyFlag()
+            }).toDispatchActions(['copyFlagFailure'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturedCopyBodies[0]).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+                copy_dependencies: true,
+                dependency_requirements_cache_key: 'stale-dependency-graph',
+            })
+            expect(requirementsCallCount).toBe(2)
+            expect(logic.values.copyDependencies).toBe(true)
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'fresh-dependency-graph'
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.copyFlag()
+            }).toDispatchActions(['copyFlagSuccess'])
+
+            expect(capturedCopyBodies[1]).toMatchObject({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_DEFAULT_PROJECT.id,
+                target_project_ids: [targetProjectId],
+                copy_dependencies: true,
+                dependency_requirements_cache_key: 'fresh-dependency-graph',
+            })
+        })
+
+        it('clears cached dependency requirements when the availability check fails', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let requirementsCallCount = 0
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': () => {
+                        requirementsCallCount += 1
+
+                        if (requirementsCallCount === 1) {
+                            return [
+                                200,
+                                {
+                                    can_copy_dependencies: true,
+                                    dependency_count: 1,
+                                    copied_dependency_keys: ['parent-flag'],
+                                    reused_dependency_keys: [],
+                                    warnings: [],
+                                    reason: '1 dependency flag can be copied.',
+                                    dependency_requirements_cache_key: 'cached-dependency-graph',
+                                },
+                            ]
+                        }
+
+                        return [500, { error: 'Unable to check dependency availability' }]
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCopyDestinationProject(targetProjectId + 1)
+            }).toDispatchActions(['loadCopyDependencyRequirementsFailure'])
+
+            expect(logic.values.copyDependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.can_copy_dependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.reason).toContain('Unable to check dependency availability')
+        })
+
+        it('refreshes dependency requirements and clears opt-in when the source flag changes', async () => {
+            const targetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            let requirementsCallCount = 0
+
+            const flagWithDependency = (dependencyId: string): FeatureFlagType => ({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: dependencyId,
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/feature_flags/:feature_flag_key': () => [200, []],
+                },
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': () => {
+                        requirementsCallCount += 1
+
+                        return [
+                            200,
+                            {
+                                can_copy_dependencies: true,
+                                dependency_count: 1,
+                                copied_dependency_keys: [`parent-flag-${requirementsCallCount}`],
+                                reused_dependency_keys: [],
+                                warnings: [],
+                                reason: '1 dependency flag can be copied.',
+                                dependency_requirements_cache_key:
+                                    requirementsCallCount === 1 ? 'first-dependency-graph' : 'fresh-dependency-graph',
+                            },
+                        ]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(flagWithDependency('123'))
+                logic.actions.setCopyDestinationProject(targetProjectId)
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            logic.actions.setCopyDependencies(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(flagWithDependency('456'))
+            }).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+
+            expect(requirementsCallCount).toBe(2)
+            expect(logic.values.copyDependencies).toBe(false)
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'fresh-dependency-graph'
+            )
+        })
+
+        it('ignores stale dependency requirements when the destination changes before the first request resolves', async () => {
+            const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
+            type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
+            const pendingRequests = new Map<number, (response: DependencyRequirementsMockResponse) => void>()
+            const waitForPendingRequest = async (projectId: number): Promise<void> => {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    if (pendingRequests.has(projectId)) {
+                        return
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                throw new Error(`Missing dependency requirements request for project ${projectId}`)
+            }
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        const body = (await request.json()) as { target_project_ids: number[] }
+                        const projectId = body.target_project_ids[0]
+
+                        return await new Promise<DependencyRequirementsMockResponse>((resolve) => {
+                            pendingRequests.set(projectId, resolve)
+                        })
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await waitForPendingRequest(firstTargetProjectId)
+
+            logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await waitForPendingRequest(secondTargetProjectId)
+
+            pendingRequests.get(secondTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['second-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                    dependency_requirements_cache_key: 'second-dependency-graph',
+                },
+            ])
+
+            await expectLogic(logic).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'second-dependency-graph'
+            )
+
+            pendingRequests.get(firstTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['first-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                    dependency_requirements_cache_key: 'first-dependency-graph',
+                },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDestinationProject).toBe(secondTargetProjectId)
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'second-dependency-graph'
+            )
+        })
+
+        it('ignores stale dependency requirement failures after the destination changes', async () => {
+            const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
+            const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
+            type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
+            const pendingRequests = new Map<number, (response: DependencyRequirementsMockResponse) => void>()
+            const waitForPendingRequest = async (projectId: number): Promise<void> => {
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    if (pendingRequests.has(projectId)) {
+                        return
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                }
+                throw new Error(`Missing dependency requirements request for project ${projectId}`)
+            }
+
+            useMocks({
+                post: {
+                    '/api/organizations/:organization_id/feature_flags/copy_flags/dependency_requirements': async ({
+                        request,
+                    }) => {
+                        const body = (await request.json()) as { target_project_ids: number[] }
+                        const projectId = body.target_project_ids[0]
+
+                        return await new Promise<DependencyRequirementsMockResponse>((resolve) => {
+                            pendingRequests.set(projectId, resolve)
+                        })
+                    },
+                },
+            })
+
+            logic.actions.setFeatureFlag({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [
+                        {
+                            rollout_percentage: 100,
+                            properties: [
+                                {
+                                    key: '123',
+                                    type: PropertyFilterType.Flag,
+                                    value: 'true',
+                                    operator: PropertyOperator.FlagEvaluatesTo,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await waitForPendingRequest(firstTargetProjectId)
+
+            logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await waitForPendingRequest(secondTargetProjectId)
+
+            pendingRequests.get(secondTargetProjectId)?.([
+                200,
+                {
+                    can_copy_dependencies: true,
+                    dependency_count: 1,
+                    copied_dependency_keys: ['second-parent-flag'],
+                    reused_dependency_keys: [],
+                    warnings: [],
+                    reason: '1 dependency flag can be copied.',
+                    dependency_requirements_cache_key: 'second-dependency-graph',
+                },
+            ])
+
+            await expectLogic(logic).toDispatchActions(['loadCopyDependencyRequirementsSuccess'])
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'second-dependency-graph'
+            )
+
+            pendingRequests.get(firstTargetProjectId)?.([500, { error: 'Unable to check dependency availability' }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.copyDestinationProject).toBe(secondTargetProjectId)
+            expect(logic.values.copyDependencyRequirements?.dependency_requirements_cache_key).toBe(
+                'second-dependency-graph'
+            )
+        })
+    })
+
     describe('schedule ordering', () => {
         const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
             id: 1,
@@ -1198,6 +1726,119 @@ describe('hasZeroRollout', () => {
         },
     ])('returns $expected when $desc', ({ filters, expected }) => {
         expect(hasZeroRollout(filters)).toBe(expected)
+    })
+})
+
+describe('hasDirectFlagDependency', () => {
+    it.each([
+        {
+            filters: { groups: { properties: [] } },
+            expected: false,
+            desc: 'groups is not an array',
+        },
+        {
+            filters: { groups: [null] },
+            expected: false,
+            desc: 'group is null',
+        },
+        {
+            filters: { groups: [{ properties: { type: PropertyFilterType.Flag } }] },
+            expected: false,
+            desc: 'properties is not an array',
+        },
+        {
+            filters: { groups: [{ properties: [null] }] },
+            expected: false,
+            desc: 'property is null',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '123',
+                                type: PropertyFilterType.Flag,
+                                value: 'true',
+                                operator: PropertyOperator.FlagEvaluatesTo,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: true,
+            desc: 'group has a flag property',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(hasDirectFlagDependency({ ...MOCK_FEATURE_FLAG, filters: filters as FeatureFlagFilters })).toBe(expected)
+    })
+})
+
+describe('hasStaticCohortDependency', () => {
+    const cohorts = [
+        { id: 12, is_static: true },
+        { id: 13, is_static: false },
+    ] as CohortType[]
+
+    it.each([
+        {
+            filters: { groups: { properties: [] } },
+            expected: false,
+            desc: 'groups is not an array',
+        },
+        {
+            filters: { groups: [null] },
+            expected: false,
+            desc: 'group is null',
+        },
+        {
+            filters: { groups: [{ properties: { type: 'cohort', value: 12 } }] },
+            expected: false,
+            desc: 'properties is not an array',
+        },
+        {
+            filters: { groups: [{ properties: [null] }] },
+            expected: false,
+            desc: 'property is null',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'id',
+                                type: 'cohort',
+                                value: 13,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: false,
+            desc: 'cohort is behavioral',
+        },
+        {
+            filters: createFilters({
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'id',
+                                type: 'cohort',
+                                value: 12,
+                            },
+                        ],
+                    },
+                ],
+            }),
+            expected: true,
+            desc: 'cohort is static',
+        },
+    ])('returns $expected when $desc', ({ filters, expected }) => {
+        expect(
+            hasStaticCohortDependency({ ...MOCK_FEATURE_FLAG, filters: filters as FeatureFlagFilters }, cohorts)
+        ).toBe(expected)
     })
 })
 

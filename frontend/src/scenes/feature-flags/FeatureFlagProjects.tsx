@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonDialog, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -14,29 +14,11 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { type Noun, groupsModel } from '~/models/groupsModel'
-import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType } from '~/types'
+import { OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
-import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic, hasDirectFlagDependency, hasStaticCohortDependency } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
-
-function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
-    const staticCohorts = new Set()
-    cohorts.forEach((cohort) => {
-        if (cohort.is_static) {
-            staticCohorts.add(cohort.id)
-        }
-    })
-
-    for (const group of featureFlag.filters.groups) {
-        for (const prop of group.properties || []) {
-            if (prop.type === 'cohort' && staticCohorts.has(prop.value)) {
-                return true
-            }
-        }
-    }
-    return false
-}
 
 const getColumns = ({
     aggregationLabel,
@@ -136,19 +118,88 @@ function FeatureFlagCopySection(): JSX.Element {
     const {
         featureFlag,
         copyDestinationProject,
+        copyDependencies,
+        copyDependencyRequirements,
+        copyDependencyRequirementsLoading,
         projectsWithCurrentFlag,
         featureFlagCopyLoading,
         copySchedule,
         disableCopiedFlag,
         scheduledChanges,
     } = useValues(featureFlagLogic)
-    const { setCopyDestinationProject, copyFlag, setCopySchedule, setDisableCopiedFlag } = useActions(featureFlagLogic)
+    const { copyFlag, setCopyDependencies, setCopyDestinationProject, setCopySchedule, setDisableCopiedFlag } =
+        useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
 
-    const hasStaticCohort = checkHasStaticCohort(featureFlag, allCohorts.results)
+    const hasStaticCohort = hasStaticCohortDependency(featureFlag, allCohorts.results)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const hasFlagDependency = hasDirectFlagDependency(featureFlag)
+    const copiedDependencyCount = copyDependencyRequirements?.copied_dependency_keys.length ?? 0
+    const copiedDependencyLabel = copiedDependencyCount === 1 ? 'dependency' : 'dependencies'
+    const dependencyActionLabel =
+        copyDependencyRequirementsLoading || !copyDependencyRequirements
+            ? 'Checking'
+            : copyDependencyRequirements.can_copy_dependencies
+              ? `${copiedDependencyCount} missing`
+              : copyDependencyRequirements.warnings.length > 0
+                ? 'Unavailable'
+                : 'Already satisfied'
+    const dependencyDisabledReason =
+        copyDependencyRequirementsLoading || !copyDependencyRequirements
+            ? 'Checking dependency availability'
+            : !copyDependencyRequirements.can_copy_dependencies
+              ? copyDependencyRequirements.reason
+              : undefined
+    const copyLoading = featureFlagCopyLoading || (copyDependencies && copyDependencyRequirementsLoading)
+
+    const openCopyDependenciesDialog = (): void => {
+        if (!copyDependencyRequirements?.can_copy_dependencies) {
+            return
+        }
+
+        LemonDialog.open({
+            title: 'Copy dependencies?',
+            description: (
+                <>
+                    <p>
+                        Include {copiedDependencyCount} missing {copiedDependencyLabel} when this flag is copied to the
+                        destination project.
+                    </p>
+                    <p>Copied dependencies keep their current active state.</p>
+                    <ul className="ml-4 list-disc max-h-60 overflow-y-auto pr-2">
+                        {copyDependencyRequirements.copied_dependency_keys.map((key) => (
+                            <li key={key} className="break-all">
+                                {key}
+                            </li>
+                        ))}
+                    </ul>
+                    {copyDependencyRequirements.reused_dependency_keys.length > 0 && (
+                        <p>
+                            Existing active dependencies in the destination project will be reused and left unchanged.
+                        </p>
+                    )}
+                    {copyDependencyRequirements.warnings.length > 0 && (
+                        <LemonBanner type="warning">
+                            <div className="space-y-1">
+                                {copyDependencyRequirements.warnings.map((warning) => (
+                                    <div key={warning}>{warning}</div>
+                                ))}
+                            </div>
+                        </LemonBanner>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Include dependencies',
+                onClick: () => setCopyDependencies(true),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
 
     return hasMultipleProjects && featureFlag.can_edit ? (
         <>
@@ -161,18 +212,18 @@ function FeatureFlagCopySection(): JSX.Element {
                     associated persons might not exist in the target project.
                 </LemonBanner>
             )}
-            <div className="inline-flex gap-4 my-6">
-                <div>
+            <div className="flex flex-wrap items-start gap-x-4 gap-y-3 my-6">
+                <div className="min-w-0 max-w-full">
                     <div className="font-semibold leading-6 h-6">Key</div>
                     <div className="border px-3 rounded h-10 text-center flex items-center justify-center max-w-200">
                         <span className="font-semibold truncate">{featureFlag.key}</span>
                     </div>
                 </div>
-                <div>
+                <div className="shrink-0">
                     <div className="h-6" />
                     <IconArrowRight className="h-10" fontSize="30" />
                 </div>
-                <div>
+                <div className="min-w-[10rem] shrink-0">
                     <div className="font-semibold leading-6 h-6">Destination project</div>
                     <LemonSelect
                         dropdownMatchSelectWidth={false}
@@ -187,7 +238,7 @@ function FeatureFlagCopySection(): JSX.Element {
                         className="min-w-[10rem]"
                     />
                 </div>
-                <div>
+                <div className="min-w-[9.5rem] shrink-0">
                     <div className="font-semibold leading-6 h-6">Copy schedules</div>
                     <LemonCheckbox
                         checked={copySchedule}
@@ -197,7 +248,21 @@ function FeatureFlagCopySection(): JSX.Element {
                         className="h-10 flex items-center"
                     />
                 </div>
-                <div>
+                {hasFlagDependency && copyDestinationProject && (
+                    <div className="min-w-[10rem] shrink-0">
+                        <div className="font-semibold leading-6 h-6">Copy dependencies</div>
+                        <LemonCheckbox
+                            checked={copyDependencies}
+                            onChange={(checked) =>
+                                checked ? openCopyDependenciesDialog() : setCopyDependencies(false)
+                            }
+                            disabledReason={dependencyDisabledReason}
+                            label={dependencyActionLabel}
+                            className="h-10 flex items-center"
+                        />
+                    </div>
+                )}
+                <div className="min-w-[10rem] shrink-0">
                     <div className="font-semibold leading-6 h-6">Disable copied flag</div>
                     <LemonCheckbox
                         checked={disableCopiedFlag}
@@ -206,11 +271,11 @@ function FeatureFlagCopySection(): JSX.Element {
                         className="h-10 flex items-center"
                     />
                 </div>
-                <div>
+                <div className="shrink-0">
                     <div className="h-6" />
                     <LemonButton
                         disabledReason={!copyDestinationProject && 'Select destination project'}
-                        loading={featureFlagCopyLoading}
+                        loading={copyLoading}
                         type="primary"
                         icon={<IconSync />}
                         onClick={() => copyFlag()}

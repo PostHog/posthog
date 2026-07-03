@@ -80,6 +80,11 @@ import {
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import {
+    featureFlagsCopyFlagsCreate,
+    featureFlagsCopyFlagsDependencyRequirementsCreate,
+} from 'products/feature_flags/frontend/generated/api'
+import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
@@ -91,6 +96,58 @@ import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
+
+export function hasDirectFlagDependency(featureFlag: FeatureFlagType): boolean {
+    const groups = featureFlag.filters?.groups
+    if (!Array.isArray(groups)) {
+        return false
+    }
+
+    return groups.some((group) => {
+        if (!group || typeof group !== 'object') {
+            return false
+        }
+        const properties = group.properties
+        return (
+            Array.isArray(properties) &&
+            properties.some(
+                (property) => !!property && typeof property === 'object' && property.type === PropertyFilterType.Flag
+            )
+        )
+    })
+}
+
+export function hasStaticCohortDependency(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
+    const staticCohortIds = new Set(cohorts.filter((cohort) => cohort.is_static).map((cohort) => cohort.id))
+    const groups = featureFlag.filters?.groups
+    if (!Array.isArray(groups)) {
+        return false
+    }
+
+    return groups.some((group) => {
+        if (!group || typeof group !== 'object' || !Array.isArray(group.properties)) {
+            return false
+        }
+
+        return group.properties.some((property) => {
+            return (
+                !!property &&
+                typeof property === 'object' &&
+                property.type === 'cohort' &&
+                staticCohortIds.has(property.value)
+            )
+        })
+    })
+}
+
+const COPY_DEPENDENCY_REQUIREMENTS_UNAVAILABLE: CopyFlagsDependencyRequirementsResponseApi = {
+    can_copy_dependencies: false,
+    dependency_count: 0,
+    copied_dependency_keys: [],
+    reused_dependency_keys: [],
+    warnings: ['Unable to check dependency availability. Try again or copy this flag without dependencies.'],
+    reason: 'Unable to check dependency availability. Try again or copy this flag without dependencies.',
+}
 
 function parseUrlIntent(): FlagIntent | undefined {
     const raw = router.values.searchParams.intent
@@ -624,6 +681,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
         setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
+        setCopyDependencies: (copyDependencies: boolean) => ({ copyDependencies }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -991,6 +1049,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setDisableCopiedFlag: (_, { disableCopiedFlag }) => disableCopiedFlag,
             },
         ],
+        copyDependencies: [
+            false as boolean,
+            {
+                setCopyDependencies: (_, { copyDependencies }) => copyDependencies,
+                loadCopyDependencyRequirementsSuccess: (state, { copyDependencyRequirements }) =>
+                    copyDependencyRequirements?.can_copy_dependencies ? state : false,
+                loadCopyDependencyRequirementsFailure: () => false,
+                setCopyDestinationProject: () => false,
+                loadFeatureFlagSuccess: () => false,
+                setFeatureFlag: () => false,
+                copyFlagSuccess: () => false,
+            },
+        ],
+        copyDependencyRequirements: {
+            loadCopyDependencyRequirements: () => null,
+            loadCopyDependencyRequirementsFailure: () => COPY_DEPENDENCY_REQUIREMENTS_UNAVAILABLE,
+            setCopyDestinationProject: () => null,
+            loadFeatureFlagSuccess: () => null,
+            setFeatureFlag: () => null,
+        },
         scheduleDateMarker: [
             null as any,
             {
@@ -1578,19 +1656,78 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             },
         },
+        copyDependencyRequirements: [
+            null as CopyFlagsDependencyRequirementsResponseApi | null,
+            {
+                loadCopyDependencyRequirements: async (_, breakpoint) => {
+                    const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
+
+                    if (
+                        !currentOrganizationId ||
+                        !currentProjectId ||
+                        !copyDestinationProject ||
+                        !featureFlag.key ||
+                        !hasDirectFlagDependency(featureFlag)
+                    ) {
+                        return null
+                    }
+
+                    const requestedFeatureFlagKey = featureFlag.key
+                    const hasRequestContextChanged = (): boolean =>
+                        values.currentOrganizationId !== currentOrganizationId ||
+                        values.currentProjectId !== currentProjectId ||
+                        values.copyDestinationProject !== copyDestinationProject ||
+                        values.featureFlag.key !== requestedFeatureFlagKey
+
+                    try {
+                        const copyDependencyRequirements = await featureFlagsCopyFlagsDependencyRequirementsCreate(
+                            String(currentOrganizationId),
+                            {
+                                feature_flag_key: requestedFeatureFlagKey,
+                                from_project: currentProjectId,
+                                target_project_ids: [copyDestinationProject],
+                            }
+                        )
+                        await breakpoint()
+                        if (hasRequestContextChanged()) {
+                            return values.copyDependencyRequirements
+                        }
+
+                        return copyDependencyRequirements
+                    } catch (error) {
+                        await breakpoint()
+                        if (hasRequestContextChanged()) {
+                            return values.copyDependencyRequirements
+                        }
+
+                        throw error
+                    }
+                },
+            },
+        ],
         featureFlagCopy: {
             copyFlag: async () => {
                 const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId, copySchedule, disableCopiedFlag } = values
+                const {
+                    copyDependencyRequirements,
+                    copyDependencies,
+                    copyDestinationProject,
+                    currentProjectId,
+                    copySchedule,
+                    disableCopiedFlag,
+                } = values
 
-                if (currentProjectId && copyDestinationProject) {
-                    return await api.organizationFeatureFlags.copy(orgId, {
+                if (orgId && currentProjectId && copyDestinationProject) {
+                    return await featureFlagsCopyFlagsCreate(String(orgId), {
                         feature_flag_key: featureFlagKey,
                         from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                         copy_schedule: copySchedule,
                         disable_copied_flag: disableCopiedFlag,
+                        copy_dependencies: copyDependencies,
+                        dependency_requirements_cache_key:
+                            copyDependencyRequirements?.dependency_requirements_cache_key,
                     })
                 }
             },
@@ -1696,6 +1833,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        setCopyDestinationProject: () => {
+            actions.loadCopyDependencyRequirements()
+        },
+        setFeatureFlag: () => {
+            if (values.copyDestinationProject) {
+                actions.loadCopyDependencyRequirements()
+            }
+        },
         setCronExpression: ({ cronExpression }) => {
             if (!cronExpression) {
                 return
@@ -2014,6 +2159,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            if (values.copyDestinationProject) {
+                actions.loadCopyDependencyRequirements()
+            }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
@@ -2080,7 +2228,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
                     ? 'updated'
                     : 'copied'
-                lemonToast.success(`Feature flag ${operation} successfully!`)
+                const copiedDependencyCount = featureFlagCopy.success.reduce(
+                    (count, flag) => count + (flag.copied_dependency_keys?.length ?? 0),
+                    0
+                )
+                lemonToast.success(
+                    copiedDependencyCount
+                        ? `Feature flag ${operation} successfully with ${copiedDependencyCount} dependenc${copiedDependencyCount === 1 ? 'y' : 'ies'}!`
+                        : `Feature flag ${operation} successfully!`
+                )
                 eventUsageLogic.actions.reportFeatureFlagCopySuccess()
 
                 // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
@@ -2088,6 +2244,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const warnings = featureFlagCopy.success.flatMap((flag) => [
                     ...(flag.flag_dependency_warnings ?? []),
                     ...(flag.schedule_copy_warning ? [flag.schedule_copy_warning] : []),
+                    ...(flag.dependency_copy_warnings ?? []),
                 ])
                 warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
@@ -2100,6 +2257,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setCopyDestinationProject(null)
             actions.setCopySchedule(false)
             actions.setDisableCopiedFlag(false)
+            actions.setCopyDependencies(false)
+        },
+        copyFlagFailure: () => {
+            if (values.copyDependencies && values.copyDestinationProject) {
+                actions.loadCopyDependencyRequirements()
+            }
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {
