@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -40,13 +41,19 @@ export function CapabilityBadges({
     onSelect,
     className,
 }: CapabilityBadgesProps): JSX.Element | null {
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+
     if (!capabilities.length) {
         return null
     }
 
     return (
         <div
-            className={cn('flex flex-wrap items-center justify-center gap-1.5 w-full px-3', COLORFUL_ICONS, className)}
+            className={cn(
+                'flex flex-wrap items-center justify-center gap-1.5 max-w-[500px] px-3',
+                COLORFUL_ICONS,
+                className
+            )}
         >
             {capabilities.map((capability) => (
                 <LemonButton
@@ -61,20 +68,23 @@ export function CapabilityBadges({
                     {capability.label}
                 </LemonButton>
             ))}
-            <LemonButton
-                size="small"
-                type="secondary"
-                to={CODE_CAPABILITY.to}
-                icon={<IconCode />}
-                data-attr="capability-badge-code"
-            >
-                <span className="flex items-center gap-1.5">
-                    {CODE_CAPABILITY.label}
-                    <LemonTag type="completion" size="small">
-                        Beta
-                    </LemonTag>
-                </span>
-            </LemonButton>
+
+            {isProductAutonomyEnabled && (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    to={CODE_CAPABILITY.to}
+                    icon={<IconCode />}
+                    data-attr="capability-badge-code"
+                >
+                    <span className="flex items-center gap-1.5">
+                        {CODE_CAPABILITY.label}
+                        <LemonTag type="completion" size="small">
+                            Beta
+                        </LemonTag>
+                    </span>
+                </LemonButton>
+            )}
         </div>
     )
 }
