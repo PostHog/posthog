@@ -43,7 +43,6 @@ class Migration(migrations.Migration):
                 ("skipped_tickets", models.BigIntegerField(default=0)),
                 ("failed_tickets", models.BigIntegerField(default=0)),
                 ("export_cursor", models.TextField(blank=True, null=True)),
-                ("email_distinct_id_cache", models.JSONField(blank=True, default=dict)),
                 ("started_at", models.DateTimeField(blank=True, null=True)),
                 ("finished_at", models.DateTimeField(blank=True, null=True)),
                 ("workflow_id", models.CharField(blank=True, max_length=400, null=True)),
