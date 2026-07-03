@@ -33,7 +33,7 @@ class TestSourceConfig:
         assert config.unreleasedSource is True
 
     def test_api_key_field_is_optional_secret(self) -> None:
-        fields = {f.name: f for f in OpenFDASource().get_source_config.fields}
+        fields: dict[str, Any] = {f.name: f for f in OpenFDASource().get_source_config.fields}
         assert set(fields) == {"api_key"}
         # openFDA works unauthenticated (lower quota), so the key must not be required.
         assert fields["api_key"].required is False
@@ -136,7 +136,7 @@ class TestResumableWiring:
         inputs.db_incremental_field_last_value = "20200101"
         inputs.incremental_field = "report_date"
 
-        result = OpenFDASource().source_for_pipeline(_config(api_key="k"), MagicMock(), inputs)
+        result: Any = OpenFDASource().source_for_pipeline(_config(api_key="k"), MagicMock(), inputs)
         assert result == "response"
         assert captured["endpoint"] == "drug_enforcement"
         assert captured["api_key"] == "k"

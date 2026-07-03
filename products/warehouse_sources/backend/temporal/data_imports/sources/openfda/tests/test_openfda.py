@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
@@ -158,21 +159,24 @@ class TestFetchPage:
         session.get.return_value = _response(
             200, body={"results": [{"recall_number": "D-1"}]}, next_url="http://api.fda.gov/next"
         )
-        results, next_url = _fetch_page(session, "http://x", None, MagicMock())
+        page = _fetch_page(session, "http://x", None, MagicMock())
+        assert page is not None
+        results, next_url = page
         assert results == [{"recall_number": "D-1"}]
         assert next_url == "http://api.fda.gov/next"
 
     def test_last_page_has_no_next_cursor(self) -> None:
         session = MagicMock()
         session.get.return_value = _response(200, body={"results": [{"recall_number": "D-9"}]})
-        _results, next_url = _fetch_page(session, "http://x", None, MagicMock())
-        assert next_url is None
+        page = _fetch_page(session, "http://x", None, MagicMock())
+        assert page is not None
+        assert page[1] is None
 
 
 def _collect(
     manager: _FakeResumableManager,
     monkeypatch: Any,
-    pages: dict[str, tuple[list[dict], str | None] | None],
+    pages: Mapping[str, tuple[list[dict], str | None] | None],
     endpoint: str = "drug_enforcement",
 ) -> list[dict]:
     def fake_fetch(session: Any, url: str, auth: Any, logger: Any) -> Any:
