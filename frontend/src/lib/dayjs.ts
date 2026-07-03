@@ -28,6 +28,16 @@ dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
 
+// The base add/subtract accept ManipulateType (has week, no quarter) and quarterOfYear adds a
+// QUnitType overload (has quarter, no week) — neither alone accepts a union like IntervalType,
+// so merge one overload that takes both.
+declare module 'dayjs' {
+    interface Dayjs {
+        add(value: number, unit?: ManipulateType | QUnitType): Dayjs
+        subtract(value: number, unit?: ManipulateType | QUnitType): Dayjs
+    }
+}
+
 const now = (): Dayjs => dayjs()
 
 export { dayjs, isDayjs, now }
