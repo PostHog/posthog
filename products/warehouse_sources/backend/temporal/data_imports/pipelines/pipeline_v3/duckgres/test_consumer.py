@@ -396,6 +396,7 @@ class TestMidClaimRetire:
         # A chunk retired mid-claim must abort the whole group with NO status
         # write — even an 'executing' row would mask the terminal 'failed'.
         consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
 
         with (
             patch(
