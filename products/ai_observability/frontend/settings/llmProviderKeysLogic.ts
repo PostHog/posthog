@@ -139,6 +139,8 @@ export interface EvaluationConfig {
     trial_eval_limit: number
     trial_evals_used: number
     trial_evals_remaining: number
+    trial_grandfathered: boolean
+    trial_deprecation_date: string
     active_provider_key: LLMProviderKey | null
     created_at: string
     updated_at: string
@@ -455,12 +457,17 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_remaining ?? 0,
         ],
-        isTrialLimitReached: [
+        isTrialGrandfathered: [
+            (s) => [s.evaluationConfig],
+            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_grandfathered ?? false,
+        ],
+        // Terminal state: no active key and not grandfathered — the team must bring its own provider key.
+        requiresProviderKey: [
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) =>
                 evaluationConfig !== null &&
                 evaluationConfig.active_provider_key === null &&
-                evaluationConfig.trial_evals_remaining <= 0,
+                !evaluationConfig.trial_grandfathered,
         ],
     }),
 

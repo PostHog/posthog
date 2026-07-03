@@ -12,6 +12,13 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
+@pytest.fixture(autouse=True)
+def _future_deprecation_date(settings):
+    # Pin the trial cutoff far in the future so grandfathering (0 < used < limit) is deterministic
+    # regardless of the wall clock the suite runs on. Cutoff-specific tests override this locally.
+    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+
+
 @pytest.fixture
 def team():
     organization = Organization.objects.create(name="Test Org")
@@ -26,6 +33,10 @@ def _key(team, provider, state=LLMProviderKey.State.OK):
         state=state,
         encrypted_config={"api_key": "sk-test"},
     )
+
+
+def _grandfathered_config(team, **kwargs):
+    return EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50, **kwargs)
 
 
 def _error_type(exc_info):
@@ -65,37 +76,57 @@ class TestExplicitModelSpec:
             ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)
         assert _error_type(exc_info) == "key_invalid"
 
-    def test_trial_allowlisted_model_resolves_without_key(self, team):
+    def test_grandfathered_trial_allowlisted_model_resolves_without_key(self, team):
+        _grandfathered_config(team)
         resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
         assert resolved.provider_key is None
         assert not resolved.is_byok
 
-    def test_trial_non_allowlisted_model_raises_model_not_allowed(self, team):
+    def test_grandfathered_non_allowlisted_model_raises_model_not_allowed(self, team):
+        _grandfathered_config(team)
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5", None).resolve(team.id)
         assert _error_type(exc_info) == "model_not_allowed"
 
-    def test_trial_quota_exhausted_raises_trial_limit_reached(self, team):
+    def test_no_trial_usage_requires_provider_key(self, team):
+        with pytest.raises(ApplicationError) as exc_info:
+            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+        assert _error_type(exc_info) == "provider_key_required"
+
+    def test_exhausted_trial_requires_provider_key(self, team):
         EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "trial_limit_reached"
+        assert _error_type(exc_info) == "provider_key_required"
+
+    def test_past_cutoff_requires_provider_key(self, team, settings):
+        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2000-01-01T00:00:00+00:00"
+        _grandfathered_config(team)
+        with pytest.raises(ApplicationError) as exc_info:
+            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+        assert _error_type(exc_info) == "provider_key_required"
 
 
 @pytest.mark.django_db
 class TestDefaultModelSpec:
-    def test_no_active_key_falls_back_to_posthog_trial(self, team):
+    def test_grandfathered_no_active_key_falls_back_to_posthog_trial(self, team):
+        _grandfathered_config(team)
         resolved = DefaultModelSpec().resolve(team.id)
         assert resolved.provider == "openai"
         assert resolved.model == DEFAULT_MODEL_BY_PROVIDER["openai"]
         assert resolved.provider_key is None
         assert not resolved.is_byok
 
-    def test_no_active_key_with_exhausted_quota_raises_trial_limit_reached(self, team):
+    def test_no_active_key_no_trial_usage_requires_provider_key(self, team):
+        with pytest.raises(ApplicationError) as exc_info:
+            DefaultModelSpec().resolve(team.id)
+        assert _error_type(exc_info) == "provider_key_required"
+
+    def test_no_active_key_exhausted_requires_provider_key(self, team):
         EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
         with pytest.raises(ApplicationError) as exc_info:
             DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "trial_limit_reached"
+        assert _error_type(exc_info) == "provider_key_required"
 
     def test_anthropic_active_key_resolves_to_anthropic_default(self, team):
         # Regression: a null config with an Anthropic active key used to resolve to openai/gpt-5-mini
