@@ -219,10 +219,11 @@ inbox-reports-list
 { "source_product": "signals_scout", "limit": 20 }
 ```
 
-This is the direct way to find scout-written reports.
-Every report a scout authors carries backing signals tagged `source_product="signals_scout"`, and the inbox filter keeps any report whose contributing signals include that tag — so the result is the set of reports the fleet has surfaced.
+This is the direct way to find the reports scouts **authored**.
+Every report a scout authors carries backing signals tagged `source_product="signals_scout"`, and the inbox filter keeps any report whose contributing signals include that tag — so the result is the set of reports the fleet has authored.
+It does **not** capture edit-only work: a scout that edits an existing non-scout report (appending a note to a pipeline report, say) adds no `signals_scout` signal, so that report won't match the filter — trace edits through the run rows' `edited_report_ids` instead.
 
-An empty result means the fleet hasn't written anything (yet), **not** that the filter is broken.
+An empty result means the fleet hasn't authored any reports (yet), **not** that the filter is broken.
 Scouts hold a high bar — most runs close out without writing — so on a quiet or newly enrolled project zero scout reports is the normal, expected state.
 Note the inbox only shows **surfaced** reports: a report the safety judge suppressed (or one filed as `not_actionable`) persists with status `SUPPRESSED` but doesn't appear in the default inbox view.
 

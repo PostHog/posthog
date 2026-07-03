@@ -10,8 +10,9 @@ Every scout classifies each candidate finding against prior runs, the inbox, and
 Bake this classifier into the scout's Decide section:
 
 1. **Net new** — no prior run mentions the topic, no inbox report and no scratchpad entry covers it. → Author a report via `emit_report` if it clears the report bar (see [`report-contract.md`](report-contract.md)).
-2. **Material update on an existing report** — a report already covers the topic (one this scout authored last run, or a pipeline report), but there's new evidence (a different corroborating source, a fresh deploy correlation, contradicting data, a meaningful escalation in scope). → **`edit_report` it** — `append_note` with the fresh evidence, or rewrite `title`/`summary` on a report the scout authored.
+2. **Material update on an existing live report** — a live report already covers the topic (one this scout authored last run, or a pipeline report), but there's new evidence (a different corroborating source, a fresh deploy correlation, contradicting data, a meaningful escalation in scope). → **`edit_report` it** — `append_note` with the fresh evidence, or rewrite `title`/`summary` on a report the scout authored.
    Don't mint a near-duplicate.
+   **Live reports only:** `edit_report` never changes a report's status, so if the prior report is suppressed or resolved and the issue is genuinely back, author a **fresh** report (citing the prior `report_id` in the summary) rather than editing a closed one nobody will see.
 3. **Same fact already covered** — an existing report already captures the same evidence shape, nothing has changed. → Skip.
    Optionally rewrite a scratchpad entry confirming the topic stayed quiet.
 4. **Already-addressed or noise** — a scratchpad entry with an `addressed:` / `noise:` / `dedupe:` prefix names the entity with a "team aware" note. → Skip; note it in the run summary.
