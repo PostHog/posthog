@@ -579,6 +579,12 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
                     "Failed to update remote URL for snapshot",
                     extra={"branch": input.branch, "stderr": update_result.stderr},
                 )
+                # A stale remote token here makes the downstream fetch fail with an opaque error,
+                # so surface it as the actual cause instead of letting it cascade.
+                raise RuntimeError(
+                    f"Failed to update remote URL for branch {input.branch} "
+                    f"(exit_code={update_result.exit_code}): {update_result.stderr}"
+                )
 
         depth_flag = f" --depth {shlex.quote('1')}" if input.shallow_clone else ""
         fetch_and_checkout = (
@@ -592,7 +598,9 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
 
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
-            raise RuntimeError(f"Failed to checkout branch {input.branch}")
+            raise RuntimeError(
+                f"Failed to checkout branch {input.branch} (exit_code={result.exit_code}): {result.stderr}"
+            )
 
 
 @activity.defn

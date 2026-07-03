@@ -321,6 +321,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         "Failed to update remote URL for snapshot",
                         extra={"branch": ctx.branch, "stderr": update_result.stderr},
                     )
+                    # A stale remote token here makes the downstream fetch fail with an opaque error,
+                    # so surface it as the actual cause instead of letting it cascade.
+                    sandbox.destroy()
+                    raise RuntimeError(
+                        f"Failed to update remote URL for branch {ctx.branch} "
+                        f"(exit_code={update_result.exit_code}): {update_result.stderr}"
+                    )
 
             depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
             fetch_and_checkout = (
@@ -336,7 +343,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if result.exit_code != 0:
                 sandbox.destroy()
                 logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
-                raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
+                raise RuntimeError(
+                    f"Failed to checkout branch {ctx.branch} (exit_code={result.exit_code}): {result.stderr}"
+                )
 
         credentials = sandbox.get_connect_credentials()
 
