@@ -93,7 +93,7 @@ class TestHasMorePages:
         data: dict[str, Any] = {"current_page": current_page}
         if total_pages is not None:
             data["total_pages"] = total_pages
-        items = [{}] * items_len
+        items: list[dict[str, Any]] = [{}] * items_len
         assert _has_more_pages(data, items, current_page, per_page) is expected_more
 
 
@@ -200,11 +200,14 @@ class TestValidateCredentials:
 
 
 class TestFetchPage:
+    # tenacity exposes the undecorated body as __wrapped__; access it via getattr so a single
+    # attempt's classification can be asserted without the retry loop actually sleeping.
+    _fetch_page_body = staticmethod(getattr(fulcrum._fetch_page, "__wrapped__"))
+
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
         # Fulcrum enforces an hourly request cap (429) and can 5xx transiently; both must be
-        # classified retryable so a rate limit doesn't hard-fail the whole sync. Call the
-        # undecorated body (tenacity exposes it as __wrapped__) to assert one attempt's behavior.
+        # classified retryable so a rate limit doesn't hard-fail the whole sync.
         session = mock.Mock()
         response = mock.Mock(spec=requests.Response)
         response.status_code = status_code
@@ -213,7 +216,7 @@ class TestFetchPage:
         session.get.return_value = response
 
         with pytest.raises(fulcrum.FulcrumRetryableError):
-            fulcrum._fetch_page.__wrapped__(session, "https://api.fulcrumapp.com/api/v2/forms.json", {}, mock.Mock())
+            self._fetch_page_body(session, "https://api.fulcrumapp.com/api/v2/forms.json", {}, mock.Mock())
 
     def test_client_error_raises_for_status(self) -> None:
         session = mock.Mock()
@@ -221,8 +224,8 @@ class TestFetchPage:
         response.status_code = 401
         response.ok = False
         response.text = "unauthorized"
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session.get.return_value = response
 
         with pytest.raises(requests.HTTPError):
-            fulcrum._fetch_page.__wrapped__(session, "https://api.fulcrumapp.com/api/v2/forms.json", {}, mock.Mock())
+            self._fetch_page_body(session, "https://api.fulcrumapp.com/api/v2/forms.json", {}, mock.Mock())
