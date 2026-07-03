@@ -760,6 +760,60 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('open_query URL parameter', () => {
+        const STACKED_BAR_NODE: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT toStartOfDay(timestamp) AS day, event, count() FROM events GROUP BY day, event',
+            },
+            display: ChartDisplayType.ActionsStackedBar,
+            chartSettings: { seriesBreakdownColumn: 'event' },
+        }
+
+        it('adopts visualization settings and auto-runs when opening a serialized DataVisualizationNode', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // The URL Max's "Open as new insight" produces: insightNew redirects
+            // HogQL-backed nodes to the SQL editor with the node in open_query
+            router.actions.push(urls.insightNew({ query: STACKED_BAR_NODE }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery', 'runQuery'])
+                .toMatchValues({
+                    queryInput: STACKED_BAR_NODE.source.query,
+                    sourceQuery: partial({
+                        display: ChartDisplayType.ActionsStackedBar,
+                        chartSettings: partial({ seriesBreakdownColumn: 'event' }),
+                    }),
+                })
+        })
+
+        it('keeps the default visualization and does not auto-run for a plain SQL string', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1' }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toNotHaveDispatchedActions(['runQuery'])
+                .toMatchValues({
+                    queryInput: 'SELECT 1',
+                    sourceQuery: partial({ display: ChartDisplayType.Auto }),
+                })
+        })
+    })
+
     describe('inline insight metadata editing', () => {
         async function loadInsight(): Promise<void> {
             logic = sqlEditorLogic({
