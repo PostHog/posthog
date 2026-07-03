@@ -52,6 +52,39 @@ const breakdownSteps: FunnelStepWithConversionMetrics[] = [
     }),
 ]
 
+// Pure compare: nested_breakdown is [current, previous] sharing the step's order.
+const compareSteps: FunnelStepWithConversionMetrics[] = [
+    makeStep({
+        fromBasisStep: 1,
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 1, compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.8, compare_label: 'previous' }),
+        ],
+    }),
+    makeStep({
+        fromBasisStep: 0.5,
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 0.5, compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.3, compare_label: 'previous' }),
+        ],
+    }),
+]
+
+// Breakdown + compare: nested_breakdown pairs current+previous per value. At the first step every value
+// converts 100% of its own entrants, so a period's values all read the same height — the larger period
+// fills the bar (1) and the smaller one is proportionally shorter (0.8 here); the gap above is blank.
+const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
+    makeStep({
+        fromBasisStep: 1,
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.8, breakdown_value: 'Chrome', compare_label: 'previous' }),
+            makeStep({ fromBasisStep: 1, breakdown_value: 'Safari', compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.8, breakdown_value: 'Safari', compare_label: 'previous' }),
+        ],
+    }),
+]
+
 const options = {
     getColor: () => '#1d4aff',
     getLabel: (variant: FunnelStepWithConversionMetrics) => String(variant.breakdown_value ?? variant.name),
@@ -119,6 +152,54 @@ describe('buildFunnelStepsBarData', () => {
         expect(series).toEqual([])
         expect(labels).toEqual([])
     })
+
+    it('emits the previous-period series before the current one so it renders to the left', () => {
+        const { series } = buildFunnelStepsBarData(compareSteps, options)
+
+        expect(series.map((s) => s.meta?.compareLabel)).toEqual(['previous', 'current'])
+    })
+
+    it('keeps each value’s pair grouped with previous before current (breakdown + compare)', () => {
+        const { series } = buildFunnelStepsBarData(breakdownCompareSteps, options)
+
+        expect(series.map((s) => [s.meta?.breakdownValue, s.meta?.compareLabel])).toEqual([
+            ['Chrome', 'previous'],
+            ['Chrome', 'current'],
+            ['Safari', 'previous'],
+            ['Safari', 'current'],
+        ])
+    })
+
+    it('caps each compare series’ track at its period entry level (trackData) so drop-off stops there', () => {
+        const { series } = buildFunnelStepsBarData(compareSteps, options)
+
+        // Previous entry level is 80% of the shared basis, so its drop-off track stops at 80 every step;
+        // current is the leader (100%). The blank space above each ceiling is the volume gap.
+        const previous = series.find((s) => s.meta?.compareLabel === 'previous')
+        const current = series.find((s) => s.meta?.compareLabel === 'current')
+        expect(previous?.trackData).toEqual([80, 80])
+        expect(current?.trackData).toEqual([100, 100])
+    })
+
+    it('leaves a non-compare series without trackData (full-height track)', () => {
+        const { series } = buildFunnelStepsBarData(breakdownSteps, options)
+
+        expect(series.every((s) => s.trackData === undefined)).toBe(true)
+    })
+
+    it('reorders the series array but keeps each series’ original breakdownIndex for click mapping', () => {
+        const { series } = buildFunnelStepsBarData(compareSteps, options)
+
+        // series[0] is the previous bar (now leftmost); its meta still points at nested index 1, so a
+        // click resolves to the previous variant rather than the current one.
+        const target = resolveFunnelStepClick(compareSteps, {
+            dataIndex: 0,
+            series: series[0],
+            inTrackArea: false,
+        })
+        expect(target?.series).toBe(compareSteps[0].nested_breakdown?.[1])
+        expect(target?.series.compare_label).toBe('previous')
+    })
 })
 
 function makeSeries(breakdownIndex: number): Series<FunnelStepsBarSeriesMeta> {
@@ -182,14 +263,5 @@ describe('withFunnelStepsBarInteraction', () => {
         const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: true })
 
         expect(config.tooltip).toEqual({ pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' })
-    })
-
-    it('adds a static legend for breakdown + compare, independent of the tooltip flag', () => {
-        const config = withFunnelStepsBarInteraction(baseConfig, {
-            isBreakdownCompare: true,
-            quillTooltipEnabled: false,
-        })
-
-        expect(config.legend).toEqual({ show: true, interactive: false })
     })
 })

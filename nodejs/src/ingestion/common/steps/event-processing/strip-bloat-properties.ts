@@ -1,4 +1,4 @@
-import { droppedBloatPropertyCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { droppedBloatPropertyCounter } from '~/ingestion/common/metrics'
 
 // Persistence cache keys that leak from older posthog-js versions into event
 // payloads. The SDK stopped sending these in posthog-js#3392; this server-side

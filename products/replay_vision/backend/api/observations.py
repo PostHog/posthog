@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, get_args
 
 from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
@@ -26,18 +26,15 @@ from posthog.renderers import ServerSentEventRenderer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import (
-    ReplayScanner,
-    ScannerModel,
-    ScannerProvider,
-    ScannerType,
-)
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -60,13 +57,11 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
     )
-    model = serializers.ChoiceField(
-        choices=ScannerModel.choices,
-        help_text="Concrete model that ran the observation.",
+    model = serializers.CharField(
+        help_text="Concrete model that ran the observation; historical rows may carry since-retired model ids.",
     )
-    provider = serializers.ChoiceField(
-        choices=ScannerProvider.choices,
-        help_text="Concrete provider that ran the observation.",
+    provider = serializers.CharField(
+        help_text="Concrete provider that ran the observation; historical rows may carry since-retired providers.",
     )
     emits_signals = serializers.BooleanField(
         help_text="Whether the observation was run with Signal emission enabled.",
@@ -96,16 +91,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
-    error_reason = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = serializers.CharField(read_only=True, allow_blank=True, help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
@@ -300,7 +286,8 @@ _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
 
 
-_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
+# Derived from the scanner output schema so the filter can never drift from what monitors emit.
+_MONITOR_VERDICTS = frozenset(get_args(MonitorVerdict))
 
 
 class _ObservationOrderByFilter(OrderByFilter):
@@ -309,6 +296,9 @@ class _ObservationOrderByFilter(OrderByFilter):
     _allowed_keys = frozenset(_ALL_ORDER_KEYS)
 
     def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
+        if key in ("started_at", "completed_at"):
+            # Null until the row starts/settles — keep in-flight rows out of the way regardless of direction.
+            return self._order_nulls_last(qs, key, descending)
         if key in OBSERVATION_ORDER_FIELDS:
             return self._order_plain(qs, key, descending)
         if key == "recording_subject_email":
@@ -382,7 +372,8 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
             "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
+            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
+            "last regardless of direction."
         ),
     )
 
@@ -433,7 +424,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 description=(
                     "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
                     "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending."
+                    "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
                 ),
             )
         ]
@@ -600,4 +591,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        return sse_streaming_response(stream_observation_progress(observation))
+        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

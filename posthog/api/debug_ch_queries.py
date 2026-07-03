@@ -437,6 +437,15 @@ class DebugCHQueries(viewsets.ViewSet):
             if metric_type_filter != "funnel":
                 raise exceptions.ValidationError("funnel_order_type can only be used with metric_type=funnel.")
 
+        exception_code_filter: Optional[int] = None
+        if request.query_params.get("exception_code"):
+            try:
+                exception_code_filter = int(request.query_params["exception_code"])
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError("exception_code must be an integer.")
+            if exception_code_filter <= 0:
+                raise exceptions.ValidationError("exception_code must be a positive integer.")
+
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
@@ -459,6 +468,13 @@ class DebugCHQueries(viewsets.ViewSet):
                 " AND JSONExtractString(log_comment, 'experiment_funnel_order_type') = %(funnel_order_type)s"
             )
             params["funnel_order_type"] = funnel_order_type_filter
+
+        # Filter at the group level (a group's terminal exception_code, resolved per query_id in per_query):
+        # keep groups where any query — read or precompute build — hit this code, so nesting stays intact.
+        having_exception_code = ""
+        if exception_code_filter is not None:
+            having_exception_code = "HAVING countIf(exception_code = %(exception_code)s) > 0"
+            params["exception_code"] = exception_code_filter
 
         # Each row is one ClickHouse query. A top-level read (surface != 'precompute_build') and the
         # precompute-build INSERTs it triggered share an experiment_query_group_id (set by the runner).
@@ -519,6 +535,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 SELECT grp, sum(query_duration_ms) AS total_duration_ms
                 FROM grouped
                 GROUP BY grp
+                {having_exception_code}
                 ORDER BY total_duration_ms DESC
                 LIMIT 100
             )

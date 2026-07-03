@@ -95,6 +95,13 @@ pub struct Config {
     // every startup to reclaim space leaked by non-graceful pod terminations.
     #[envconfig(from = "STAGING_DIR", default = "/tmp/batch-import-worker")]
     pub staging_dir: String,
+
+    // Fail-fast guard: if the staging directory grows past this many bytes while
+    // downloading a part, the job is paused (surfaced to the user) instead of the
+    // pod being evicted under disk pressure. 0 disables the guard. Size this below
+    // the staging volume capacity in deployment.
+    #[envconfig(from = "STAGING_DIR_MAX_BYTES", default = "0")]
+    pub staging_dir_max_bytes: u64,
 }
 
 impl Config {

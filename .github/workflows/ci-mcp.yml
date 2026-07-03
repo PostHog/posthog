@@ -630,7 +630,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: ./.github/actions/commit-snapshots
               with:
-                  workflow-type: backend
+                  workflow-type: mcp
                   patch-path: /tmp/snapshot-patches
                   snapshot-path: 'services/mcp/tests/unit/'
                   commit-message: 'test(mcp): update unit test snapshots'

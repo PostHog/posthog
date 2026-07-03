@@ -915,6 +915,27 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
 
+    @parameterized.expand(
+        [
+            ("source_products", "fetch_source_products_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+        ]
+    )
+    def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
+        # A transient failure in either decorative metadata fetch must degrade to empty badges
+        # rather than 500 the whole inbox load — the list still renders from Postgres data.
+        report = self._create_report()
+
+        with patch(
+            f"products.signals.backend.views.{fetch_fn}",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["source_products"] == []
+
     # --- suppressed report reachability ---
     #
     # Suppressed (dismissed) reports stay out of the list by default, but the inbox's

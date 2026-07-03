@@ -494,7 +494,8 @@ export const surveysLogic = kea<surveysLogicType>([
             if (tab) {
                 actions.setTab(tab)
             }
-            const nextSearchTerm = search ?? ''
+            // The router parses purely-numeric query params into numbers, so coerce to a string.
+            const nextSearchTerm = search != null ? String(search) : ''
             if (nextSearchTerm !== values.searchTerm) {
                 actions.setSearchTerm(nextSearchTerm)
             }

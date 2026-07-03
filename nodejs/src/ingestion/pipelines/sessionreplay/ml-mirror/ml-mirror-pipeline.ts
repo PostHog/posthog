@@ -3,10 +3,9 @@ import { Message } from 'node-rdkafka'
 
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     SessionReplayPipelineConfig,
@@ -18,7 +17,9 @@ import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymi
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
+import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
 export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
     /** Shared, immutable scrub context (allow lists + tunables). */
@@ -27,9 +28,10 @@ export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
 
 export function createMlMirrorReplayPipeline(
     config: MlMirrorReplayPipelineConfig
-): BatchPipelineUnwrapper<
+): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 > {
@@ -39,6 +41,7 @@ export function createMlMirrorReplayPipeline(
         overflowEnabled,
         promiseScheduler,
         teamService,
+        retentionService,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -60,10 +63,18 @@ export function createMlMirrorReplayPipeline(
                                 preservePartitionLocality: true,
                             })
                         )
+                        .pipe(createValidateSessionReplayHeadersStep())
                         .pipe(createTeamFilterStep(teamService))
                         // Mirror only data from orgs that opted into AI training.
                         .pipe(createAiTrainingOptInFilterStep())
                 )
+                // Resolve retention up front (before parse), keyed on the (validated) session_id
+                // header; drop unresolvable sessions.
+                .gather()
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
                 .filterMap(
                     (element) => ({
                         result: element.result,
@@ -121,5 +132,5 @@ export function createMlMirrorReplayPipeline(
         .gather()
         .build()
 
-    return createUnwrapper(pipeline)
+    return pipeline
 }

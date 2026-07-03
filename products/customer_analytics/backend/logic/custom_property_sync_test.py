@@ -1,6 +1,6 @@
 import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from django.apps import apps
 
@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.custom_property_sync import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
+    _read_view,
     record_sync_outcome,
     run_custom_property_sync,
     sync_custom_property_values,
@@ -135,6 +136,52 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert source.consecutive_failures == 1
         assert source.last_sync_error == "boom"
         mock_capture.assert_called_once()
+
+    def test_read_view_batches_key_filter_and_merges_rows(self):
+        batch_size = "products.customer_analytics.backend.logic.custom_property_sync._SYNC_KEYS_PER_QUERY"
+        responses = [_Response([(100.0, "acme")]), _Response([(200.0, "globex")])]
+        with patch(_EXECUTE, side_effect=responses), patch(batch_size, 1):
+            rows = _read_view(self.team, "billing_view", ["mrr", "org_id"], "org_id", ["acme", "globex"])
+
+        assert rows == [(100.0, "acme"), (200.0, "globex")]
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class ReadViewAccessControlTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
+    def test_userless_sync_reads_view_despite_warehouse_access_control(self):
+        # The Celery sync runs with no user, so HogQL warehouse-view access control (flag on)
+        # fails closed and denies the view unless the sync bypasses it.
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="account_health_scores",
+            query={"kind": "HogQLQuery", "query": "SELECT 'acme' AS org_id, 100 AS health_score"},
+            columns={"org_id": "String", "health_score": "Int64"},
+        )
+
+        rows = _read_view(self.team, view.name, ["health_score", "org_id"], "org_id", ["acme"])
+
+        assert rows == [(100, "acme")]
+
+
+class ReadViewLimitTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
+    def test_reads_all_matching_rows_beyond_default_hogql_limit(self):
+        # An unfiltered, unlimited read gets capped at 100 rows by the HogQL default limit,
+        # silently dropping most of a large view. 120 matches > 100 proves the cap is gone;
+        # < 150 proves rows without a matching external_id are filtered out server-side.
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="org_scores",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toString(number) AS org_id, number AS score FROM numbers(150)",
+            },
+            columns={"org_id": "String", "score": "Int64"},
+        )
+        external_ids = [str(n) for n in range(120)]
+
+        rows = _read_view(self.team, view.name, ["org_id", "score"], "org_id", external_ids)
+
+        assert len(rows) == 120
 
 
 class RecordSyncOutcomeTest(TeamScopedTestMixin, BaseTest):

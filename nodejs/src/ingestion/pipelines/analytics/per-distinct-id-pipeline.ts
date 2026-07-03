@@ -5,10 +5,13 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
-import { AiEventSubpipelineFactory, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
+import {
+    AiEventSubpipelineFactory,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { Team } from '~/types'
