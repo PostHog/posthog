@@ -181,6 +181,7 @@ the row lists both.
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| intruder                | HTTP                        | requests                                                        | ✅                          |
 | invoiceninja            | HTTP                        | requests                                                        | ✅                          |
 | ip2whois                | HTTP                        | requests                                                        | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
@@ -484,7 +485,6 @@ doesn't conflict with concurrent PRs.
 - instantly
 - instatus
 - interzoid
-- intruder
 - invoiced
 - jamf_pro
 - jobber

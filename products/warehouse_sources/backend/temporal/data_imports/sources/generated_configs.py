@@ -1653,7 +1653,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
