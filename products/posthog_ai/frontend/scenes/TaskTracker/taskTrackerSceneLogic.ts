@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
     ClaudeRuntimeAdapterEnumApi,
@@ -75,6 +76,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['integrations'],
             attachedContextLogic,
             ['contextItems'],
+            aiConsentLogic,
+            ['dataProcessingAccepted'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -103,6 +106,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Re-points the panel at a fresh run started from the composer on a reopened terminal task
         // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
         updateActiveCreationRun: (runId: string) => ({ runId }),
+        blockOnConsent: true,
+        clearConsentBlock: true,
     }),
 
     reducers({
@@ -119,6 +124,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTask: () => true,
                 submitNewTaskSuccess: () => false,
                 submitNewTaskFailure: () => false,
+                blockOnConsent: () => false,
+            },
+        ],
+        consentBlocked: [
+            false,
+            {
+                blockOnConsent: () => true,
+                clearConsentBlock: () => false,
+                submitNewTask: () => false,
             },
         ],
         // Last repo/integration the user picked, persisted to localStorage so the composer comes back pre-filled.
@@ -204,6 +218,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         },
         submitNewTask: async () => {
+            if (!values.dataProcessingAccepted) {
+                actions.blockOnConsent()
+                return
+            }
+
             const { description, repositoryConfig, model, reasoningEffort } = values.newTaskData
 
             if (!description.trim()) {
