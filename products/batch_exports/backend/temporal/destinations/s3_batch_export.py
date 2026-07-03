@@ -641,6 +641,10 @@ class ConcurrentS3Consumer(Consumer):
             # Ensure that we give pending tasks a chance to run.
             await asyncio.sleep(0)
 
+    def reset_tracking(self) -> None:
+        super().reset_tracking()
+        self._upload_slot_wait_timer = CumulativeTimer()
+
     def get_destination_span_attributes(self) -> Attributes:
         return {
             "batch_export.s3.files_uploaded": len(self.files_uploaded),
@@ -747,47 +751,49 @@ class ConcurrentS3Consumer(Consumer):
             ):
                 recorder.add_bytes_processed(len(data))
 
-                while response is None:
-                    try:
-                        response = await client.upload_part(
-                            Bucket=self.bucket,
-                            Key=current_key,
-                            PartNumber=part_number,
-                            UploadId=self.upload_id,
-                            Body=data,
-                            **optional_kwargs,  # type: ignore
-                        )
-
-                    except botocore.exceptions.ClientError as err:
-                        error_code = err.response.get("Error", {}).get("Code", None)
+                # Recorded in a `finally` so the count still lands on the span when retries are
+                # exhausted and we raise, which is exactly when it's most diagnostic. Backoff sleeps
+                # happen inside this span, so the count also explains durations inflated by retries.
+                try:
+                    while response is None:
                         attempt += 1
-
-                        self.logger.warning(
-                            "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
-                            self.current_file_index,
-                            part_number,
-                            error_code,
-                            attempt,
-                            self.UPLOAD_PART_MAX_ATTEMPTS,
-                        )
-
-                        if error_code is not None and error_code == "RequestTimeout":
-                            if attempt >= self.UPLOAD_PART_MAX_ATTEMPTS:
-                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
-
-                            retry_delay = min(
-                                self.MAX_RETRY_DELAY,
-                                self.INITIAL_RETRY_DELAY * (attempt**self.EXPONENTIAL_BACKOFF_COEFFICIENT),
+                        try:
+                            response = await client.upload_part(
+                                Bucket=self.bucket,
+                                Key=current_key,
+                                PartNumber=part_number,
+                                UploadId=self.upload_id,
+                                Body=data,
+                                **optional_kwargs,  # type: ignore
                             )
-                            self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
-                            await asyncio.sleep(retry_delay)
-                            continue
-                        else:
-                            raise
 
-                # Retry backoff sleeps happen inside this span, so the attempt count
-                # explains part upload durations inflated by retries.
-                span.set_attribute("batch_export.s3.upload_attempts", attempt + 1)
+                        except botocore.exceptions.ClientError as err:
+                            error_code = err.response.get("Error", {}).get("Code", None)
+
+                            self.logger.warning(
+                                "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
+                                self.current_file_index,
+                                part_number,
+                                error_code,
+                                attempt,
+                                self.UPLOAD_PART_MAX_ATTEMPTS,
+                            )
+
+                            if error_code is not None and error_code == "RequestTimeout":
+                                if attempt >= self.UPLOAD_PART_MAX_ATTEMPTS:
+                                    raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+
+                                retry_delay = min(
+                                    self.MAX_RETRY_DELAY,
+                                    self.INITIAL_RETRY_DELAY * (attempt**self.EXPONENTIAL_BACKOFF_COEFFICIENT),
+                                )
+                                self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            else:
+                                raise
+                finally:
+                    span.set_attribute("batch_export.s3.upload_attempts", attempt)
 
             part_info: CompletedPartTypeDef = {
                 "ETag": response["ETag"],
