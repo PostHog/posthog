@@ -93,6 +93,22 @@ Two follow-ups this surfaced: (1) the vendored MLHog v2 walk goes **quadratic on
 materializing Values — saving capture CPU on every replay payload *and* restoring SDK-native key
 order for all consumers.
 
+## Real production data (1000 session blocks from the ml-training bucket)
+
+`dev/prod_bench.rs` replays payloads rebuilt (byte-preserving) from 1000 real ml-mirror session
+blocks (76% web / 24% mobile, 451 MB decompressed). Findings that synthetic fixtures missed:
+
+- **Node-level alphabetization is confirmed in prod bytes** (every observed uncompressed snapshot
+  has `childNodes` before `tagName`), so the order-independent walk is required, not optional.
+- **40% of prod events (37% of bytes) are cv-gzip-compressed**, and mobile wireframes route to the
+  parse path too — so on real traffic all three architectures converge (crate walk 9.6 ms/msg avg,
+  walk-off 10.2, MLHog engine 9.4; all ~47 MB/s): the cost is dominated by the shared
+  gunzip -> parse -> scrub -> regzip cv path, not traversal.
+- Consequently **the biggest real-world lever left is the cv path**: libdeflater over flate2 (the
+  one MLHog technique not yet adopted), and byte-walking the decompressed payload instead of
+  tree-parsing it. The traversal wins measured on uncompressed fixtures still stand, but they
+  apply to the uncompressed minority of today's traffic mix.
+
 ## Remaining TS-side work (from the framework audit)
 
 Nothing on the `useRustAnonymizer` path parses the Kafka payload in TS anymore. What's left, by cost:

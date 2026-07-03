@@ -39,6 +39,10 @@ name = "anonymize_bench"
 path = "dev/anonymize_bench.rs"
 
 [[example]]
+name = "prod_bench"
+path = "dev/prod_bench.rs"
+
+[[example]]
 name = "mlhog_bench"
 path = "dev/mlhog_bench.rs"
 required-features = ["mlhog-bench"]
