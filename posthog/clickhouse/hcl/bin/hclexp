@@ -10,12 +10,13 @@
 # (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
 set -euo pipefail
 
-# Pinned to a concrete build (not :latest) for reproducibility. sha-c0affa0 adds
+# Pinned to a concrete build (not :latest) for reproducibility. sha-deff440 has
 # `introspect -exclude` (chschema #79), which the live convergence gate
 # (dump-live.sh) requires; it retains file()/heredoc query refs (#68/#69),
-# structured JSON diff (#66), and the modifier-aware diff (#59).
+# structured JSON diff (#66), and the modifier-aware diff (#59), and fixes the
+# layer-order drop of dictionaries/views (#80).
 # Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-c0affa0}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-deff440}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"

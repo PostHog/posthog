@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 

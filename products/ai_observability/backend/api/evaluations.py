@@ -518,10 +518,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
+        # An explicit `model_configuration: null` detaches the config; a PATCH that omits the field must
+        # leave it untouched. pop()'s default can't tell the two apart, so check membership explicitly.
+        model_config_provided = "model_configuration" in validated_data
         model_config_data = validated_data.pop("model_configuration", None)
         old_config = None
 
-        if model_config_data is not None:
+        if model_config_provided:
             # Defer the cascade until after super().update(): SET_NULL would otherwise null
             # Evaluation.model_configuration_id before ModelActivityMixin.save() snapshots
             # before_update from the DB, producing a `null -> new` diff instead of `old -> new`.

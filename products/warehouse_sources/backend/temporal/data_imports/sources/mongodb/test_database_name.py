@@ -177,3 +177,60 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
         assert ok is False
         assert err == _MONGO_CONNECT_FAILED_MESSAGE
         mock_capture.assert_called_once()
+
+    # A recognized OperationFailure on listCollections is a user-side credential/permission problem
+    # — a missing read role ("not authorized") or bad credentials — that we already surface an
+    # actionable message for and classify as non-retryable, so it must not be captured as noise. An
+    # unrecognized OperationFailure is unexpected and must still be captured so the signal isn't lost.
+    @pytest.mark.parametrize(
+        "exc, expected_message, should_capture",
+        [
+            (
+                OperationFailure(
+                    "not authorized on demo_db to execute command { listCollections: 1 }",
+                    13,
+                    {"ok": 0.0, "errmsg": "not authorized on demo_db", "code": 13, "codeName": "Unauthorized"},
+                ),
+                _MONGO_NOT_AUTHORIZED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "Authentication failed.", 18, {"ok": 0.0, "errmsg": "Authentication failed.", "code": 18}
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "bad auth : authentication failed",
+                    8000,
+                    {"ok": 0.0, "errmsg": "bad auth : authentication failed", "code": 8000, "codeName": "AtlasError"},
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "listCollections: unrecognized field 'authorizedCollections'",
+                    40415,
+                    {"ok": 0.0, "errmsg": "unrecognized field", "code": 40415, "codeName": "Location40415"},
+                ),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                True,
+            ),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_operation_failure_capture_behavior(
+        self, mock_get_collections, mock_capture, exc, expected_message, should_capture
+    ):
+        mock_get_collections.side_effect = exc
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        assert mock_capture.called is should_capture

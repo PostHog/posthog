@@ -25,6 +25,7 @@ def _ctx() -> WorkflowContext:
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str="2026-05-04",
+        report_completeness="complete",
     )
 
 
@@ -82,6 +83,7 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
         "date": "2026-05-04",
         "period_start": "2026-05-04T00:00:00+00:00",
         "period_end": "2026-05-04T23:59:59.999999+00:00",
+        "report_completeness": "complete",
         "region": "US",
         "site_url": "https://us.posthog.com",
         "bucket": "posthog-billing-usage-reports",
@@ -162,6 +164,38 @@ async def test_pointer_raises_when_send_returns_none(activity_environment) -> No
                 enqueue_pointer_message,
                 EnqueuePointerInputs(ctx=_ctx(), aggregate=_agg()),
             )
+
+
+@pytest.mark.asyncio
+async def test_pointer_send_survives_post_send_metric_failure(activity_environment) -> None:
+    """A metric-layer failure after the SQS send must not fail the activity.
+
+    The pointer is already delivered at that point — if the activity raised,
+    Temporal would retry it and billing would receive a duplicate pointer.
+    """
+    fake_producer = MagicMock()
+    fake_producer.send_message.return_value = {"MessageId": "abc"}
+
+    with (
+        patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog"),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=fake_producer),
+        patch("posthog.temporal.usage_report.activities.get_instance_region", return_value="US"),
+        patch(
+            "posthog.temporal.usage_report.activities.record_aggregate_output",
+            side_effect=RuntimeError("metrics backend down"),
+        ),
+    ):
+        mock_settings.EE_AVAILABLE = True
+        mock_settings.SITE_URL = "https://us.posthog.com"
+
+        await activity_environment.run(
+            enqueue_pointer_message,
+            EnqueuePointerInputs(ctx=_ctx(), aggregate=_agg()),
+        )
+
+    # Sent exactly once — and the metric failure did not bubble out.
+    fake_producer.send_message.assert_called_once()
 
 
 def test_v2_queue_is_configured_in_settings() -> None:
