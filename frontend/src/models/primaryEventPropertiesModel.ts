@@ -13,20 +13,33 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
     actions({
         ensureLoadedForEvents: (eventNames: string[]) => ({ eventNames }),
         refreshLoadedPrimaryProperties: true,
+        markPrimaryPropertiesLoaded: (names: string[]) => ({ names }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         primaryProperties: {
             __default: {} as Record<string, string>,
             loadPrimaryProperties: async ({ names }: { names: string[] }) => {
                 if (names.length === 0) {
                     return values.primaryProperties
                 }
-                const response = await api.eventDefinitions.primaryProperties({ names })
-                const next = { ...values.primaryProperties }
-                for (const name of names) {
-                    delete next[name]
+                try {
+                    const response = await api.eventDefinitions.primaryProperties({ names })
+                    const next = { ...values.primaryProperties }
+                    for (const name of names) {
+                        delete next[name]
+                    }
+                    // Only mark names as loaded once the fetch succeeds, so a failed lookup
+                    // stays retryable on the next ensureLoadedForEvents call.
+                    actions.markPrimaryPropertiesLoaded(names)
+                    return { ...next, ...response.primary_properties }
+                } catch (error) {
+                    // This is a non-critical auxiliary lookup: consumers fall back to core taxonomy
+                    // defaults when an override is missing, so we swallow the error rather than let it
+                    // reach the global kea-loaders toast. Report it and leave the names untracked so
+                    // they can be retried later.
+                    posthog.captureException(error, { action: 'load-primary-properties' })
+                    return values.primaryProperties
                 }
-                return { ...next, ...response.primary_properties }
             },
             updatePrimaryProperty: async ({
                 eventName,
@@ -67,8 +80,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
         loadedEventNames: [
             [] as string[],
             {
-                loadPrimaryPropertiesSuccess: (state, { payload }) =>
-                    Array.from(new Set([...state, ...(payload?.names ?? [])])),
+                markPrimaryPropertiesLoaded: (state, { names }) => Array.from(new Set([...state, ...(names ?? [])])),
             },
         ],
     }),
@@ -86,12 +98,6 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
             if (values.loadedEventNames.length > 0) {
                 actions.loadPrimaryProperties({ names: values.loadedEventNames })
             }
-        },
-        loadPrimaryPropertiesFailure: ({ errorObject }) => {
-            // This is a non-critical auxiliary lookup: consumers fall back to core taxonomy defaults
-            // when an override is missing, so we only report the error and never surface a toast.
-            // The global kea-loaders toast is suppressed via ERROR_FILTER_ALLOW_LIST in initKea.ts.
-            posthog.captureException(errorObject, { action: 'load-primary-properties' })
         },
     })),
 ])

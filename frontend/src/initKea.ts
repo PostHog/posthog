@@ -30,7 +30,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
-    'loadPrimaryProperties', // Non-critical taxonomy override lookup — consumers fall back to core taxonomy defaults, so a failure must not toast
 ]
 
 /*

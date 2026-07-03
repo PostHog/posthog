@@ -103,15 +103,18 @@ describe('the primary event properties model', () => {
         expect(updateAttempted).toBe(false)
     })
 
-    it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
+    it('swallows a failed load and leaves events unmarked so they can be retried', async () => {
         useMocks({
             get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
         })
 
+        // The failure must resolve as a (silent) success — no toast, no failure bubbling to the
+        // global kea-loaders handler — and leave the names untracked so a later call retries them.
         await expectLogic(logic, () => {
             logic.actions.loadPrimaryProperties({ names: ['flaky_event'] })
-        }).toDispatchActions(['loadPrimaryPropertiesFailure'])
+        }).toDispatchActions(['loadPrimaryPropertiesSuccess'])
 
         expect(logic.values.loadedEventNames).toEqual([])
+        expect(logic.values.primaryProperties).toEqual({})
     })
 })
