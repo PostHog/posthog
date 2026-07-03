@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { daysOfWeekLabel } from 'scenes/insights/EditorFilters/daysOfWeekFilterUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -17,7 +18,7 @@ export const InsightResultMetadata = ({
     disableLastComputationRefresh,
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { samplingFactor, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { samplingFactor, trendsFilter, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     return (
         <>
@@ -28,7 +29,12 @@ export const InsightResultMetadata = ({
                     Results calculated from {samplingFactor * 100}% of users
                 </span>
             ) : null}
-            {trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
+            {dateRange?.daysOfWeek?.length ? (
+                <span className="text-secondary">
+                    <span className="mx-1">•</span>
+                    {daysOfWeekLabel([...dateRange.daysOfWeek].sort())} only
+                </span>
+            ) : trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Weekends hidden

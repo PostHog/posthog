@@ -60,7 +60,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
+    const hideWeekendsEnabled =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS] &&
+        !featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DAYS_OF_WEEK]
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points

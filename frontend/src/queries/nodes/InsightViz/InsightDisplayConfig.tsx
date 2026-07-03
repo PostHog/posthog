@@ -12,6 +12,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { DaysOfWeekFilter } from 'scenes/insights/EditorFilters/DaysOfWeekFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -89,6 +90,12 @@ export function InsightDisplayConfig(): JSX.Element {
                 {showInterval && (
                     <ConfigFilter>
                         <IntervalFilter />
+                    </ConfigFilter>
+                )}
+
+                {isTrends && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DAYS_OF_WEEK] && (
+                    <ConfigFilter>
+                        <DaysOfWeekFilter />
                     </ConfigFilter>
                 )}
 
