@@ -56,7 +56,20 @@ class TestNormalizeHost:
     def test_valid_hosts(self, value, expected):
         assert normalize_host(value) == expected
 
-    @pytest.mark.parametrize("value", ["", "   ", "ftp://example.com", "https://"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "   ",
+            "ftp://example.com",
+            "https://",
+            # SSRF: urlparse reads the host as example.com but urllib3 connects to
+            # 127.0.0.1 (backslash / userinfo confusion), so these must be rejected.
+            r"http://127.0.0.1\@example.com",
+            r"http://127.0.0.1%5c@example.com",
+            "https://user@127.0.0.1",
+        ],
+    )
     def test_invalid_hosts_raise(self, value):
         with pytest.raises(ValueError):
             normalize_host(value)

@@ -49,6 +49,12 @@ def normalize_host(host: str) -> str:
     parsed = urlparse(host)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ValueError(f"Invalid n8n host: {host}")
+    # SSRF guard: urlparse treats a backslash as userinfo and an "@" as a userinfo
+    # separator, but urllib3/requests treat the backslash as an authority separator, so
+    # `http://127.0.0.1\@example.com` validates as example.com yet connects to 127.0.0.1.
+    # A legitimate instance URL has no userinfo, so reject either construct outright.
+    if "\\" in host or "%5c" in host.lower() or "@" in parsed.netloc:
+        raise ValueError(f"Invalid n8n host: {host}")
     return host
 
 
