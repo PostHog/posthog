@@ -142,7 +142,9 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                     }
                 )
                 actions.setCloudRunHandle(task_id, run_id)
-                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString())
+                // teamLogic's currentProjectId can be the '@current' placeholder pre-load; by kickoff
+                // time the team is loaded, so this is a plain numeric coercion in practice.
+                actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId))
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null

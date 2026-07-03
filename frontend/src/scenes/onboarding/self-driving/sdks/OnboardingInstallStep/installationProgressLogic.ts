@@ -54,15 +54,28 @@ export function cloudProgress(
     taskRunState: TaskRunStreamState | null,
     progressSteps: TaskRunProgressStep[],
     taskConnectionStatus: string,
-    latestSession: WizardSessionDTOApi | null
+    latestSession: WizardSessionDTOApi | null,
+    isStalled: boolean = false
 ): InstallationProgress {
     let phase: InstallationPhase
+    let stalledError: { title: string; detail: string | null } | null = null
     if (!taskRunState) {
         phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
+    } else if (taskRunState.status === 'queued' && isStalled) {
+        // The run never left the queue (see taskRunStreamLogic's stall timer) — nothing is actually
+        // running, so an eternal spinner would be a lie.
+        phase = 'error'
+        stalledError = {
+            title: "Setup hasn't started",
+            detail: 'The run has been queued for a while without starting. Please try again in a bit.',
+        }
     } else if (taskRunState.status === 'completed') {
         phase = 'completed'
     } else if (taskRunState.status === 'failed' || taskRunState.status === 'cancelled') {
         phase = 'error'
+    } else if (taskRunState.status === 'queued') {
+        // Queued means nothing has started yet — "getting ready", not "running".
+        phase = 'connecting'
     } else {
         phase = 'running'
     }
@@ -91,13 +104,13 @@ export function cloudProgress(
 
     const error =
         phase === 'error'
-            ? {
+            ? (stalledError ?? {
                   title: 'Installation failed',
                   detail:
                       taskRunState?.error_message ??
                       (latestSession?.error as { message?: string } | null)?.message ??
                       null,
-              }
+              })
             : null
 
     // The agent opens the PR mid-run (while it keeps CI green), so the url arrives via the "pr" progress
@@ -177,7 +190,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     connect((props: InstallationProgressLogicProps) => ({
         values: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isComplete'],
+            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isComplete', 'isStalled'],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
         ],
@@ -196,6 +209,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 s.taskConnectionStatus,
                 s.latestSession,
                 s.sessionConnectionStatus,
+                s.isStalled,
                 (_, props) => props.mode,
             ],
             (
@@ -204,10 +218,11 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 taskConnectionStatus,
                 latestSession,
                 sessionConnectionStatus,
+                isStalled,
                 mode
             ): InstallationProgress =>
                 mode === 'cloud'
-                    ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession)
+                    ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession, isStalled)
                     : localProgress(latestSession, sessionConnectionStatus),
         ],
     }),

@@ -8,6 +8,10 @@ import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
 
 export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
+// How long a run may sit in `queued` before we call it stalled. Workers normally pick a run up in
+// seconds; minutes of silence means the pipeline isn't running at all.
+export const QUEUED_STALL_MS = 2 * 60 * 1000
+
 /**
  * Shapes of the SSE payloads the task-run stream pushes (see the tasks stream view). These are stream
  * messages, not REST serializers, so they're typed here rather than imported from the generated client.
@@ -114,6 +118,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         connectionOpened: true,
         connectionErrored: (error: string) => ({ error }),
         streamCompleted: true,
+        runStalled: true,
     }),
     reducers({
         taskRunState: [
@@ -153,8 +158,34 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 connectionErrored: (_, { error }) => error,
             },
         ],
+        // The run has sat in `queued` past the stall window — the backend never picked it up (e.g.
+        // no Temporal worker is running). Surfaces render this as a failure instead of an eternal
+        // spinner. Cleared as soon as the run reports any non-queued state.
+        isStalled: [
+            false,
+            {
+                runStalled: () => true,
+                taskRunStateUpdated: (state, { state: runState }) => (runState.status === 'queued' ? state : false),
+                connect: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions, props, cache }) => ({
+        // Arm a stall timer while the run reports `queued`; any other status disarms it. The timer
+        // rides disposables so unmount (and tab-hide) tears it down with everything else.
+        taskRunStateUpdated: ({ state }) => {
+            if (state.status !== 'queued') {
+                cache.disposables.dispose('queued-stall')
+                return
+            }
+            if (values.isStalled) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(() => actions.runStalled(), QUEUED_STALL_MS)
+                return () => window.clearTimeout(timer)
+            }, 'queued-stall')
+        },
         connect: () => {
             // No run to stream — the Installation layer connects this source even in local mode (where
             // there's no TaskRun), so stay idle rather than opening a stream to a non-existent run.

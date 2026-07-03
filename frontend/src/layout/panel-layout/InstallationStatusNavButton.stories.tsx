@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
@@ -7,6 +9,7 @@ import {
     activeCloudRunLogic,
     type CloudRunHandle,
 } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InstallationStatusNavButton } from './InstallationStatusNavButton'
@@ -97,7 +100,13 @@ function useCloudRun(overrides?: Partial<CloudRunHandle>): void {
     useMountedLogic(activeCloudRunLogic)
     useEffect(() => {
         const handle = makeCloudRunHandle(overrides)
-        activeCloudRunLogic.actions.setActiveCloudRun(handle.taskId, handle.runId, handle.startedAt!)
+        // The handle is project-scoped; stamp whichever project the storybook environment resolves.
+        activeCloudRunLogic.actions.setActiveCloudRun(
+            handle.taskId,
+            handle.runId,
+            handle.startedAt!,
+            projectLogic.values.currentProjectId ?? MOCK_TEAM_ID
+        )
     }, [overrides])
 }
 

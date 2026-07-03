@@ -51,7 +51,9 @@ describe('installationProgressLogic merge', () => {
             ['no state + idle connection → idle', null, 'idle', 'idle'],
             ['no state + connecting → connecting', null, 'connecting', 'connecting'],
             ['no state + open connection → idle', null, 'open', 'idle'],
-            ['queued → running', 'queued', 'open', 'running'],
+            // Queued means nothing has started yet — presenting it as "running" told users the
+            // wizard was working when no worker had picked the run up.
+            ['queued → connecting', 'queued', 'open', 'connecting'],
             ['in_progress → running', 'in_progress', 'open', 'running'],
             ['completed → completed', 'completed', 'open', 'completed'],
             ['failed → error', 'failed', 'open', 'error'],
@@ -59,6 +61,16 @@ describe('installationProgressLogic merge', () => {
         ])('phase: %s', (_name, status, conn, expected) => {
             const state = status === null ? null : taskState({ status })
             expect(cloudProgress(state, [], conn, null).phase).toBe(expected)
+        })
+
+        it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
+            const result = cloudProgress(taskState({ status: 'queued' }), [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe("Setup hasn't started")
+        })
+
+        it('ignores the stall flag once the run has left the queue', () => {
+            expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null, true).phase).toBe('running')
         })
 
         it.each([
