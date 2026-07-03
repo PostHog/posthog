@@ -3182,6 +3182,7 @@ class TestExperimentService(APIBaseTest):
         [
             ("draft",),
             ("stopped",),
+            ("paused",),
             ("already_frozen",),
             ("group_aggregated",),
             ("deleted_flag",),
@@ -3197,7 +3198,13 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_running_experiment(name="FE Running", feature_flag_key=f"fe-{state}-flag")
 
-        if state == "already_frozen":
+        if state == "paused":
+            # Paused = running with the flag deactivated; freezing must be rejected.
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "already_frozen":
             self._stamp_exposure_frozen_marker(experiment.feature_flag)
             experiment.refresh_from_db()
         elif state == "group_aggregated":

@@ -1733,6 +1733,10 @@ class ExperimentService:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
+        if experiment.is_paused:
+            # A paused flag serves no one, so there is no live enrollment to freeze; freezing anyway
+            # would mislabel the (inactive) experiment as "exposure_frozen". Resume first.
+            raise ValidationError("Cannot freeze a paused experiment. Resume it first.")
         if experiment.is_exposure_frozen:
             raise ValidationError("Experiment exposure is already frozen.")
 
