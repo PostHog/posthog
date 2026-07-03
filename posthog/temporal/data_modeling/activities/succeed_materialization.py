@@ -58,6 +58,8 @@ def _view_enrichment_needed(node: Node | None) -> tuple[bool, str | None]:
         )
 
         saved_query = node.saved_query
+        if saved_query is None:
+            return False, str(node.saved_query_id)
         if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
             return False, str(node.saved_query_id)
         # Gate on the flag + AI-processing approval before enqueuing, so a disabled team's re-materialization
