@@ -622,8 +622,9 @@ async def create_run_usage_reports_schedule(client: Client):
 async def create_finalize_usage_reports_schedule(client: Client):
     """Daily finalizer for the usage reports v2 flow, 03:00 UTC.
 
-    Reports *yesterday* (`day_offset=1`) once the day is complete — billing
-    treats a `day_offset >= 1` pointer as the final numbers for that date.
+    Reports *yesterday* (`day_offset=1`) once the day is complete — its
+    pointer carries `report_completeness="complete"`, billing's signal that
+    the numbers are final for that date.
     03:00 leaves 3 hours for ingestion lag after midnight while staying clear
     of the legacy Celery run at 03:45 UTC. Unlike the intraday schedule this
     run has no later slot to supersede it, so the retry policy keeps

@@ -61,7 +61,7 @@ def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> 
         period_start=period_start,
         period_end=period_end,
         date_str=period_start.strftime("%Y-%m-%d"),
-        day_offset=inputs.day_offset,
+        report_completeness="partial" if inputs.day_offset == 0 else "complete",
         organization_ids=inputs.organization_ids,
     )
 
@@ -84,7 +84,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 extra={
                     "run_id": ctx.run_id,
                     "date_str": ctx.date_str,
-                    "day_offset": ctx.day_offset,
+                    "report_completeness": ctx.report_completeness,
                     "period_start": ctx.period_start.isoformat(),
                     "period_end": ctx.period_end.isoformat(),
                     "spec_count": len(QUERIES),

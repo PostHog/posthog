@@ -31,21 +31,23 @@ from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow, buil
 
 @parameterized.expand(
     [
-        # (day_offset, now, expected_date) — intraday run mid-day reports today
-        (0, datetime(2026, 5, 4, 13, 45, tzinfo=UTC), "2026-05-04"),
+        # (day_offset, now, expected_date, expected_completeness) — intraday run mid-day reports today
+        (0, datetime(2026, 5, 4, 13, 45, tzinfo=UTC), "2026-05-04", "partial"),
         # intraday run just after midnight still reports the new day, not yesterday
-        (0, datetime(2026, 5, 4, 1, 45, tzinfo=UTC), "2026-05-04"),
+        (0, datetime(2026, 5, 4, 1, 45, tzinfo=UTC), "2026-05-04", "partial"),
         # finalizer run early morning reports the completed previous day
-        (1, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-03"),
-        # manual backfill of an older day
-        (3, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-01"),
+        (1, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-03", "complete"),
+        # manual backfill of an older day is also complete
+        (3, datetime(2026, 5, 4, 3, 0, tzinfo=UTC), "2026-05-01", "complete"),
     ]
 )
-def test_build_context_reports_full_day_at_offset(day_offset: int, now: datetime, expected_date: str) -> None:
+def test_build_context_reports_full_day_at_offset(
+    day_offset: int, now: datetime, expected_date: str, expected_completeness: str
+) -> None:
     ctx = build_context(RunUsageReportsInputs(day_offset=day_offset), run_id="run-1", now=now)
 
     assert ctx.date_str == expected_date
-    assert ctx.day_offset == day_offset
+    assert ctx.report_completeness == expected_completeness
     assert ctx.period_start.isoformat() == f"{expected_date}T00:00:00+00:00"
     assert ctx.period_end.isoformat() == f"{expected_date}T23:59:59.999999+00:00"
 
