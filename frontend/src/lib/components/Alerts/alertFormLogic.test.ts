@@ -385,6 +385,31 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResult).toBeNull()
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
+
+        it('clearSimulation resets the forecast simulation result', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                fit_quality: { mape: 0.05, coverage: 0.94, verdict: 'good' },
+            }
+            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+
+            logic.actions.clearSimulation()
+
+            expect(logic.values.forecastSimulationResult).toBeNull()
+        })
     })
 
     it('blocks save with error toast for 15-minute interval without entitlement', async () => {
