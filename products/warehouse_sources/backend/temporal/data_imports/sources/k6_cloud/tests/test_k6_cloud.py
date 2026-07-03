@@ -197,11 +197,13 @@ class TestFetchPageRetries:
 
     def test_client_error_raises_immediately(self) -> None:
         # A 401/403 is not retryable — raise_for_status must surface it on the first attempt.
+        error_response = requests.Response()
+        error_response.status_code = 401
         bad = MagicMock()
         bad.status_code = 401
         bad.ok = False
         bad.text = "unauthorized"
-        bad.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        bad.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
 
         session = MagicMock()
         session.get.return_value = bad
