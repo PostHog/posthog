@@ -122,6 +122,8 @@ describe('DatePicker', () => {
         ['no type keeps the secondary default', {}, 'LemonButton--secondary'],
         ['type primary maps through', { type: 'primary' }, 'LemonButton--primary'],
         ['type tertiary maps through', { type: 'tertiary' }, 'LemonButton--tertiary'],
+        ['size small maps through', { size: 'small' }, 'LemonButton--small'],
+        ['custom className forwards through', { className: 'bg-bg-light' }, 'bg-bg-light'],
     ])('maps trigger %s onto the LemonUI button', (_name, props, expectedClass) => {
         const { container } = renderDatePicker(dayjs('2023-01-15'), props)
 

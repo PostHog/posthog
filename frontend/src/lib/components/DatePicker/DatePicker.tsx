@@ -61,7 +61,7 @@ export interface DatePickerProps {
     fullWidth?: boolean
     /** Trigger button size. Mapped to the underlying button per backing renderer. */
     size?: 'xsmall' | 'small' | 'medium' | 'large'
-    /** Trigger button style. Mapped to the underlying button per backing renderer (secondary -> Quill outline; primary -> primary; tertiary -> default). When unset, the Quill trigger uses its neutral `outline`. */
+    /** Trigger button style. Mapped to the underlying button per backing renderer (secondary -> Quill outline; primary -> Quill primary; tertiary -> Quill default). When unset, the Quill trigger uses its neutral `outline`. */
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Extra class names merged onto the trigger. */
     className?: string
@@ -180,6 +180,7 @@ function DatePickerQuill({
             {clearable && value && !disabledReason && (
                 <Button
                     variant="outline"
+                    size={size ? QUILL_TRIGGER_SIZE[size] : 'default'}
                     aria-label="Clear date"
                     data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
                     onClick={() => onChange(null)}
