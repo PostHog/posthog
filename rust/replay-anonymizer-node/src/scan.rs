@@ -508,8 +508,21 @@ fn hex4(bytes: &[u8], at: usize) -> Result<u16> {
 /// escapes it emits (control chars as `\u00xx`, everything else verbatim UTF-8).
 pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
+    let bytes = s.as_bytes();
     out.push(b'"');
-    for b in s.bytes() {
+    let mut i = 0;
+    while i < bytes.len() {
+        // Bulk-copy the run needing no escape (scrubbed strings are long `*`/`#` runs).
+        let run_start = i;
+        while i < bytes.len() && !matches!(bytes[i], 0x00..=0x1f | b'"' | b'\\') {
+            i += 1;
+        }
+        out.extend_from_slice(&bytes[run_start..i]);
+        if i >= bytes.len() {
+            break;
+        }
+        let b = bytes[i];
+        i += 1;
         match b {
             b'"' => out.extend_from_slice(b"\\\""),
             b'\\' => out.extend_from_slice(b"\\\\"),
@@ -518,7 +531,7 @@ pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
             b'\n' => out.extend_from_slice(b"\\n"),
             b'\r' => out.extend_from_slice(b"\\r"),
             b'\t' => out.extend_from_slice(b"\\t"),
-            0x00..=0x1f => out.extend_from_slice(&[
+            _ => out.extend_from_slice(&[
                 b'\\',
                 b'u',
                 b'0',
@@ -526,7 +539,6 @@ pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
                 HEX[(b >> 4) as usize],
                 HEX[(b & 0xf) as usize],
             ]),
-            _ => out.push(b),
         }
     }
     out.push(b'"');

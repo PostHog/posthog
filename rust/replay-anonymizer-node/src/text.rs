@@ -181,10 +181,20 @@ fn emit_word(allow: &AllowLists, word: &str, out: &mut String, changed: &mut boo
     }
 }
 
-/// Length-preserving redaction: one mark per source code point.
+/// Length-preserving redaction: one mark per source code point, pushed in chunks.
 fn push_redacted(word: &str, mark: char, out: &mut String) {
-    for _ in word.chars() {
-        out.push(mark);
+    const STARS: &str = "********************************";
+    const HASHES: &str = "################################";
+    let chunk = if mark == NUMBER_CHAR { HASHES } else { STARS };
+    let mut n = if word.is_ascii() {
+        word.len()
+    } else {
+        word.chars().count()
+    };
+    while n > 0 {
+        let take = n.min(chunk.len());
+        out.push_str(&chunk[..take]);
+        n -= take;
     }
 }
 

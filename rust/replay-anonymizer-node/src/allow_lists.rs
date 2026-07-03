@@ -26,6 +26,14 @@ fn ascii_lowercase(s: &str) -> String {
 pub struct AllowLists {
     text: AHashSet<String>,
     url: AHashSet<String>,
+    /// Bit i set = the text set contains a word of byte length i (lengths >= 63 share bit 63).
+    /// Most redacted tokens miss the mask and skip the hash entirely.
+    text_lens: u64,
+    url_lens: u64,
+}
+
+fn len_bit(s: &str) -> u64 {
+    1u64 << s.len().min(63)
 }
 
 impl AllowLists {
@@ -36,19 +44,28 @@ impl AllowLists {
         J: IntoIterator,
         J::Item: AsRef<str>,
     {
+        let text: AHashSet<String> = text
+            .into_iter()
+            .map(|w| ascii_lowercase(w.as_ref()))
+            .collect();
+        let url: AHashSet<String> = url
+            .into_iter()
+            .map(|s| ascii_lowercase(s.as_ref()))
+            .collect();
+        let text_lens = text.iter().map(|w| len_bit(w)).fold(0, |a, b| a | b);
+        let url_lens = url.iter().map(|w| len_bit(w)).fold(0, |a, b| a | b);
         Self {
-            text: text
-                .into_iter()
-                .map(|w| ascii_lowercase(w.as_ref()))
-                .collect(),
-            url: url
-                .into_iter()
-                .map(|s| ascii_lowercase(s.as_ref()))
-                .collect(),
+            text,
+            url,
+            text_lens,
+            url_lens,
         }
     }
 
     pub fn text_contains(&self, word: &str) -> bool {
+        if self.text_lens & len_bit(word) == 0 {
+            return false;
+        }
         if has_upper_ascii(word) {
             self.text.contains(&ascii_lowercase(word))
         } else {
@@ -57,6 +74,9 @@ impl AllowLists {
     }
 
     pub fn url_contains(&self, segment: &str) -> bool {
+        if self.url_lens & len_bit(segment) == 0 {
+            return false;
+        }
         if has_upper_ascii(segment) {
             self.url.contains(&ascii_lowercase(segment))
         } else {
