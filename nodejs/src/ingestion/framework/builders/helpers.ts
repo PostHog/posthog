@@ -1,4 +1,5 @@
 import {
+    AccumulatedFlushInput,
     AccumulatingPipeline,
     AccumulationContext,
     BeforeAccumulationInput,
@@ -34,6 +35,8 @@ export function newBatchingPipeline<
     CBatch = NonNullable<unknown>,
     COutput = CInput,
     R extends string = never,
+    TPostOut = TOutput,
+    CPostOut = COutput & BatchingContext,
 >(
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
@@ -57,11 +60,11 @@ export function newBatchingPipeline<
         >
     ) => PipelineBuilder<
         AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
-        AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch, R>,
+        AfterBatchOutput<TPostOut, CPostOut, CBatch, R>,
         Record<string, never>
     >,
     options?: Partial<BatchingPipelineOptions>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R, TPostOut, CPostOut> {
     const startBuilder = new BatchPipelineBuilder(
         new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
     )
@@ -102,10 +105,24 @@ export function newAccumulatingPipeline<
     ) => PipelineBuilder<BeforeAccumulationInput, BeforeAccumulationOutput<CBatch>, Record<string, never>>
     /** Pre-built record pipeline that folds each message into the current batch context */
     pipeline: BatchPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
-    /** Builds the flush pipeline run on the size or age trigger, draining the batch context */
+    /**
+     * Builds the flush pipeline run on the size or age trigger. It receives one
+     * {@link AccumulatedFlushInput}: the batch context plus every accumulated record result in feed
+     * order.
+     */
     flush: (
-        builder: BatchPipelineBuilder<CBatch & AccumulationContext, CBatch & AccumulationContext, Record<string, never>>
-    ) => BatchPipelineBuilder<CBatch & AccumulationContext, TFlushOut, Record<string, never>, CFlushOut, R>
+        builder: BatchPipelineBuilder<
+            AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+            AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+            Record<string, never>
+        >
+    ) => BatchPipelineBuilder<
+        AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+        TFlushOut,
+        Record<string, never>,
+        CFlushOut,
+        R
+    >
     /** Size predicate: returns true when the current batch should flush */
     shouldFlush: (batchContext: CBatch & AccumulationContext) => boolean
     /** Maximum age of a batch in milliseconds before the timer flushes it */
@@ -116,7 +133,12 @@ export function newAccumulatingPipeline<
         .build()
     const flushPipeline = config
         .flush(
-            new BatchPipelineBuilder(new BufferingBatchPipeline<CBatch & AccumulationContext, Record<string, never>>())
+            new BatchPipelineBuilder(
+                new BufferingBatchPipeline<
+                    AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+                    Record<string, never>
+                >()
+            )
         )
         .build()
     return new AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CBatch, TFlushOut, CFlushOut, R>({

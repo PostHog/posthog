@@ -31,6 +31,17 @@ export type AccumulatingResult<TRecordOut, CRecordOut, TFlushOut, CFlushOut, R e
     | { flushed: true; elements: BatchPipelineResultWithContext<TFlushOut, CFlushOut, R> }
 
 /**
+ * The single element handed to the flush pipeline on a flush: the batch context (the accumulator)
+ * plus every record result accumulated since the last flush, in feed order. Mirrors
+ * BatchingPipeline's {@link AfterBatchInput} so flush steps can both drain the accumulator (via
+ * `batchContext`) and read per-record data (via `elements`, e.g. to compute per-message latency).
+ */
+export interface AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R extends string = never> {
+    elements: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R>
+    batchContext: CBatch & AccumulationContext
+}
+
+/**
  * Constructor config, ordered by when each part runs in a cycle: beforeBatch mints the accumulator,
  * pipeline folds events, shouldFlush/maxBatchAgeMs decide when to flush, then flushPipeline persists
  * the batch context.
@@ -54,10 +65,17 @@ export interface AccumulatingPipelineConfig<
     /** Age trigger interval. The timer only marks a flush due; the flush executes inside next(). */
     maxBatchAgeMs: number
     /**
-     * Flush pipeline that persists the batch context on a flush. It receives the whole batch context
-     * as a single element and fans out over sub-units (e.g. per session) internally if it needs to.
+     * Flush pipeline that persists the batch on a flush. It receives a single
+     * {@link AccumulatedFlushInput} — the batch context plus every accumulated record result in feed
+     * order — and fans out over sub-units (e.g. per session) internally if it needs to.
      */
-    flushPipeline: BatchPipeline<CBatch & AccumulationContext, TFlushOut, Record<string, never>, CFlushOut, R>
+    flushPipeline: BatchPipeline<
+        AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+        TFlushOut,
+        Record<string, never>,
+        CFlushOut,
+        R
+    >
 }
 
 /**
@@ -66,8 +84,10 @@ export interface AccumulatingPipelineConfig<
  *
  * Unlike BatchingPipeline — where each feed() is one batch — the accumulation boundary spans
  * many feed() calls and is decided by `shouldFlush` (size) plus an age timer. `beforeBatch`
- * mints a fresh accumulator after every flush (and before the first feed). Offsets live entirely
- * outside: feed/next emit results and the consumer owns all offset tracking and committing.
+ * mints a fresh accumulator after every flush (and before the first feed). The record pipeline's
+ * output (typically a BatchingPipeline whose afterBatch trims each result and records its offset)
+ * accumulates in feed order and is handed to the flush pipeline as {@link AccumulatedFlushInput};
+ * the flush pipeline both persists the accumulator and commits the offsets its records covered.
  *
  * LIVENESS INVARIANT — age-based flush requires next() to be called while idle.
  *
@@ -123,7 +143,7 @@ export class AccumulatingPipeline<
         R
     >
     private readonly flushPipeline: BatchPipeline<
-        CBatch & AccumulationContext,
+        AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
         TFlushOut,
         Record<string, never>,
         CFlushOut,
@@ -131,6 +151,11 @@ export class AccumulatingPipeline<
     >
     private readonly shouldFlush: (batchContext: CBatch & AccumulationContext) => boolean
     private readonly maxBatchAgeMs: number
+
+    // Record results accumulated (in feed order) since the last flush, handed to the flush pipeline
+    // as AccumulatedFlushInput.elements. The record pipeline's afterBatch has already trimmed these
+    // to whatever the flush needs, so this holds lightweight rows, not the full fed payloads.
+    private flushBuffer: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R> = []
 
     constructor(
         config: AccumulatingPipelineConfig<
@@ -170,7 +195,9 @@ export class AccumulatingPipeline<
     }
 
     private async drainAndFlush(): Promise<AccumulatingResult<TRecordOut, CRecordOut, TFlushOut, CFlushOut, R> | null> {
-        await this.drain(this.pipeline)
+        // Drain any buffered record work into the accumulator FIRST so a revoke/stop flush also runs
+        // the record pipeline's afterBatch on it (offsets tracked, elements trimmed) before flushing.
+        this.flushBuffer.push(...(await this.drain(this.pipeline)))
         return this.flushNow()
     }
 
@@ -210,9 +237,11 @@ export class AccumulatingPipeline<
     }
 
     private async pump(): Promise<AccumulatingResult<TRecordOut, CRecordOut, TFlushOut, CFlushOut, R> | null> {
-        // Drain the record (main) pipeline first; yield its results so the consumer can track offsets.
+        // Drain the record (main) pipeline first and accumulate its afterBatch output — already
+        // trimmed and in feed order — into the flush buffer.
         const recorded = await this.drain(this.pipeline)
         if (recorded.length > 0) {
+            this.flushBuffer.push(...recorded)
             return { flushed: false, elements: recorded }
         }
 
@@ -233,10 +262,15 @@ export class AccumulatingPipeline<
             return null
         }
 
-        // Hand the whole batch context to the flush pipeline as a single element; the flush pipeline
-        // fans out over sub-units (e.g. per session) internally if it needs per-unit steps.
-        this.flushPipeline.feed([createOkContext(this.currentBatchContext, {})])
+        // Hand the flush pipeline one element: the batch context plus the accumulated record results
+        // in feed order. Reset the buffer and re-mint the batch context for the next cycle.
+        const flushInput: AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R> = {
+            elements: this.flushBuffer,
+            batchContext: this.currentBatchContext,
+        }
+        this.flushPipeline.feed([createOkContext(flushInput, {})])
         const elements = await this.drain(this.flushPipeline)
+        this.flushBuffer = []
         this.currentBatchContext = await this.runBeforeBatch()
         return { flushed: true, elements }
     }

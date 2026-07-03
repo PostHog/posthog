@@ -30,23 +30,31 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
 }
 
 /**
- * What an afterBatch pipeline produces. Structurally the same as
- * `AfterBatchInput` — extending it means a passthrough step (one that
- * returns its input untouched) satisfies the afterBatch contract without
- * needing an explicit Input→Output transformer in front. The runtime
- * downstream of `afterPipeline.process(...)` only reads `elements`, so
- * carrying `batchId` through is harmless.
+ * What an afterBatch pipeline produces. The out element/context types default to the in types, so a
+ * passthrough step (one that returns its input untouched) satisfies the contract with no explicit
+ * transformer. When they differ, afterBatch retypes the elements — e.g. trimming each result to a
+ * lightweight shape. The runtime downstream only reads `elements`, so carrying `batchId` is harmless.
  */
-export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never>
-    extends AfterBatchInput<TOutput, COutput, CBatch, R> {}
+export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
+    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
+    batchContext: CBatch
+    batchId: number
+}
 
 export type BeforeBatchStep<TInput, CInput, CBatchInput, CBatchOutput = CBatchInput> = (
     input: BeforeBatchInput<TInput, CInput, CBatchInput>
 ) => Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, CBatchOutput>>>
 
-export type AfterBatchStep<TOutput, COutput, CBatch, R extends string = never> = (
+export type AfterBatchStep<
+    TOutput,
+    COutput,
+    CBatch,
+    R extends string = never,
+    TPostOut = TOutput,
+    CPostOut = COutput,
+> = (
     input: AfterBatchInput<TOutput, COutput, CBatch, R>
-) => Promise<PipelineResult<AfterBatchOutput<TOutput, COutput, CBatch, R>>>
+) => Promise<PipelineResult<AfterBatchOutput<TPostOut, CPostOut, CBatch, R>>>
 
 export interface BatchResult<T> {
     elements: T
@@ -105,6 +113,8 @@ export class BatchingPipeline<
     CBatchOutput,
     COutput extends BatchingContext,
     R extends string = never,
+    TPostOut = TOutput,
+    CPostOut = COutput,
 > {
     private nextBatchId = 0
     private nextMessageId = 0
@@ -114,7 +124,7 @@ export class BatchingPipeline<
     private feedEpoch = 0
     private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>>[] = []
+    private completedResults: BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>>[] = []
 
     // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
     // ingestion API server) invoke feed()/next() concurrently, but the
@@ -145,7 +155,7 @@ export class BatchingPipeline<
         >,
         private afterPipeline: Pipeline<
             AfterBatchInput<TOutput, COutput, CBatchOutput, R>,
-            AfterBatchOutput<TOutput, COutput, CBatchOutput, R>,
+            AfterBatchOutput<TPostOut, CPostOut, CBatchOutput, R>,
             Record<string, never>
         >,
         options?: Partial<BatchingPipelineOptions>
@@ -227,7 +237,7 @@ export class BatchingPipeline<
         return { ok: true }
     }
 
-    next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    next(): Promise<BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>> | null> {
         // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
         // With one concurrent batch the caller is already sequential, so the
@@ -236,7 +246,7 @@ export class BatchingPipeline<
         return this.pumpLimit(() => this.pump())
     }
 
-    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>> | null> {
         // Re-check after acquiring the pump: a previous pump iteration may have
         // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {
