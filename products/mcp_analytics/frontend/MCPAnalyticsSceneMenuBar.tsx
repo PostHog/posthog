@@ -1,15 +1,11 @@
 import { useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
-
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
-
-import { MCP_DOCS_URL } from './mcpAnalyticsSceneLogic'
+import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 
 const RESOURCE_TYPE = 'mcp-analytics'
 
@@ -29,15 +25,6 @@ function MCPAnalyticsSceneMenuBarInner(): JSX.Element {
         <SceneMenuBar>
             <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`} disabled={!hasFileItems}>
                 {hasFileItems && <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />}
-            </SceneMenuBarMenu>
-            <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                <SceneMenuBarItem
-                    onClick={() => window.open(MCP_DOCS_URL, '_blank', 'noopener,noreferrer')}
-                    data-attr={`${RESOURCE_TYPE}-menubar-documentation`}
-                >
-                    <IconExternal />
-                    Documentation
-                </SceneMenuBarItem>
             </SceneMenuBarMenu>
         </SceneMenuBar>
     )

@@ -360,10 +360,7 @@ type Story = StoryObj<{}>
 
 export const Dashboard: Story = {}
 
-// Same dashboard with the SCENE_MENU_BAR experiment on: the OS-like menu bar (File / View
-// + universal PostHog AI / Docs / Support cluster) renders above the title, matching the
-// chrome users already know from Dashboards and Web analytics. Diff against `Dashboard` to
-// see the added menu bar. Re-list MCP_ANALYTICS — per-story featureFlags replace meta's.
+// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
 export const DashboardWithMenuBar: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
