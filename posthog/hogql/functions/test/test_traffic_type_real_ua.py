@@ -189,9 +189,11 @@ class TestTrafficTypeIntegration(BaseTest):
         assert category == "search_crawler"
         assert bot_name == "Googlebot"
 
-    def test_virt_properties_signature_agent(self):
+    def test_signature_agent_classification(self):
         # Web Bot Auth: signed agents (e.g. ChatGPT agent) use real browser user agents but
         # self-identify via the Signature-Agent header, forwarded as $signature_agent.
+        # Exercised through the explicit three-argument functions — the $virt_* fields
+        # deliberately exclude $signature_agent until it has a materialized column.
         browser_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
         cases = [
             # (case_id, properties, expected_is_bot, expected_traffic_type, expected_bot_name)
@@ -253,8 +255,16 @@ class TestTrafficTypeIntegration(BaseTest):
             )
         flush_persons_and_events()
 
+        classification_args = "properties.$raw_user_agent, properties.$ip, properties.$signature_agent"
         response = self._query_tagged(
-            "properties.case_id, `$virt_is_bot`, `$virt_traffic_type`, `$virt_bot_name`, `$virt_bot_operator`", tag
+            f"""
+                properties.case_id,
+                isLikelyBot({classification_args}),
+                getTrafficType({classification_args}),
+                getBotName({classification_args}),
+                getBotOperator({classification_args})
+            """,
+            tag,
         )
         results_by_case = {row[0]: row for row in response.results}
 

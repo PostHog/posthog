@@ -93,15 +93,12 @@ class TestFieldMarkers:
         field = factory_fn(name=field_name)
         assert isinstance(field.expr, ast.Call)
         assert field.expr.name == marker
-        assert field.expr.args == [user_agent_expr(), client_ip_expr(), signature_agent_expr()]
+        # $signature_agent is deliberately absent: no materialized column yet (see _classification_args)
+        assert field.expr.args == [user_agent_expr(), client_ip_expr()]
 
     @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)
     def test_marker_respects_custom_properties_path(self, factory_fn, field_name, marker):
         field = factory_fn(name=field_name, properties_path=["poe", "properties"])
         assert isinstance(field.expr, ast.Call)
         assert field.expr.name == marker
-        assert field.expr.args == [
-            user_agent_expr(["poe", "properties"]),
-            client_ip_expr(["poe", "properties"]),
-            signature_agent_expr(["poe", "properties"]),
-        ]
+        assert field.expr.args == [user_agent_expr(["poe", "properties"]), client_ip_expr(["poe", "properties"])]

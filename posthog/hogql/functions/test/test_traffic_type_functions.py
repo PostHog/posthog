@@ -424,7 +424,7 @@ class TestBotIPClassification:
 class TestSignatureAgentClassification:
     def test_is_bot_with_signature_agent_checks_it_between_ua_and_ip(self):
         node = ast.Call(name="isLikelyBot", args=[])
-        args = [
+        args: list[ast.Expr] = [
             ast.Field(chain=["properties", "$user_agent"]),
             ast.Field(chain=["properties", "$ip"]),
             ast.Field(chain=["properties", "$signature_agent"]),
@@ -454,7 +454,7 @@ class TestSignatureAgentClassification:
     )
     def test_lookup_builders_check_signature_agent_before_ip(self, function_builder):
         node = ast.Call(name="test", args=[])
-        args = [
+        args: list[ast.Expr] = [
             ast.Field(chain=["properties", "$user_agent"]),
             ast.Field(chain=["properties", "$ip"]),
             ast.Field(chain=["properties", "$signature_agent"]),

@@ -28,7 +28,13 @@ def signature_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Exp
 
 
 def _classification_args(properties_path: Optional[list[str]] = None) -> list[ast.Expr]:
-    return [user_agent_expr(properties_path), client_ip_expr(properties_path), signature_agent_expr(properties_path)]
+    # signature_agent_expr is intentionally NOT included: $signature_agent has no
+    # materialized column, so referencing it here would force a full properties-blob read
+    # on every query using these fields — the exact cost dropping the $user_agent fallback
+    # removed. Wire it in once the property is materialized (or stamped at capture);
+    # until then callers with the property can pass it to the three-argument functions
+    # (e.g. isLikelyBot(ua, ip, signature_agent)) explicitly.
+    return [user_agent_expr(properties_path), client_ip_expr(properties_path)]
 
 
 # These one-node calls are expanded to the classification SQL in the resolver (see Resolver.visit_call),

@@ -609,7 +609,6 @@ WHERE
         return get_traffic_type_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
-            ast.Field(chain=["events", "properties", "$signature_agent"]),
         )
 
     def _get_traffic_category_expr(
@@ -618,7 +617,6 @@ WHERE
         return get_traffic_category_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
-            ast.Field(chain=["events", "properties", "$signature_agent"]),
         )
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
