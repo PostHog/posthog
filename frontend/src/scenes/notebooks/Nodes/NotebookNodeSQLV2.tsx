@@ -1,7 +1,13 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+
+import { Query } from '~/queries/Query/Query'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
@@ -12,6 +18,7 @@ import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Result = {
     columns: string[]
+    types?: [string, string][]
     row_count: number
     first_page: (string | number | null)[][]
 }
@@ -20,7 +27,11 @@ export type NotebookNodeSQLV2Attributes = {
     code: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    outputTab?: OutputTab | null
+    vizQuery?: DataVisualizationNode | null
 }
+
+const VIZ_MIN_HEIGHT = 420
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -32,6 +43,20 @@ const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeRe
         rowCount: firstPage.length,
     }
 }
+
+// Results from before the envelope carried types (or a kernel that omitted them):
+// approximate from the first non-null cell so numeric axes still work in charts.
+const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
+    (result.columns ?? []).map((column, index) => {
+        const sample = (result.first_page ?? []).map((row) => row[index]).find((cell) => cell !== null)
+        return [column, typeof sample === 'number' ? 'Float64' : 'String']
+    })
+
+const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+    results: result.first_page ?? [],
+    columns: result.columns ?? [],
+    types: result.types?.length ? result.types : inferTypes(result),
+})
 
 const Component = ({
     attributes,
@@ -52,6 +77,19 @@ const Component = ({
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => (result ? toDataframeResult(result) : null), [result])
+    const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
+    const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
+
+    // The stored viz config wins, but the source always tracks the node's current code.
+    const vizQuery = useMemo(
+        (): DataVisualizationNode => ({
+            kind: NodeKind.DataVisualizationNode,
+            display: ChartDisplayType.ActionsLineGraph,
+            ...attributes.vizQuery,
+            source: { kind: NodeKind.HogQLQuery, query: attributes.code },
+        }),
+        [attributes.vizQuery, attributes.code]
+    )
 
     if (!expanded) {
         return null
@@ -66,16 +104,59 @@ const Component = ({
             >
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
-                ) : dataframeResult ? (
-                    <NotebookDataframeTable
-                        result={dataframeResult}
-                        loading={isRunning}
-                        page={1}
-                        pageSize={Math.max(dataframeResult.rows.length, 1)}
-                        onNextPage={() => {}}
-                        onPreviousPage={() => {}}
-                        onPageSizeChange={() => {}}
-                    />
+                ) : dataframeResult && cachedResults ? (
+                    <>
+                        <div className="px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                            <LemonTabs
+                                size="small"
+                                activeKey={activeTab}
+                                onChange={(tab) => {
+                                    // Charts need vertical room; the default node height only fits a few table rows.
+                                    const height =
+                                        tab === OutputTab.Visualization &&
+                                        (typeof attributes.height !== 'number' || attributes.height < VIZ_MIN_HEIGHT)
+                                            ? VIZ_MIN_HEIGHT
+                                            : attributes.height
+                                    updateAttributes({ outputTab: tab, height })
+                                }}
+                                barClassName="mb-0"
+                                tabs={[
+                                    { key: OutputTab.Results, label: 'Results' },
+                                    { key: OutputTab.Visualization, label: 'Visualization' },
+                                ]}
+                            />
+                        </div>
+                        {activeTab === OutputTab.Results ? (
+                            <NotebookDataframeTable
+                                result={dataframeResult}
+                                loading={isRunning}
+                                page={1}
+                                pageSize={Math.max(dataframeResult.rows.length, 1)}
+                                onNextPage={() => {}}
+                                onPreviousPage={() => {}}
+                                onPageSizeChange={() => {}}
+                            />
+                        ) : (
+                            <div
+                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col"
+                                onClick={(event) => event.stopPropagation()}
+                            >
+                                <Query
+                                    // Keyed per run so a fresh envelope re-seeds the cached response.
+                                    uniqueKey={`${nodeId}-viz-${attributes.runId ?? 'initial'}`}
+                                    query={vizQuery}
+                                    setQuery={(query) => {
+                                        // DataVisualization pushes default settings during its render;
+                                        // defer the doc write so we don't update Tiptap mid-render.
+                                        const vizQuery = query as DataVisualizationNode
+                                        setTimeout(() => updateAttributes({ vizQuery }), 0)
+                                    }}
+                                    cachedResults={cachedResults}
+                                    attachTo={notebookLogic}
+                                />
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
@@ -112,7 +193,7 @@ const Settings = ({
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
-            onRunQuery={() => runQuery(attributes.code ?? '')}
+            onRunQuery={(code) => runQuery(code)}
             runQueryLoading={isRunning}
             runQueryTooltip="Run SQL (v2) query"
         />
@@ -135,6 +216,12 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: null,
         },
         result: {
+            default: null,
+        },
+        outputTab: {
+            default: OutputTab.Results,
+        },
+        vizQuery: {
             default: null,
         },
     },

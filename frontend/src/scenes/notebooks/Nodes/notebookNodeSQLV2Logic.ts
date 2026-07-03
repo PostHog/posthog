@@ -50,6 +50,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     }),
     listeners(({ props, actions, cache }) => ({
         runQuery: async ({ code }) => {
+            if (!code.trim()) {
+                actions.setRunError('Query is empty — type some HogQL first.')
+                actions.setIsRunning(false)
+                return
+            }
             try {
                 const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                     node_id: props.nodeId,
@@ -89,6 +94,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         result: result
                             ? {
                                   columns: result.columns ?? [],
+                                  types: result.types ?? [],
                                   row_count: result.row_count ?? 0,
                                   first_page: result.first_page ?? [],
                               }

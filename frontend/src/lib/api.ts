@@ -4930,7 +4930,12 @@ const api = {
             runId: string
         ): Promise<{
             status: 'running' | 'done' | 'failed'
-            result: { columns?: string[]; row_count?: number; first_page?: (string | number | null)[][] } | null
+            result: {
+                columns?: string[]
+                types?: [string, string][]
+                row_count?: number
+                first_page?: (string | number | null)[][]
+            } | null
             error: string | null
         }> {
             return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
