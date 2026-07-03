@@ -317,6 +317,7 @@
         "concurrently": "catalog:",
         "esbuild-visualizer": "^0.6.0",
         "fake-indexeddb": "^6.0.1",
+        "fast-check": "^4.8.0",
         "fs-extra": "^10.0.0",
         "happy-dom": "^20.9.0",
         "history": "^5.0.1",

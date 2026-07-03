@@ -31,10 +31,12 @@ import {
 } from '~/types'
 
 import {
+    BillingLimits,
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
     getMinimumBillingAccessLevel,
+    mergeLimitsForProduct,
 } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -78,18 +80,6 @@ export type SwitchPlanPayload = {
     from_plan_key: string
     to_product_key: string
     to_plan_key: string
-}
-
-export type BillingLimits = Pick<BillingType, 'custom_limits_usd' | 'next_period_custom_limits_usd'>
-
-/** Returns `map` with `key` set to `value`, or with `key` removed when `value` is null/undefined. */
-const withLimit = (
-    map: Record<string, number | null> | undefined,
-    key: string,
-    value: number | null | undefined
-): Record<string, number | null> => {
-    const { [key]: _discarded, ...rest } = map ?? {}
-    return value == null ? rest : { ...rest, [key]: value }
 }
 
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
@@ -522,25 +512,12 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     reducers({
-        // Limit writes are per product: merging only the saved key keeps concurrent saves commutative.
         // `billingSource` is the reducer behind the lazy `billing` selector (kea-loaders lazy mode
         // stores state in `<key>Source`), and is the only way to extend lazy loader state.
         billingSource: {
             // The state param is annotated because typegen sees lazy loader state as `any`.
             updateBillingLimitSuccess: (state: BillingType | null, { productType, limits }) =>
-                state && {
-                    ...state,
-                    custom_limits_usd: withLimit(
-                        state.custom_limits_usd,
-                        productType,
-                        limits.custom_limits_usd?.[productType]
-                    ),
-                    next_period_custom_limits_usd: withLimit(
-                        state.next_period_custom_limits_usd,
-                        productType,
-                        limits.next_period_custom_limits_usd?.[productType]
-                    ),
-                },
+                mergeLimitsForProduct(state, productType, limits),
         },
         limitUpdatesInFlight: [
             {} as Record<string, true>,

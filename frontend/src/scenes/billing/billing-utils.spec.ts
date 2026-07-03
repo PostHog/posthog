@@ -1,3 +1,4 @@
+import fc from 'fast-check'
 import tk from 'timekeeper'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -5,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
+import { BillingType } from '~/types'
 
 import {
     buildUsageLimitApproachingMessage,
@@ -19,6 +21,7 @@ import {
     getMinimumBillingAccessLevel,
     getProration,
     getUsageLimitConsequence,
+    mergeLimitsForProduct,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -665,5 +668,70 @@ describe('canAccessBilling', () => {
         { level: null, ownerOnly: true, expected: false },
     ])('returns $expected for level=$level, ownerOnly=$ownerOnly', ({ level, ownerOnly, expected }) => {
         expect(canAccessBilling(level, ownerOnly)).toBe(expected)
+    })
+})
+
+describe('mergeLimitsForProduct', () => {
+    // The invariant the billing limits UI relies on: saves for different products can run
+    // concurrently and their responses can arrive in any order, yet folding the merges must
+    // reproduce the server's final state. Responses for the *same* product are applied in
+    // commit order — the UI guarantees this by disabling a product's editor while its save
+    // is in flight — so the generator only permutes across products.
+    const PRODUCTS = ['product_analytics', 'session_replay', 'surveys'] as const
+
+    // One committed server write: sets or removes (null) the product's key in each map.
+    const opArb = fc.record({
+        product: fc.constantFrom(...PRODUCTS),
+        custom: fc.option(fc.nat({ max: 1000 }), { nil: null }),
+        next: fc.option(fc.nat({ max: 1000 }), { nil: null }),
+    })
+
+    const applyOp = (map: Record<string, number>, key: string, value: number | null): void => {
+        if (value === null) {
+            delete map[key]
+        } else {
+            map[key] = value
+        }
+    }
+
+    it('folding responses in any per-product-ordered arrival order converges to server state', () => {
+        fc.assert(
+            fc.property(fc.array(opArb, { maxLength: 20 }), fc.array(fc.nat({ max: 1000 })), (ops, choices) => {
+                // Server model: ops commit in array order, each response echoes both full maps.
+                const serverCustom: Record<string, number> = { surveys: 50 }
+                const serverNext: Record<string, number> = {}
+                const responses = ops.map((op) => {
+                    applyOp(serverCustom, op.product, op.custom)
+                    applyOp(serverNext, op.product, op.next)
+                    return {
+                        product: op.product,
+                        limits: {
+                            custom_limits_usd: { ...serverCustom },
+                            next_period_custom_limits_usd: { ...serverNext },
+                        },
+                    }
+                })
+
+                // Arrival order: any interleaving that preserves per-product commit order.
+                const queues = PRODUCTS.map((p) => responses.filter((r) => r.product === p))
+                let billing = {
+                    custom_limits_usd: { surveys: 50 },
+                    next_period_custom_limits_usd: {},
+                } as BillingType
+                for (let i = 0; responses.length > 0 && queues.some((q) => q.length > 0); i++) {
+                    const nonEmpty = queues.filter((q) => q.length > 0)
+                    const queue = nonEmpty[(choices[i] ?? 0) % nonEmpty.length]
+                    const response = queue.shift()!
+                    billing = mergeLimitsForProduct(billing, response.product, response.limits)!
+                }
+
+                expect(billing.custom_limits_usd).toEqual(serverCustom)
+                expect(billing.next_period_custom_limits_usd).toEqual(serverNext)
+            })
+        )
+    })
+
+    it('returns null billing unchanged', () => {
+        expect(mergeLimitsForProduct(null, 'surveys', { custom_limits_usd: { surveys: 1 } })).toBeNull()
     })
 })
