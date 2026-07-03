@@ -460,6 +460,26 @@ def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTil
     return cs.last_refresh or cs.created_at
 
 
+# Must match the denial raised in posthog/hogql/database/database.py `get_table`.
+_TABLE_ACCESS_DENIED_PREFIX = "You don't have access"
+
+
+def _shared_denial_message(message: str, context: dict[str, Any]) -> str:
+    """Reword warehouse access denials for anonymous viewers of a shared artifact.
+
+    Shared queries execute as the artifact's creator, so "you" is wrong and unactionable for an
+    anonymous viewer — name the owner whose access governs the link so they know whom to ask.
+    """
+    if not message.startswith(_TABLE_ACCESS_DENIED_PREFIX):
+        return message
+    kind = context.get("shared_artifact_kind") or "resource"
+    owner = context.get("shared_execution_user")
+    rest = message.removeprefix(_TABLE_ACCESS_DENIED_PREFIX)
+    if owner is not None and owner.email:
+        return f"The {kind} owner ({owner.email}) doesn't have access{rest}"
+    return f"The {kind} owner doesn't have access{rest}"
+
+
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
@@ -1139,7 +1159,10 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-                raise ValidationError(str(e), getattr(e, "code_name", None))
+                message = str(e)
+                if self.context.get("is_shared"):
+                    message = _shared_denial_message(message, self.context)
+                raise ValidationError(message, getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
@@ -1469,6 +1492,7 @@ class InsightViewSet(
             # Sharing-token API refreshes are anonymous; queries execute as the shared
             # artifact's creator, mirroring the /shared/ page render.
             context["shared_execution_user"] = authenticator.sharing_configuration.effective_execution_user()
+            context["shared_artifact_kind"] = authenticator.sharing_configuration.shared_artifact_kind()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context

@@ -273,6 +273,16 @@ class SharingConfiguration(models.Model):
             return None
         return creator
 
+    def shared_artifact_kind(self) -> str:
+        """Human-readable kind of the shared artifact, for viewer-facing copy on public pages."""
+        if self.dashboard_id:
+            return "dashboard"
+        if self.insight_id:
+            return "insight"
+        if self.notebook_id:
+            return "notebook"
+        return "resource"
+
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False

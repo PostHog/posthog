@@ -934,6 +934,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         shared_execution_user = (
             resource.effective_execution_user() if isinstance(resource, SharingConfiguration) else None
         )
+        shared_artifact_kind = (
+            resource.shared_artifact_kind() if isinstance(resource, SharingConfiguration) else "resource"
+        )
 
         context = {
             "view": self,
@@ -944,6 +947,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
             "shared_execution_user": shared_execution_user,
+            "shared_artifact_kind": shared_artifact_kind,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 

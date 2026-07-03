@@ -1749,6 +1749,86 @@ class TestSharedNotebookWarehouseAccessControl(APIBaseTest):
         assert "warehouse-node" not in self._shared_inline_results()
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_warehouse_access_control_flag))
+class TestSharedWarehouseDenialMessage(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+            },
+            created_by=self.user,
+        )
+        self.client.logout()
+
+    def _deny_creator(self) -> None:
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(self.saved_query.id),
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+    def _refresh_via_token(self, config: SharingConfiguration):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
+            f"?sharing_access_token={config.access_token}&refresh=blocking"
+        )
+
+    @parameterized.expand(
+        [
+            ("insight",),
+            ("dashboard",),
+        ]
+    )
+    def test_denial_names_the_owner_for_anonymous_viewers(self, kind: str):
+        self._deny_creator()
+        if kind == "insight":
+            config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        else:
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self._refresh_via_token(config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert f"The {kind} owner ({self.user.email}) doesn't have access to table `governed_view`." in str(
+            response.json()
+        )
+
+    def test_denial_without_creator_omits_email(self):
+        self.insight.created_by = None
+        self.insight.save()
+        config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self._refresh_via_token(config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "The insight owner doesn't have access to table `governed_view`." in str(response.json())
+
+
 class TestSharingResourceEditChecks(APIBaseTest):
     def test_every_shareable_resource_has_an_edit_check(self):
         assert set(SHARING_RESOURCE_EDIT_CHECKS) == SharingConfiguration.shareable_resource_fields()
