@@ -70,7 +70,11 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="profile"))
 
-        assert {r.name.replace(" ", "") for r in results} == {'{"first_name":"Mary","last_name":"Smith"}', "plain"}
+        names: set[str] = set()
+        for result in results:
+            assert isinstance(result.name, str)
+            names.add(result.name.replace(" ", ""))
+        assert names == {'{"first_name":"Mary","last_name":"Smith"}', "plain"}
 
     def test_event_property_values_excludes_null(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})

@@ -12,10 +12,11 @@ from posthog.models.team.team import Team
 
 def _has_feature_flag_property(properties: object) -> bool:
     if isinstance(properties, str):
+        raw_properties = properties
         try:
-            properties = json.loads(properties)
+            properties = json.loads(raw_properties)
         except json.JSONDecodeError:
-            return "$feature/" in properties.replace("\\/", "/")
+            return "$feature/" in raw_properties.replace("\\/", "/")
 
     return isinstance(properties, dict) and any(key.startswith("$feature/") for key in properties)
 
