@@ -699,8 +699,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})
 
-        # Real-time limit applies on create and on any update that would increase the active count:
-        # switching an alert to real_time, or enabling an already-real_time alert.
         existing_enabled = self.instance.enabled if self.instance else True
         if msg := AlertConfiguration.real_time_alert_validation_error(
             team_id=self.context["team_id"],
