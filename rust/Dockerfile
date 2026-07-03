@@ -18,16 +18,15 @@ WORKDIR /app
 ARG BIN
 ARG BUILD_FEATURES=""
 ARG SCCACHE_WEBDAV_KEY_PREFIX
+# Extra rustc flags for specific images, set per-image in
+# .github/rust-images.yml (e.g. cymbal passes -C force-frame-pointers=yes so
+# the eBPF profiler can walk its native stacks on aarch64). Guarded exports
+# below because the RUSTFLAGS env var replaces [build].rustflags from
+# .cargo/config.toml entirely (no merging): when extra flags are set the
+# export re-adds --cfg tokio_unstable, and when unset RUSTFLAGS stays unset so
+# .cargo/config.toml keeps applying.
+ARG EXTRA_RUSTFLAGS=""
 ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
-
-# Force frame pointers into the shipped binaries so the eBPF profiler can walk
-# native stacks. Without them, aarch64 release builds are effectively
-# un-unwindable at sample time and most user-space frames collapse to [unknown].
-# RUSTFLAGS env fully overrides [build].rustflags from .cargo/config.toml (they
-# don't merge), so --cfg tokio_unstable is repeated here to keep it for the
-# Linux image build. Symbols (function names) are already retained via
-# [profile.release] debug = "line-tables-only" and no strip step runs here.
-ENV RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes"
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
@@ -39,6 +38,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    if [ -n "$EXTRA_RUSTFLAGS" ]; then export RUSTFLAGS="--cfg tokio_unstable $EXTRA_RUSTFLAGS"; fi && \
     cargo chef cook --release --recipe-path recipe.json --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
@@ -53,6 +53,7 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
         export SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN); \
     fi && \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    if [ -n "$EXTRA_RUSTFLAGS" ]; then export RUSTFLAGS="--cfg tokio_unstable $EXTRA_RUSTFLAGS"; fi && \
     cargo build --release --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
