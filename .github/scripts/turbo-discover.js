@@ -41,6 +41,11 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that run their OWN temporal suite inside the product test job (backend:test covers
+// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
+// the temporal durations must count toward product sizing so the product is sharded for that load —
+// otherwise a huge suite lands in one unsharded bucket and times out.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -230,9 +235,12 @@ function getProductDuration(product, durations) {
     }
     const dirName = product.replace(/-/g, '_')
     const prefix = `products/${dirName}/`
+    // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
+    // that runs its own temporal suite in the product job must count them toward its size.
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
