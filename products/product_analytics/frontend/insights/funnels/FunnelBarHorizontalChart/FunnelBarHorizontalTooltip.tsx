@@ -52,7 +52,7 @@ export function FunnelBarHorizontalTooltip({
         : null
 
     const sharedProps = {
-        showPersonsModal: showPersonsModal && (target.clickable ?? true),
+        showPersonsModal,
         stepIndex,
         series,
         groupTypeLabel,

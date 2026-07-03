@@ -490,11 +490,17 @@ describe('buildFunnelBarHorizontalData', () => {
                 expect(result[0].bars[1].series[2].trackData).toEqual([75])
             })
 
-            it('tags the aggregate drop-off so it isn’t attributed to a single value (breakdownIndex null)', () => {
+            it('tags the aggregate drop-off with its period instead of a single value, so a click opens the period’s drop-off', () => {
                 const [step0] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
-                const currentDropOff = step0.bars[0].series.find((s) => s.meta?.isDropOff)
+                const [currentDropOff] = step0.bars[0].series.filter((s) => s.meta?.isDropOff)
+                const [previousDropOff] = step0.bars[1].series.filter((s) => s.meta?.isDropOff)
 
-                expect(currentDropOff?.meta?.breakdownIndex).toBeNull()
+                expect(currentDropOff?.meta).toEqual({ isDropOff: true, breakdownIndex: null, compareLabel: 'current' })
+                expect(previousDropOff?.meta).toEqual({
+                    isDropOff: true,
+                    breakdownIndex: null,
+                    compareLabel: 'previous',
+                })
                 expect(currentDropOff?.visibility?.tooltip).toBe(false)
             })
 
@@ -692,9 +698,6 @@ describe('buildFunnelBarHorizontalData', () => {
                     )
                     expect(target?.isDropOffHover).toBe(true)
                     expect(target?.color).toBeUndefined()
-                    // The band spans every breakdown value of the period, so a click opens nothing —
-                    // the tooltip must not advertise one.
-                    expect(target?.clickable).toBe(false)
                 }
             )
         })

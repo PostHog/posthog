@@ -149,9 +149,6 @@ export interface FunnelBarHorizontalHoverTarget {
     isDropOffHover: boolean
     /** Swatch color for the tooltip header; unset for whole-step drop-off. */
     color?: string
-    /** False when clicking the hovered region does nothing (the breakdown + compare aggregate
-     *  drop-off band — it can't be scoped to one persons list), so the tooltip drops its click hint. */
-    clickable?: boolean
 }
 
 type FunnelBarHorizontalHoverContext = Pick<
@@ -200,9 +197,6 @@ export function resolveFunnelBarHorizontalHover(
                 ? comparePeriodAggregate(step, firstStep, stackCompareLabel)
                 : { ...step, breakdown: undefined, breakdown_value: undefined },
             isDropOffHover: stepIndex > 0,
-            // Mirrors the chart's click guard: the period-aggregate band spans every breakdown
-            // value, so it opens no persons modal and the tooltip shouldn't invite a click.
-            clickable: stackCompareLabel == null,
         }
     }
 
@@ -267,7 +261,8 @@ function comparePeriodAggregate(
 /** Builds the breakdown + compare layout: two stacks per step (current, then previous), each split into
  *  breakdown-value segments and scaled to whichever period had more total entrants at the first step. The
  *  smaller period's stack is shorter, its volume gap left blank. The aggregate drop-off band spans all
- *  values for the period, so it's tagged `breakdownIndex: null` — the chart leaves it non-clickable. */
+ *  values for the period, so it's tagged `breakdownIndex: null` plus its period's `compareLabel` — a
+ *  click opens the period's whole-step drop-off persons rather than a single value's. */
 function buildBreakdownCompareStacks(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
@@ -296,13 +291,16 @@ function buildBreakdownCompareStacks(
             bars: [
                 {
                     label: String(stepIndex),
-                    series: [...current, buildFunnelBarHorizontalDropOff(current, currentEntry, options.fillerColor)],
+                    series: [
+                        ...current,
+                        buildFunnelBarHorizontalDropOff(current, currentEntry, options.fillerColor, null, 'current'),
+                    ],
                 },
                 {
                     label: String(stepIndex),
                     series: [
                         ...previous,
-                        buildFunnelBarHorizontalDropOff(previous, previousEntry, options.fillerColor),
+                        buildFunnelBarHorizontalDropOff(previous, previousEntry, options.fillerColor, null, 'previous'),
                     ],
                 },
             ],
