@@ -43,7 +43,10 @@ SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 # document size and clamped, and a chunk flushes at whichever of the byte/row limit is hit first.
 MONGO_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MiB
 MONGO_MIN_CHUNK_ROWS = 100
-MONGO_MAX_CHUNK_ROWS = DEFAULT_CHUNK_SIZE  # 5000
+# Ceiling reuses the pipeline default so tiny documents keep the large, efficient chunk. The 100 MiB
+# byte budget is the real OOM guard; this only caps row count when documents are small enough that
+# many fit in that budget.
+MONGO_MAX_CHUNK_ROWS = DEFAULT_CHUNK_SIZE
 
 
 def _adaptive_chunk_size(avg_obj_size: int | None) -> int:
