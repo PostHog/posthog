@@ -141,6 +141,7 @@ the row lists both.
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
+| eventzilla              | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
@@ -432,7 +433,6 @@ doesn't conflict with concurrent PRs.
 - eloqua
 - employment_hero
 - encharge
-- eventzilla
 - expensify
 - facebook_pages
 - fastbill
