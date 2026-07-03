@@ -1455,6 +1455,15 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
+        # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
+        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
+        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        try:
+            run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
+            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     return _task_run_detail_to_dto(run)
 

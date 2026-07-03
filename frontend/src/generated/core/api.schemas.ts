@@ -3753,9 +3753,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
