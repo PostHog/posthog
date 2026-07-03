@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for creating or updating a task automation.",
     "properties": {
         "cron_expression": {
             "description": "Standard 5-field cron expression (minute hour day month weekday).",
@@ -7,6 +8,7 @@
             "type": "string"
         },
         "enabled": {
+            "default": true,
             "description": "Whether the schedule is active; paused when false.",
             "type": "boolean"
         },
@@ -48,6 +50,7 @@
             "description": "Optional template identifier this automation was created from."
         },
         "timezone": {
+            "default": "UTC",
             "description": "IANA timezone the schedule runs in.",
             "maxLength": 128,
             "type": "string"
