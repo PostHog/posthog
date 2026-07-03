@@ -381,6 +381,26 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is False
 
+    async def test_evaluate_emails_owner_when_auto_disabling_on_extraction_error(self, alert_with_user) -> None:
+        # The subscribed owner must be told their alert was auto-disabled. alert_with_user has a
+        # subscriber, so this exercises the send_notifications_for_disabled branch the no-subscriber
+        # fixture skips — guarding against a silent regression where owners aren't informed.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=AlertExtractionError("query returns a non-numeric value"),
+            ),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            env = ActivityEnvironment()
+            await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        mock_notify.assert_called_once()
+        notified_alert, reason, targets = mock_notify.call_args.args
+        assert notified_alert.id == alert_with_user.id
+        assert "non-numeric" in reason
+        assert targets  # the subscribed owner's email
+
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
         with patch(
