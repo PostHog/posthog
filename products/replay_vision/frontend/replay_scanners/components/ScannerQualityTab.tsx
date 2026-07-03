@@ -135,7 +135,7 @@ function SuggestionMeta({ suggestion }: { suggestion: ReplayScannerPromptSuggest
     return (
         <span className="text-xs text-muted">
             Based on {suggestion.based_on_up} thumbs up · {suggestion.based_on_down} thumbs down · generated{' '}
-            <TZLabel time={suggestion.created_at} /> against v{suggestion.scanner_version}
+            <TZLabel time={suggestion.created_at} className="align-baseline" /> against v{suggestion.scanner_version}
         </span>
     )
 }
@@ -358,6 +358,13 @@ function VersionBadgeBridge({
 
 type ChartMode = 'session' | 'rating'
 
+// Full "MMM D" labels collide at 30 days and the chart drops the overlap, hiding dates.
+// Keep the month only where it anchors (first tick, month boundaries) so every day fits.
+function formatChartDay(label: string, index: number): string {
+    const day = label.split(' ')[1]
+    return index === 0 || day === '1' ? label : day
+}
+
 const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[] = [
     {
         value: 'session',
@@ -441,7 +448,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                 { key: 'up', label: 'Thumbs up', color: getColorVar('success'), data: chart.up },
                                 { key: 'down', label: 'Thumbs down', color: getColorVar('danger'), data: chart.down },
                             ]}
-                            config={{ showGrid: false, barLayout: 'stacked' }}
+                            config={{ showGrid: false, barLayout: 'stacked', xTickFormatter: formatChartDay }}
                             theme={theme}
                         >
                             <VersionBadgeBridge markers={versionMarkers} onPositions={setBadgePositions} />
