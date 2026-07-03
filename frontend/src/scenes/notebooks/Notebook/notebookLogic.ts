@@ -317,6 +317,7 @@ export const notebookLogic = kea<notebookLogicType>([
             skipCapture,
         }),
         clearLocalContent: true,
+        setLocalContentBaseVersion: (version: number | null) => ({ version }),
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
@@ -398,6 +399,19 @@ export const notebookLogic = kea<notebookLogicType>([
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
+                clearLocalContent: () => null,
+            },
+        ],
+        // The notebook version the local draft is based on — the optimistic-concurrency
+        // baseline for the legacy full-doc save. The periodic refresh advances
+        // `notebook.version` underneath an open draft, so saving with the latest known
+        // version lets a stale draft silently overwrite a concurrent edit. Persisted with
+        // the same options as `localContent` so the pair survives reloads together.
+        localContentBaseVersion: [
+            null as number | null,
+            { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
+            {
+                setLocalContentBaseVersion: (_, { version }) => version,
                 clearLocalContent: () => null,
             },
         ],
@@ -823,7 +837,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     // Legacy path: full-doc PATCH
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
-                            version: values.notebook.version,
+                            version: values.localContentBaseVersion ?? values.notebook.version,
                             content: notebookContent,
                             text_content: getNotebookTextContent(notebookContent, values.editor?.getText() || ''),
                             title: notebook.title,
@@ -1782,6 +1796,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 // We don't want to modify the content if we are viewing a preview
                 return
             }
+            if (values.localContentBaseVersion === null && values.notebook) {
+                actions.setLocalContentBaseVersion(values.notebook.version)
+            }
             if (updateEditor) {
                 values.editor?.setContent(jsonContent)
             }
@@ -1893,6 +1910,11 @@ export const notebookLogic = kea<notebookLogicType>([
                     objectsEqual(values.notebook?.content, attemptedContent))
             ) {
                 actions.clearLocalContent()
+            }
+            if (values.localContent !== null && values.notebook) {
+                // Edits that arrived while the save was in flight are based on the
+                // version the server just assigned.
+                actions.setLocalContentBaseVersion(values.notebook.version)
             }
             actions.scheduleNotebookRefresh()
             if (values.showHistory) {
