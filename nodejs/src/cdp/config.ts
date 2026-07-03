@@ -91,12 +91,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
-    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
-    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
-    // (cheap), so flipping this on/off is purely a worker-side decision —
-    // rollback is a single env-var change with no SQL revert needed.
-    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
-
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -141,6 +135,15 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
+
+    // Per-team routing for postHogFlowBatchInvocation: teams matched here
+    // dispatch to a cyclotron resolver job (queue=hogflow_batch_resolve)
+    // instead of producing to the cdp_batch_hogflow_requests Kafka topic.
+    // Same string format as CDP_EMAIL_QUEUE_ROUTING — '' / '*' / '1,2' /
+    // '*:0.1' for percentage. The Kafka consumer path stays alive in
+    // parallel until this defaults to '*' everywhere and the legacy path
+    // is removed.
+    CDP_BATCH_RESOLVER_ROUTING: string
 
     // Cyclotron Node (node postgres job queue)
     CYCLOTRON_NODE_MAX_CONNECTIONS: number
@@ -215,8 +218,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
 
-        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
-
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_FETCH_RETRIES: 3,
@@ -278,6 +279,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
         CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        CDP_BATCH_RESOLVER_ROUTING: '',
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,

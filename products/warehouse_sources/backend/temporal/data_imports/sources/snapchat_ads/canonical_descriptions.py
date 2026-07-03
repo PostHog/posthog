@@ -33,6 +33,15 @@ _STATS_COLUMNS = {
     "uniques": "Number of unique users reached.",
     "conversion_purchases": "Number of purchase conversions attributed to the ad.",
     "conversion_purchases_value": "Total value of purchase conversions attributed to the ad.",
+    "conversion_invite": "Number of invite conversion events attributed to the ad.",
+    "conversion_login_value": "Total value of login conversion events attributed to the ad.",
+    "conversion_searches_value": "Total value of search conversion events attributed to the ad.",
+    "conversion_start_checkout_value": "Total value of start-checkout conversion events attributed to the ad.",
+    "conversion_achievement_unlocked_value": "Total value of achievement-unlocked conversion events attributed to the ad.",
+    "custom_event_3_value": "Total value of the third custom conversion event attributed to the ad.",
+    "quartile_1": "Number of times the video was played to 25% (first quartile).",
+    "saves": "Number of times users saved the ad.",
+    "shares": "Number of times users shared the ad.",
 }
 
 

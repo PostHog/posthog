@@ -5,7 +5,11 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import requests
+
+from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     GoogleAnalyticsSourceConfig,
@@ -20,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     GoogleAnalyticsResumeConfig,
     _convert_metric_value,
     _credentials,
+    _get_integration,
     _initial_start_date,
     _is_quota_error,
     _is_retryable_server_error,
@@ -204,6 +209,67 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
 
     assert calls == ["close_old_connections", "Integration.objects.get"]
     assert creds.refresh_token == "refresh-token"
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
+    "Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
+    "close_old_connections"
+)
+_SLEEP_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics.time.sleep"
+)
+
+
+class TestGetIntegrationDbResilience:
+    def test_rides_out_pool_wait_timeout_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                integration,
+            ]
+        )
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH),
+        ):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
+        assert get.call_count == 4
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted integration row is non-retryable — don't mask it as a transient drop.
+        assert get.call_count == 1
 
 
 def _fake_response(status_code: int, json_body: dict | None = None, headers: dict | None = None):

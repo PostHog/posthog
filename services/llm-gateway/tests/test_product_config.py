@@ -102,8 +102,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -123,7 +125,6 @@ class TestCheckProductAccess:
             "gpt-4o-mini",
             "claude-3-5-haiku-20241022",
             "claude-3-opus",
-            "claude-fable-5",
             "o1",
         ],
     )
@@ -140,8 +141,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -207,23 +210,6 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
-    @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
-    )
-    def test_posthog_code_rejects_claude_fable_5_via_bedrock_provider(self, mock_get_settings: MagicMock):
-        # Fable 5 has no Bedrock mapping, so the bedrock provider path must not
-        # resurrect it via the BEDROCK_MODELS entries in the allowlist union.
-        allowed, error = check_product_access(
-            "posthog_code",
-            "oauth_access_token",
-            POSTHOG_CODE_US_APP_ID,
-            "claude-fable-5",
-            provider="bedrock",
-        )
-        assert allowed is False
-        assert error is not None
-        assert "not allowed" in error
-
     @pytest.mark.parametrize(
         "model",
         [
@@ -231,7 +217,9 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -311,6 +299,7 @@ class TestCheckProductAccess:
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
         ],

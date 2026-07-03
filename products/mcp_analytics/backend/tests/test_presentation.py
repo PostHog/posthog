@@ -1,18 +1,25 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.presentation.serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
+    MCPSessionListQuerySerializer,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -191,12 +198,15 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
 
-    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
-        # Mock only the Celery dispatch so the synchronous COMPUTING write
-        # still runs. The 202 body should reflect the new state, not the
-        # stale pre-trigger state.
+    def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
+        # Mock async_connect to return a client whose start_workflow is an
+        # AsyncMock — the facade awaits both inside asyncio.run. The
+        # synchronous COMPUTING write still runs against the real DB so
+        # the 202 body reflects the new state, not the stale pre-trigger one.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
         with (
-            patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay,
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)),
             patch("posthoganalytics.feature_enabled", return_value=True),
         ):
             response = self.client.post(
@@ -205,10 +215,35 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["status"] == "computing"
-        mock_delay.assert_called_once_with(self.team.id, self.user.id)
         snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
         assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
         assert snapshot.last_computed_by_id == self.user.id
+        mock_client.start_workflow.assert_awaited_once()
+        call_args = mock_client.start_workflow.call_args
+        assert call_args.args[0] == WORKFLOW_NAME
+        assert call_args.args[1].team_id == self.team.id
+        assert call_args.args[1].user_id == self.user.id
+        assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
+
+    def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
+        # If the workflow never starts, no activity will flip the status —
+        # the endpoint must revert its own COMPUTING write, not leave the
+        # snapshot stuck until the stale-COMPUTING sweep.
+        with (
+            patch(
+                "posthog.temporal.common.client.async_connect",
+                new=AsyncMock(side_effect=RuntimeError("temporal unreachable")),
+            ),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == "Failed to start the intent clustering workflow"
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
@@ -374,6 +409,31 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+
+class TestMCPSessionListQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionListQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_SESSION_LIST_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionListQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):

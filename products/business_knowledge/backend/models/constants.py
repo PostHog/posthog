@@ -92,6 +92,12 @@ class EmbeddingStatus(models.TextChoices):
     DISABLED = "disabled", "Disabled"
 
 
+class GapStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
 class SafetyVerdict(models.TextChoices):
     """
     Content-safety classification of a document, set by the background

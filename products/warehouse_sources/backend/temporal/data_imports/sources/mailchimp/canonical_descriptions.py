@@ -26,6 +26,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact": "The physical contact (mailing) address for the audience owner.",
             "visibility": "Whether the audience is public or private.",
             "stats": "Statistics for the audience, including member counts and engagement rates.",
+            "list_rating": "The audience's star rating (out of 5), based on subscriber engagement.",
         },
     },
     "campaigns": {
@@ -63,6 +64,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "opens": "Open activity for the campaign, including total and unique opens.",
             "clicks": "Click activity for the campaign, including total and unique clicks.",
             "list_stats": "Audience-level statistics, including average open and click rates.",
+            "timewarp": "Per-hour performance breakdown for campaigns sent with Timewarp, by recipient time zone.",
         },
     },
     "contacts": {

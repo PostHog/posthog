@@ -10,7 +10,7 @@ import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { isKeyOf } from 'lib/utils/guards'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType, RecordingEventType } from '~/types'
+import { EventType, RecordingEventType, SurveyEventProperties } from '~/types'
 
 import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
@@ -59,7 +59,7 @@ export const EventPropertyTabs = ({
     const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
-    const isSurveyResponseEvent = event.event === 'survey sent'
+    const isSurveyResponseEvent = event.event === 'survey sent' && !!event.properties?.[SurveyEventProperties.SURVEY_ID]
     const isMcpEvent =
         typeof event.event === 'string' &&
         (event.event.startsWith('mcp_') || event.event.startsWith('$mcp_') || event.event.startsWith('mcp '))

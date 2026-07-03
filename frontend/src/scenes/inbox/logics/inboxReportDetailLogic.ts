@@ -5,9 +5,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
+import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
+import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     deriveTaskPurpose,
@@ -199,6 +202,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // The report's branch diff (its `commit` artefact's branch vs the repo default branch), rendered
+        // in the "Files changed" section. Loaded here rather than in the component so the fetch is keyed
+        // to the report and cascades off the artefact load — once artefacts resolve we know the latest
+        // commit artefact, and re-fetch only when a *new* commit lands (not on every 5s activity poll).
+        reportDiff: [
+            null as CommitDiffResponseApi | null,
+            {
+                loadReportDiff: async ({ artefactId }: { artefactId: string }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -236,6 +255,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => [],
             },
         ],
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
+        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        reportDiffError: [
+            null as string | null,
+            {
+                loadReportDiff: () => null,
+                loadReportDiffSuccess: () => null,
+                loadReportDiffFailure: () =>
+                    "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
+            },
+        ],
+        // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
+        // the diff only when a new commit lands rather than on every tick.
+        diffArtefactId: [
+            null as string | null,
+            {
+                loadReportDiff: (_, { artefactId }) => artefactId,
+            },
+        ],
     }),
 
     selectors({
@@ -258,6 +296,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         isReportActive: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
+        ],
+        // The most recent `commit` artefact — its branch is treated as the report's branch to diff
+        // against the repository default branch. A report's code work may span several pushes; the
+        // latest commit's branch tip is the current state worth inspecting.
+        latestCommitArtefact: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): SignalReportArtefact | null => {
+                const commits = (reportArtefacts ?? []).filter((a) => a.type === 'commit')
+                if (commits.length === 0) {
+                    return null
+                }
+                return commits.reduce((latest, a) => (a.created_at > latest.created_at ? a : latest))
+            },
         ],
         // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
         priorityExplanation: [
@@ -389,9 +440,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         },
         // The artefact log is the single source for the activity timeline AND the task associations,
         // so deriving the linked tasks hangs off each successful artefact load rather than issuing a
-        // second identical fetch.
+        // second identical fetch. The branch diff also cascades from here (once artefacts resolve we
+        // know the latest commit artefact), but only re-fetches when a *new* commit lands.
         loadReportArtefactsSuccess: () => {
             actions.loadReportTasks()
+            const commit = values.latestCommitArtefact
+            if (commit && commit.id !== values.diffArtefactId) {
+                actions.loadReportDiff({ artefactId: commit.id })
+            }
         },
         // Poll the artefact log only while the report is active; stop once it reaches a terminal status
         // (or is unloaded). Tasks are re-derived via `loadReportArtefactsSuccess`. Mirrors desktop

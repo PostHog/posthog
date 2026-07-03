@@ -2,7 +2,7 @@
 // Only rules that cannot be expressed in Tailwind utilities live here:
 // pseudo-elements, interactive pseudo-class combinators, child selectors, keyframes.
 
-// Dotted paper grid + faint accent glow — require pseudo-elements, not achievable via Tailwind
+// Dotted paper grid + faint accent glow — multi-layer background (per-layer size/repeat), not achievable via Tailwind
 .PaperDesk {
     --primary-3000-button-bg: var(--warning);
     --primary-3000-frame-bg: var(--primary-3000-button-border-light);
@@ -12,22 +12,17 @@
     // Links use the bright brand amber, not the darker text-contrast warning token.
     --color-text-warning: var(--warning);
 
-    &::before {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        content: '';
-        background-image: radial-gradient(rgb(17 17 17 / 5.5%) 1.4px, transparent 1.4px);
-        background-size: 16px 16px;
-    }
-
-    &::after {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        content: '';
-        background: radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%);
-    }
+    // Accent glow over the dotted grid. Layered onto the element itself rather than absolutely
+    // positioned pseudo-elements so the texture stays fixed to the viewport while the scene scrolls
+    // (a card taller than the viewport scrolls inside .PaperDesk; pseudo-elements would scroll away).
+    // background-color stays on the Tailwind `bg-[#eef0e7]` utility — only the image layers live here.
+    background-image:
+        radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%),
+        radial-gradient(rgb(17 17 17 / 5.5%) 1.4px, transparent 1.4px);
+    background-repeat: no-repeat, repeat;
+    background-size:
+        auto,
+        16px 16px;
 }
 
 // Child SVG sizing — child selector, no Tailwind equivalent
@@ -35,7 +30,11 @@
     svg {
         display: block;
         width: auto;
-        height: 40px;
+        height: 28px;
+
+        @media (min-width: 576px) {
+            height: 40px;
+        }
     }
 }
 

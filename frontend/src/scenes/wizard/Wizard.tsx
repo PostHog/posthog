@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { HedgehogShocked } from '@posthog/brand/hoggies'
+
+import { HeartHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -74,7 +76,7 @@ export function Wizard(): JSX.Element {
                 {view === 'invalid' && (
                     <>
                         <h1 className="text-xl font-bold">Something went wrong!</h1>
-                        <SurprisedHog className="h-48 w-48" />
+                        <HedgehogShocked className="h-48 w-48" />
                         <p className="text-lg">
                             There was a problem authenticating the setup wizard. Please try again later.
                         </p>

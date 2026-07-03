@@ -15,6 +15,7 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.database import Database
 from pymongo.errors import PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
@@ -197,11 +198,21 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     if incremental_field_type == IncrementalFieldType.ObjectID:
-        query = {incremental_field: {"$gt": ObjectId(str(db_incremental_field_last_value)), "$exists": True}}
+        query = {incremental_field: {"$gt": _coerce_object_id_cursor(db_incremental_field_last_value), "$exists": True}}
     else:
         query = {incremental_field: {"$gt": db_incremental_field_last_value, "$exists": True}}
 
     return query
+
+
+def _coerce_object_id_cursor(last_value: Any) -> Any:
+    """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
+    always ObjectIds — collections frequently key on UUIDs or other strings. Only wrap the
+    cursor in ObjectId when it's a valid 24-char hex id; otherwise compare the raw string so
+    a non-ObjectId `_id` doesn't raise InvalidId and permanently break every incremental sync.
+    """
+    value = str(last_value)
+    return ObjectId(value) if ObjectId.is_valid(value) else value
 
 
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
@@ -420,6 +431,20 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
+# MongoDB reserves the `system.*` namespace for internal collections (system.keys,
+# system.views, system.profile, ...). They're never user data and reads against them fail with
+# an "Unauthorized" OperationFailure, so they must never be offered for import.
+_RESERVED_COLLECTION_PREFIX = "system."
+
+
+def _list_importable_collection_names(db: Database) -> list[str]:
+    return [
+        name
+        for name in db.list_collection_names(authorizedCollections=True)
+        if not name.startswith(_RESERVED_COLLECTION_PREFIX)
+    ]
+
+
 def get_schemas(
     config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
 ) -> dict[str, list[tuple[str, str]]]:
@@ -435,7 +460,7 @@ def get_schemas(
         schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
 
         # Get collection names
-        collection_names = db.list_collection_names(authorizedCollections=True)
+        collection_names = _list_importable_collection_names(db)
 
         if names is not None:
             names_set = set(names)
@@ -460,7 +485,7 @@ def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
-        return db.list_collection_names(authorizedCollections=True)
+        return _list_importable_collection_names(db)
 
 
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:

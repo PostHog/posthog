@@ -25,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     saved_metric_has_legacy_query,
 )
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 
 
 class ExperimentSavedMetricService:
@@ -83,6 +84,7 @@ class ExperimentSavedMetricService:
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
         normalized_query = self._normalize_query_for_write(query)
+        enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
             team=self.team,
@@ -101,6 +103,7 @@ class ExperimentSavedMetricService:
         if "query" in update_data:
             existing_uuid = saved_metric.query.get("uuid") if saved_metric.query else None
             update_data["query"] = self._normalize_query_for_write(update_data["query"], existing_uuid=existing_uuid)
+            enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
             setattr(saved_metric, attr, value)

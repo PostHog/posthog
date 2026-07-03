@@ -108,6 +108,64 @@ class TestPgCDCStreamReaderConnect:
         assert connect.call_count == 1
 
 
+class TestPgCDCStreamReaderConnectOptions:
+    def test_connect_sets_streaming_timeouts(self, params):
+        connect = mock.MagicMock(return_value=mock.MagicMock())
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.connect()
+
+        options = connect.call_args.kwargs["options"]
+        # A stalled server-side WAL decode can't hang the streaming connection indefinitely.
+        assert "statement_timeout=1800000" in options
+        # The named cursor holds a transaction open while the caller flushes between yields, so the
+        # source must not cull the backend (SQLSTATE 25P03) for sitting idle in that transaction.
+        assert "idle_in_transaction_session_timeout=0" in options
+
+
+class TestPgCDCStreamReaderReadChanges:
+    def _reader_serving(self, params, rows):
+        reader = PgCDCStreamReader(params)
+        fake_cursor = mock.MagicMock()
+        fake_cursor.__iter__.return_value = iter(rows)
+        reader._conn = mock.MagicMock()
+        reader._conn.cursor.return_value.__enter__.return_value = fake_cursor
+        # Isolate the read mechanics (row count + callback) from pgoutput decoding.
+        reader._decoder = mock.MagicMock()
+        reader._decoder.decode_message.return_value = []
+        return reader, fake_cursor
+
+    def test_read_changes_bounds_peek_with_upto_nchanges(self, params):
+        reader, fake_cursor = self._reader_serving(params, [])
+        list(reader.read_changes(upto_nchanges=100_000))
+        rendered = fake_cursor.execute.call_args.args[0].as_string(None)
+        # Third positional arg of pg_logical_slot_peek_binary_changes is the change cap.
+        assert ", NULL, 100000, " in rendered
+
+    def test_read_changes_passes_null_when_unbounded(self, params):
+        reader, fake_cursor = self._reader_serving(params, [])
+        list(reader.read_changes())
+        rendered = fake_cursor.execute.call_args.args[0].as_string(None)
+        assert ", NULL, NULL, " in rendered
+
+    def test_read_changes_invokes_on_row_per_row_and_counts(self, params):
+        rows = [("0/1", 1, b"a"), ("0/2", 1, b"b"), ("0/3", 1, b"c")]
+        reader, _ = self._reader_serving(params, rows)
+        on_row_calls = 0
+
+        def on_row() -> None:
+            nonlocal on_row_calls
+            on_row_calls += 1
+
+        list(reader.read_changes(upto_nchanges=10, on_row=on_row))
+
+        assert on_row_calls == len(rows)
+        assert reader.last_rows_consumed == len(rows)
+
+
 class TestPgCDCStreamReaderConfirmPosition:
     def test_confirm_position_retries_transient_dropped_connection(self, params):
         good_conn = mock.MagicMock()

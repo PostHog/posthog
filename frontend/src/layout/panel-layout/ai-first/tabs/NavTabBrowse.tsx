@@ -31,7 +31,6 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
-import { PromotedProductNavItem } from '~/layout/panel-layout/ai-first/PromotedProductNavItem'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -42,7 +41,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
-import { inlineEditToolsLogic } from './inlineEditToolsLogic'
+import { editToolsLogic } from './editToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -163,8 +162,8 @@ export function NavTabBrowse(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { isEditMode, checkedTools } = useValues(inlineEditToolsLogic)
-    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(inlineEditToolsLogic)
+    const { isEditMode, checkedTools } = useValues(editToolsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
@@ -215,8 +214,6 @@ export function NavTabBrowse(): JSX.Element {
                             'data-attr': 'nav-configure-home',
                         }}
                     />
-
-                    <PromotedProductNavItem isCollapsed={isLayoutNavCollapsed} />
 
                     {isProductAutonomyEnabled && (
                         <NavLink

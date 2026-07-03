@@ -4,7 +4,7 @@ from typing import Any, cast
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from rest_framework import status
 
@@ -20,14 +20,7 @@ from posthog.tasks.alerts.utils import (
 from products.alerts.backend.models.alert import AlertConfiguration
 
 
-@patch("products.alerts.backend.models.alert.posthoganalytics.feature_enabled")
 class TestAlert15MinuteInterval(APIBaseTest):
-    def _enable_feature_flag(self, mock_feature_enabled: MagicMock) -> None:
-        mock_feature_enabled.return_value = True
-
-    def _disable_feature_flag(self, mock_feature_enabled: MagicMock) -> None:
-        mock_feature_enabled.return_value = False
-
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
@@ -64,30 +57,18 @@ class TestAlert15MinuteInterval(APIBaseTest):
         ]
         self.organization.save()
 
-    def test_create_every_15_minutes_rejected_without_billing_entitlement(
-        self, mock_feature_enabled: MagicMock
-    ) -> None:
-        self._enable_feature_flag(mock_feature_enabled)
+    def test_create_every_15_minutes_rejected_without_billing_entitlement(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Boost, Scale, or Enterprise" in str(response.json())
 
-    def test_create_every_15_minutes_rejected_when_feature_flag_disabled(self, mock_feature_enabled: MagicMock) -> None:
-        self._disable_feature_flag(mock_feature_enabled)
-        self._enable_high_frequency_alerts()
-        response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not available for your organization yet" in str(response.json())
-
-    def test_create_every_15_minutes_succeeds_with_entitlement(self, mock_feature_enabled: MagicMock) -> None:
-        self._enable_feature_flag(mock_feature_enabled)
+    def test_create_every_15_minutes_succeeds_with_entitlement(self) -> None:
         self._enable_high_frequency_alerts()
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json()["calculation_interval"] == AlertCalculationInterval.EVERY_15_MINUTES
 
-    def test_patch_every_15_minutes_succeeds_with_entitlement(self, mock_feature_enabled: MagicMock) -> None:
-        self._enable_feature_flag(mock_feature_enabled)
+    def test_patch_every_15_minutes_succeeds_with_entitlement(self) -> None:
         self._enable_high_frequency_alerts()
         create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         alert_id = create_response.json()["id"]
@@ -100,10 +81,7 @@ class TestAlert15MinuteInterval(APIBaseTest):
         assert response.json()["name"] == "updated 15 min alert"
         assert response.json()["calculation_interval"] == AlertCalculationInterval.EVERY_15_MINUTES
 
-    def test_patch_existing_every_15_minutes_rejected_after_entitlement_removed(
-        self, mock_feature_enabled: MagicMock
-    ) -> None:
-        self._enable_feature_flag(mock_feature_enabled)
+    def test_patch_existing_every_15_minutes_rejected_after_entitlement_removed(self) -> None:
         self._enable_high_frequency_alerts()
         create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
         alert_id = create_response.json()["id"]

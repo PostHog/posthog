@@ -13,7 +13,6 @@ from posthog.schema import (
     RevenueAnalyticsTopCustomersQueryResponse,
 )
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
@@ -28,10 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 
 def _nullable_columns(basic_types: dict[str, str]) -> dict[str, dict[str, str | bool]]:
-    from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+    from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
     return {
         key: {

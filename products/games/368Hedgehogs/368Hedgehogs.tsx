@@ -7,6 +7,11 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import burningMoneyHogSrc from './sprites/burning-money-hog.png'
+import policeHogSrc from './sprites/police-hog.png'
+import sleepingHogSrc from './sprites/sleeping-hog.png'
+import warningHogSrc from './sprites/warning-hog.png'
+
 // ==========================================================================
 export type Hog = 'hog1' | 'hog2' | 'hog3' | 'hog4'
 export type Orientation = 'horizontal' | 'vertical'
@@ -25,10 +30,10 @@ const BOARD_SIZE = 6
 const EMOJIS: Hog[] = ['hog1', 'hog2', 'hog3', 'hog4']
 
 const IMAGE_MAP: Record<Hog, string> = {
-    hog1: '/static/hedgehog/burning-money-hog.png',
-    hog2: '/static/hedgehog/police-hog.png',
-    hog3: '/static/hedgehog/sleeping-hog.png',
-    hog4: '/static/hedgehog/warning-hog.png',
+    hog1: burningMoneyHogSrc,
+    hog2: policeHogSrc,
+    hog3: sleepingHogSrc,
+    hog4: warningHogSrc,
 }
 
 type Board = (Hog | null)[][] // 6×6 grid

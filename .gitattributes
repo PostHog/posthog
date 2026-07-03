@@ -27,14 +27,6 @@ posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
 
-posthog/hogql/grammar/HogQLLexer.py linguist-generated
-posthog/hogql/grammar/HogQLParser.py linguist-generated
-posthog/hogql/grammar/HogQLParserVisitor.py linguist-generated
-posthog/hogql/grammar/HogQLLexer.interp linguist-generated
-posthog/hogql/grammar/HogQLParser.interp linguist-generated
-posthog/hogql/grammar/HogQLLexer.tokens linguist-generated
-posthog/hogql/grammar/HogQLParser.tokens linguist-generated
-
 common/hogql_parser/HogQLLexer.cpp linguist-generated
 common/hogql_parser/HogQLParser.cpp linguist-generated
 common/hogql_parser/HogQLLexer.interp linguist-generated

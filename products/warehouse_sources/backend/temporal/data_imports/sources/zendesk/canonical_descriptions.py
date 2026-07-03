@@ -57,6 +57,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             description="Description of the purpose of this ticket field.",
             active="Whether this field is currently available.",
             required="Whether agents must enter a value before solving the ticket.",
+            removable="Whether this field can be deleted; false for system fields present on all tickets.",
             position="Relative position of the field on a ticket.",
             custom_field_options="List of selectable options for dropdown-type fields.",
         ),
@@ -69,7 +70,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             timestamp="Time the event occurred, as a Unix timestamp.",
             updater_id="ID of the user who made the change.",
             via="How and where the change was made.",
-            child_events="Individual property changes that make up this event.",
+            child_events=(
+                "The individual events making up this audit. Comment events carry the full comment "
+                "body (public replies and internal notes, distinguished by their `public` flag); "
+                "other entries are property changes, notifications, and similar."
+            ),
             event_type="Type of the event.",
         ),
     },

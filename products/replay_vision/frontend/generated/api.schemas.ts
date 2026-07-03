@@ -261,6 +261,113 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type VisionActionRunStatusEnumApi =
+    (typeof VisionActionRunStatusEnumApi)[keyof typeof VisionActionRunStatusEnumApi]
+
+export const VisionActionRunStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
+ */
+export interface VisionActionRunListApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /**
+     * Short human-readable reason a run skipped or failed; null on success.
+     * @nullable
+     */
+    readonly error_reason: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionRunListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionRunListApi[]
+}
+
+/**
+ * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+ */
+export interface RunObservationApi {
+    /** Observation id; links to the observation detail view. */
+    readonly id: string
+    /** Session recording id this observation was made on. */
+    readonly session_id: string
+    /**
+     * Email of the person in the recorded session, captured at scan time; null if unidentified.
+     * @nullable
+     */
+    readonly recording_subject_email: string | null
+    /**
+     * Short title from the observation's summary; null if the observation had none.
+     * @nullable
+     */
+    readonly title: string | null
+    /** When the observation was produced. */
+    readonly created_at: string
+}
+
+/**
+ * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
+ */
+export interface VisionActionRunApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /**
+     * Short human-readable reason a run skipped or failed; null on success.
+     * @nullable
+     */
+    readonly error_reason: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+    readonly synthesized_markdown: string
+    /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+    readonly observations: readonly RunObservationApi[]
+}
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -395,6 +502,26 @@ export interface ReplayObservationApi {
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
+    /**
+     * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+    /**
+     * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+     * @nullable
+     */
+    readonly recording_subject_email: string | null
+    /**
+     * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+     * @nullable
+     */
+    readonly previous_observation_id: string | null
+    /**
+     * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+     * @nullable
+     */
+    readonly next_observation_id: string | null
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -682,6 +809,11 @@ export interface EstimateRequestApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /**
+     * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+     * @nullable
+     */
+    scanner_id?: string | null
 }
 
 /**
@@ -694,6 +826,8 @@ export interface EstimateResponseApi {
     window_days: number
     /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
+    /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+    other_enabled_scanners_monthly: number
     /** Sampling rate applied to the projection. Echoed from the request. */
     sampling_rate: number
 }
@@ -730,6 +864,69 @@ export interface ScannerStatsResponseApi {
     by_type: ScannerStatsByTypeApi
 }
 
+/**
+ * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+ */
+export interface SuggestTagsRequestApi {
+    /**
+     * The classifier's instruction prompt — the single dimension to categorize sessions by.
+     * @maxLength 10000
+     */
+    prompt: string
+    /**
+     * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+     * @maxItems 200
+     * @items.maxLength 200
+     */
+    tags?: string[]
+    /** Whether the classifier assigns multiple tags per session. */
+    multi_label?: boolean
+    /** Whether the classifier may emit tags outside the fixed vocabulary. */
+    allow_freeform_tags?: boolean
+    /**
+     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+     * @nullable
+     */
+    scanner_id?: string | null
+}
+
+/**
+ * * `observed` - observed
+ * * `product` - product
+ * * `prompt` - prompt
+ */
+export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
+
+export const TagSuggestionSourceEnumApi = {
+    Observed: 'observed',
+    Product: 'product',
+    Prompt: 'prompt',
+} as const
+
+/**
+ * One grounded tag suggestion.
+ */
+export interface TagSuggestionApi {
+    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+    tag: string
+    /** One sentence explaining the specific evidence this tag is grounded in. */
+    rationale: string
+    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+     *
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt */
+    source: TagSuggestionSourceEnumApi
+}
+
+/**
+ * Grounded tag suggestions for the classifier config editor.
+ */
+export interface SuggestTagsResponseApi {
+    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+    suggestions: TagSuggestionApi[]
+}
+
 export type VisionActionsListParams = {
     /**
      * Number of results to return per page.
@@ -745,6 +942,17 @@ export type VisionActionsListParams = {
     scanner?: string
 }
 
+export type VisionActionsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -755,7 +963,7 @@ export type VisionObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string
     /**
@@ -809,9 +1017,13 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
-     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
     /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
@@ -839,6 +1051,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string
     /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */

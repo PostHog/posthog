@@ -21,7 +21,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
 
-# Seed tag stamped on canonical scouts + the `authoring-signals-scouts` companion; this DEBUG
+# Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
 # name ships on disk), but wizard customs (`llma-skill-create`) carry no tag, so tag-only suffices.
 SEEDED_BY_HARNESS = "signals_scout_harness"
@@ -29,14 +29,24 @@ SEEDED_BY_HARNESS = "signals_scout_harness"
 # Basename the wizard's agent writes into its `--install-dir` after a self-driving run.
 SELF_DRIVING_REPORT_FILE = "posthog-self-driving-report.md"
 
+# The products the wizard's "Enable products" step turns ON, as (label, Team attr). Reading
+# them before the reset doubles as a check: an OFF one right after a run is a missed enable.
+SELF_DRIVING_PRODUCT_TOGGLES = [
+    ("Session Replay", "session_recording_opt_in"),
+    ("Error Tracking", "autocapture_exceptions_opt_in"),
+    ("Support / Conversations", "conversations_enabled"),
+]
+
 
 class Command(BaseCommand):
     help = (
         "Reset a team to its pre-self-driving state so the self-driving wizard can be "
-        "re-tested from scratch. Deletes signal sources, the scout fleet config, custom "
-        "scouts, scout run-state (and, unless --keep-findings, emitted findings via "
-        "cleanup_signals); optionally removes the wizard's report file and cycles its log. "
-        "DEBUG only."
+        "re-tested from scratch. Deletes signal sources, the scout fleet config, custom scouts, "
+        "scout run-state (and, unless --keep-findings, emitted findings via cleanup_signals); "
+        "optionally removes the wizard's report file and cycles its log. With --reset-products it "
+        "also reports the product-enablement toggles (replay / error tracking / conversations) — "
+        "after a run they should all be ON, so an OFF one is highlighted as a missed enable — and "
+        "then turns them back off. DEBUG only."
     )
 
     def add_arguments(self, parser):
@@ -76,6 +86,16 @@ class Command(BaseCommand):
             action="store_true",
             help="Do not clear emitted findings/reports (skips the cleanup_signals delegation).",
         )
+        parser.add_argument(
+            "--reset-products",
+            action="store_true",
+            help=(
+                "Also report and then turn OFF the wizard's product-enablement toggles (replay / error "
+                "tracking / conversations). Off by default — the plain reset leaves product settings "
+                "untouched. Use this for the enable-products smoke test: the pre-reset report flags any "
+                "product a self-driving run should have enabled but didn't."
+            ),
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -86,11 +106,16 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found")
 
+        # Reported before the reset so it reflects what the wizard left behind.
+        if options["reset_products"]:
+            self._report_product_state(team)
+
         if not options["yes"]:
+            products_clause = "turn OFF the product toggles above and " if options["reset_products"] else ""
             self.stdout.write(
                 self.style.WARNING(
-                    f"This will DELETE all Signals self-driving state for team {team.id} "
-                    f"(sources, scout fleet config, custom scouts, scout run-state"
+                    f"This will {products_clause}DELETE all Signals self-driving state for team "
+                    f"{team.id} (sources, scout fleet config, custom scouts, scout run-state"
                     f"{'' if options['keep_findings'] else ', emitted findings'}). "
                     f"Canonical scouts are preserved."
                 )
@@ -140,6 +165,24 @@ class Command(BaseCommand):
             # Signal sources. A fresh team has none.
             source_configs_deleted, _ = SignalSourceConfig.objects.filter(team=team).delete()
 
+            # Product toggles + companion settings back to fresh-team shape so the next run re-enables.
+            # save(update_fields=...) fires the Team post_save that re-syncs remote config.
+            if options["reset_products"]:
+                team.session_recording_opt_in = False
+                team.session_recording_masking_config = None
+                team.autocapture_exceptions_opt_in = None
+                team.conversations_enabled = None
+                team.conversations_settings = None
+                team.save(
+                    update_fields=[
+                        "session_recording_opt_in",
+                        "session_recording_masking_config",
+                        "autocapture_exceptions_opt_in",
+                        "conversations_enabled",
+                        "conversations_settings",
+                    ]
+                )
+
             # Scout run-state, so the fleet cold-starts with no learned memory or stale runs.
             runs_deleted, _ = SignalScoutRun.all_teams.filter(team=team).delete()
             scratchpads_deleted, _ = SignalScratchpad.all_teams.filter(team=team).delete()
@@ -149,6 +192,8 @@ class Command(BaseCommand):
         self.stdout.write(f"  ✓ custom scouts: {len(custom_scout_names)} ({skills_deleted} LLMSkill rows + files)")
         self.stdout.write(f"  ✓ scout configs: {scout_configs_deleted}")
         self.stdout.write(f"  ✓ source configs: {source_configs_deleted}")
+        if options["reset_products"]:
+            self.stdout.write("  ✓ product toggles: replay / error tracking / conversations turned OFF")
         self.stdout.write(
             f"  ✓ run-state: {runs_deleted} runs, {scratchpads_deleted} scratchpads, "
             f"{profiles_deleted} profiles, {emission_deleted} emission records"
@@ -170,6 +215,22 @@ class Command(BaseCommand):
             )
         )
 
+    def _report_product_state(self, team):
+        """Print the product toggles before resetting them. Right after a run all three should be
+        ON, so an OFF one is a missed enable."""
+        self.stdout.write("Product enablement (should all be ON right after a self-driving run):")
+        off = []
+        for label, attr in SELF_DRIVING_PRODUCT_TOGGLES:
+            if getattr(team, attr):
+                self.stdout.write(self.style.SUCCESS(f"  ✓ {label}: ON"))
+            else:
+                self.stdout.write(self.style.WARNING(f"  ✗ {label}: OFF"))
+                off.append(label)
+        if off:
+            self.stdout.write(
+                self.style.WARNING(f"  ⚠ a self-driving run should have enabled, but didn't: {', '.join(off)}")
+            )
+
     def _soft_delete_dwh_sources(self, team):
         """Soft-delete the self-driving-created data-warehouse pipelines (the Github / Linear /
         Zendesk / PgAnalyze issue/ticket sources) so a re-run starts clean.
@@ -185,7 +246,7 @@ class Command(BaseCommand):
         sync schedules so they stop firing. Scoped to `created_via=MCP` so a user's own
         hand-connected warehouse source of the same type is never touched.
         """
-        from products.data_warehouse.backend.data_load.service import (
+        from products.data_warehouse.backend.facade.api import (
             delete_discover_schemas_schedule,
             delete_external_data_schedule,
         )

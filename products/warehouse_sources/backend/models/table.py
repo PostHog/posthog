@@ -16,6 +16,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -32,11 +33,15 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
-from products.data_warehouse.backend.direct_postgres import (
+from products.data_warehouse.backend.facade.sources import (
+    DIRECT_MYSQL_SCHEMA_OPTION,
+    DIRECT_MYSQL_TABLE_OPTION,
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
@@ -48,10 +53,12 @@ from products.warehouse_sources.backend.models.util import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models import User
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -92,6 +99,10 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
+
+# Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
+# and never user-facing.
+HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
@@ -190,7 +201,45 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
-    def validate_column_type(self, column_key) -> bool:
+    def get_user_facing_columns(self) -> list[dict[str, Any]]:
+        """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
+
+        Reads the universal `columns` store (populated after every sync for every source type), so it
+        works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
+        `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
+        legacy plain-string column shapes.
+
+        Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL
+        (`created` -> `created_at`, `customer` -> `customer_id`), so `name` is the HogQL-visible name
+        callers surface to users and the AI agent — not the raw synced column. To recover the raw ->
+        visible mapping (e.g. to match canonical descriptions keyed by raw name), call
+        `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
+        """
+        hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
+        result: list[dict[str, Any]] = []
+        for name, definition in (self.columns or {}).items():
+            if name in HIDDEN_COLUMNS:
+                continue
+            if isinstance(definition, dict):
+                clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
+            else:
+                clickhouse_type = definition or ""
+            result.append(
+                {
+                    "name": hogql_by_raw.get(name, name),
+                    "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
+                    "is_nullable": "Nullable(" in clickhouse_type,
+                }
+            )
+        return result
+
+    def validate_column_type(
+        self,
+        column_key: str,
+        *,
+        user: Optional["User"] = None,
+        bypass_warehouse_access_control: bool = False,
+    ) -> bool:
         from posthog.hogql.query import execute_hogql_query
 
         columns = self.columns or {}
@@ -212,6 +261,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 query,
                 self.team,
                 modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True),
+                user=user,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
             )
             return True
         except:
@@ -463,7 +514,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -541,6 +592,33 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 fields=fields,
                 mysql_schema=mysql_schema,
                 mysql_table_name=mysql_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_snowflake:
+            job_inputs = self.external_data_source.job_inputs or {}
+            snowflake_catalog = (
+                self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
+                else job_inputs.get("database")
+            )
+            snowflake_schema = (
+                self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "")
+            )
+            snowflake_table_name = (
+                self.options.get(DIRECT_SNOWFLAKE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectSnowflakeTable(
+                name=self.name,
+                fields=fields,
+                snowflake_catalog=snowflake_catalog,
+                snowflake_schema=snowflake_schema,
+                snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

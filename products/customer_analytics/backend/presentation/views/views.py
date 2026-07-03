@@ -17,7 +17,6 @@ from typing import cast
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -26,6 +25,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -37,6 +37,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
     CustomPropertyDefinitionSerializer,
+    CustomPropertySourceSerializer,
+    CustomPropertySourceUpdateSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueWriteSerializer,
 )
@@ -130,7 +132,7 @@ class CustomerProfileConfigViewSet(
             sidebar=data.sidebar,
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         return Response(CustomerProfileConfigSerializer(instance=config).data, status=status.HTTP_201_CREATED)
 
@@ -144,7 +146,7 @@ class CustomerProfileConfigViewSet(
             fields=_profile_config_write_fields(serializer.validated_data, request.data),
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if config is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -160,7 +162,7 @@ class CustomerProfileConfigViewSet(
             config_id=self.kwargs["pk"],
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -199,12 +201,16 @@ class CustomPropertyDefinitionViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_custom_property_definitions(self.team_id, offset=offset, limit=limit),
+            lambda offset, limit: api.list_custom_property_definitions(
+                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+            ),
             CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        definition = api.get_custom_property_definition(self.team_id, self.kwargs["pk"])
+        definition = api.get_custom_property_definition(
+            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+        )
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
@@ -222,7 +228,7 @@ class CustomPropertyDefinitionViewSet(
                 is_big_number=data.is_big_number,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -239,7 +245,7 @@ class CustomPropertyDefinitionViewSet(
                 fields=_custom_property_definition_write_fields(serializer.validated_data, request.data),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -257,7 +263,7 @@ class CustomPropertyDefinitionViewSet(
             definition_id=self.kwargs["pk"],
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -277,6 +283,70 @@ def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
     if "is_big_number" in raw_data:
         fields["is_big_number"] = validated.is_big_number
     return fields
+
+
+class CustomPropertySourceViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.ModelViewSet,
+):
+    scope_object = "account"
+    serializer_class = CustomPropertySourceSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_custom_property_sources(self.team_id, offset=offset, limit=limit),
+            CustomPropertySourceSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        if source is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = CustomPropertySourceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            source = api.create_custom_property_source(
+                team_id=self.team_id,
+                definition_id=data.definition,
+                saved_query_id=data.saved_query,
+                source_column=data.source_column,
+                key_column=data.key_column,
+                is_enabled=data.is_enabled,
+                user=cast(User, request.user),
+            )
+        except api.CustomPropertySourceValidationError as e:
+            raise ValidationError(str(e))
+        return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=CustomPropertySourceUpdateSerializer)
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
+        write.is_valid(raise_exception=True)
+        source = api.update_custom_property_source(
+            team_id=self.team_id, source_id=self.kwargs["pk"], fields=write.validated_data
+        )
+        if source is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    @extend_schema(request=CustomPropertySourceUpdateSerializer)
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CustomerJourneyViewSet(
@@ -331,7 +401,7 @@ class CustomerJourneyViewSet(
                 description=data.description,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourneyConflictError as e:
             raise Conflict(str(e))
@@ -353,7 +423,7 @@ class CustomerJourneyViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -374,7 +444,7 @@ class CustomerJourneyViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -539,7 +609,7 @@ class AccountViewSet(
                 ),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.AccountPropertiesValidationError as e:
             raise ValidationError({"properties": e.messages})
@@ -569,7 +639,7 @@ class AccountViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -596,7 +666,7 @@ class AccountViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -787,6 +857,8 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueSourceManaged as exc:
+            raise ValidationError({"definition": str(exc)})
         except api.InvalidCustomPropertyValue as exc:
             raise ValidationError({"value": str(exc)})
         except api.CustomPropertyValueConflict as exc:

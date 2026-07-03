@@ -424,9 +424,19 @@ async fn write_property_definitions_batch(
 
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
+        //
+        // SELECT DISTINCT ON collapses rows that share the ON CONFLICT key before they reach the
+        // insert, so a property name repeated within one batch (e.g. `brand` seen as None then
+        // Numeric) can't make Postgres raise "ON CONFLICT DO UPDATE command cannot affect row a
+        // second time" (SQLSTATE 21000) and roll back the whole batch. The ORDER BY
+        // must lead with the DISTINCT ON keys; the trailing keys make the surviving row deterministic
+        // and pick the most useful one to write - a non-null property_type (then is_numerical),
+        // mirroring the DO UPDATE that only fills a NULL property_type.
         let result = sqlx::query(r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
-                (SELECT * FROM UNNEST(
+                SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1))
+                    id, name, type, group_type_index, is_numerical, team_id, project_id, property_type
+                FROM UNNEST(
                     $1::uuid[],
                     $2::varchar[],
                     $3::smallint[],
@@ -434,7 +444,11 @@ async fn write_property_definitions_batch(
                     $5::boolean[],
                     $6::int[],
                     $7::bigint[],
-                    $8::varchar[]))
+                    $8::varchar[])
+                    AS t(id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
+                ORDER BY
+                    COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1),
+                    (property_type IS NOT NULL) DESC, is_numerical DESC
                 ON CONFLICT (
                     COALESCE(project_id, team_id::bigint), name, type,
                     COALESCE(group_type_index, -1))
@@ -520,16 +534,26 @@ async fn write_event_definitions_batch(
 
         // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
         // then convert this stmt to ON CONFLICT DO NOTHING
+        //
+        // SELECT DISTINCT ON collapses rows that share the ON CONFLICT key before they reach the
+        // insert, so an event name repeated within one batch can't make Postgres raise "ON CONFLICT
+        // DO UPDATE command cannot affect row a second time" (SQLSTATE 21000) and roll back the whole
+        // batch. last_seen_at is bound to a single per-attempt timestamp for every
+        // row above, so the ORDER BY tiebreak is a no-op today, but keeps the survivor deterministic.
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
-                (SELECT * FROM UNNEST (
+                SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), name)
+                    id, name, team_id, project_id, last_seen_at, created_at
+                FROM UNNEST (
                     $1::uuid[],
                     $2::varchar[],
                     $3::int[],
                     $4::bigint[],
                     $5::timestamptz[],
-                    $5::timestamptz[]))
+                    $5::timestamptz[])
+                    AS t(id, name, team_id, project_id, last_seen_at, created_at)
+                ORDER BY COALESCE(project_id, team_id::bigint), name, last_seen_at DESC
                 ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
                     SET last_seen_at=EXCLUDED.last_seen_at,
                         created_at=COALESCE(posthog_eventdefinition.created_at, EXCLUDED.created_at)

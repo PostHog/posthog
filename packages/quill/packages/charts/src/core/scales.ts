@@ -489,6 +489,27 @@ export function buildSegmentResolveValue(
     }
 }
 
+/** Returns the stacked bottom value for each series — use with {@link buildStackedPositionValue}
+ *  to compute per-segment midpoints for tooltip hover detection. */
+export function buildStackedBottomValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const bottom = stackedData.get(s.key)?.bottom[dataIndex]
+        if (Number.isFinite(bottom)) {
+            return bottom as number
+        }
+        // Non-stacked series (e.g. overlay trend lines) aren't in the stack map.
+        // Fall back to the series value so the midpoint collapses to the series's
+        // own pixel position — matching buildStackedPositionValue's fallback.
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    }
+}
+
 export interface BarScaleSet {
     band: ScaleBand<string>
     value: D3YScale
@@ -593,22 +614,26 @@ export function createBarScales(
     const valueSeries = series.map(restrictToKept)
     const valueStackedSeries = stackedSeries?.map(restrictToKept)
 
-    // Multiple y-axes only make sense for grouped bars — each series keeps its own scale so
-    // series of different magnitudes are individually comparable. Stacked/percent layouts share
-    // one axis (stacking values on different scales is meaningless).
+    // Build per-axis scales for grouped layouts with multiple axes. Stacked/percent layouts
+    // share a single value axis — per-series yAxisId is ignored so the stack is consistent.
     const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
     const positions = orderedAxisPositions(visibleSeries)
-    if (barLayout === 'grouped' && positions.length > 1) {
+    if (positions.length > 1 && barLayout === 'grouped') {
         const byAxis = groupVisibleSeriesByAxis(visibleSeries)
         const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
         positions.forEach(({ axisId, position }, axisIndex) => {
+            const axisSeries = byAxis.get(axisId) ?? []
+            const axisKeys = new Set(axisSeries.map((s) => s.key))
+            // Filter the pre-computed stacked tops to this axis so the domain reflects
+            // the cumulative stack for this axis's series, not raw individual values.
+            const axisStackedSeries = stackedSeries?.filter((s) => axisKeys.has(s.key))
             const scale = buildBarValueScale(
-                byAxis.get(axisId) ?? [],
+                axisSeries,
                 valueRange,
                 tickCount,
-                'grouped',
+                barLayout,
                 scaleType,
-                undefined,
+                axisStackedSeries?.length ? axisStackedSeries : undefined,
                 axisIndex === 0 ? valueDomain : undefined,
                 valuePadding
             )

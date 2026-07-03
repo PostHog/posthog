@@ -26,6 +26,8 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
     PaginatedHogFlowMinimalListApi,
@@ -528,6 +530,35 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
+export const getHogFlowsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog flow from their stored payloads.
+ *
+ * Same shape and semantics as the hog function rerun endpoint —
+ * proxies through to the CDP worker, which reads matching rows from
+ * ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+ * onto cyclotron with `is_retry=1`.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_flow:write`.
+ */
+export const hogFlowsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFlowsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
 export const getHogFlowsSchedulesListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
@@ -657,6 +688,29 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
+}
+
+/**
+ * Internal endpoint for the Node-side batch resolver to write the terminal
+ * status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+ * terminal status, returns 200 without re-writing — the resolver retries
+ * this call via cyclotron retry semantics, so safe repeats are required.
+ *
+ * Accepts: { status: "completed" | "failed" }
+ */
+export const internalHogFlowsBatchJobsStatusUpdate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsStatusUpdateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'PUT',
     })
 }
 

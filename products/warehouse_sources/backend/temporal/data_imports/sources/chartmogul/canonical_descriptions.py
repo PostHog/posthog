@@ -22,6 +22,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "email": "Customer's email address.",
             "status": "Lifecycle status of the customer (e.g. Active, Lead, Cancelled).",
             "customer-since": "Date the customer first became active.",
+            "customer_since": "Date and time the customer first started paying for a subscription.",
+            "billing_system_url": "URL for this customer's data in the source billing system, if available.",
             "mrr": "Customer's current monthly recurring revenue.",
             "arr": "Customer's current annual run rate.",
             "currency": "Three-letter ISO currency code used for the customer.",

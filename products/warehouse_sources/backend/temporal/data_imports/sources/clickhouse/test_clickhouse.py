@@ -640,6 +640,11 @@ class TestClickHouseSourceNonRetryableErrors:
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
             "Table default.some_dropped_table not found or has no columns",
+            # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
+            # e.g. an AggregateFunction state column on an aggregating materialized view.
+            "HTTPDriver for https://host:8443 received ClickHouse error code 50\n Code: 50. "
+            "DB::Exception: The type 'AggregateFunction(uniq, String)' of a column 'profile_id' "
+            "is not supported for conversion into Arrow data format: While executing Arrow. (UNKNOWN_TYPE)",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):

@@ -31,6 +31,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             slug="URL-friendly slug used in the event type's scheduling link.",
             scheduling_url="Public scheduling page URL for this event type.",
             duration="Length of the meeting in minutes.",
+            duration_options="List of selectable meeting durations (in minutes) offered for the event type.",
             kind="Whether the event type is solo or group.",
             type="Whether the event type is a StandardEventType or AdhocEventType.",
             color="Hex color used for the event type in the Calendly UI.",

@@ -116,6 +116,8 @@ def _extract_patches(source, schemas, events):
     reader = MagicMock()
     reader.read_changes.return_value = iter(events)
     reader.truncated_tables = []
+    # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
+    reader.last_rows_consumed = len(events)
     reader.get_decoder_key_columns.return_value = []
 
     adapter = MagicMock()
@@ -239,7 +241,7 @@ def _sweeper_patches(adapter):
         patch(f"{_ACTIVITIES}.HeartbeaterSync"),
         patch(f"{_ACTIVITIES}.close_old_connections"),
         patch(f"{_ACTIVITIES}.get_cdc_adapter", return_value=adapter),
-        patch("products.data_warehouse.backend.data_load.service.delete_cdc_extraction_schedule"),
+        patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule"),
     ):
         yield
 

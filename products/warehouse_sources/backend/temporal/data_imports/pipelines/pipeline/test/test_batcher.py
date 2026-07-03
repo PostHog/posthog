@@ -7,9 +7,16 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import (
     Batcher,
     _column_offset_pressure,
+    _column_payload_bytes,
     _max_offset_pressure,
-    _split_to_offset_limit,
+    _split_table,
+    _table_payload_bytes,
 )
+
+
+def _split_to_offset_limit(table: pa.Table, *, limit: int) -> list[pa.Table]:
+    """Offset-only split shim for the existing tests below (byte cap effectively off)."""
+    return _split_table(table, offset_limit=limit, bytes_limit=2**62)
 
 
 def _drain(batcher: Batcher) -> list[pa.Table]:
@@ -185,6 +192,120 @@ def test_batcher_splits_buffered_list_items():
     assert len(drained) > 1
     combined = pa.concat_tables(drained)
     assert combined.column("val").to_pylist() == ["aa", "bb", "cc", "dd"]
+
+
+@parameterized.expand(
+    [
+        # value bytes + 32-bit offset buffer (n * 4): 4 + 8 = 12
+        ("string", pa.array(["aa", "bb"], type=pa.string()), 12),
+        ("binary", pa.array([b"aa", b"bb"], type=pa.binary()), 12),
+        # value bytes + 64-bit offset buffer (n * 8): 4 + 16 = 20
+        ("large_string_counted", pa.array(["aa", "bb"], type=pa.large_string()), 20),
+        ("large_binary_counted", pa.array([b"aa", b"bb"], type=pa.large_binary()), 20),
+        # child element count + 32-bit offset buffer (n * 4): 3 + 8 = 11
+        ("list", pa.array([[1, 2], [3]], type=pa.list_(pa.int64())), 11),
+        ("int64", pa.array([1, 2, 3], type=pa.int64()), 24),
+        ("bool_subbyte_is_zero", pa.array([True, False, True], type=pa.bool_()), 0),
+        ("nulls_counted_as_zero_payload", pa.array([None, "abc"], type=pa.string()), 3 + 8),
+        ("unsupported_nested_is_zero", pa.array([{"x": 1}], type=pa.struct([("x", pa.int64())])), 0),
+    ]
+)
+def test_column_payload_bytes(_name: str, array: pa.Array, expected: int):
+    assert _column_payload_bytes(pa.chunked_array([array])) == expected
+
+
+def test_table_payload_bytes_is_slice_accurate():
+    # Guards against a refactor reintroducing Array.nbytes, which reports the full shared
+    # buffer for a zero-copy slice and would make the byte-driven split non-converging.
+    table = pa.table({"val": ["aaaa", "bbbb", "cccc", "dddd"]})
+
+    full = _table_payload_bytes(table)
+    first_half = _table_payload_bytes(table.slice(0, 2))
+    second_half = _table_payload_bytes(table.slice(2, 2))
+
+    assert first_half < full
+    assert first_half == second_half  # equal-sized rows here
+
+
+def test_split_table_splits_on_bytes_when_offset_is_under_limit():
+    # Offset limit is huge, so only the byte cap can drive the split.
+    table = pa.table({"val": ["aa", "bb", "cc", "dd"]})
+
+    result = _split_table(table, offset_limit=1_000_000, bytes_limit=14)
+
+    assert len(result) > 1
+    for slice_table in result:
+        assert _table_payload_bytes(slice_table) <= 14 or slice_table.num_rows <= 1
+    assert pa.concat_tables(result).equals(table)
+
+
+def test_split_table_byte_cap_sums_across_columns():
+    # Each column's payload (16) is under the limit, but their sum (32) exceeds it, so it must
+    # still split. Guards against measuring the worst column (like the offset guard) instead of the total.
+    table = pa.table({"a": ["aaaa", "bbbb"], "b": ["cccc", "dddd"]})
+
+    result = _split_table(table, offset_limit=1_000_000, bytes_limit=20)
+
+    assert len(result) > 1
+    assert pa.concat_tables(result).equals(table)
+
+
+def test_split_table_single_oversized_row_terminates():
+    table = pa.table({"val": ["a-very-long-value"]})
+
+    result = _split_table(table, offset_limit=1, bytes_limit=1)
+
+    assert len(result) == 1
+    assert result[0].equals(table)
+
+
+def test_batcher_splits_oversized_pa_table_by_bytes_on_yield():
+    batcher = Batcher(logger=mock.MagicMock(), max_table_bytes=14, max_column_offset_bytes=1_000_000)
+    table = pa.table({"val": ["aa", "bb", "cc", "dd"]})
+
+    batcher.batch(table)
+
+    drained = _drain(batcher)
+
+    assert len(drained) > 1
+    assert pa.concat_tables(drained).equals(table)
+
+
+def test_batcher_logs_when_splitting_by_bytes():
+    logger = mock.MagicMock()
+    batcher = Batcher(logger=logger, max_table_bytes=14, max_column_offset_bytes=1_000_000)
+
+    batcher.batch(pa.table({"val": ["aa", "bb", "cc", "dd"]}))
+    _drain(batcher)
+
+    logger.info.assert_called_once()
+    assert logger.info.call_args.args[0] == "batcher_split_by_bytes"
+
+
+def test_batcher_does_not_log_byte_split_for_offset_only_split():
+    # An offset-driven split (byte cap effectively off) must not emit the byte-split signal.
+    logger = mock.MagicMock()
+    batcher = Batcher(logger=logger, max_column_offset_bytes=3, max_table_bytes=10**12)
+
+    batcher.batch(pa.table({"val": ["aa", "bb", "cc", "dd"]}))
+    drained = _drain(batcher)
+
+    assert len(drained) > 1  # it did split, by offset
+    byte_events = [c for c in logger.info.call_args_list if c.args and c.args[0] == "batcher_split_by_bytes"]
+    assert byte_events == []
+
+
+def test_batcher_does_not_split_small_table_under_byte_cap():
+    # Default byte cap (256 MiB) and offset cap; a tiny table stays a single chunk.
+    batcher = Batcher(logger=mock.MagicMock())
+    table = pa.table({"id": [0, 1, 2, 3], "val": ["aa", "bb", "cc", "dd"]})
+
+    batcher.batch(table)
+
+    drained = _drain(batcher)
+
+    assert len(drained) == 1
+    assert drained[0].equals(table)
 
 
 def test_batching_should_not_yield_when_buffer_not_full():

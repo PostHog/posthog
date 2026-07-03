@@ -12,9 +12,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
@@ -29,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET_BASE = "test_storage_bucket"
 INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"

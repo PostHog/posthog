@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { memo, useMemo } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -34,6 +35,8 @@ import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
+
+const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -100,6 +103,61 @@ export function QueryWindow({
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const canSendRawQuery = !!selectedConnectionId
+    const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
+    executeSqlToolStateRef.current = { queryInput, sourceQuery }
+    const executeSqlToolContext = useMemo(
+        () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
+        [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
+    )
+    const executeSqlToolContextDescription = useMemo(
+        () => ({
+            text: 'Current query',
+            icon: iconForType('sql_editor'),
+        }),
+        []
+    )
+    const executeSqlToolIntroOverride = useMemo(
+        () => ({
+            headline: 'What data do you want to analyze?',
+            description: 'Let me help you quickly write SQL, and tweak it.',
+        }),
+        []
+    )
+    const executeSqlToolSuggestions = useMemo(() => [], [])
+    const handleExecuteSqlToolOutput = useCallback(
+        (toolOutput: unknown) => {
+            const { queryInput, sourceQuery } = executeSqlToolStateRef.current
+            applyExecuteSqlToolOutput({
+                toolOutput,
+                queryInput,
+                sourceQuery,
+                setSourceQuery,
+                setSuggestedQueryInput,
+            })
+        },
+        [setSourceQuery, setSuggestedQueryInput]
+    )
+    const executeSqlMaxToolProps = useMemo(
+        () => ({
+            identifier: 'execute_sql' as const,
+            context: executeSqlToolContext,
+            contextDescription: executeSqlToolContextDescription,
+            callback: handleExecuteSqlToolOutput,
+            suggestions: executeSqlToolSuggestions,
+            onMaxOpen: reportAIQueryPromptOpen,
+            introOverride: executeSqlToolIntroOverride,
+        }),
+        [
+            executeSqlToolContext,
+            executeSqlToolContextDescription,
+            executeSqlToolIntroOverride,
+            executeSqlToolSuggestions,
+            handleExecuteSqlToolOutput,
+            reportAIQueryPromptOpen,
+        ]
+    )
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
@@ -214,31 +272,7 @@ export function QueryWindow({
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
-                                maxToolProps={{
-                                    identifier: 'execute_sql',
-                                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
-                                    contextDescription: {
-                                        text: 'Current query',
-                                        icon: iconForType('sql_editor'),
-                                    },
-                                    callback: (toolOutput: unknown) => {
-                                        applyExecuteSqlToolOutput({
-                                            toolOutput,
-                                            queryInput,
-                                            sourceQuery,
-                                            setSourceQuery,
-                                            setSuggestedQueryInput,
-                                        })
-                                    },
-                                    suggestions: [],
-                                    onMaxOpen: () => {
-                                        reportAIQueryPromptOpen()
-                                    },
-                                    introOverride: {
-                                        headline: 'What data do you want to analyze?',
-                                        description: 'Let me help you quickly write SQL, and tweak it.',
-                                    },
-                                }}
+                                maxToolProps={executeSqlMaxToolProps}
                             />
                         )}
                     </div>

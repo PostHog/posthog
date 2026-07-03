@@ -6,6 +6,58 @@ import { initKeaTests } from '~/test/init'
 
 import { signupLogic } from './signupLogic'
 
+describe('signupLogic — email error surfacing', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
+                '/api/signup/': () => [400, { email: ['There is already an account with this email address.'] }],
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('redirects to the email panel and shows the error when the final POST fails with an email error', async () => {
+        // Advance through email panel (precheck passes)
+        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(1)
+
+        // Advance through auth panel (a valid password is required to pass form validation)
+        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
+        logic.actions.submitSignupPanelAuth()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(2)
+
+        // Submit onboarding — final POST fails with an email error
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'Jane Doe',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // User should be sent back to step 0 with the email error shown there
+        expect(logic.values.panel).toBe(0)
+        expect(logic.values.signupPanelEmailManualErrors.email).toBe(
+            'There is already an account with this email address.'
+        )
+    })
+})
+
 describe('signupLogic — pending invite banner', () => {
     let logic: ReturnType<typeof signupLogic.build>
 

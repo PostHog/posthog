@@ -31,6 +31,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { closestHoverSeriesKey } from './closest-hover-series'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
@@ -201,14 +202,28 @@ function LineChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs): boolean => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition, theme }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
                 return false
             }
+            // Find the series whose y-pixel at the hovered index is closest to the cursor so only
+            // that series gets a dot — avoids a column of rings on dense multi-series charts.
+            const closestKey =
+                hoverPosition != null
+                    ? closestHoverSeriesKey(
+                          coloredSeries,
+                          (s) => {
+                              const data = stackedData?.get(s.key)?.top ?? s.data
+                              return resolveYScaleForSeries(scales, s)(data[hoverIndex])
+                          },
+                          hoverPosition.y
+                      )
+                    : null
             // Overlays (moving averages, trend lines) and fill-between lower bounds opt out — in
             // percent-stack mode the y-domain is [0, 1], so their raw values would ring far off-plot.
             // `drawLineHoverPoints` handles those skips; we supply the stacked-top y per series.
-            return drawLineHoverPoints(ctx, coloredSeries, theme.backgroundColor ?? '#ffffff', (s) => {
+            const dotSeries = closestKey != null ? coloredSeries.filter((s) => s.key === closestKey) : coloredSeries
+            return drawLineHoverPoints(ctx, dotSeries, theme.backgroundColor ?? '#ffffff', (s) => {
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
                 if (x == null) {

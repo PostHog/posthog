@@ -18,7 +18,9 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -50,6 +52,9 @@ export function SceneTitlePanelButton({
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
     const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
@@ -59,44 +64,45 @@ export function SceneTitlePanelButton({
 
     return (
         <>
-            <ButtonPrimitive
-                className={buttonClassName}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    if (openMax) {
-                        openMax()
-                    } else {
-                        openSidePanel(SidePanelTab.Max)
+            {!sceneMenuBarEnabled && (
+                <ButtonPrimitive
+                    className={buttonClassName}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        if (openMax) {
+                            openMax()
+                        } else {
+                            openSidePanel(SidePanelTab.Max)
+                        }
+                    }}
+                    tooltip={
+                        definition ? (
+                            <>
+                                Open PostHog AI
+                                <br />
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
+                            </>
+                        ) : (
+                            'Open PostHog AI'
+                        )
                     }
-                }}
-                tooltip={
-                    definition ? (
-                        <>
-                            Open PostHog AI
-                            <br />
-                            <div className="flex items-center">
-                                {definition.icon || <IconWrench />}
-                                <i className="ml-1.5">{definition.name}</i>
-                            </div>
-                        </>
-                    ) : (
-                        'Open PostHog AI'
-                    )
-                }
-                tooltipPlacement="bottom-end"
-                tooltipCloseDelayMs={0}
-                iconOnly
-                data-attr="open-context-panel-ai-button"
-            >
-                <div className="relative">
-                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                    {maxToolProps && (
-                        <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
-                    )}
-                </div>
-            </ButtonPrimitive>
-
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                    data-attr="open-context-panel-ai-button"
+                >
+                    <div className="relative">
+                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                        {maxToolProps && (
+                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                        )}
+                    </div>
+                </ButtonPrimitive>
+            )}
             {/* Size to mimic lemon button small */}
             <ButtonPrimitive
                 className={cn(buttonClassName, 'group -mr-[2px]')}
@@ -241,7 +247,6 @@ export function SceneTitleSection({
     const sentinelRef = useRef<HTMLDivElement>(null)
     const effectiveDescription = description
     const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
-
     // Always include ProductSetupButton alongside other actions
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (

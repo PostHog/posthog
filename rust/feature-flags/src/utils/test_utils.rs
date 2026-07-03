@@ -205,6 +205,55 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     Arc::new(client)
 }
 
+/// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
+/// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
+pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .zrangebyscore(
+            "flag_definitions:rebuild_requests".to_string(),
+            "-inf".to_string(),
+            "+inf".to_string(),
+        )
+        .await
+        .unwrap_or_default()
+}
+
+/// An S3 client that reports every key as NotFound. Lets integration tests force a
+/// genuine HyperCache `CacheMiss` (redis miss + S3 NotFound) without a real object
+/// store, so a `/flags/definitions` miss classifies as `cache_miss` rather than
+/// `s3_error`.
+pub struct AlwaysMissS3Client;
+
+#[async_trait]
+impl common_hypercache::S3Client for AlwaysMissS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Err(common_hypercache::S3Error::NotFound(key.to_string()))
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// A dummy S3 client (always NotFound) for injecting into the test server.
+pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(AlwaysMissS3Client)
+}
+
 /// Create a HyperCacheReader for tests using the provided Redis client.
 /// Uses default test configuration for S3 (which won't be used in most tests
 /// since Redis should have the data).
@@ -631,6 +680,7 @@ pub async fn insert_flag_for_team_in_pg(
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         },
     };
 
@@ -688,6 +738,30 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
         .execute(&mut *conn)
         .await?;
     }
+
+    Ok(())
+}
+
+pub async fn insert_experiment_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    deleted: bool,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_experiment
+        (name, filters, feature_flag_id, team_id, deleted, archived,
+         only_count_matured_users, created_at, updated_at)
+        VALUES ('test experiment', '{}'::jsonb, $1, $2, $3, false, false, NOW(), NOW())
+        "#,
+    )
+    .bind(flag_id)
+    .bind(team_id)
+    .bind(deleted)
+    .execute(&mut *conn)
+    .await?;
 
     Ok(())
 }
@@ -1163,6 +1237,16 @@ impl TestContext {
         flag: Option<FeatureFlagRow>,
     ) -> Result<FeatureFlagRow, Error> {
         insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
+    }
+
+    pub async fn insert_experiment(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        deleted: bool,
+    ) -> Result<(), Error> {
+        insert_experiment_for_flag_in_pg(self.non_persons_writer.clone(), flag_id, team_id, deleted)
+            .await
     }
 
     pub async fn insert_person(

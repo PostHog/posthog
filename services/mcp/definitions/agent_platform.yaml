@@ -124,6 +124,22 @@ tools:
             List every agent application in the project. Returns id, slug, name, description, live_revision, archived
             state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the
             `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-models:
+        operation: agent_applications_models
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List models + what each auto level resolves to
+        description: >
+            Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display
+            name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto`
+            level (`low` / `medium` / `high`) currently resolves to. Use this to answer "what will auto/medium actually
+            run?" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live
+            against the catalog, so it reflects what the runner picks today, not a hardcoded list.
     agent-applications-partial-update:
         operation: agent_applications_partial_update
         enabled: true
@@ -581,6 +597,22 @@ tools:
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
             via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-spec-schema:
+        operation: agent_applications_spec_schema
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the agent spec JSON schema
+        description: >
+            The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated
+            unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same
+            source the runner validates against, so fields with a default are optional on write. Read this BEFORE
+            composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape.
+            Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false

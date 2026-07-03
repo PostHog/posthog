@@ -46,9 +46,17 @@ describe('isNumericColumnType', () => {
         expect(isNumericColumnType('decimal')).toBe(true)
     })
 
+    it('accepts numeric custom-property display types', () => {
+        expect(isNumericColumnType('number')).toBe(true)
+        expect(isNumericColumnType('currency')).toBe(true)
+        expect(isNumericColumnType('percent')).toBe(true)
+    })
+
     it('rejects non-numeric types', () => {
         expect(isNumericColumnType('string')).toBe(false)
         expect(isNumericColumnType('boolean')).toBe(false)
+        expect(isNumericColumnType('text')).toBe(false)
+        expect(isNumericColumnType('date')).toBe(false)
         expect(isNumericColumnType(undefined)).toBe(false)
     })
 })
@@ -74,6 +82,26 @@ describe('numericColumnOptions', () => {
         expect(options).toEqual([
             { name: 'health_score', expression: 'health_score', type: 'integer' },
             { name: 'score', expression: 'accounts.health.score', type: 'float' },
+        ])
+    })
+
+    it('includes numeric custom properties and casts their string value for aggregation', () => {
+        const options = numericColumnOptions([
+            {
+                key: 'custom_properties',
+                label: 'Custom properties',
+                options: [
+                    { name: 'Seats', expression: 'accounts.custom_properties.values.`abc` AS cp_abc', type: 'number' },
+                    { name: 'Plan', expression: 'accounts.custom_properties.values.`def` AS cp_def', type: 'text' },
+                ],
+            },
+        ])
+        expect(options).toEqual([
+            {
+                name: 'Seats',
+                type: 'number',
+                expression: 'toFloatOrNull(accounts.custom_properties.values.`abc`)',
+            },
         ])
     })
 })

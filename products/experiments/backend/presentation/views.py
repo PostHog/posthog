@@ -28,18 +28,17 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -144,23 +143,6 @@ def list_is_legacy_annotation() -> Case:
         When(inline_legacy | saved_legacy, then=Value(True)),
         default=Value(False),
         output_field=BooleanField(),
-    )
-
-
-PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
-
-
-def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
-    distinct_id = user.distinct_id or str(user.uuid)
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    return feature_enabled_or_false(
-        PROMPT_EXPERIMENTS_FEATURE_FLAG,
-        distinct_id,
-        groups={"organization": organization_id, "project": project_id},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
     )
 
 
@@ -676,9 +658,6 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -755,9 +734,6 @@ class EnterpriseExperimentsViewSet(
     )
     def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the LLM metric templates that can be passed to `create_from_prompt`."""
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         return Response(list_templates())
 
     @extend_schema(

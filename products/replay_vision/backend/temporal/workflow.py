@@ -81,14 +81,19 @@ _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     non_retryable_error_types=["ValueError"],
 )
 
+# Generous because fetch's deterministic errors are non_retryable; this budget only covers transient infra (e.g. ClickHouse at capacity).
 _FETCH_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=2),
-    maximum_interval=dt.timedelta(seconds=30),
-    maximum_attempts=3,
+    maximum_interval=dt.timedelta(seconds=60),
+    maximum_attempts=6,
 )
 
-# Asset get-or-create has no transient failure modes worth retrying.
-_ENSURE_ASSET_RETRY = common.RetryPolicy(maximum_attempts=1)
+# A transient shared-DB slowdown can time this out; retry like the other state activities (the get-or-create makes sequential retries dedup-safe).
+_ENSURE_ASSET_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
 
 # Deterministic failures opt out via ScannerFailureError's non_retryable flag; only transient kinds re-run.
 _UPLOAD_RETRY = common.RetryPolicy(

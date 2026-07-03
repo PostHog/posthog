@@ -11,31 +11,26 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_CHUNK_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MiB
 DEFAULT_CHUNK_SIZE: int = 5000
 
-# pyarrow `string`/`binary`/`list` columns use 32-bit offsets, so a single column in
-# one batch overflows once its offsets cross 2^31 (~2.1e9). delta-rs concatenates a
-# merge source's chunks into one contiguous array, which is where this surfaces in
-# prod as "Offset overflow error: <bytes>". Casting the source to large_string does
-# NOT help — delta-rs coerces back to the target's 32-bit `string` during the merge —
-# so the only reliable fix is to keep each yielded table's worst column under the
-# limit, splitting by rows when needed. The margin below 2^31 leaves room for the
-# offset buffer itself and any target-side rows pulled into a matched-update merge.
-DEFAULT_MAX_COLUMN_OFFSET_BYTES: int = 1_500_000_000  # ~1.4 GiB
+# string/binary/list use 32-bit offsets and overflow ("Offset overflow error") once a column's
+# offsets cross 2^31 (~2.1 GB); delta-rs hits this when it concatenates merge-source chunks.
+DEFAULT_MAX_COLUMN_OFFSET_BYTES: int = 1_500_000_000  # ~1.4 GiB, safely under the 2 GB (2^31) limit
+
+# Cap each yielded table's real Arrow payload: wide rows / large cells can materialize a multi-GiB
+# table from a few thousand rows, which becomes the loader's per-batch merge memory and OOMs the pod.
+DEFAULT_MAX_TABLE_BYTES: int = 256 * 1024 * 1024  # 256 MiB of Arrow payload
 
 
 def _column_offset_pressure(col: pa.ChunkedArray) -> int:
-    """Return the 32-bit-offset quantity that would overflow for this column.
+    """32-bit-offset pressure: value bytes (string/binary) or child element count (list); 0 otherwise.
 
-    For `string`/`binary` it's the total value bytes (the final offset). For `list`
-    it's the total child element count (the final list offset). 64-bit (`large_*`)
-    variants can't overflow, so they contribute nothing. Computed via `pc.sum` over
-    per-row lengths, which is slice-accurate (unlike `Array.nbytes`, which reports the
-    full shared buffer for a zero-copy slice and would break the recursion below).
+    Slice-accurate via `pc.sum` over per-row lengths (not `Array.nbytes`, which reports the full
+    shared buffer for a zero-copy slice and would break the recursive split).
     """
-    t = col.type
-    if pa.types.is_string(t) or pa.types.is_binary(t):
+    col_type = col.type
+    if pa.types.is_string(col_type) or pa.types.is_binary(col_type):
         total = pc.sum(pc.binary_length(col)).as_py()
         return int(total or 0)
-    if pa.types.is_list(t):
+    if pa.types.is_list(col_type):
         total = pc.sum(pc.list_value_length(col)).as_py()
         return int(total or 0)
     return 0
@@ -45,20 +40,48 @@ def _max_offset_pressure(table: pa.Table) -> int:
     return max((_column_offset_pressure(table.column(name)) for name in table.column_names), default=0)
 
 
-def _split_to_offset_limit(table: pa.Table, limit: int) -> list[pa.Table]:
-    """Recursively row-halve `table` until every slice's worst column is under `limit`.
+def _column_payload_bytes(col: pa.ChunkedArray) -> int:
+    """Slice-accurate in-memory payload bytes: value bytes + offset buffer (string/binary/list)
+    or col_length * byte_width (fixed-width); nested/other types return 0. Avoids `.nbytes` (wrong for slices)."""
+    col_type = col.type
+    col_length = len(col)
+    if pa.types.is_string(col_type) or pa.types.is_binary(col_type):
+        payload = int(pc.sum(pc.binary_length(col)).as_py() or 0)
+        return payload + col_length * 4  # value bytes + 32-bit offsets
+    if pa.types.is_large_string(col_type) or pa.types.is_large_binary(col_type):
+        # 64-bit offsets can't overflow (the offset guard skips them) but still hold real payload.
+        payload = int(pc.sum(pc.binary_length(col)).as_py() or 0)
+        return payload + col_length * 8
+    if pa.types.is_list(col_type):
+        elements = int(pc.sum(pc.list_value_length(col)).as_py() or 0)
+        return elements + col_length * 4
+    # Fixed-width primitives expose bit_width; variable-length / nested types raise -> 0.
+    # Known limitation: deeply-nested struct/map and sub-byte bool columns undercount to 0 (we only bound large string/JSON payloads, the actual OOM driver).
+    try:
+        bit_width = col_type.bit_width
+    except (ValueError, AttributeError):
+        return 0
+    return col_length * (bit_width // 8)
 
-    Slices are zero-copy views, so this doesn't duplicate the data. A single row can
-    never overflow (a string value can't itself exceed 2^31), so the `num_rows <= 1`
-    base case guarantees termination.
-    """
-    if table.num_rows <= 1 or _max_offset_pressure(table) <= limit:
+
+def _table_payload_bytes(table: pa.Table) -> int:
+    return sum(_column_payload_bytes(table.column(name)) for name in table.column_names)
+
+
+def _split_table(table: pa.Table, *, offset_limit: int, bytes_limit: int) -> list[pa.Table]:
+    """Row-halve `table` (zero-copy slices) until every slice is under both the per-column offset limit
+    and the total-bytes limit. `num_rows <= 1` is the base case, so a lone oversized row is yielded as-is."""
+    if table.num_rows <= 1:
+        return [table]
+    if _max_offset_pressure(table) <= offset_limit and _table_payload_bytes(table) <= bytes_limit:
         return [table]
 
     mid = table.num_rows // 2
     left = table.slice(0, mid)
     right = table.slice(mid, table.num_rows - mid)
-    return _split_to_offset_limit(left, limit) + _split_to_offset_limit(right, limit)
+    return _split_table(left, offset_limit=offset_limit, bytes_limit=bytes_limit) + _split_table(
+        right, offset_limit=offset_limit, bytes_limit=bytes_limit
+    )
 
 
 class Batcher:
@@ -69,6 +92,7 @@ class Batcher:
     _chunk_size: int
     _chunk_size_bytes: int
     _max_column_offset_bytes: int
+    _max_table_bytes: int
 
     def __init__(
         self,
@@ -76,20 +100,34 @@ class Batcher:
         chunk_size: Optional[int] = None,
         chunk_size_bytes: Optional[int] = None,
         max_column_offset_bytes: Optional[int] = None,
+        max_table_bytes: Optional[int] = None,
     ) -> None:
         self._logger = logger
 
         self._chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
         self._chunk_size_bytes = chunk_size_bytes or DEFAULT_CHUNK_SIZE_BYTES
         self._max_column_offset_bytes = max_column_offset_bytes or DEFAULT_MAX_COLUMN_OFFSET_BYTES
+        self._max_table_bytes = max_table_bytes or DEFAULT_MAX_TABLE_BYTES
 
         self._buffer = []
         self._buffer_size_bytes = 0
         self._ready = deque()
 
     def _set_ready(self, table: pa.Table) -> None:
-        """Split `table` so no yielded chunk can overflow a 32-bit offset column."""
-        self._ready = deque(_split_to_offset_limit(table, self._max_column_offset_bytes))
+        """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds
+        the per-table Arrow-payload cap (keeping the loader's per-batch merge bounded)."""
+        chunks = _split_table(table, offset_limit=self._max_column_offset_bytes, bytes_limit=self._max_table_bytes)
+        if len(chunks) > 1:
+            payload_bytes = _table_payload_bytes(table)
+            if payload_bytes > self._max_table_bytes:
+                self._logger.info(
+                    "batcher_split_by_bytes",
+                    payload_bytes=payload_bytes,
+                    bytes_limit=self._max_table_bytes,
+                    chunk_count=len(chunks),
+                    row_count=table.num_rows,
+                )
+        self._ready = deque(chunks)
 
     def _estimate_size(self, obj: Any) -> int:
         if isinstance(obj, dict):

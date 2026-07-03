@@ -176,7 +176,15 @@ async def _run_mission(
     cached run that fails for a non-validation reason is retried inline once before giving up.
     """
     api_key = gemini_api_key()
-    client = genai.AsyncClient(api_key=api_key)
+    # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
+    client = genai.AsyncClient(
+        api_key=api_key,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "scanner",
+            "scanner_type": snapshot.scanner_type.value,
+        },
+    )
     cache_client = GoogleGenAIClient(api_key=api_key)
     model = f"models/{snapshot.model.value}"
     metric_labels = {
@@ -210,9 +218,17 @@ async def _run_mission(
                 step_outputs = await run(cache_name=cache.name)
             except ScannerFailureError:
                 raise  # a required step genuinely couldn't be satisfied — re-running won't help.
-            except Exception:
+            except Exception as exc:
                 # The cached request failed (a bad cache reference, or a transient provider error) — retry inline once.
-                logger.warning("replay_vision.video_cache.run_failed_retrying_inline", model=snapshot.model.value)
+                # Capture the cause: this fallback fires often enough that we need to know whether it's the
+                # cached-content + response-schema combination, a stale cache reference, or a transient provider error.
+                logger.warning(
+                    "replay_vision.video_cache.run_failed_retrying_inline",
+                    model=snapshot.model.value,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    exc_info=True,
+                )
                 step_outputs = await run(cache_name=None)
     finally:
         if cache is not None:

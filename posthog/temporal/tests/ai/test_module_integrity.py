@@ -310,7 +310,6 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationSamplerWorkflow",
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
-            "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
@@ -348,7 +347,6 @@ class TestAIObservabilityModuleIntegrity:
             "generate_evaluation_cluster_labels_activity",
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
-            "classify_sentiment_activity",
             "fetch_evaluation_activity",
             "increment_trial_eval_count_activity",
             "disable_evaluation_activity",

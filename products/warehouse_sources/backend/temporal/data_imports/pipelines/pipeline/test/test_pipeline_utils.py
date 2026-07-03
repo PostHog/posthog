@@ -418,6 +418,34 @@ def test_table_from_py_list_huge_int_column_falls_back_to_string():
     assert table.column("column").to_pylist() == [str(enormous), "5"]
 
 
+def test_table_from_py_list_decimal_exceeding_max_scale_is_rounded():
+    # An unconstrained Postgres `numeric` can carry more decimal places than Delta Lake's max
+    # scale (32). pyarrow refuses to rescale it ("Rescaling Decimal256 value would cause data
+    # loss"); the value must be rounded to the max scale rather than crashing the whole sync.
+    # A None is mixed in to exercise the null-passthrough in the quantize retry path.
+    value = decimal.Decimal("1." + "1" * 80)
+
+    table = table_from_py_list([{"column": value}, {"column": None}])
+
+    col_type = table.schema.field("column").type
+    assert pa.types.is_decimal256(col_type)
+    assert col_type.scale == 32
+    assert table.column("column").to_pylist() == [decimal.Decimal("1." + "1" * 32), None]
+
+
+def test_table_from_py_list_decimal_too_large_for_decimal256_falls_back_to_string():
+    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max scale
+    # is genuinely unrepresentable as a decimal. It must fall back to text rather than crash the
+    # sync, mirroring the huge-int fallback. A normal value is mixed in to confirm the whole column
+    # stringifies consistently.
+    huge = decimal.Decimal("9" * 247)
+
+    table = table_from_py_list([{"column": huge}, {"column": decimal.Decimal("1.5")}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(huge), "1.5", None]
+
+
 def test_table_from_py_list_normal_int_column_stays_int64():
     # Values within int64 are unaffected by the overflow handling.
     table = table_from_py_list([{"column": 1}, {"column": 2}, {"column": None}])
@@ -845,6 +873,13 @@ def _mock_schema(**overrides: Any) -> MagicMock:
     schema.partitioning_keys = overrides.get("partitioning_keys")
     schema.partition_format = overrides.get("partition_format")
     schema.partition_mode = overrides.get("partition_mode")
+    # Operator-pinned overrides default to None (as on the real model). Without setting these
+    # explicitly the MagicMock would auto-create truthy attributes that win the `*_override or ...`
+    # precedence in setup_partitioning.
+    schema.partition_count_override = overrides.get("partition_count_override")
+    schema.partition_size_override = overrides.get("partition_size_override")
+    schema.partition_mode_override = overrides.get("partition_mode_override")
+    schema.partitioning_keys_override = overrides.get("partitioning_keys_override")
     schema.partitioning_enabled = overrides.get("partitioning_enabled", True)
     schema.set_partitioning_enabled = MagicMock()
     return schema
@@ -939,3 +974,47 @@ async def test_setup_partitioning_no_delta_table_no_partition_keys_returns_uncha
 
     assert result.equals(pa_table)
     assert PARTITION_KEY not in result.column_names
+
+
+@pytest.mark.asyncio
+async def test_setup_partitioning_mode_override_forces_datetime_on_non_standard_column():
+    # An operator switches a md5 table to datetime on a date column that isn't one of the
+    # auto-detected names (created_at/inserted_at/...). The mode + keys overrides must win, so the
+    # rows bucket by the date column rather than being md5-hashed by the composite primary key.
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table(
+        {
+            "record_id": ["a", "b", "c"],
+            "action_date": [
+                datetime.datetime(2026, 1, 15),
+                datetime.datetime(2026, 1, 20),
+                datetime.datetime(2026, 2, 3),
+            ],
+        }
+    )
+    schema = _mock_schema(
+        partition_mode="md5",
+        partition_count=30,
+        partitioning_keys=["record_id", "action_date"],
+        partition_mode_override="datetime",
+        partitioning_keys_override=["action_date"],
+        partition_format="month",
+        partitioning_enabled=False,
+    )
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["record_id", "action_date"]),
+        logger=logger,
+    )
+
+    assert PARTITION_KEY in result.column_names
+    # datetime/month bucketing, not md5 hashing of the composite key.
+    assert result.column(PARTITION_KEY).to_pylist() == ["2026-01", "2026-01", "2026-02"]
+    schema.set_partitioning_enabled.assert_called_once()
+    applied_keys, _count, _size, applied_mode, applied_format = schema.set_partitioning_enabled.call_args.args
+    assert applied_mode == "datetime"
+    assert applied_keys == ["action_date"]
+    assert applied_format == "month"

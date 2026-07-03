@@ -94,6 +94,9 @@ export const StageEnumApi = {
  */
 export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface EarlyAccessFeatureApi {
     readonly id: string
     readonly feature_flag: MinimalFeatureFlagApi
@@ -121,6 +124,11 @@ export interface EarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEarlyAccessFeatureListApi {
@@ -132,6 +140,9 @@ export interface PaginatedEarlyAccessFeatureListApi {
     results: EarlyAccessFeatureApi[]
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     readonly id: string
     /**
@@ -162,6 +173,11 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
     _create_in_folder?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 /**
@@ -169,6 +185,9 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
  */
 export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
     readonly feature_flag?: MinimalFeatureFlagApi
@@ -196,6 +215,11 @@ export interface PatchedEarlyAccessFeatureApi {
     /** Feature flag payload for this early access feature */
     readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type EarlyAccessFeatureListParams = {

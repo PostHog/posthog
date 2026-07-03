@@ -20,10 +20,9 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _sql_source_stub(*, schema_required: bool | None, has_schema_field: bool = True) -> Any:

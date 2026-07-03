@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     TableNode,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -153,6 +153,19 @@ class TestPostgresTable(BaseTest):
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
+
+    def test_persons_model_table_resolves_to_persons_db(self):
+        # In DEBUG/TEST, persons-model system tables (e.g. system.groups) build a federated
+        # postgresql(...) call pointing at the persons database — sourced off-ORM from
+        # PERSONS_DB_WRITER_URL — while main-DB tables resolve to the default database. The
+        # persons test DB name carries the "_persons" suffix, which discriminates the two.
+        persons_ctx = HogQLContext(team_id=self.team.pk)
+        build_function_call("posthog_group", persons_ctx)
+        assert any(str(v).endswith("_persons") for v in persons_ctx.values.values())
+
+        default_ctx = HogQLContext(team_id=self.team.pk)
+        build_function_call("posthog_dashboard", default_ctx)
+        assert not any(str(v).endswith("_persons") for v in default_ctx.values.values())
 
     def test_select(self):
         self._init_database()

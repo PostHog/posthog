@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from pymongo.errors import InvalidURI, OperationFailure
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
@@ -8,7 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
+    _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+    _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_NOT_AUTHORIZED_MESSAGE,
+    _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     MongoDBSource,
 )
@@ -87,3 +93,144 @@ class TestMongoValidateCredentialsServerSelection:
 
         assert ok is False
         assert err == _MONGO_UNREACHABLE_MESSAGE
+
+
+class TestMongoValidateCredentialsOperationFailure:
+    # All values here are synthetic — pymongo appends the full server response (clusterTime,
+    # signature, BSON ids) to str(e), and that raw text must never reach the user. Each row
+    # exercises a distinct branch: two inside `except OperationFailure`, two inside `except Exception`.
+    @pytest.mark.parametrize(
+        "exc, expected_message, forbidden",
+        [
+            (
+                OperationFailure(
+                    "not authorized on demo_db to execute command { listCollections: 1 }",
+                    13,
+                    {
+                        "ok": 0.0,
+                        "errmsg": "not authorized on demo_db to execute command { listCollections: 1 }",
+                        "code": 13,
+                        "codeName": "Unauthorized",
+                        "$clusterTime": {"clusterTime": "Timestamp(1, 1)", "signature": {"keyId": 1234567890}},
+                    },
+                ),
+                _MONGO_NOT_AUTHORIZED_MESSAGE,
+                ("full error", "signature", "clusterTime", "keyId", "demo_db"),
+            ),
+            (
+                OperationFailure(
+                    "Authentication failed.", 18, {"ok": 0.0, "errmsg": "Authentication failed.", "code": 18}
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+                ("full error",),
+            ),
+            (
+                InvalidURI("Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"),
+                _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
+                (),
+            ),
+            (
+                Exception("some-internal-driver-detail-xyz"),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                ("xyz",),
+            ),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_returns_clean_message_without_internals(self, mock_get_collections, exc, expected_message, forbidden):
+        mock_get_collections.side_effect = exc
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        for leaked in forbidden:
+            assert leaked not in (err or "")
+
+
+class TestMongoValidateCredentialsErrorTrackingNoise:
+    # Unescaped credentials are a user mistake we already surface an actionable message for, so
+    # they must not be reported to error tracking; genuinely unexpected errors still must be.
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unescaped_credentials_not_reported(self, mock_get_collections, mock_capture):
+        mock_get_collections.side_effect = InvalidURI(
+            "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+        mock_capture.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unexpected_error_is_reported(self, mock_get_collections, mock_capture):
+        mock_get_collections.side_effect = Exception("some-internal-driver-detail")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_CONNECT_FAILED_MESSAGE
+        mock_capture.assert_called_once()
+
+    # A recognized OperationFailure on listCollections is a user-side credential/permission problem
+    # — a missing read role ("not authorized") or bad credentials — that we already surface an
+    # actionable message for and classify as non-retryable, so it must not be captured as noise. An
+    # unrecognized OperationFailure is unexpected and must still be captured so the signal isn't lost.
+    @pytest.mark.parametrize(
+        "exc, expected_message, should_capture",
+        [
+            (
+                OperationFailure(
+                    "not authorized on demo_db to execute command { listCollections: 1 }",
+                    13,
+                    {"ok": 0.0, "errmsg": "not authorized on demo_db", "code": 13, "codeName": "Unauthorized"},
+                ),
+                _MONGO_NOT_AUTHORIZED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "Authentication failed.", 18, {"ok": 0.0, "errmsg": "Authentication failed.", "code": 18}
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "bad auth : authentication failed",
+                    8000,
+                    {"ok": 0.0, "errmsg": "bad auth : authentication failed", "code": 8000, "codeName": "AtlasError"},
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+                False,
+            ),
+            (
+                OperationFailure(
+                    "listCollections: unrecognized field 'authorizedCollections'",
+                    40415,
+                    {"ok": 0.0, "errmsg": "unrecognized field", "code": 40415, "codeName": "Location40415"},
+                ),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                True,
+            ),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_operation_failure_capture_behavior(
+        self, mock_get_collections, mock_capture, exc, expected_message, should_capture
+    ):
+        mock_get_collections.side_effect = exc
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        assert mock_capture.called is should_capture

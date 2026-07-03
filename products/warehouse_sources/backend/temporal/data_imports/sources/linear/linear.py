@@ -15,13 +15,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linear.set
     LINEAR_ENDPOINTS,
 )
 
-LINEAR_MAX_RETRY_ATTEMPTS = 5
-# Cap how long a single Retry-After can stall us, so a misbehaving header can't pin the
-# activity open. Kept under the activity heartbeat timeout; longer waits are handled by
-# Temporal rescheduling the whole activity, which resumes from the saved cursor.
+# Linear's edge returns short bursts of 5xx/429 that clear within a minute or two, so
+# retry in-process long enough to ride those out before failing the activity. The backoff
+# blocks the source thread, but heartbeats are sent from an independent background task
+# (LivenessHeartbeater), so a multi-minute wait here doesn't trip the activity heartbeat
+# timeout. Genuine outages still fall through to Temporal rescheduling the whole activity,
+# which resumes from the saved cursor.
+LINEAR_MAX_RETRY_ATTEMPTS = 8
+# Cap how long a single Retry-After can stall us, so a misbehaving header sending a huge
+# value can't pin the activity open for an unreasonable time.
 LINEAR_MAX_RETRY_AFTER_SECONDS = 60
 # Stateless backoff used when a 429 carries no usable Retry-After hint.
-_LINEAR_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=30)
+_LINEAR_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=60)
 
 
 class LinearRetryableError(Exception):
@@ -112,10 +117,16 @@ def _make_paginated_request(
 
         try:
             payload = response.json()
-        except Exception:
+        except Exception as e:
             if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})")
-            raise Exception(f"Unexpected Linear response: {response.text}")
+                raise Exception(
+                    f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})"
+                ) from e
+            # A 2xx whose body won't parse as JSON is almost always a truncated transfer (the
+            # connection dropped mid-body on a large page), not a stable response Linear will keep
+            # returning. Ride it out on the same backoff path as other transient failures instead of
+            # failing the activity outright. Don't echo response.text — a partial body carries data.
+            raise LinearRetryableError(f"Linear: incomplete JSON response ({e})") from e
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]

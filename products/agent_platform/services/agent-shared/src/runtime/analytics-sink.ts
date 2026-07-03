@@ -87,6 +87,10 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     cost_usd?: number
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string
+    /** 0-based index of the model in the policy list that answered. >0 means a fallback. */
+    model_attempt?: number
+    /** Model id we fell back FROM (the primary that failed), when a fallback happened. */
+    fallback_from?: string
 }
 
 export interface AnalyticsSpanEvent extends AnalyticsEventBase {
@@ -212,6 +216,12 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         }
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
+        }
+        if (event.model_attempt !== undefined) {
+            base.$agent_model_attempt = event.model_attempt
+        }
+        if (event.fallback_from) {
+            base.$ai_fallback_from = event.fallback_from
         }
     } else if (event.kind === 'span') {
         base.$ai_span_name = event.tool_name

@@ -65,7 +65,7 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
           ]
         : [timeRangeColumn, conversionsColumn, percentColumn]
 
-    const previousAverageTime = timeConversionResultsPrevious?.average_conversion_time
+    const previousMedianTime = timeConversionResultsPrevious?.median_conversion_time
 
     return (
         <LemonTable
@@ -75,17 +75,17 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
             rowKey="id"
             data-attr="funnel-time-to-convert-table"
             footer={
-                conversionMetrics.averageTime ? (
+                conversionMetrics.medianTime ? (
                     <div className="flex items-center justify-between px-2 py-1">
-                        <span className="font-medium">Average time to convert</span>
+                        <span className="font-medium">Median time to convert</span>
                         <span>
-                            {humanFriendlyDuration(conversionMetrics.averageTime, { maxUnits: 3 })}
+                            {humanFriendlyDuration(conversionMetrics.medianTime, { maxUnits: 3 })}
                             {isComparing && (
                                 <span className="text-secondary">
                                     {' '}
                                     (current) ·{' '}
-                                    {previousAverageTime
-                                        ? `${humanFriendlyDuration(previousAverageTime, { maxUnits: 3 })} (previous)`
+                                    {previousMedianTime
+                                        ? `${humanFriendlyDuration(previousMedianTime, { maxUnits: 3 })} (previous)`
                                         : '– (previous)'}
                                 </span>
                             )}

@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
+    RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
@@ -318,12 +319,13 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                # Webhook-only endpoints (e.g. Discount) have no list API and therefore no
-                # incremental fields, but they must still expose webhook support so the
-                # warehouse pipeline can route events into the correct table.
+                # An endpoint supports webhooks iff a Stripe event emits its object type — i.e. it's in
+                # RESOURCE_TO_STRIPE_WEBHOOK_EVENT (the same map that drives event subscription) — or
+                # it's webhook-only (e.g. Discount, no list API). This is what lets CustomerPaymentMethod
+                # move to webhook sync after its initial backfill instead of re-sweeping every customer,
+                # while CustomerBalanceTransaction (no Stripe event) stays API-sweep-only.
                 supports_webhooks=(
-                    STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                    or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
+                    endpoint in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
                 ),
                 webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS

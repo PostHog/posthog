@@ -6,9 +6,12 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
 import psycopg.errors
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
+    CDC_MAX_CHANGES_PER_READ,
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
     CDCExtractActivity,
     CDCExtractInput,
@@ -160,6 +163,8 @@ def _setup_mocks(
     mock_reader = MagicMock()
     mock_reader.read_changes.return_value = iter(events)
     mock_reader.truncated_tables = []
+    # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
+    mock_reader.last_rows_consumed = len(events)
     mock_reader.get_decoder_key_columns.return_value = []
     mock_adapter = MagicMock()
     mock_adapter.create_reader.return_value = mock_reader
@@ -694,6 +699,7 @@ class TestCDCExtractActivity:
         mock_reader = MagicMock()
         mock_reader.read_changes.return_value = iter([])
         mock_reader.truncated_tables = []
+        mock_reader.last_rows_consumed = 0
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_get_adapter.return_value = mock_adapter
@@ -810,6 +816,9 @@ class TestCDCExtractActivity:
         mock_adapter.classify_error.return_value = None
         mock_get_adapter.return_value = mock_adapter
 
+        # Retryable on a non-final attempt: no failure-visibility row, so ExternalDataJob is untouched.
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
+
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
 
         with pytest.raises(RuntimeError, match="connection lost"):
@@ -867,7 +876,66 @@ class TestCDCExtractActivity:
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
         assert "S3 write failed" not in schema.latest_error
 
+        # A RUNNING job already exists (created before the flush failed), so the failure path must
+        # NOT add a second failure-visibility row — only the original job is created and then failed.
+        MockJob.objects.create.assert_called_once()
+
         # Slot should NOT have been advanced
+        mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unmergeable_schema_fails_non_retryably(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # A cross-batch Arrow merge conflict (a column that drifted type mid-stream) surfaces
+        # from write_batch as ArrowTypeError. Replaying re-fails identically, so the run must
+        # stop rather than loop the schedule.
+        mock_s3.write_batch.side_effect = pa.ArrowTypeError(
+            "Unable to merge: Field seats has incompatible types: int64 vs string"
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE).friendly_message
+        # The raw column/type detail never reaches the user-facing message.
+        assert "int64" not in schema.latest_error
         mock_reader.confirm_position.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
@@ -943,6 +1011,7 @@ class TestCDCExtractActivity:
         mock_reader = MagicMock()
         mock_reader.read_changes.return_value = iter([])  # no DML events
         mock_reader.truncated_tables = ["users"]
+        mock_reader.last_rows_consumed = 0
         mock_reader.last_commit_end_lsn = "0/500"
         mock_reader.get_decoder_key_columns.return_value = []
         mock_adapter = MagicMock()
@@ -1675,10 +1744,12 @@ class TestErrorClassification:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_non_retryable_error_raises_nonretryable_and_captures(
         self,
         mock_close_conns,
+        MockJob,
         MockSourceModel,
         mock_get_schemas,
         mock_get_adapter,
@@ -1703,7 +1774,7 @@ class TestErrorClassification:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with pytest.raises(NonRetryableException):
@@ -1719,6 +1790,24 @@ class TestErrorClassification:
         assert captured["properties"]["source_id"] == str(source.id)
         mock_reader.close.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (
+                "slot_missing",
+                psycopg.errors.UndefinedObject,
+                'replication slot "posthog_slot" does not exist',
+                "slot_missing",
+            ),
+            (
+                "publication_missing",
+                psycopg.errors.UndefinedObject,
+                'publication "posthog_pub" does not exist',
+                "publication_missing",
+            ),
+            ("auth_failed", psycopg.errors.InvalidPassword, 'password authentication failed for user "test"', None),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
         return_value="machine-1",
@@ -1729,9 +1818,67 @@ class TestErrorClassification:
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_missing_slot_or_publication_marks_cdc_broken(
+        self,
+        _name,
+        exc_cls,
+        exc_message,
+        expected_reason,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+        mock_mark_broken,
+    ):
+        # A missing slot/publication is non-retryable and must trip mark_cdc_broken (pause + persist
+        # the broken marker) so the schedule stops firing against a resource that no longer exists.
+        # A transient auth failure, equally non-retryable, must NOT — it could recover.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = exc_cls(exc_message)
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        if expected_reason is None:
+            mock_mark_broken.assert_not_called()
+        else:
+            mock_mark_broken.assert_called_once()
+            assert mock_mark_broken.call_args.args[0] is source
+            assert mock_mark_broken.call_args.args[1] == expected_reason
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_analytics_failure_does_not_mask_nonretryable(
         self,
         mock_close_conns,
+        MockJob,
         MockSourceModel,
         mock_get_schemas,
         mock_get_adapter,
@@ -1756,7 +1903,7 @@ class TestErrorClassification:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         # Analytics is down — it must not swallow or replace the NonRetryableException.
         mock_posthoganalytics.capture.side_effect = RuntimeError("analytics down")
@@ -1804,7 +1951,8 @@ class TestErrorClassification:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        # Non-final attempt + retryable: no failure-visibility row, ExternalDataJob stays untouched.
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         # Retryable: the ORIGINAL error propagates so Temporal retries — not NonRetryableException.
@@ -1843,7 +1991,9 @@ class TestSlotInvalidationRecovery:
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+        # attempt=1 so the retryable recovery-failure paths don't create failure-visibility rows
+        # (which would need ExternalDataJob mocked); job creation is covered in TestFailureVisibilityJobs.
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         return source, schema, mock_reader, mock_adapter
 
@@ -2005,29 +2155,457 @@ class TestCleanupOrphanSlotsRetentionCap:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_retention_cap_lowers_critical_threshold(
-        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
-        source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
+        _source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
 
         cleanup_orphan_slots_activity()
 
+        # Dropping + marking broken is the "act" — the broken-state details are covered in test_broken.
         mock_adapter.drop_resources.assert_called_once()
-        assert source.status is MockSourceModel.Status.ERROR
-        source.save.assert_called()
+        mock_mark_broken.assert_called_once()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_unlimited_retention_keeps_configured_threshold(
-        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
         cleanup_orphan_slots_activity()
 
         mock_adapter.drop_resources.assert_not_called()
+        mock_mark_broken.assert_not_called()
+
+
+class TestExtractionHeartbeat:
+    """Every run records a per-schema last-run heartbeat in sync_type_config so a quiet (zero-event)
+    source still proves extraction is alive — without an ExternalDataJob row per idle hourly run."""
+
+    @parameterized.expand(
+        [
+            ("no_changes_records_zero", [], 0),
+            (
+                "with_events_records_count",
+                [
+                    _make_event(op="I", table="users", position="0/100"),
+                    _make_event(op="U", table="users", position="0/200"),
+                ],
+                2,
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_records_last_run_heartbeat(
+        self,
+        _name,
+        events,
+        expected_count,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        config = schema.sync_type_config
+        assert config["cdc_last_run_event_count"] == expected_count
+        # Stored as an ISO-8601 string so the health check and cdc_status can parse it back.
+        assert isinstance(config["cdc_last_run_at"], str)
+        datetime.fromisoformat(config["cdc_last_run_at"])
+
+
+class TestFailureVisibilityJobs:
+    """A run that fails before the first micro-flush creates no job in the normal path, leaving the
+    Syncs tab blank while the schema reads FAILED. The activity backfills a terminal FAILED row —
+    but only once retries are exhausted or the error is non-retryable, never per transient retry."""
+
+    def _drive_failure(
+        self,
+        *,
+        error,
+        attempt,
+        schemas,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        mock_get_schemas.return_value = schemas
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = error
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error  # exercise real classification
+        mock_get_adapter.return_value = mock_adapter
+
+        MockJob.Status.FAILED = "Failed"
+        MockJob.PipelineVersion.V3 = "v3-kafka-s3"
+        MockJob.objects.create.return_value = MagicMock(id=uuid.uuid4())
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=attempt)
+
+        with pytest.raises((NonRetryableException, psycopg.OperationalError)):
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+    @parameterized.expand(
+        [
+            (
+                "non_retryable_creates_even_on_first_attempt",
+                psycopg.errors.InvalidPassword("password authentication failed"),
+                1,
+                True,
+                CDCErrorCategory.AUTH_FAILED,
+            ),
+            ("retryable_skips_on_non_final_attempt", psycopg.OperationalError("connection refused"), 1, False, None),
+            (
+                "retryable_creates_on_final_attempt",
+                psycopg.OperationalError("connection refused"),
+                3,
+                True,
+                CDCErrorCategory.CONNECTION_FAILED,
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_failure_visibility_job_creation(
+        self,
+        _name,
+        error,
+        attempt,
+        expect_created,
+        expected_category,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        schema = _make_schema("users", cdc_mode="streaming")
+        self._drive_failure(
+            error=error,
+            attempt=attempt,
+            schemas=[schema],
+            MockJob=MockJob,
+            MockSourceModel=MockSourceModel,
+            mock_get_schemas=mock_get_schemas,
+            mock_get_adapter=mock_get_adapter,
+            mock_activity=mock_activity,
+        )
+
+        if not expect_created:
+            MockJob.objects.create.assert_not_called()
+            return
+
+        MockJob.objects.create.assert_called_once()
+        kwargs = MockJob.objects.create.call_args.kwargs
+        assert kwargs["status"] == "Failed"
+        assert kwargs["rows_synced"] == 0
+        assert kwargs["pipeline_version"] == "v3-kafka-s3"
+        assert kwargs["workflow_id"] == "wf-1"
+        assert kwargs["schema"] is schema
+        # User-facing column carries the friendly, credential-safe copy — never the raw exception.
+        assert kwargs["latest_error"] == cdc_error_info(expected_category).friendly_message
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_one_failure_row_per_schema(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        schema_a = _make_schema("users", cdc_mode="streaming")
+        schema_b = _make_schema("orders", cdc_mode="streaming")
+        self._drive_failure(
+            error=psycopg.errors.InvalidPassword("password authentication failed"),
+            attempt=1,
+            schemas=[schema_a, schema_b],
+            MockJob=MockJob,
+            MockSourceModel=MockSourceModel,
+            mock_get_schemas=mock_get_schemas,
+            mock_get_adapter=mock_get_adapter,
+            mock_activity=mock_activity,
+        )
+
+        assert MockJob.objects.create.call_count == 2
+        created_for = {call.kwargs["schema"] for call in MockJob.objects.create.call_args_list}
+        assert created_for == {schema_a, schema_b}
+
+
+class _ScriptedReader:
+    """Reader stub that serves preconfigured WAL pages to the bounded read loop.
+
+    Each page is (events, rows_consumed, commit_end_lsn). read_changes() exposes that page's
+    rows_consumed / last_commit_end_lsn exactly as the real reader does after a peek, so the
+    multi-pass loop sees a full page (rows_consumed >= cap) followed by a drained one (< cap).
+    """
+
+    def __init__(self, pages):
+        self._pages = list(pages)
+        self._idx = 0
+        self.last_rows_consumed = 0
+        self.last_commit_end_lsn = None
+        self.truncated_tables: list[str] = []
+        self.confirmed_positions: list[str] = []
+        self.on_row_calls = 0
+        self.upto_nchanges_calls: list[int | None] = []
+
+    def connect(self):
+        pass
+
+    def get_primary_key_columns(self, schema, tables):
+        return {}
+
+    def get_decoder_key_columns(self, table):
+        return []
+
+    def clear_truncated_tables(self):
+        self.truncated_tables = []
+
+    def read_changes(self, upto_nchanges=None, on_row=None):
+        self.upto_nchanges_calls.append(upto_nchanges)
+        events, rows_consumed, commit_end_lsn = self._pages[self._idx]
+        self._idx += 1
+        self.last_rows_consumed = rows_consumed
+        self.last_commit_end_lsn = commit_end_lsn
+
+        def gen():
+            for ev in events:
+                if on_row is not None:
+                    on_row()
+                    self.on_row_calls += 1
+                yield ev
+
+        return gen()
+
+    def confirm_position(self, lsn):
+        self.confirmed_positions.append(lsn)
+
+    def close(self):
+        pass
+
+
+class TestCDCBoundedReadLoop:
+    """The read loop peeks at most CDC_MAX_CHANGES_PER_READ changes per pass, advancing the slot
+    between passes so a large backlog drains over several passes (and, if needed, runs)."""
+
+    def _run_with_reader(
+        self,
+        mock_activity,
+        MockProducer,
+        MockS3Writer,
+        mock_get_adapter,
+        mock_get_schemas,
+        MockSourceModel,
+        MockJob,
+        mock_close_conns,
+        reader,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            [],
+        )
+        # Replace the default MagicMock reader with the scripted multi-pass reader.
+        mock_get_adapter.return_value.create_reader.return_value = reader
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        return schema
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_full_page_then_drained_advances_slot_between_passes(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        reader = _ScriptedReader(
+            [
+                ([_make_event(op="I", table="users", position="0/100")], CDC_MAX_CHANGES_PER_READ, "0/100"),
+                ([_make_event(op="I", table="users", position="0/200")], 5, "0/200"),
+            ]
+        )
+
+        self._run_with_reader(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            reader,
+        )
+
+        # Two peeks: a full page, then a drained one. The first pass advances the slot to its last
+        # commit before re-peeking; the final flush advances to the second pass's last event.
+        assert len(reader.upto_nchanges_calls) == 2
+        assert reader.confirmed_positions == ["0/100", "0/200"]
+        # The per-row heartbeat callback was wired through read_changes and fired during the reads.
+        assert reader.on_row_calls == 2
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_soft_deadline_stops_starting_new_passes(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+        monkeypatch,
+    ):
+        # Deadline already elapsed: a full first page must not start a second pass.
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDC_READ_SOFT_DEADLINE_SECONDS", 0
+        )
+        reader = _ScriptedReader(
+            [([_make_event(op="I", table="users", position="0/100")], CDC_MAX_CHANGES_PER_READ, "0/100")]
+        )
+
+        schema = self._run_with_reader(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            reader,
+        )
+
+        assert len(reader.upto_nchanges_calls) == 1  # no second peek despite a full page
+        assert schema.status == "Completed"  # the run still finalizes what it read
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_full_page_with_no_committed_progress_doubles_the_limit(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        # Defensive backstop: a full page that commits nothing (so the slot can't advance) grows
+        # the window instead of re-peeking the identical page forever.
+        reader = _ScriptedReader(
+            [
+                ([], CDC_MAX_CHANGES_PER_READ, None),
+                ([_make_event(op="I", table="users", position="0/300")], 5, "0/300"),
+            ]
+        )
+
+        self._run_with_reader(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            reader,
+        )
+
+        assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
+        assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains

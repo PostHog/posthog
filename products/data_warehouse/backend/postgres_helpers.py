@@ -22,8 +22,8 @@ from products.data_warehouse.backend.direct_postgres import (
     rename_direct_postgres_join_references,
     upsert_direct_postgres_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
@@ -166,7 +166,7 @@ def reconcile_postgres_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every Postgres row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
@@ -331,7 +331,7 @@ def rename_postgres_schemas_to_match_source_schemas(
     Direct mode (`allow_rename=True`) rewrites `name` in place; warehouse mode pins
     `schema_metadata` only — the rename happens in `postgres_warehouse_migration`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     default_schema = (source.job_inputs or {}).get("schema")
     schema_models = list(

@@ -11,7 +11,7 @@ from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
-from products.data_warehouse.backend.s3 import aget_s3_client
+from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 

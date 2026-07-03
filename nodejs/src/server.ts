@@ -9,6 +9,7 @@ import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -24,6 +25,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -37,8 +39,10 @@ import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculat
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
-import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
+import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
+import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
@@ -100,6 +104,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
+            capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
         )
@@ -203,10 +208,20 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpApi) {
             serviceLoaders.push(async () => {
-                const api = new CdpApi(this.config, cdpDeps!, {
-                    hogQueue: kafkaQueue,
-                    hogflowQueue: postgresV2Queue,
-                })
+                // Only wire a batch-resolver producer when the cyclotron-node DB
+                // is configured; otherwise leave it null (flag-off path uses
+                // Kafka and doesn't need a producer).
+                const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
+                    ? new CyclotronV2Manager({
+                          pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                      })
+                    : null
+                const api = new CdpApi(
+                    this.config,
+                    cdpDeps!,
+                    { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
+                    batchResolverProducer
+                )
                 this.lifecycle.expressApp.use('/', api.router())
                 await api.start()
                 return api.service
@@ -298,25 +313,19 @@ export class PluginServer implements NodeServer {
                 // the env var (typical for local dev outside k8s) we fall back to the
                 // plain queue and dequeue is unthrottled.
                 //
-                // Fair dequeue (per-team round-robin) is independent — it's wired
-                // into the worker via workerOptions and applies regardless of whether
-                // rate limiting is on.
+                // Fair dequeue (per-team round-robin) is intrinsic to the email queue —
+                // the worker derives it from its queue name — and applies regardless of
+                // whether rate limiting is on.
                 const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const workerOptions = { fairDequeue: this.config.CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE }
                 const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(
-                          this.config.CONSUMER_BATCH_SIZE,
-                          this.config,
-                          {
-                              limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                              key: '@posthog/ses/global',
-                              capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
-                              refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
-                              throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
-                          },
-                          workerOptions
-                      )
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, workerOptions)
+                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
+                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+                          key: '@posthog/ses/global',
+                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+                      })
+                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
@@ -373,6 +382,36 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpHogflowSubscriptionMatcher) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpHogflowSubscriptionMatcherConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerBatchResolve) {
+            serviceLoaders.push(async () => {
+                if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
+                    throw new Error('CYCLOTRON_NODE_DATABASE_URL is required for CdpCyclotronWorkerBatchResolve')
+                }
+                const cyclotronWorker = new CyclotronV2Worker({
+                    pool: {
+                        dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                        maxConnections: 10,
+                    },
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    pollDelayMs: 100,
+                })
+                const internalFetchService = new InternalFetchService(
+                    this.config.INTERNAL_API_BASE_URL,
+                    this.config.INTERNAL_API_SECRET
+                )
+                const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(internalFetchService)
+                const consumer = new CdpCyclotronWorkerBatchResolve(
+                    this.config,
+                    cdpDeps!,
+                    cyclotronWorker,
+                    hogFlowBatchPersonQueryService,
+                    internalFetchService
+                )
                 await consumer.start()
                 return consumer.service
             })

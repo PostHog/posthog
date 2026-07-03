@@ -8,9 +8,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from django.db.models import Expression, Prefetch, QuerySet, Subquery
+from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Lower
+from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
@@ -236,6 +236,59 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
             user_uuid_to_login[str(user.uuid)] = login.lower()
 
     return user_uuid_to_login
+
+
+MAX_PROJECT_MEMBERS = 200
+
+
+@dataclass
+class ProjectMemberIdentity:
+    """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
+
+    user_uuid: str
+    email: str
+    first_name: str
+    last_name: str
+    github_login: str | None
+
+
+def list_project_members(
+    team: Team, *, search: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+) -> list[ProjectMemberIdentity]:
+    """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
+
+    Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
+    that can't read an owner off a fetched entity's ``created_by`` and has no cached
+    ``reviewer:<area>`` memory or inbox precedent. Scoped via ``Team.all_users_with_access()`` so
+    private-project access control is honored — a scout on a private project sees only the people who
+    can actually act on it, not the whole org roster — and inactive users are excluded.
+    ``get_github_login`` reads the same prefetched relations the reviewer resolver uses, so a member
+    with no linked GitHub identity gets a null login rather than dropping out. ``search``
+    (case-insensitive, over email + name) narrows the roster; the result is capped at ``limit`` so a
+    large org can't push its whole directory into the scout's context in one call.
+    """
+    users = team.all_users_with_access()
+    if search:
+        # Match the search against email, each name part, AND the concatenated full name, so a
+        # display-name query like "Jane Doe" still finds a member stored as first_name="Jane",
+        # last_name="Doe" — not just one whose email happens to contain the whole phrase.
+        users = users.annotate(_full_name=Concat("first_name", Value(" "), "last_name")).filter(
+            Q(email__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+            | Q(_full_name__icontains=search)
+        )
+    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
+    return [
+        ProjectMemberIdentity(
+            user_uuid=str(user.uuid),
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            github_login=(login.lower() if (login := user.get_github_login()) else None),
+        )
+        for user in users
+    ]
 
 
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:

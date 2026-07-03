@@ -68,7 +68,7 @@ async function deploy(
         created_by_id: null,
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
-            model: 'anthropic/claude-haiku-4-5',
+            models: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
             triggers: opts.triggers,
         }),
     })

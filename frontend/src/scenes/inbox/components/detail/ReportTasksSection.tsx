@@ -3,17 +3,18 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
-import { TaskRunStatus } from 'products/tasks/frontend/types'
+import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { RightColumnSection } from './DetailSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
+import { DetailSection } from './DetailSection'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
- * the task's run transcript via the shared `SandboxRunViewer` — live for an in-progress run, static
+ * the task's run transcript via the shared `ReadonlyRunSurface` — live for an in-progress run, static
  * replay once terminal — mirroring the Code experience instead of navigating away to a separate run
  * page. The purpose label is derived from each task's `task_run` artefact; `repo_selection` runs are
  * filtered out.
@@ -23,12 +24,12 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
 
     if (reportTasksLoading && !reportTasks) {
         return (
-            <RightColumnSection icon={<IconTerminal />} title="Runs">
+            <DetailSection icon={<IconTerminal />} title="Runs">
                 <div className="flex items-center gap-2 text-xs text-tertiary py-1">
                     <Spinner className="size-3" />
                     Loading runs…
                 </div>
-            </RightColumnSection>
+            </DetailSection>
         )
     }
 
@@ -37,13 +38,13 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <RightColumnSection icon={<IconTerminal />} title="Runs">
+        <DetailSection icon={<IconTerminal />} title="Runs">
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <TaskRow key={entry.task.id} entry={entry} reportId={report.id} report={report} />
                 ))}
             </div>
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 
@@ -84,12 +85,16 @@ function TaskRow({
             {expanded ? (
                 <div className="mt-1.5 mb-1 ml-1.5">
                     {runId ? (
-                        <div className="h-[420px] overflow-y-auto rounded border border-primary bg-surface-primary">
-                            <SandboxRunViewer
+                        // The viewer's virtualized thread owns scroll, so this box only bounds the height and
+                        // clips — an `overflow-y-auto` here would nest a second scrollbar. Content is kept off
+                        // the border via `threadRowClassName`/`threadListClassName`, not padding on this box.
+                        <div className="h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
+                            <ReadonlyRunSurface
                                 taskId={task.id}
                                 runId={runId}
                                 interaction={replayOnly ? 'read-only' : 'live'}
-                                className="px-3 py-2"
+                                threadRowClassName="px-3"
+                                threadListClassName="py-3"
                             />
                         </div>
                     ) : (

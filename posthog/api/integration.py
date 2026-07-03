@@ -212,6 +212,25 @@ class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
 
 
+class JiraProjectSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Jira project ID.")
+    key = serializers.CharField(help_text="Jira project key to pass as error tracking config.project_key.")
+    name = serializers.CharField(help_text="Jira project display name.")
+
+
+class JiraProjectsResponseSerializer(serializers.Serializer):
+    projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
+
+
+class LinearTeamSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Linear team ID to pass as error tracking config.team_id.")
+    name = serializers.CharField(help_text="Linear team display name.")
+
+
+class LinearTeamsResponseSerializer(serializers.Serializer):
+    teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
+
+
 class GitHubTeamSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="GitHub team numeric identifier.")
     slug = serializers.CharField(help_text="GitHub team slug.")
@@ -800,6 +819,8 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "jira_projects",
+        "linear_teams",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -1245,9 +1266,12 @@ class IntegrationViewSet(
 
         return Response({"workspaces": workspaces})
 
+    @extend_schema(responses={200: LinearTeamsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
@@ -1545,9 +1569,12 @@ class IntegrationViewSet(
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
+    @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})

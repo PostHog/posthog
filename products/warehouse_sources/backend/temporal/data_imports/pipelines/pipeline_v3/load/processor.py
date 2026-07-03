@@ -14,7 +14,7 @@ from asgiref.sync import async_to_sync
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable

@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -75,4 +77,12 @@ export const SettingsUserCustomization: Story = {
 
 export const SettingsUserDangerZone: Story = {
     args: { sectionId: 'user-danger-zone' },
+}
+
+export const SettingsUserRemindersModal: Story = {
+    args: { sectionId: 'user-reminders' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('New reminder'))
+    },
 }

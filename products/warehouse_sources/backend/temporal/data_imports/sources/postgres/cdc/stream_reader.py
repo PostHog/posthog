@@ -7,7 +7,7 @@ approach — batch reads on a schedule.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -63,6 +63,7 @@ class PgCDCStreamReader:
         self._tunnel_cm: AbstractContextManager[tuple[str, int]] | None = None
         self._effective_host: str = params.host
         self._effective_port: int = params.port
+        self._last_rows_consumed: int = 0
 
     def connect(self) -> None:
         # If a source is provided, enter the SSH tunnel context (no-op if SSH is disabled).
@@ -91,15 +92,40 @@ class PgCDCStreamReader:
                 user=self._params.user,
                 password=self._params.password,
                 require_ssl=self._params.require_ssl,
+                # statement_timeout (30m) is a server-side ceiling so a stalled WAL decode can't
+                # hang the streaming connection indefinitely; it bounds a single peek, the caller's
+                # soft deadline bounds the whole run. idle_in_transaction_session_timeout=0 stops the
+                # source culling our backend (SQLSTATE 25P03) while the named cursor's transaction
+                # sits idle between yields as the caller flushes to S3 and advances the slot —
+                # statement_timeout doesn't apply there because no statement is running. Both are
+                # dropped if the source sits behind a pooler that rejects the libpq `options`
+                # parameter (CDC sources never do).
+                options="-c statement_timeout=1800000 -c idle_in_transaction_session_timeout=0",
             ),
             logger,
         )
 
-    def read_changes(self) -> Iterator[ChangeEvent]:
-        """Read all pending WAL changes from the replication slot.
+    def read_changes(
+        self,
+        upto_nchanges: int | None = None,
+        on_row: Callable[[], None] | None = None,
+    ) -> Iterator[ChangeEvent]:
+        """Read pending WAL changes from the replication slot.
 
         Uses peek (non-consuming) so the slot position is not advanced.
         Call confirm_position() after successful processing.
+
+        ``upto_nchanges`` bounds one peek: ``pg_logical_slot_peek_binary_changes`` stops once a
+        transaction's COMMIT pushes the decoded-change count past it. It never splits a
+        transaction, so a single large transaction is still returned in full (the decoder's own
+        buffer guard bounds that case). ``None`` reads the whole backlog.
+
+        ``on_row`` is invoked once per fetched WAL row so the caller can heartbeat during a long
+        decode — the decoder yields nothing until a COMMIT, so a big transaction would otherwise
+        produce no events to drive a heartbeat off.
+
+        After iteration, ``last_rows_consumed`` holds the raw row count for this call so the
+        caller can detect a full page (rows reached the cap) and peek again.
 
         Uses a named server-side cursor to stream rows in chunks rather than
         buffering the entire WAL backlog in client memory.
@@ -107,14 +133,17 @@ class PgCDCStreamReader:
         if self._conn is None:
             raise RuntimeError("Not connected. Call connect() first.")
 
+        self._last_rows_consumed = 0
+        upto = sql.Literal(upto_nchanges) if upto_nchanges is not None else sql.SQL("NULL")
         query = sql.SQL(
             "SELECT lsn, xid, data FROM pg_logical_slot_peek_binary_changes("
-            "{slot_name}, NULL, NULL, "
+            "{slot_name}, NULL, {upto_nchanges}, "
             "'proto_version', '1', "
             "'publication_names', {pub_name}"
             ")"
         ).format(
             slot_name=sql.Literal(self._params.slot_name),
+            upto_nchanges=upto,
             pub_name=sql.Literal(self._params.publication_name),
         )
 
@@ -123,6 +152,10 @@ class PgCDCStreamReader:
             cur.execute(query)
 
             for row in cur:
+                self._last_rows_consumed += 1
+                if on_row is not None:
+                    on_row()
+
                 lsn_str: str = row[0]
                 data: bytes = row[2]
 
@@ -196,6 +229,15 @@ class PgCDCStreamReader:
         Use this to advance the slot when event_count == 0 but truncates occurred.
         """
         return self._decoder.last_commit_end_lsn
+
+    @property
+    def last_rows_consumed(self) -> int:
+        """Raw WAL rows fetched during the most recent ``read_changes()`` call.
+
+        Reaches the ``upto_nchanges`` cap (or slightly above it, since a transaction is never
+        split) while the slot still has a backlog; stays below it once the backlog is drained.
+        """
+        return self._last_rows_consumed
 
     def close(self) -> None:
         if self._conn is not None:
