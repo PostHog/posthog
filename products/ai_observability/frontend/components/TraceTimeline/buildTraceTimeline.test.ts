@@ -141,6 +141,17 @@ describe('buildTraceTimeline', () => {
         expect(totalMs).toBe(1000)
     })
 
+    it('treats latencies that overflow to Infinity as instant instead of hanging the axis', () => {
+        // 1e306 seconds is finite, but * 1000 overflows to Infinity — an
+        // unclamped value makes totalMs Infinity and the tick loop never ends.
+        const { bars, totalMs } = buildTraceTimeline([
+            ev('big', '$ai_generation', 1000, 1e306, { $ai_ingestion_source: 'otel' }),
+            ev('ok', '$ai_generation', 2000, 1),
+        ])
+        expect(bars.find((b) => b.id === 'big')?.durationMs).toBe(0)
+        expect(isFinite(totalMs)).toBe(true)
+    })
+
     it('ignores non-string span names and models when labeling', () => {
         // Sender-controlled properties can be malformed objects; rendering one
         // as a React child crashes the scene.

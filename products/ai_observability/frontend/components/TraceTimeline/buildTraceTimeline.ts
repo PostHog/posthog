@@ -36,7 +36,8 @@ const TICK_STEPS_MS = [
 const MAX_TICKS = 6
 
 export function buildTicks(totalMs: number): number[] {
-    if (totalMs < 10) {
+    // Non-finite totals would make the tick loop below never terminate.
+    if (!isFinite(totalMs) || totalMs < 10) {
         return [0]
     }
     const step =
@@ -82,11 +83,16 @@ const OVERLAP_MIN_MS = 1
  * while OTel-ingested spans keep the span's start time. Shared by the timeline,
  * the trace tree, and the drawer's event list so they all order events the same way.
  */
+// Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
+// overflows to Infinity when multiplied, which would hang the axis tick loop.
+function latencyMsOf(event: LLMTraceEvent): number {
+    const latencyMs = Number(event.properties?.$ai_latency) * 1000
+    return isFinite(latencyMs) && latencyMs > 0 ? latencyMs : 0
+}
+
 export function operationStartMs(event: LLMTraceEvent): number {
     const t = new Date(event.createdAt).getTime()
-    const latencySec = Number(event.properties?.$ai_latency)
-    const latencyMs = isFinite(latencySec) && latencySec > 0 ? latencySec * 1000 : 0
-    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs
+    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMsOf(event)
 }
 
 // Mirrors getEventType in ../../utils.ts so bar colors match the tree's tags.
@@ -133,14 +139,12 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         if (!isFinite(t)) {
             continue
         }
-        const latencySec = Number(event.properties?.$ai_latency)
-        const latencyMs = isFinite(latencySec) && latencySec > 0 ? latencySec * 1000 : 0
         const p = event.properties || {}
         timed.push({
             idx: timed.length,
             event,
             startAt: operationStartMs(event),
-            latencyMs,
+            latencyMs: latencyMsOf(event),
             nodeId: p.$ai_generation_id ?? p.$ai_span_id ?? event.id,
             parentId: p.$ai_parent_id ?? p.$ai_trace_id ?? null,
         })
