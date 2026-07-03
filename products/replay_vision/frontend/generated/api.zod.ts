@@ -229,6 +229,14 @@ export const visionScannersCreateBodyDescriptionMax = 1000
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
+export const visionScannersCreateBodyMomentsConfigOneEventsItemEventMax = 400
+
+export const visionScannersCreateBodyMomentsConfigOneBeforeSecondsMin = 5
+export const visionScannersCreateBodyMomentsConfigOneBeforeSecondsMax = 300
+
+export const visionScannersCreateBodyMomentsConfigOneAfterSecondsMin = 5
+export const visionScannersCreateBodyMomentsConfigOneAfterSecondsMax = 300
+
 export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -266,6 +274,60 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
         ),
+    scan_scope: zod
+        .enum(['recording', 'moments'])
+        .describe('\* `recording` - Entire recording\n\* `moments` - Moments around events')
+        .optional()
+        .describe(
+            'How much of each matched recording the scanner watches: `recording` scans the whole recording; `moments` scans short clips around each occurrence of the focus events. Fixed after creation.\n\n\* `recording` - Entire recording\n\* `moments` - Moments around events'
+        ),
+    moments_config: zod
+        .union([
+            zod
+                .object({
+                    events: zod
+                        .array(
+                            zod
+                                .object({
+                                    event: zod
+                                        .string()
+                                        .max(visionScannersCreateBodyMomentsConfigOneEventsItemEventMax)
+                                        .describe('Event name whose occurrences anchor moments.'),
+                                    properties: zod
+                                        .array(zod.record(zod.string(), zod.unknown()))
+                                        .optional()
+                                        .describe(
+                                            'Property filters the occurrence must also match; standard PostHog property filter shapes.'
+                                        ),
+                                })
+                                .describe(
+                                    'Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.'
+                                )
+                        )
+                        .describe('Focus events (1-10); a moment is scanned around each occurrence of any of them.'),
+                    before_seconds: zod
+                        .number()
+                        .min(visionScannersCreateBodyMomentsConfigOneBeforeSecondsMin)
+                        .max(visionScannersCreateBodyMomentsConfigOneBeforeSecondsMax)
+                        .optional()
+                        .describe('Clip seconds included before the focus event. Defaults to 60.'),
+                    after_seconds: zod
+                        .number()
+                        .min(visionScannersCreateBodyMomentsConfigOneAfterSecondsMin)
+                        .max(visionScannersCreateBodyMomentsConfigOneAfterSecondsMax)
+                        .optional()
+                        .describe('Clip seconds included after the focus event. Defaults to 60.'),
+                })
+                .describe(
+                    'Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.'
+                ),
+            zod.null(),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'For moments-scoped scanners: the focus events (name + optional property filters) and clip bounds (`before_seconds`\/`after_seconds`, 5-300 each, defaulting to 60). Must be null for recording-scoped scanners.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')
@@ -300,6 +362,14 @@ export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyMomentsConfigOneEventsItemEventMax = 400
+
+export const visionScannersPartialUpdateBodyMomentsConfigOneBeforeSecondsMin = 5
+export const visionScannersPartialUpdateBodyMomentsConfigOneBeforeSecondsMax = 300
+
+export const visionScannersPartialUpdateBodyMomentsConfigOneAfterSecondsMin = 5
+export const visionScannersPartialUpdateBodyMomentsConfigOneAfterSecondsMax = 300
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -340,6 +410,60 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
+    scan_scope: zod
+        .enum(['recording', 'moments'])
+        .describe('\* `recording` - Entire recording\n\* `moments` - Moments around events')
+        .optional()
+        .describe(
+            'How much of each matched recording the scanner watches: `recording` scans the whole recording; `moments` scans short clips around each occurrence of the focus events. Fixed after creation.\n\n\* `recording` - Entire recording\n\* `moments` - Moments around events'
+        ),
+    moments_config: zod
+        .union([
+            zod
+                .object({
+                    events: zod
+                        .array(
+                            zod
+                                .object({
+                                    event: zod
+                                        .string()
+                                        .max(visionScannersPartialUpdateBodyMomentsConfigOneEventsItemEventMax)
+                                        .describe('Event name whose occurrences anchor moments.'),
+                                    properties: zod
+                                        .array(zod.record(zod.string(), zod.unknown()))
+                                        .optional()
+                                        .describe(
+                                            'Property filters the occurrence must also match; standard PostHog property filter shapes.'
+                                        ),
+                                })
+                                .describe(
+                                    'Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.'
+                                )
+                        )
+                        .describe('Focus events (1-10); a moment is scanned around each occurrence of any of them.'),
+                    before_seconds: zod
+                        .number()
+                        .min(visionScannersPartialUpdateBodyMomentsConfigOneBeforeSecondsMin)
+                        .max(visionScannersPartialUpdateBodyMomentsConfigOneBeforeSecondsMax)
+                        .optional()
+                        .describe('Clip seconds included before the focus event. Defaults to 60.'),
+                    after_seconds: zod
+                        .number()
+                        .min(visionScannersPartialUpdateBodyMomentsConfigOneAfterSecondsMin)
+                        .max(visionScannersPartialUpdateBodyMomentsConfigOneAfterSecondsMax)
+                        .optional()
+                        .describe('Clip seconds included after the focus event. Defaults to 60.'),
+                })
+                .describe(
+                    'Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.'
+                ),
+            zod.null(),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'For moments-scoped scanners: the focus events (name + optional property filters) and clip bounds (`before_seconds`\/`after_seconds`, 5-300 each, defaulting to 60). Must be null for recording-scoped scanners.'
         ),
     provider: zod
         .enum(['google'])

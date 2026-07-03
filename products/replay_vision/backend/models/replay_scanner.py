@@ -13,6 +13,15 @@ if TYPE_CHECKING:
 
     from posthog.schema import RecordingsQuery
 
+    from products.replay_vision.backend.moments import MomentsConfig
+
+
+class ScannerScanScope(models.TextChoices):
+    # Watch the whole recording of each matched session.
+    RECORDING = "recording", "Entire recording"
+    # Watch short clips around each occurrence of the focus events in `moments_config`.
+    MOMENTS = "moments", "Moments around events"
+
 
 class ScannerType(models.TextChoices):
     MONITOR = "monitor", "Monitor"
@@ -62,6 +71,19 @@ class ReplayScanner(UUIDModel):
         default=1.0,
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         help_text="0..1 random downsample applied after the query matches.",
+    )
+
+    scan_scope = models.CharField(
+        max_length=16,
+        choices=ScannerScanScope.choices,
+        default=ScannerScanScope.RECORDING,
+        db_default=ScannerScanScope.RECORDING,
+        help_text="How much of each matched recording the scanner watches: all of it, or moments around focus events.",
+    )
+    moments_config = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Persisted `MomentsConfig` shape (focus events + clip bounds); null unless scan_scope is `moments`.",
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
@@ -121,12 +143,14 @@ class ReplayScanner(UUIDModel):
         "scanner_config",
         "query",
         "sampling_rate",
+        "scan_scope",
+        "moments_config",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate"})
+    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "scan_scope", "moments_config"})
 
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
@@ -172,6 +196,14 @@ class ReplayScanner(UUIDModel):
         from posthog.schema import RecordingsQuery  # noqa: PLC0415
 
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
+
+    def moments_config_typed(self) -> "MomentsConfig | None":
+        """The typed moments scope config, or None for recording-scoped scanners."""
+        if self.scan_scope != ScannerScanScope.MOMENTS or not self.moments_config:
+            return None
+        from products.replay_vision.backend.moments import MomentsConfig  # noqa: PLC0415
+
+        return MomentsConfig.model_validate(self.moments_config)
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

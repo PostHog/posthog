@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 REPLAY_VISION_FEATURE_FLAG = "replay-vision"
 # Gates the "and then…" VisionAction sub-feature, separate from product access above.
 REPLAY_VISION_ACTIONS_FEATURE_FLAG = "replay-vision-actions"
+# Gates creation of moments-scoped scanners, separate from product access above.
+REPLAY_VISION_MOMENTS_FEATURE_FLAG = "replay-vision-moments"
 
 
 def _vision_flag_enabled(flag_key: str, user: "User", team: "Team") -> bool:
@@ -37,6 +39,10 @@ def is_replay_vision_enabled(user: "User", team: "Team") -> bool:
 
 def is_replay_vision_actions_enabled(user: "User", team: "Team") -> bool:
     return _vision_flag_enabled(REPLAY_VISION_ACTIONS_FEATURE_FLAG, user, team)
+
+
+def is_replay_vision_moments_enabled(user: "User", team: "Team") -> bool:
+    return _vision_flag_enabled(REPLAY_VISION_MOMENTS_FEATURE_FLAG, user, team)
 
 
 class ReplayVisionEnabledPermission(BasePermission):

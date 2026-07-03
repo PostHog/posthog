@@ -105,6 +105,12 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
+        if (params.scan_scope !== undefined) {
+            body['scan_scope'] = params.scan_scope
+        }
+        if (params.moments_config !== undefined) {
+            body['moments_config'] = params.moments_config
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -311,6 +317,12 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
+        }
+        if (params.scan_scope !== undefined) {
+            body['scan_scope'] = params.scan_scope
+        }
+        if (params.moments_config !== undefined) {
+            body['moments_config'] = params.moments_config
         }
         if (params.provider !== undefined) {
             body['provider'] = params.provider

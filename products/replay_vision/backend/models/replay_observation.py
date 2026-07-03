@@ -21,7 +21,11 @@ class ObservationTrigger(models.TextChoices):
 
 
 class ReplayObservation(UUIDModel):
-    """One application of a `ReplayScanner` to a session recording (see README)."""
+    """One application of a `ReplayScanner` to a session recording (see README).
+
+    Recording-scoped scanners produce one observation per (scanner, session). Moments-scoped scanners produce
+    one per moment — a coalesced window around focus-event occurrences — discriminated by `moment_key`.
+    """
 
     scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -41,6 +45,44 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
+    )
+
+    moment_key = models.CharField(
+        max_length=36,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "Identity discriminator within (scanner, session): empty for whole-recording observations, "
+            "the anchor event's uuid for moments."
+        ),
+    )
+    moment_event_name = models.CharField(
+        max_length=400,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Name of the anchor focus event; denormalized for list display. Empty for whole-recording observations.",
+    )
+    moment_event_timestamp = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Capture timestamp of the anchor focus event; null for whole-recording observations.",
+    )
+    window_start_offset_s = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Observed window start, seconds from recording start; resolved at scan time and clamped to the recording.",
+    )
+    window_end_offset_s = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Observed window end, seconds from recording start; null (with start) for whole-recording observations.",
+    )
+    coalesced_event_count = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="Focus-event occurrences merged into this moment's window (1 = no merging); 0 for whole-recording observations.",
     )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
@@ -81,8 +123,12 @@ class ReplayObservation(UUIDModel):
 
     class Meta:
         constraints = [
-            # Failed/succeeded rows are sticky; admin deletes to re-trigger.
-            models.UniqueConstraint(fields=["scanner", "session_id"], name="replay_observation_unique_scanner_session"),
+            # Failed/succeeded rows are sticky; admin deletes to re-trigger. moment_key is "" for whole-recording
+            # rows, so for those this is exactly the old (scanner, session_id) uniqueness.
+            models.UniqueConstraint(
+                fields=["scanner", "session_id", "moment_key"],
+                name="replay_observation_unique_scanner_session_moment",
+            ),
             models.CheckConstraint(
                 condition=(
                     models.Q(status__in=["pending", "running"], completed_at__isnull=True)

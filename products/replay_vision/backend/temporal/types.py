@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerScanScope, ScannerType
+from products.replay_vision.backend.moments import MomentsConfig
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -31,6 +32,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
+    # Defaulted so snapshots persisted before scan scopes existed still load as whole-recording.
+    scan_scope: ScannerScanScope = ScannerScanScope.RECORDING
+    moments_config: MomentsConfig | None = None
 
     @classmethod
     def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "ScannerSnapshot":

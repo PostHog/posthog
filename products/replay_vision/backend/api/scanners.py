@@ -40,14 +40,17 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.api.moments_serializer import MomentsConfigSerializer
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_moments_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
     ScannerProvider,
+    ScannerScanScope,
     ScannerType,
 )
+from products.replay_vision.backend.moments import MomentEvent, MomentsConfig
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
@@ -135,6 +138,33 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     return None
 
 
+def _moments_config_error_message(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return "Moments configuration must be a JSON object."
+    # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
+    unknown = set(value) - set(MomentsConfig.model_fields)
+    if unknown:
+        return f"Unknown moments configuration keys: {', '.join(sorted(unknown))}."
+    for index, item in enumerate(value.get("events") or []):
+        if isinstance(item, dict):
+            unknown = set(item) - set(MomentEvent.model_fields)
+            if unknown:
+                return f"Unknown keys in events[{index}]: {', '.join(sorted(unknown))}."
+    try:
+        MomentsConfig.model_validate(value)
+    except PydanticValidationError as exc:
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first["loc"])
+        return f"Invalid `{location}`: {first['msg']}." if location else f"{first['msg']}."
+    return None
+
+
+@extend_schema_field(MomentsConfigSerializer(allow_null=True))
+class _MomentsConfigField(serializers.JSONField):
+    # Runtime stays a lenient JSONField: validation and normalization live in ReplayScannerSerializer.validate.
+    pass
+
+
 class ReplayScannerSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -173,6 +203,22 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). "
             "Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below "
             "the sampling precision."
+        ),
+    )
+    scan_scope = serializers.ChoiceField(
+        choices=ScannerScanScope.choices,
+        required=False,
+        help_text=(
+            "How much of each matched recording the scanner watches: `recording` scans the whole recording; "
+            "`moments` scans short clips around each occurrence of the focus events. Fixed after creation."
+        ),
+    )
+    moments_config = _MomentsConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "For moments-scoped scanners: the focus events (name + optional property filters) and clip bounds "
+            "(`before_seconds`/`after_seconds`, 5-300 each, defaulting to 60). Must be null for recording-scoped scanners."
         ),
     )
     provider = serializers.ChoiceField(
@@ -222,6 +268,8 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "scanner_config",
             "query",
             "sampling_rate",
+            "scan_scope",
+            "moments_config",
             "provider",
             "model",
             "enabled",
@@ -254,8 +302,10 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
+        self._reject_scan_scope_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
+        self._validate_moments_config(attrs)
         return attrs
 
     def validate_sampling_rate(self, value: float) -> float:
@@ -273,6 +323,45 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"scanner_type": "Scanner type is fixed after creation. Create a new scanner to use a different type."}
             )
+
+    def _reject_scan_scope_change(self, attrs: dict[str, Any]) -> None:
+        if self.instance is None or "scan_scope" not in attrs:
+            return
+        if attrs["scan_scope"] != self.instance.scan_scope:
+            raise serializers.ValidationError(
+                {"scan_scope": "Scan scope is fixed after creation. Create a new scanner to use a different scope."}
+            )
+
+    def _validate_moments_config(self, attrs: dict[str, Any]) -> None:
+        # Skip when neither field is touched on PATCH — the existing combination has already been validated.
+        if "scan_scope" not in attrs and "moments_config" not in attrs:
+            return
+        scan_scope = attrs.get("scan_scope", getattr(self.instance, "scan_scope", ScannerScanScope.RECORDING))
+        if scan_scope == ScannerScanScope.RECORDING:
+            if attrs.get("moments_config") is not None:
+                raise serializers.ValidationError(
+                    {"moments_config": "Only moments-scoped scanners take a moments configuration."}
+                )
+            return
+        if self.instance is None:
+            team = self.context["get_team"]()
+            user = cast(User, self.context["request"].user)
+            # Creation-only gate: flipping the flag off later must not brick edits to existing moments scanners.
+            if not is_replay_vision_moments_enabled(user, team):
+                raise serializers.ValidationError(
+                    {"scan_scope": "Moments-scoped scanners are not available for this team."}
+                )
+        moments_config = attrs.get("moments_config", getattr(self.instance, "moments_config", None))
+        if moments_config is None:
+            raise serializers.ValidationError(
+                {"moments_config": "Moments configuration is required for moments-scoped scanners."}
+            )
+        message = _moments_config_error_message(moments_config)
+        if message is not None:
+            raise serializers.ValidationError({"moments_config": message})
+        if "moments_config" in attrs:
+            # Persist the parsed dump so defaults (before/after seconds) are concrete for the snapshot and estimator.
+            attrs["moments_config"] = MomentsConfig.model_validate(moments_config).model_dump(mode="json")
 
     def _validate_scanner_config(self, attrs: dict[str, Any]) -> None:
         # Skip when neither field is touched on PATCH — the existing combination has already been validated.

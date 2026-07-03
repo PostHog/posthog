@@ -30028,6 +30028,41 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export type MomentEventPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * Mirrors `moments.MomentEvent` for OpenAPI generation; writes validate via the pydantic model.
+     */
+    export interface MomentEvent {
+      /**
+         * Event name whose occurrences anchor moments.
+         * @maxLength 400
+         */
+      event: string;
+      /** Property filters the occurrence must also match; standard PostHog property filter shapes. */
+      properties?: MomentEventPropertiesItem[];
+    }
+
+    /**
+     * Mirrors `moments.MomentsConfig` for OpenAPI generation; writes validate via the pydantic model.
+     */
+    export interface MomentsConfig {
+      /** Focus events (1-10); a moment is scanned around each occurrence of any of them. */
+      events: MomentEvent[];
+      /**
+         * Clip seconds included before the focus event. Defaults to 60.
+         * @minimum 5
+         * @maximum 300
+         */
+      before_seconds?: number;
+      /**
+         * Clip seconds included after the focus event. Defaults to 60.
+         * @minimum 5
+         * @maximum 300
+         */
+      after_seconds?: number;
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -32690,6 +32725,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `recording` - Entire recording
+     * * `moments` - Moments around events
+     */
+    export type ScanScopeEnum = typeof ScanScopeEnum[keyof typeof ScanScopeEnum];
+
+
+    export const ScanScopeEnum = {
+      Recording: 'recording',
+      Moments: 'moments',
+    } as const;
+
+    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -32712,6 +32759,13 @@ export namespace Schemas {
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
       scanner_config: unknown;
+      /** Scan scope at run time; snapshots persisted before scan scopes existed load as `recording`.
+       *
+       * * `recording` - Entire recording
+       * * `moments` - Moments around events */
+      scan_scope: ScanScopeEnum;
+      /** Moments scope config at run time; null for recording-scoped scanners. */
+      moments_config: MomentsConfig | null;
     }
 
     /**
@@ -32766,6 +32820,27 @@ export namespace Schemas {
          * @nullable
          */
       readonly recording_subject_email: string | null;
+      /** Anchor focus-event uuid for moments; empty for whole-recording observations. */
+      readonly moment_key: string;
+      /** Name of the anchor focus event for moments; empty for whole-recording observations. */
+      readonly moment_event_name: string;
+      /**
+         * Capture timestamp of the anchor focus event; null for whole-recording observations.
+         * @nullable
+         */
+      readonly moment_event_timestamp: string | null;
+      /**
+         * Observed window start, seconds from recording start; null until resolved at scan time.
+         * @nullable
+         */
+      readonly window_start_offset_s: number | null;
+      /**
+         * Observed window end, seconds from recording start; null (with start) for whole-recording observations.
+         * @nullable
+         */
+      readonly window_end_offset_s: number | null;
+      /** Focus-event occurrences merged into this moment's window (1 = no merging); 0 for whole-recording observations. */
+      readonly coalesced_event_count: number;
       /**
          * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
          * @nullable
@@ -32843,6 +32918,13 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** How much of each matched recording the scanner watches: `recording` scans the whole recording; `moments` scans short clips around each occurrence of the focus events. Fixed after creation.
+       *
+       * * `recording` - Entire recording
+       * * `moments` - Moments around events */
+      scan_scope?: ScanScopeEnum;
+      /** For moments-scoped scanners: the focus events (name + optional property filters) and clip bounds (`before_seconds`/`after_seconds`, 5-300 each, defaulting to 60). Must be null for recording-scoped scanners. */
+      moments_config?: MomentsConfig | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -40483,6 +40565,13 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** How much of each matched recording the scanner watches: `recording` scans the whole recording; `moments` scans short clips around each occurrence of the focus events. Fixed after creation.
+       *
+       * * `recording` - Entire recording
+       * * `moments` - Moments around events */
+      scan_scope?: ScanScopeEnum;
+      /** For moments-scoped scanners: the focus events (name + optional property filters) and clip bounds (`before_seconds`/`after_seconds`, 5-300 each, defaulting to 60). Must be null for recording-scoped scanners. */
+      moments_config?: MomentsConfig | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */

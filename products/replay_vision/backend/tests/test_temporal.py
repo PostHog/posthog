@@ -37,7 +37,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    ScannerModel,
+    ScannerScanScope,
+    ScannerType,
+)
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
@@ -133,6 +138,9 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
+    # Snapshots persisted before scan scopes existed must keep loading as whole-recording.
+    assert snapshot.scan_scope == ScannerScanScope.RECORDING
+    assert snapshot.moments_config is None
 
 
 def _make_scanner(**overrides) -> ReplayScanner:

@@ -23,6 +23,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
     ScannerProvider,
+    ScannerScanScope,
     ScannerType,
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
@@ -406,6 +407,97 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 200, resp.json())
+
+    def _moments_scanner_payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "checkout-error-moments",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "what went wrong around this failure?"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+            "scan_scope": ScannerScanScope.MOMENTS,
+            "moments_config": {"events": [{"event": "checkout_error"}]},
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_create_moments_scanner_fills_window_defaults(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._moments_scanner_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        body = resp.json()
+        self.assertEqual(body["scan_scope"], "moments")
+        # Persisted normalized so the snapshot and estimator read concrete bounds, not implied defaults.
+        scanner = ReplayScanner.objects.get(pk=body["id"])
+        self.assertEqual(scanner.moments_config["before_seconds"], 60)
+        self.assertEqual(scanner.moments_config["after_seconds"], 60)
+        self.assertEqual(scanner.moments_config["events"], [{"event": "checkout_error", "properties": []}])
+
+    @parameterized.expand(
+        [
+            ("missing_config", {"moments_config": None}),
+            ("empty_events", {"moments_config": {"events": []}}),
+            ("empty_event_name", {"moments_config": {"events": [{"event": ""}]}}),
+            ("not_an_object", {"moments_config": [1, 2]}),
+            ("too_many_events", {"moments_config": {"events": [{"event": f"e{i}"} for i in range(11)]}}),
+            ("before_below_min", {"moments_config": {"events": [{"event": "e"}], "before_seconds": 1}}),
+            ("after_above_max", {"moments_config": {"events": [{"event": "e"}], "after_seconds": 999}}),
+            ("unknown_key", {"moments_config": {"events": [{"event": "e"}], "window": 10}}),
+            ("unknown_event_key", {"moments_config": {"events": [{"event": "e", "nope": 1}]}}),
+            (
+                "recording_scope_with_config",
+                {"scan_scope": ScannerScanScope.RECORDING, "moments_config": {"events": [{"event": "e"}]}},
+            ),
+        ]
+    )
+    def test_create_rejects_invalid_moments_config(self, label: str, overrides: dict[str, Any]) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._moments_scanner_payload(name=label, **overrides), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "moments_config")
+
+    def test_patch_rejects_scan_scope_change_but_allows_config_edits(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._moments_scanner_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner_url = f"{self.scanners_url}{resp.json()['id']}/"
+
+        resp = self.client.patch(scanner_url, data={"scan_scope": ScannerScanScope.RECORDING}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scan_scope")
+
+        # The frontend form resubmits all fields — an unchanged scope alongside a config edit must pass.
+        resp = self.client.patch(
+            scanner_url,
+            data={
+                "scan_scope": ScannerScanScope.MOMENTS,
+                "moments_config": {
+                    "events": [{"event": "checkout_error"}, {"event": "payment_failed"}],
+                    "before_seconds": 120,
+                    "after_seconds": 30,
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["moments_config"]["before_seconds"], 120)
+        self.assertEqual(len(resp.json()["moments_config"]["events"]), 2)
+
+    def test_moments_creation_gated_by_flag_but_edits_are_not(self) -> None:
+        created = self.client.post(self.scanners_url, data=self._moments_scanner_payload(), format="json")
+        self.assertEqual(created.status_code, 201, created.json())
+        with patch(
+            "products.replay_vision.backend.api.scanners.is_replay_vision_moments_enabled",
+            return_value=False,
+        ):
+            resp = self.client.post(self.scanners_url, data=self._moments_scanner_payload(name="gated"), format="json")
+            self.assertEqual(resp.status_code, 400, resp.json())
+            self.assertEqual(resp.json()["attr"], "scan_scope")
+            # Flipping the flag off must not brick edits to existing moments scanners.
+            resp = self.client.patch(
+                f"{self.scanners_url}{created.json()['id']}/",
+                data={"moments_config": {"events": [{"event": "checkout_error"}], "after_seconds": 90}},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 200, resp.json())
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(

@@ -9,7 +9,12 @@ from parameterized import parameterized
 
 from products.replay_vision.backend.models import ReplayObservation, ReplayScanner
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    ScannerModel,
+    ScannerProvider,
+    ScannerScanScope,
+    ScannerType,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -85,6 +90,8 @@ class TestReplayScanner(BaseTest):
             ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
+            ("scan_scope", ScannerScanScope.MOMENTS),
+            ("moments_config", {"events": [{"event": "checkout_error"}], "before_seconds": 30, "after_seconds": 30}),
             ("model", ScannerModel.GEMINI_3_FLASH_LITE),
             ("emits_signals", True),
         ]
@@ -167,11 +174,14 @@ class TestReplayObservation(BaseTest):
     def _create_scanner(self, **overrides) -> ReplayScanner:
         return _make_scanner(self.team, **overrides)
 
-    def _create_observation(self, scanner: ReplayScanner, session_id: str = "abc-123") -> ReplayObservation:
+    def _create_observation(
+        self, scanner: ReplayScanner, session_id: str = "abc-123", moment_key: str = ""
+    ) -> ReplayObservation:
         # team is auto-populated from scanner by save() override.
         return ReplayObservation.objects.create(
             scanner=scanner,
             session_id=session_id,
+            moment_key=moment_key,
             scanner_snapshot=_snapshot_for(scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
@@ -190,6 +200,15 @@ class TestReplayObservation(BaseTest):
         self._create_observation(scanner, session_id="s1")
         with self.assertRaises(IntegrityError):
             self._create_observation(scanner, session_id="s1")
+
+    def test_moment_key_discriminates_moments_within_a_session(self) -> None:
+        # Moments must coexist per session (distinct anchors) while duplicate anchors still dedup.
+        scanner = self._create_scanner()
+        self._create_observation(scanner, session_id="s1")  # whole-recording row, moment_key=""
+        self._create_observation(scanner, session_id="s1", moment_key="0197a000-0000-7000-8000-000000000001")
+        self._create_observation(scanner, session_id="s1", moment_key="0197a000-0000-7000-8000-000000000002")
+        with self.assertRaises(IntegrityError):
+            self._create_observation(scanner, session_id="s1", moment_key="0197a000-0000-7000-8000-000000000002")
 
     def test_same_session_different_scanners_allowed(self) -> None:
         scanner_a = self._create_scanner()

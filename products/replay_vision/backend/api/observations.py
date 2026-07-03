@@ -24,6 +24,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.moments_serializer import MomentsConfigSerializer
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
@@ -33,7 +34,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerScanScope, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
@@ -68,6 +69,14 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
+    )
+    scan_scope = serializers.ChoiceField(
+        choices=ScannerScanScope.choices,
+        help_text="Scan scope at run time; snapshots persisted before scan scopes existed load as `recording`.",
+    )
+    moments_config = MomentsConfigSerializer(
+        allow_null=True,
+        help_text="Moments scope config at run time; null for recording-scoped scanners.",
     )
 
 
@@ -147,6 +156,35 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "the observation), captured at scan time. Null when the session had no identified person."
         ),
     )
+    moment_key = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Anchor focus-event uuid for moments; empty for whole-recording observations.",
+    )
+    moment_event_name = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Name of the anchor focus event for moments; empty for whole-recording observations.",
+    )
+    moment_event_timestamp = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Capture timestamp of the anchor focus event; null for whole-recording observations.",
+    )
+    window_start_offset_s = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Observed window start, seconds from recording start; null until resolved at scan time.",
+    )
+    window_end_offset_s = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Observed window end, seconds from recording start; null (with start) for whole-recording observations.",
+    )
+    coalesced_event_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Focus-event occurrences merged into this moment's window (1 = no merging); 0 for whole-recording observations.",
+    )
     previous_observation_id = serializers.SerializerMethodField(
         help_text="Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.",
     )
@@ -177,6 +215,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "triggered_by_user",
             "distinct_id",
             "recording_subject_email",
+            "moment_key",
+            "moment_event_name",
+            "moment_event_timestamp",
+            "window_start_offset_s",
+            "window_end_offset_s",
+            "coalesced_event_count",
             "previous_observation_id",
             "next_observation_id",
             "started_at",
