@@ -311,6 +311,11 @@ class ObservationLabelDayCountSerializer(serializers.Serializer):
     down = serializers.IntegerField(help_text="Observations scanned this day labeled incorrect (thumbs down).")
 
 
+class ObservationVersionMarkerSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations in the window.")
+    version = serializers.IntegerField(help_text="The scanner (prompt) version number.")
+
+
 class ObservationLabelStatsSerializer(serializers.Serializer):
     up_total = serializers.IntegerField(help_text="Observations in the filtered set labeled correct (thumbs up).")
     down_total = serializers.IntegerField(help_text="Observations in the filtered set labeled incorrect (thumbs down).")
@@ -319,6 +324,20 @@ class ObservationLabelStatsSerializer(serializers.Serializer):
         help_text=(
             "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned "
             "so the series tracks scanner quality over time. Days without labels are omitted."
+        ),
+    )
+    by_rating_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set "
+            "or changed: the team's rating activity. Days without rating changes are omitted."
+        ),
+    )
+    version_markers = ObservationVersionMarkerSerializer(
+        many=True,
+        help_text=(
+            "First day each scanner (prompt) version produced observations within the window, for marking "
+            "version changes on charts."
         ),
     )
 

@@ -99,10 +99,17 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(created_at=now)
         ReplayObservation.objects.filter(id=earlier.id).update(created_at=now - timedelta(days=3))
         ReplayObservation.objects.filter(id=outside_window.id).update(created_at=now - timedelta(days=40))
+        # Prompt-version snapshots: v1 on the older observation, v2 on today's, so markers show the change.
+        ReplayObservation.objects.filter(id=earlier.id).update(scanner_snapshot={"scanner_version": 1})
+        ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(
+            scanner_snapshot={"scanner_version": 2}
+        )
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window):
             is_correct = observation is outside_window
             self.client.post(self._label_url(observation), {"is_correct": is_correct}, format="json")
+        # Ratings all happened "now"; pin their updated_at (queryset update bypasses auto_now) for by_rating_day.
+        ReplayObservationLabel.objects.all().update(updated_at=now)
 
         labels = self.client.get(f"{self.observations_url(self.scanner.id)}stats/?recent_days=14").json()["labels"]
 
@@ -114,6 +121,15 @@ class TestObservationLabels(_VisionAPITestCase):
             [
                 {"date": (now - timedelta(days=3)).date().isoformat(), "up": 0, "down": 1},
                 {"date": now.date().isoformat(), "up": 1, "down": 1},
+            ],
+        )
+        # All four ratings were given today, including the one on the out-of-window observation.
+        self.assertEqual(labels["by_rating_day"], [{"date": now.date().isoformat(), "up": 2, "down": 2}])
+        self.assertEqual(
+            labels["version_markers"],
+            [
+                {"date": (now - timedelta(days=3)).date().isoformat(), "version": 1},
+                {"date": now.date().isoformat(), "version": 2},
             ],
         )
 

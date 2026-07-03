@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import connection
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Min, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import TruncDate
 from django.utils import timezone
@@ -88,18 +88,10 @@ def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[s
     }
 
 
-def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
-    labeled = queryset.filter(label__isnull=False)
-    totals = labeled.aggregate(
-        up=Count("id", filter=Q(label__is_correct=True)),
-        down=Count("id", filter=Q(label__is_correct=False)),
-    )
-    cutoff = timezone.now() - timedelta(days=recent_days)
-    # Bucketed by the day the session was scanned (not the day it was rated), so the series tracks
-    # scanner quality over time: as the prompt improves, newer days should carry fewer thumbs-down.
+def _label_day_counts(labeled: QuerySet[ReplayObservation], day_field: str, cutoff: Any) -> list[dict[str, Any]]:
     rows = (
-        labeled.filter(created_at__gte=cutoff)
-        .annotate(day=TruncDate("created_at"))
+        labeled.filter(**{f"{day_field}__gte": cutoff})
+        .annotate(day=TruncDate(day_field))
         .order_by()  # Don't let parent ordering leak into GROUP BY.
         .values("day")
         .annotate(
@@ -108,10 +100,46 @@ def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dic
         )
         .order_by("day")
     )
+    return [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows]
+
+
+def _version_markers(queryset: QuerySet[ReplayObservation], cutoff: Any) -> list[dict[str, Any]]:
+    """First day each prompt version appears within the window, so the chart can mark version changes."""
+    rows = (
+        queryset.filter(created_at__gte=cutoff)
+        .annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
+        .exclude(snapshot_version=None)
+        .annotate(day=TruncDate("created_at"))
+        .order_by()
+        .values("snapshot_version")
+        .annotate(first_day=Min("day"))
+    )
+    markers = []
+    for row in rows:
+        try:
+            version = int(row["snapshot_version"])
+        except (TypeError, ValueError):
+            continue
+        markers.append({"date": row["first_day"], "version": version})
+    return sorted(markers, key=lambda marker: (marker["date"], marker["version"]))
+
+
+def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
+    labeled = queryset.filter(label__isnull=False)
+    totals = labeled.aggregate(
+        up=Count("id", filter=Q(label__is_correct=True)),
+        down=Count("id", filter=Q(label__is_correct=False)),
+    )
+    cutoff = timezone.now() - timedelta(days=recent_days)
     return {
         "up_total": totals["up"] or 0,
         "down_total": totals["down"] or 0,
-        "by_day": [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows],
+        # Bucketed by the day the session was scanned, so the series tracks scanner quality over time:
+        # as the prompt improves, newer days should carry fewer thumbs-down.
+        "by_day": _label_day_counts(labeled, "created_at", cutoff),
+        # Bucketed by the day the rating was last set or changed: the team's rating activity.
+        "by_rating_day": _label_day_counts(labeled, "label__updated_at", cutoff),
+        "version_markers": _version_markers(queryset, cutoff),
     }
 
 

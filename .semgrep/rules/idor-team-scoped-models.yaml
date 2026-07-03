@@ -209,6 +209,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -478,6 +479,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
