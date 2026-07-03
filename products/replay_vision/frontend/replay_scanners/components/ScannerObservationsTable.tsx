@@ -57,7 +57,7 @@ function Metric({
     )
 }
 
-function versionTag(
+export function versionTag(
     obsVersion: number | null | undefined,
     currentVersion: number | null | undefined
 ): { type: LemonTagType; label: string; tooltip: string } | null {
