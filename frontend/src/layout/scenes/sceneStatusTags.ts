@@ -8,8 +8,6 @@ const EXTRA_SCENE_STATUS_TAGS: Record<string, ProductStatusTag> = {
     Inbox: 'beta',
 }
 
-let sceneStatusTagMap: Record<string, ProductStatusTag> | null = null
-
 function buildSceneStatusTagMap(): Record<string, ProductStatusTag> {
     const map: Record<string, ProductStatusTag> = { ...EXTRA_SCENE_STATUS_TAGS }
     for (const item of getTreeItemsProducts()) {
@@ -28,16 +26,15 @@ function buildSceneStatusTagMap(): Record<string, ProductStatusTag> {
     return map
 }
 
+const sceneStatusTagMap = buildSceneStatusTagMap()
+
 /**
  * The status tag ('alpha' | 'beta') a scene should show next to its title, mirroring how the same
- * product/tool is tagged in the navbar. Returns undefined for stable products and unknown scenes.
+ * product/tool is tagged in the navbar. Returns null for stable products and unknown scenes.
  */
-export function getSceneStatusTag(sceneId: string | null | undefined): ProductStatusTag | undefined {
+export function getSceneStatusTag(sceneId: string | null | undefined): ProductStatusTag | null {
     if (!sceneId) {
-        return undefined
+        return null
     }
-    if (!sceneStatusTagMap) {
-        sceneStatusTagMap = buildSceneStatusTagMap()
-    }
-    return sceneStatusTagMap[sceneId]
+    return sceneStatusTagMap[sceneId] ?? null
 }

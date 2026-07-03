@@ -21,7 +21,7 @@ describe('getSceneStatusTag', () => {
         expect(getSceneStatusTag(sceneId)).toBe(expected)
     })
 
-    it.each([['Stable'], ['UnknownScene'], [null], [undefined]])('returns undefined for %s', (sceneId) => {
-        expect(getSceneStatusTag(sceneId)).toBeUndefined()
+    it.each([['Stable'], ['UnknownScene'], [null], [undefined]])('returns null for %s', (sceneId) => {
+        expect(getSceneStatusTag(sceneId)).toBeNull()
     })
 })
