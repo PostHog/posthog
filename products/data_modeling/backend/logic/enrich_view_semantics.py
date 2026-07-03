@@ -126,18 +126,18 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
 
     descriptions: dict[str, str] = {}
 
-    # Sibling saved queries (other views) → their view-level description.
-    siblings = {
+    # Parent saved queries (other views this one reads from) → their view-level description.
+    parent_views = {
         sq.id: sq.name
         for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=parent_names).only(
             "id", "name"
         )
     }
-    if siblings:
+    if parent_views:
         for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
-            saved_query_id__in=list(siblings), column_name=""
+            saved_query_id__in=list(parent_views), column_name=""
         ):
-            descriptions[siblings[annotation.saved_query_id]] = annotation.description
+            descriptions[parent_views[annotation.saved_query_id]] = annotation.description
 
     # Physical warehouse tables → their table-level description. Use values_list rather than .only():
     # the default manager eager-loads created_by/external_data_source via select_related, which conflicts
