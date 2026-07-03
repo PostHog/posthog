@@ -831,19 +831,6 @@ from = [
     "products.warehouse_sources",
 ]
 
-# data_modeling — facade landed; external consumers route through backend.facade.* now.
-# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
-# model-migration) that reference the historical model classes directly and cannot route
-# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
-[[interfaces]]
-expose = [
-    "backend\\.models.*",
-]
-from = [
-    "products.data_modeling",
-]
-
-
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
 # webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated
 # block rather than joining the canonical alternation above.

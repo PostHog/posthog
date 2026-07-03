@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
     REVIEWER_CORRECTIONS_WINDOW_DAYS,
     _business_knowledge,
+    _emit_eligibility,
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
@@ -192,6 +193,39 @@ class TestSignalSourceConfigs(BaseTest):
         assert result["enabled"][0]["source_product"] == "error_tracking"
         assert len(result["disabled"]) == 1
         assert result["disabled"][0]["source_product"] == "linear"
+
+
+class TestEmitEligibility(BaseTest):
+    def test_can_emit_when_ai_approved_and_source_on(self) -> None:
+        # Default org has AI processing approved; scout source is fail-open (no disabled row).
+        result = _emit_eligibility(self.team)
+        assert result["ai_processing_approved"] is True
+        assert result["source_enabled"] is True
+        assert result["can_emit"] is True
+        assert result["remediation"] is None
+
+    def test_blocked_with_remediation_when_ai_not_approved(self) -> None:
+        # Mutate through team.organization — the exact instance the builder reads — so the change is
+        # visible regardless of Django's per-instance FK caching.
+        self.team.organization.is_ai_data_processing_approved = False
+        self.team.organization.save()
+        result = _emit_eligibility(self.team)
+        assert result["ai_processing_approved"] is False
+        assert result["can_emit"] is False
+        # The remediation must be actionable, not a bare reason code — this is the reported symptom.
+        assert result["remediation"] and "AI data processing" in result["remediation"]
+
+    def test_blocked_with_remediation_when_source_disabled(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+            enabled=False,
+        )
+        result = _emit_eligibility(self.team)
+        assert result["source_enabled"] is False
+        assert result["can_emit"] is False
+        assert result["remediation"] and "source" in result["remediation"]
 
 
 class TestExistingInboxReports(BaseTest):
@@ -707,6 +741,7 @@ class TestBuildInventory(BaseTest):
             "integrations",
             "external_data_sources",
             "signal_source_configs",
+            "emit_eligibility",
             "existing_inbox_reports",
             "recent_activity",
             "recent_reviewer_corrections",

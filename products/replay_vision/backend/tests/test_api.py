@@ -134,7 +134,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["provider"], ScannerProvider.GOOGLE)
 
-    @parameterized.expand([("below", -0.1), ("above", 1.5)])
+    @parameterized.expand([("below", -0.1), ("above", 1.5), ("below_sampling_precision", 0.00005)])
     def test_create_rejects_out_of_range_sampling_rate(self, _label: str, value: float) -> None:
         resp = self.client.post(
             self.scanners_url,
@@ -149,6 +149,22 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], "sampling_rate")
+
+    @parameterized.expand([("paused", 0.0), ("precision_floor", 0.0001)])
+    def test_create_accepts_sampling_rate_boundaries(self, _label: str, value: float) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": f"rate-ok-{value}",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
+                "sampling_rate": value,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["sampling_rate"], value)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
@@ -280,7 +296,19 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "classifier_duplicate_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["Bug", "bug"]},
-                "Tags must be unique.",
+                "Tags must be unique: 'Bug' and 'bug' are the same tag.",
+            ),
+            (
+                "classifier_slug_colliding_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["login issue", "login_issue"]},
+                "Tags must be unique: 'login issue' and 'login_issue' are the same tag.",
+            ),
+            (
+                "classifier_tag_without_alphanumerics",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["!!!"]},
+                "Tags must contain letters or numbers.",
             ),
             (
                 "monitor_missing_prompt",
@@ -311,6 +339,30 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 ScannerType.MONITOR,
                 "just a string",
                 "Scanner configuration must be a JSON object.",
+            ),
+            (
+                "oversized_prompt",
+                ScannerType.MONITOR,
+                {"prompt": "p" * 20_001},
+                "Prompt can be at most 20,000 characters.",
+            ),
+            (
+                "too_many_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": [f"tag-{i}" for i in range(101)]},
+                "Tag vocabulary can have at most 100 tags.",
+            ),
+            (
+                "overlong_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["ok", "x" * 101]},
+                "Tags can be at most 100 characters.",
+            ),
+            (
+                "unknown_config_key",
+                ScannerType.MONITOR,
+                {"prompt": "p", "alow_inconclusive": True},
+                "Unknown scanner configuration keys: alow_inconclusive.",
             ),
         ]
     )
@@ -840,6 +892,20 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(session_id="s3")  # no subject — sorts last regardless of direction
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=recording_subject_email")
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s2", "s1", "s3"])
+
+    def test_order_by_completed_at_descending_sorts_in_flight_rows_last(self) -> None:
+        now = timezone.now()
+        self._create_observation(
+            session_id="done-old",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=now - timedelta(hours=2),
+        )
+        self._create_observation(session_id="done-new", status=ObservationStatus.SUCCEEDED, completed_at=now)
+        self._create_observation(
+            session_id="in-flight"
+        )  # pending, completed_at null — Postgres puts nulls first on DESC by default
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=-completed_at")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["done-new", "done-old", "in-flight"])
 
     def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
