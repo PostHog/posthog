@@ -878,6 +878,11 @@ def create_ticket_from_confirmation(
         return None
 
     original_msg = messages[0]
+    # `latest` is an upper bound, so a deleted source message silently falls back to
+    # the previous message in the channel — refuse to seed a ticket from that.
+    if original_msg.get("ts") != message_ts:
+        logger.warning("slack_support_confirmation_message_mismatch", channel=slack_channel_id, message_ts=message_ts)
+        return None
     original_text = original_msg.get("text", "")
 
     # Require an author and either text or files

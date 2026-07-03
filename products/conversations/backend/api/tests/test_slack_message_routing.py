@@ -595,7 +595,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         self, mock_create_or_update, mock_get_client, mock_backfill
     ):
         mock_get_client.return_value.conversations_history.return_value = {
-            "messages": [{"user": "U_OP", "text": "Original message"}]
+            "messages": [{"user": "U_OP", "text": "Original message", "ts": "1700000000.000100"}]
         }
         mock_create_or_update.return_value = object()
 
@@ -614,6 +614,25 @@ class TestSlackConfirmBeforeTicket(BaseTest):
         assert kwargs["is_thread_reply"] is False
         assert kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
         mock_backfill.assert_called_once()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_rejects_wrong_message(self, mock_create_or_update, mock_get_client):
+        # `latest` is an upper bound: if the source message was deleted, Slack returns the
+        # previous channel message instead. That must not seed a ticket.
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U_SOMEONE_ELSE", "text": "Unrelated earlier message", "ts": "1699999999.000001"}]
+        }
+
+        result = create_ticket_from_confirmation(
+            team=self.team,
+            slack_team_id="T123",
+            slack_channel_id="C_CONFIG",
+            message_ts="1700000000.000100",
+        )
+
+        assert result is None
+        mock_create_or_update.assert_not_called()
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
