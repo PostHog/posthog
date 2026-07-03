@@ -19,6 +19,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -33,18 +34,23 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
+import { LabeledRow } from '../components/LabeledRow'
 import {
     CitedText,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
-    readConfig,
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import {
+    type ClassifierScannerConfig,
+    type MonitorScannerConfig,
+    type ScorerScannerConfig,
+    type SummarizerScannerConfig,
+    configFromSnapshot,
     failureKindDescription,
     ineligibleKindDescription,
     modelLabel,
@@ -66,15 +72,6 @@ const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
-}
-
-function LabeledRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1">
-            <div className="text-xs text-muted">{label}</div>
-            {children}
-        </div>
-    )
 }
 
 function AutoSeekToTime({
@@ -109,6 +106,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
+    // A citation seek belongs to one observation — never replay it on a sibling after prev/next navigation.
+    useEffect(() => {
+        setPendingSeek(null)
+    }, [observationId])
+
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
@@ -141,24 +143,20 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
     const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
-    const snapshotConfig = readConfig(snapshot ?? null)
-    const prompt = typeof snapshotConfig.prompt === 'string' ? snapshotConfig.prompt : null
-    const summarizerLength =
-        scannerType === 'summarizer' && typeof snapshotConfig.length === 'string' ? snapshotConfig.length : null
-    const classifierVocab =
-        scannerType === 'classifier' && Array.isArray(snapshotConfig.tags)
-            ? (snapshotConfig.tags as unknown[]).filter((t): t is string => typeof t === 'string')
-            : null
-    const classifierMultiLabel = scannerType === 'classifier' ? snapshotConfig.multi_label === true : null
-    const monitorAllowInconclusive = scannerType === 'monitor' ? snapshotConfig.allow_inconclusive === true : null
-    const classifierAllowFreeform = scannerType === 'classifier' ? snapshotConfig.allow_freeform_tags === true : null
-    const scorerScale =
-        scannerType === 'scorer' && snapshotConfig.scale && typeof snapshotConfig.scale === 'object'
-            ? (snapshotConfig.scale as { min?: unknown; max?: unknown; label?: unknown })
-            : null
-    const scorerMin = scorerScale && typeof scorerScale.min === 'number' ? scorerScale.min : null
-    const scorerMax = scorerScale && typeof scorerScale.max === 'number' ? scorerScale.max : null
-    const scorerLabel = scorerScale && typeof scorerScale.label === 'string' ? scorerScale.label : null
+    const snapshotConfig = configFromSnapshot(snapshot)
+    const prompt = snapshotConfig?.prompt ?? null
+    const summarizerConfig = scannerType === 'summarizer' ? (snapshotConfig as SummarizerScannerConfig | null) : null
+    const classifierConfig = scannerType === 'classifier' ? (snapshotConfig as ClassifierScannerConfig | null) : null
+    const monitorConfig = scannerType === 'monitor' ? (snapshotConfig as MonitorScannerConfig | null) : null
+    const scorerConfig = scannerType === 'scorer' ? (snapshotConfig as ScorerScannerConfig | null) : null
+    const summarizerLength = summarizerConfig?.length ?? null
+    const classifierVocab = Array.isArray(classifierConfig?.tags) ? classifierConfig.tags : null
+    const classifierMultiLabel = classifierConfig ? classifierConfig.multi_label === true : null
+    const monitorAllowInconclusive = monitorConfig ? monitorConfig.allow_inconclusive === true : null
+    const classifierAllowFreeform = classifierConfig ? classifierConfig.allow_freeform_tags === true : null
+    const scorerMin = typeof scorerConfig?.scale?.min === 'number' ? scorerConfig.scale.min : null
+    const scorerMax = typeof scorerConfig?.scale?.max === 'number' ? scorerConfig.scale.max : null
+    const scorerLabel = typeof scorerConfig?.scale?.label === 'string' ? scorerConfig.scale.label : null
     const ineligibleParsed =
         observation.status === 'ineligible' && observation.error_reason
             ? parseIneligibleReason(observation.error_reason)
@@ -175,11 +173,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             : null
     const durationLabel =
         durationMs !== null && Number.isFinite(durationMs) && durationMs >= 0
-            ? durationMs < 1000
-                ? `${durationMs} ms`
-                : durationMs < 60_000
-                  ? `${(durationMs / 1000).toFixed(1)} s`
-                  : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`
+            ? durationMs < 60_000
+                ? (humanFriendlyMilliseconds(durationMs) ?? null)
+                : humanFriendlyDuration(durationMs / 1000)
             : null
 
     const seekEmbeddedPlayer = (ms: number): void => {
@@ -187,6 +183,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             setRecordingExpanded(true)
         }
         setPendingSeek({ ms, trigger: Date.now() })
+    }
+
+    const toggleRecordingExpanded = (): void => {
+        // Collapsing discards the seek intent, or re-expanding would remount the seeker and replay it.
+        if (recordingExpanded) {
+            setPendingSeek(null)
+        }
+        setRecordingExpanded(!recordingExpanded)
     }
 
     return (
@@ -236,18 +240,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconInfo />} title="Observation details" />
                     <div className="flex flex-col gap-3 text-sm">
-                        <div>
-                            <div className="text-xs text-muted mb-0.5">Status</div>
+                        <LabeledRow label="Status">
                             <ObservationStatusTag status={observation.status} />
-                        </div>
+                        </LabeledRow>
                         {result && typeof result.confidence === 'number' && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Confidence</div>
+                            <LabeledRow label="Confidence">
                                 <ObservationConfidence result={result} />
-                            </div>
+                            </LabeledRow>
                         )}
-                        <div>
-                            <div className="text-xs text-muted mb-0.5">Triggered by</div>
+                        <LabeledRow label="Triggered by">
                             {observation.triggered_by === 'on_demand' && observation.triggered_by_user ? (
                                 <ProfilePicture
                                     user={{
@@ -261,18 +262,16 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             ) : (
                                 <span>{triggerLabel}</span>
                             )}
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted mb-0.5">Session</div>
+                        </LabeledRow>
+                        <LabeledRow label="Session">
                             <Link
                                 to={urls.sessionProfile(observation.session_id)}
                                 data-attr="vision-observation-session-link"
                             >
                                 {observation.session_id}
                             </Link>
-                        </div>
-                        <div>
-                            <div className="text-xs text-muted mb-0.5">Recording subject</div>
+                        </LabeledRow>
+                        <LabeledRow label="Recording subject">
                             {observation.distinct_id ? (
                                 <Link to={urls.personByDistinctId(observation.distinct_id)}>
                                     {observation.recording_subject_email ?? observation.distinct_id}
@@ -282,34 +281,30 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </div>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconClock />} title="Lifecycle" />
                     <div className="flex flex-col gap-3 text-sm">
-                        <div>
-                            <div className="text-xs text-muted mb-0.5">Created at</div>
+                        <LabeledRow label="Created at">
                             <TZLabel time={observation.created_at} />
-                        </div>
+                        </LabeledRow>
                         {observation.started_at && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Started at</div>
+                            <LabeledRow label="Started at">
                                 <TZLabel time={observation.started_at} />
-                            </div>
+                            </LabeledRow>
                         )}
                         {observation.completed_at && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Completed at</div>
+                            <LabeledRow label="Completed at">
                                 <TZLabel time={observation.completed_at} />
-                            </div>
+                            </LabeledRow>
                         )}
                         {durationLabel && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Duration</div>
+                            <LabeledRow label="Duration">
                                 <span>{durationLabel}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                     </div>
                 </LemonCard>
@@ -318,20 +313,17 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <CardHeader icon={<IconGear />} title="Configuration" />
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Model</div>
+                            <LabeledRow label="Model">
                                 <span>{modelLabel(snapshot.model)}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                         {summarizerLength && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Summary length</div>
+                            <LabeledRow label="Summary length">
                                 <span className="capitalize">{summarizerLength}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                         {classifierVocab && classifierVocab.length > 0 && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Vocabulary</div>
+                            <LabeledRow label="Vocabulary">
                                 <div className="flex flex-wrap gap-1">
                                     {classifierVocab.map((tag) => (
                                         <LemonTag key={tag} type="default" size="small">
@@ -339,49 +331,42 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         </LemonTag>
                                     ))}
                                 </div>
-                            </div>
+                            </LabeledRow>
                         )}
                         {monitorAllowInconclusive !== null && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Allow inconclusive verdicts</div>
+                            <LabeledRow label="Allow inconclusive verdicts">
                                 <BooleanTag value={monitorAllowInconclusive} />
-                            </div>
+                            </LabeledRow>
                         )}
                         {classifierMultiLabel !== null && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Multi-label</div>
+                            <LabeledRow label="Multi-label">
                                 <BooleanTag value={classifierMultiLabel} />
-                            </div>
+                            </LabeledRow>
                         )}
                         {classifierAllowFreeform !== null && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Freeform tags</div>
+                            <LabeledRow label="Freeform tags">
                                 <BooleanTag value={classifierAllowFreeform} />
-                            </div>
+                            </LabeledRow>
                         )}
                         {scorerMin !== null && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Scale minimum</div>
+                            <LabeledRow label="Scale minimum">
                                 <span>{scorerMin}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                         {scorerMax !== null && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Scale maximum</div>
+                            <LabeledRow label="Scale maximum">
                                 <span>{scorerMax}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                         {scorerLabel && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Score label</div>
+                            <LabeledRow label="Score label">
                                 <span>{scorerLabel}</span>
-                            </div>
+                            </LabeledRow>
                         )}
                         {snapshot?.emits_signals && (
-                            <div>
-                                <div className="text-xs text-muted mb-0.5">Signals</div>
+                            <LabeledRow label="Signals">
                                 <span>Emitted ({observation.scanner_result?.signals_count ?? 0})</span>
-                            </div>
+                            </LabeledRow>
                         )}
                     </div>
                 </LemonCard>
@@ -498,14 +483,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
                 <div
                     className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                    onClick={() => setRecordingExpanded(!recordingExpanded)}
+                    onClick={toggleRecordingExpanded}
                 >
                     <LemonButton
                         icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
                         size="small"
+                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
                         onClick={(e) => {
                             e.stopPropagation()
-                            setRecordingExpanded(!recordingExpanded)
+                            toggleRecordingExpanded()
                         }}
                         data-attr="vision-observation-recording-toggle"
                     />

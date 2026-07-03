@@ -19,14 +19,14 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createIngestionProducerRegistry } from '~/ingestion/common/producer-registry'
+import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
     ProducerName,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,

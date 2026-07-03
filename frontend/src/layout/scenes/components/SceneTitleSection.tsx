@@ -144,6 +144,10 @@ type SceneMainTitleProps = {
      */
     name?: string | null
     /**
+     * Optional node rendered inline immediately after the name (e.g. a status tag)
+     */
+    nameSuffix?: React.ReactNode
+    /**
      * null to hide the description,
      * undefined to show the default description
      */
@@ -218,6 +222,7 @@ type SceneMainTitleProps = {
 
 export function SceneTitleSection({
     name,
+    nameSuffix,
     description,
     resourceType,
     markdown = false,
@@ -345,27 +350,30 @@ export function SceneTitleSection({
                                     onGenerateMetadata={onGenerateMetadata}
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
-                                        hasDescription ? (
-                                            <ButtonPrimitive
-                                                className={cn(
-                                                    'size-[var(--button-height-sm)] shrink-0',
-                                                    isScrolled
-                                                        ? 'animate-fade-out-subtle pointer-events-none'
-                                                        : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
-                                                )}
-                                                onClick={toggleShowDescription}
-                                                tooltip={showDescription ? 'Hide description' : 'Show description'}
-                                                tooltipPlacement="bottom"
-                                                iconOnly
-                                                data-attr={
-                                                    showDescription
-                                                        ? 'toggle-description-button-collapse'
-                                                        : 'toggle-description-button-expand'
-                                                }
-                                            >
-                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
-                                            </ButtonPrimitive>
-                                        ) : undefined
+                                        <>
+                                            {nameSuffix}
+                                            {hasDescription ? (
+                                                <ButtonPrimitive
+                                                    className={cn(
+                                                        'size-[var(--button-height-sm)] shrink-0',
+                                                        isScrolled
+                                                            ? 'animate-fade-out-subtle pointer-events-none'
+                                                            : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                    )}
+                                                    onClick={toggleShowDescription}
+                                                    tooltip={showDescription ? 'Hide description' : 'Show description'}
+                                                    tooltipPlacement="bottom"
+                                                    iconOnly
+                                                    data-attr={
+                                                        showDescription
+                                                            ? 'toggle-description-button-collapse'
+                                                            : 'toggle-description-button-expand'
+                                                    }
+                                                >
+                                                    {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
+                                                </ButtonPrimitive>
+                                            ) : undefined}
+                                        </>
                                     }
                                 />
                             </>

@@ -39,7 +39,7 @@ use cohort_stream_processor::store::durability::{
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
 use cohort_stream_processor::store::CohortStore;
-use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
+use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
 use cohort_stream_processor::workers::MergeWorkerDeps;
 
 common_alloc::used!();
@@ -152,7 +152,10 @@ async fn async_main(config: Config) -> Result<()> {
         "opening RocksDB state store",
     );
     let store = CohortStore::open(&store_config).context("opening RocksDB state store")?;
-    let router = PartitionRouter::new(config.partition_channel_buffer);
+    let router = PartitionRouter::with_intake_cap(
+        config.partition_channel_buffer,
+        config.partition_intake_max_events,
+    );
     let offset_tracker = Arc::new(OffsetTracker::new());
 
     let kafka_config = config.build_kafka_config();
@@ -381,7 +384,10 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
-    tokio::spawn(run_sweep_loop(
+    // Hold the first eviction pass past the boot window so its read burst doesn't stack on backlog
+    // catch-up; only the eviction sweep is delayed.
+    tokio::spawn(run_sweep_loop_delayed(
+        config.first_eviction_sweep_delay(),
         DispatchSweeper::new(dispatcher.clone(), config.sweep_safety_margin_ms as i64),
         config.sweep_interval(),
         "eviction",

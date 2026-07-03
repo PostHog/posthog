@@ -370,6 +370,23 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         super().perform_destroy(instance)
 
 
+# Human-readable copy for the engine's controlled skip/abort reasons (see temporal.vision_actions —
+# _validate skip reasons and SynthesisStatus). Unmapped values fall through to the raw string.
+# Copy stays neutral (no "Skipped —"/"Failed —" prefix): the run's status drives the banner heading,
+# so the abort reasons read correctly under the "failed" banner they actually carry.
+_RUN_REASON_LABELS = {
+    "skipped_empty": "No new observations in this window to summarize.",
+    "skipped_over_budget": "The team is over its AI-credit budget.",
+    "no_delivery": "No delivery destination is configured for this action.",
+    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
+    "no_delivery_flow": "No delivery destination is configured for this action.",
+    "disabled": "The action was disabled when this run was due.",
+    "not_found": "The action no longer exists.",
+    "aborted_no_consent": "AI data processing isn't enabled for this organization.",
+    "aborted_no_user": "The action's creator no longer has access.",
+}
+
+
 class RunObservationSerializer(serializers.Serializer):
     """One recording an action run included in its summary — the 'recordings included' list on the run detail view."""
 
@@ -442,14 +459,14 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_error_reason(self, run: VisionActionRun) -> str | None:
         error = run.error if isinstance(run.error, dict) else {}
-        # Surface only the engine's controlled skip/abort reasons. Failed runs also stamp error["message"]
-        # with raw exception text (str(e)[:500]) — don't echo that to API consumers; show a generic reason.
+        # Surface only the engine's controlled skip/abort reasons, mapped to human copy. Failed runs also
+        # stamp error["message"] with raw exception text (str(e)[:500]) — don't echo that to API consumers.
         for key in ("skip_reason", "aborted"):
             value = error.get(key)
             if isinstance(value, str) and value.strip():
-                return value
+                return _RUN_REASON_LABELS.get(value, value)
         if run.status == VisionActionRunStatus.FAILED:
-            return "Run failed"
+            return "This run failed while generating the summary."
         return None
 
 

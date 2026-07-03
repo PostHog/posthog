@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_postgres_queries,
 )
+from unittest import mock
 
 from django.test import override_settings
 
@@ -21,7 +22,7 @@ from posthog.models import Element, ElementGroup, Organization
 expected_autocapture_data_response_results: list[dict] = [
     {
         "count": 3,
-        "hash": None,
+        "hash": mock.ANY,
         "type": "$autocapture",
         "elements": [
             {
@@ -50,7 +51,7 @@ expected_autocapture_data_response_results: list[dict] = [
     },
     {
         "count": 2,
-        "hash": None,
+        "hash": mock.ANY,
         "type": "$autocapture",
         "elements": [
             {
@@ -82,7 +83,7 @@ expected_autocapture_data_response_results: list[dict] = [
 expected_rage_click_data_response_results: list[dict] = [
     {
         "count": 1,
-        "hash": None,
+        "hash": mock.ANY,
         "type": "$rageclick",
         "elements": [
             {
@@ -298,6 +299,50 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert page_three_response_json["next"] is None
         limit_to_one_results_page_three = page_three_response_json["results"]
         assert limit_to_one_results_page_three == [expected_rage_click_data_response_results[0]]
+
+    def test_element_stats_filters_attributes_to_requested_data_attributes(self) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(
+                    tag_name="button",
+                    text="sign up",
+                    order=0,
+                    attributes={"attr__data-attr": "signup-cta", "attr__aria-label": "call to action"},
+                )
+            ],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+        unfiltered = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert unfiltered["results"][0]["elements"][0]["attributes"] == {
+            "attr__data-attr": "signup-cta",
+            "attr__aria-label": "call to action",
+        }
+
+        filtered = self.client.get("/api/element/stats/?paginate_response=true&data_attributes=data-attr").json()
+        assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
+        assert filtered["results"][0]["elements"][0]["text"] == "sign up"
+
+    def test_element_stats_returns_stable_chain_hashes(self) -> None:
+        self._setup_events()
+
+        first = self.client.get("/api/element/stats/?paginate_response=true").json()["results"]
+        second = self.client.get("/api/element/stats/?paginate_response=true").json()["results"]
+
+        hashes = [row["hash"] for row in first]
+        assert all(isinstance(h, str) and h for h in hashes)
+        assert hashes == [row["hash"] for row in second]
+        assert len({(row["type"], row["hash"]) for row in first}) == len(first)
+
+        autocapture_event_1 = next(
+            row for row in first if row["type"] == "$autocapture" and row["elements"][0]["text"] == "event 1"
+        )
+        rageclick_event_1 = next(row for row in first if row["type"] == "$rageclick")
+        assert autocapture_event_1["hash"] == rageclick_event_1["hash"]
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")

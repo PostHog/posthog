@@ -34,7 +34,6 @@ describe('createRecordSessionEventStep', () => {
             timestamp: 1234567890,
             rawSize: 100,
         },
-        headers: [],
         distinct_id: 'user-123',
         session_id: 'session-456',
         token: 'test-token',
@@ -51,6 +50,7 @@ describe('createRecordSessionEventStep', () => {
     ): RecordSessionEventStepInput => ({
         team,
         parsedMessage: createParsedMessage(overrides),
+        retentionPeriod: '30d',
     })
 
     beforeEach(() => {
@@ -76,10 +76,13 @@ describe('createRecordSessionEventStep', () => {
 
         expect(mockSessionBatchManager.getCurrentBatch).toHaveBeenCalledTimes(1)
         expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
-        expect(mockBatchRecorder.record).toHaveBeenCalledWith({
-            team: defaultTeam,
-            message: input.parsedMessage,
-        })
+        expect(mockBatchRecorder.record).toHaveBeenCalledWith(
+            {
+                team: defaultTeam,
+                message: input.parsedMessage,
+            },
+            '30d'
+        )
     })
 
     it('should return ok result with input preserved', async () => {

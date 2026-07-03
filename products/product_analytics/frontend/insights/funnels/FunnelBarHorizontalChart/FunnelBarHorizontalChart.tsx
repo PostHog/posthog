@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
 
-import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+import { type TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -43,7 +43,7 @@ export function FunnelBarHorizontalChart({
     inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const fillerColor = useMemo(() => getFillerColor(), [isDarkModeOn])
 
     const { insightProps } = useValues(insightLogic)
@@ -102,6 +102,12 @@ export function FunnelBarHorizontalChart({
                     const isOptional = isStepOptional(stepIndex + 1)
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
+                        // Stacked breakdown + compare: the drop-off band aggregates every value for the
+                        // period, so it can't be scoped to one value and isn't clickable. Pure compare tags
+                        // each drop-off with its period's breakdownIndex, so it stays interactive.
+                        if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
+                            return
+                        }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
                         // route the matching period series (converted vs. dropped-off) — handled before the
                         // generic drop-off branch, which would otherwise open the aggregate step.
