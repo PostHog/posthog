@@ -751,9 +751,6 @@ class ConcurrentS3Consumer(Consumer):
             ):
                 recorder.add_bytes_processed(len(data))
 
-                # Recorded in a `finally` so the count still lands on the span when retries are
-                # exhausted and we raise, which is exactly when it's most diagnostic. Backoff sleeps
-                # happen inside this span, so the count also explains durations inflated by retries.
                 try:
                     while response is None:
                         attempt += 1
@@ -793,6 +790,8 @@ class ConcurrentS3Consumer(Consumer):
                             else:
                                 raise
                 finally:
+                    # Backoff sleeps happen inside this span, so the count also explains durations
+                    # inflated by retries.
                     span.set_attribute("batch_export.s3.upload_attempts", attempt)
 
             part_info: CompletedPartTypeDef = {
