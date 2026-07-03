@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -344,6 +345,33 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        // A 404 here just means the resolved uiHost doesn't serve /toolbar_oauth/check
+        // (host-resolution mismatch, reverse proxy, version skew) — expected, not a bug.
+        // Guards against re-reporting these as exceptions and flooding error tracking.
+        it.each([
+            [404, false],
+            [500, true],
+        ])('HEAD returning %p sets error status; reports exception = %p', async (status, shouldCapture) => {
+            const captureException = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.resolve({ ok: false, status } as Response)
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as any as Response)
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            if (shouldCapture) {
+                expect(captureException).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+                )
+            } else {
+                expect(captureException).not.toHaveBeenCalled()
+            }
+            captureException.mockRestore()
         })
     })
 
