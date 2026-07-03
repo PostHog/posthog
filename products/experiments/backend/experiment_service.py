@@ -1673,7 +1673,10 @@ class ExperimentService:
 
             flag_key = experiment.get_feature_flag_key()
             plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
-            title, description = build_cleanup_prompt(experiment, flag_key, plan)
+            # Build the prompt to catch render errors on real data, but don't log its body: it
+            # embeds the experiment name and full instructions, and these logs are exported widely.
+            # The structured fields below are enough to confirm the trigger fired and the decision.
+            title, _ = build_cleanup_prompt(experiment, flag_key, plan)
             logger.info(
                 "experiment_cleanup_pr_preview",
                 experiment_id=experiment.id,
@@ -1684,7 +1687,6 @@ class ExperimentService:
                 remove_variants=plan.remove_variants,
                 confident=plan.confident,
                 pr_title=title,
-                pr_prompt=description,
             )
         except Exception:
             logger.exception("experiment_cleanup_pr_preview_failed", experiment_id=experiment.id)
