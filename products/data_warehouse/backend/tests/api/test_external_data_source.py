@@ -4064,13 +4064,11 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_database_schema_rejects_source_without_schema_discovery(self, mock_get_source, mock_capture_exception):
-        # Unreleased sources inherit the base get_schemas, which raises NotImplementedError. The endpoint
+        # AmazonS3 deliberately omits get_schemas, so the base raises NotImplementedError. The endpoint
         # must return a clean 400 without capturing it as a server error, mirroring `setup`.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.source import (
-            AmazonCloudWatchSource,
-        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 
-        source = AmazonCloudWatchSource()
+        source = AmazonS3Source()
         mock_get_source.return_value = source
 
         with (
@@ -4080,11 +4078,11 @@ class TestExternalDataSource(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
-                data={"source_type": "AmazonCloudWatch"},
+                data={"source_type": "AmazonS3"},
             )
 
         assert response.status_code == 400
-        assert response.json()["message"] == "Source type 'AmazonCloudWatch' does not support schema discovery."
+        assert response.json()["message"] == "Source type 'AmazonS3' does not support schema discovery."
         mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
