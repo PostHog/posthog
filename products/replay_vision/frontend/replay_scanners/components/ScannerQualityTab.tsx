@@ -114,7 +114,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             language="markdown"
                             options={{
                                 readOnly: true,
-                                renderSideBySide: false,
+                                renderSideBySide: true,
+                                useInlineViewWhenSpaceIsLimited: false,
                                 wordWrap: 'on',
                                 lineNumbers: 'off',
                                 folding: false,
