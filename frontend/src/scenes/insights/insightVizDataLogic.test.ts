@@ -584,7 +584,30 @@ describe('insightVizDataLogic', () => {
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
+                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
                 },
+            })
+        })
+
+        it('unhides quarter and year when the flag is enabled', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
+            })
+
+            expect(builtInsightVizDataLogic.values.enabledIntervals.quarter).toEqual({
+                label: 'quarter',
+                newDateFrom: '-3y',
+                hidden: false,
+            })
+            expect(builtInsightVizDataLogic.values.enabledIntervals.year).toEqual({
+                label: 'year',
+                newDateFrom: '-5y',
+                hidden: false,
+            })
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
             })
         })
 
@@ -620,6 +643,20 @@ describe('insightVizDataLogic', () => {
                             'Grouping by month is not supported on insights with weekly active users series.',
                     },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: {
+                        label: 'quarter',
+                        newDateFrom: '-3y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by quarter is not supported on insights with weekly active users series.',
+                    },
+                    year: {
+                        label: 'year',
+                        newDateFrom: '-5y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by year is not supported on insights with weekly active users series.',
+                    },
                 },
             })
         })

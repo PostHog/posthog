@@ -518,9 +518,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath, s.isTrends],
-            (activeUsersMath, isTrends): Intervals => {
+            (s) => [s.activeUsersMath, s.isTrends, s.featureFlags],
+            (activeUsersMath, isTrends, featureFlags): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
+
+                if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]) {
+                    enabledIntervals.quarter = { ...enabledIntervals.quarter, hidden: false }
+                    enabledIntervals.year = { ...enabledIntervals.year, hidden: false }
+                }
 
                 if (activeUsersMath) {
                     enabledIntervals.hour = {
@@ -534,6 +539,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             ...enabledIntervals.month,
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.quarter = {
+                            ...enabledIntervals.quarter,
+                            disabledReason:
+                                'Grouping by quarter is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.year = {
+                            ...enabledIntervals.year,
+                            disabledReason:
+                                'Grouping by year is not supported on insights with weekly active users series.',
                         }
                     }
                 }
@@ -841,14 +856,18 @@ const handleQuerySourceUpdateSideEffects = (
     // to an appropriate allowed interval and inform them of the change via a toast
     if (
         maybeChangedActiveUsersMath !== null &&
-        (interval === 'hour' || interval === 'month' || interval === 'minute')
+        (interval === 'hour' ||
+            interval === 'month' ||
+            interval === 'minute' ||
+            interval === 'quarter' ||
+            interval === 'year')
     ) {
         if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'day'
-        } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
+        } else if (maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
@@ -923,10 +942,16 @@ const handleQuerySourceUpdateSideEffects = (
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
+            const quarterYearEnabled =
+                !!featureFlagLogic.findMounted()?.values.featureFlags[
+                    FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS
+                ]
             if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'
+            } else if (quarterYearEnabled && dayjs(date_to).diff(dayjs(date_from), 'month') > 36) {
+                ;(mergedUpdate as TrendsQuery).interval = 'quarter'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
