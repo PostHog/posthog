@@ -29,33 +29,46 @@ from pathlib import Path
 class Ecosystem:
     manifests: frozenset[str]
     lockfiles: frozenset[str]
+    # Whether this ecosystem's lockfiles are trivially trusted at dismiss
+    # time (a lockfile-only push retains a prior stamphog approval without
+    # LLM re-review). Defaults to NOT trusted so a newly added ecosystem
+    # narrows trust rather than silently widening it — dismiss-time trust
+    # is an explicit decision made here, not inherited from the deny list.
+    trusted_at_dismiss: bool = False
 
 
 DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
     "node": Ecosystem(
         manifests=frozenset({"package.json"}),
-        lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock"}),
+        lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
+        trusted_at_dismiss=True,
     ),
     "python": Ecosystem(
         # setup.py/setup.cfg execute code at install/build time even though
         # no lockfile pairs with them in this repo.
         manifests=frozenset({"pyproject.toml", "setup.py", "setup.cfg", "pipfile"}),
         lockfiles=frozenset({"uv.lock", "poetry.lock", "pipfile.lock"}),
+        trusted_at_dismiss=True,
     ),
     "ruby": Ecosystem(
         manifests=frozenset({"gemfile"}),
         lockfiles=frozenset({"gemfile.lock"}),
+        trusted_at_dismiss=True,
     ),
     # No composer usage in-repo today; listed so a future composer.json
     # doesn't arrive ungated.
     "php": Ecosystem(
         manifests=frozenset({"composer.json"}),
         lockfiles=frozenset({"composer.lock"}),
+        trusted_at_dismiss=True,
     ),
     "rust": Ecosystem(
         manifests=frozenset({"cargo.toml"}),
         lockfiles=frozenset({"cargo.lock"}),
+        trusted_at_dismiss=True,
     ),
+    # go.sum deliberately stays untrusted at dismiss time: it hashes what
+    # go.mod names rather than being the sole source of installed code.
     "go": Ecosystem(
         manifests=frozenset({"go.mod"}),
         lockfiles=frozenset({"go.sum"}),
@@ -350,13 +363,12 @@ ALLOW_PATH_PATTERNS = [
 # pipeline (workflows, configs, build files) even though those paths may
 # be allow-listed at approve time.
 
-# Derived from DEPENDENCY_ECOSYSTEMS rather than hand-listed, so a new
-# ecosystem's lockfile is trusted at dismiss time by default. go.sum is the
-# one exception, carried over unchanged from before this table existed:
-# go.sum only records checksums for the versions go.mod resolves — unlike
-# the other lockfiles here, it isn't the sole source of what gets installed,
-# so it's kept out of the trivially-safe set.
-DISMISS_TIME_LOCKFILES: frozenset[str] = _ALL_LOCKFILE_NAMES - frozenset({"go.sum"})
+# Derived from the ecosystems that explicitly opted in via trusted_at_dismiss
+# — dismiss-time trust is a per-ecosystem decision made in the table, never a
+# default a new deny-list entry inherits. See the field's comment on Ecosystem.
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
+    *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
+)
 
 _DISMISS_TIME_TEST_RE = re.compile(
     r"(?:^|/)(?:__tests__|tests?|fixtures)/"
