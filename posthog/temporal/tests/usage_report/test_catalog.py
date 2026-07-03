@@ -22,6 +22,7 @@ from hypothesis import (
     settings,
     strategies as st,
 )
+from hypothesis.extra.django import TestCase as HypothesisTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -135,7 +136,7 @@ _fixture_strategy = st.builds(
 )
 
 
-class TestEventsFamilyPropertyParity(ClickhouseTestMixin, BaseTest):
+class TestEventsFamilyPropertyParity(ClickhouseTestMixin, BaseTest, HypothesisTestCase):
     def setUp(self) -> None:
         super().setUp()
         # The groups metric counts raw rows, so a background merge collapsing
