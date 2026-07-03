@@ -11,6 +11,10 @@ use crate::ext_fns::transformation_ext_fns;
 
 const PARALLEL_CHUNK_SIZE: usize = 500;
 
+// The Node VM has no heap ceiling; the crate's 1MB default trips on real events with large
+// properties. A cap (not a preallocation), and rayon bounds how many contexts run at once.
+const MAX_HEAP_SIZE_BYTES: usize = 64 * 1024 * 1024;
+
 #[napi(object)]
 pub struct HogExecResult {
     /// The program's return value; None when the execution errored.
@@ -56,6 +60,7 @@ fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec
     };
 
     let mut ctx = ExecutionContext::with_defaults(program).with_ext_fns(transformation_ext_fns());
+    ctx.max_heap_size = MAX_HEAP_SIZE_BYTES;
     if let Some(max_steps) = max_steps {
         ctx.max_steps = max_steps;
     }
