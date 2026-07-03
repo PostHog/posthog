@@ -81,8 +81,8 @@ export interface AccountNoteApi {
     readonly account_id: string
     /** Name of the account this note is linked to. */
     readonly account_name: string
-    /** User who created the note. */
-    readonly created_by: UserBasicApi
+    /** User who created the note, if known. */
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PaginatedAccountNoteListApi {

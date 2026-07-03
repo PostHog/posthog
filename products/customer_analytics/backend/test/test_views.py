@@ -1976,6 +1976,11 @@ class TestAccountNotesViewSet(APIBaseTest):
         titles = [n["title"] for n in response.json()["results"]]
         self.assertEqual(titles, ["Acme note"])
 
+    def test_list_rejects_malformed_account_id(self):
+        response = self.client.get(f"{self.endpoint_base}?account_id=not-a-uuid")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             ("single", "{uid}"),
