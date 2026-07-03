@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyLargeNumber, humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -127,9 +128,16 @@ export function CacheHealth(): JSX.Element {
                 ClickHouse system.parts.
             </p>
             <div className="flex flex-wrap gap-4 mb-4">
-                {tables.map((table) => (
-                    <TableCard key={table.table} table={table} />
-                ))}
+                {!cacheHealth && cacheHealthLoading
+                    ? [0, 1].map((i) => (
+                          <LemonCard key={i} hoverEffect={false} className="flex-1 min-w-72">
+                              <LemonSkeleton className="h-4 w-1/2" />
+                              <LemonSkeleton className="h-6 w-2/3 mt-2" />
+                              <LemonSkeleton className="h-3 w-1/2 mt-2" />
+                              <LemonSkeleton className="h-3 w-1/3 mt-1" />
+                          </LemonCard>
+                      ))
+                    : tables.map((table) => <TableCard key={table.table} table={table} />)}
             </div>
             <h3>Partition breakdown by expiry day</h3>
             <LemonTable
