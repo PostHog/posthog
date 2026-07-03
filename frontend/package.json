@@ -187,6 +187,7 @@
         "chartjs-plugin-trendline": "^3.2.0",
         "chartjs-plugin-zoom": "^2.2.0",
         "clsx": "^2.1.1",
+        "core-js": "^3.40.0",
         "country-flag-emoji-polyfill": "^0.1.8",
         "cron-parser": "^5.5.0",
         "cronstrue": "^3.14.0",
