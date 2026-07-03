@@ -15,9 +15,15 @@ describe('onboardingVariants', () => {
             ).toBe('legacy')
         })
 
-        it('maps the original control flag value to legacy', () => {
+        it('maps the control flag value to legacy', () => {
             expect(
                 resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'control' } as FeatureFlagsSet)
+            ).toBe('legacy')
+        })
+
+        it('maps the historical legacy flag value to legacy, same as control', () => {
+            expect(
+                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'legacy' } as FeatureFlagsSet)
             ).toBe('legacy')
         })
 
