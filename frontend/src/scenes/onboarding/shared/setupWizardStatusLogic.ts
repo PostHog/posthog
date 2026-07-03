@@ -2,8 +2,10 @@ import { actions, afterMount, connect, getContext, kea, path, reducers, selector
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
 import { activeCloudRunLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
 import {
+    InstallationMode,
     InstallationProgress,
     installationProgressLogic,
 } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
@@ -23,8 +25,8 @@ export interface SetupPullRequest {
 export type SetupWizardStatus =
     /** The wizard opened a pull request - surface it so the user merges it. */
     | { kind: 'pull_request'; pullRequest: SetupPullRequest }
-    /** The wizard is still working on the integration - a PR will follow. */
-    | { kind: 'installing' }
+    /** The wizard is still working on the integration - cloud runs end in a PR, local ones don't. */
+    | { kind: 'installing'; mode: InstallationMode }
 
 export interface SetupRunHandle {
     taskId: string
@@ -77,7 +79,7 @@ export function statusFromProgress(progress: InstallationProgress | null): Setup
         return { kind: 'pull_request', pullRequest: { url: progress.prUrl, merged: false } }
     }
     if (progress.phase === 'connecting' || progress.phase === 'running') {
-        return { kind: 'installing' }
+        return { kind: 'installing', mode: 'cloud' }
     }
     return null
 }
@@ -93,6 +95,8 @@ export function statusFromProgress(progress: InstallationProgress | null): Setup
  *  - Live streaming: when a run handle is known (the persisted `activeCloudRunLogic` handle, or a
  *    still-running discovered run), `installationProgressLogic` is mounted for it and its
  *    normalized progress is mirrored here, so the status updates in real time.
+ *  - Local runs: the CLI wizard creates no task run, so `wizardActiveSessionDetectorLogic`'s cheap
+ *    session poll fills in "installing" when neither cloud source knows of a run.
  *
  * Mounting this logic starts the REST discovery and, while a run is live, an SSE stream. Mount it
  * from surfaces that actually need setup state rather than app-wide (INC-886).
@@ -100,7 +104,14 @@ export function statusFromProgress(progress: InstallationProgress | null): Setup
 export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
     path(['scenes', 'onboarding', 'shared', 'setupWizardStatusLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], activeCloudRunLogic, ['activeCloudRun']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            activeCloudRunLogic,
+            ['activeCloudRun'],
+            wizardActiveSessionDetectorLogic,
+            ['hasActiveSession'],
+        ],
     })),
     actions({
         liveProgressUpdated: (progress: InstallationProgress | null) => ({ progress }),
@@ -110,6 +121,10 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
             null as DiscoveredSetupRun | null,
             {
                 loadDiscoveredRun: async (): Promise<DiscoveredSetupRun | null> => {
+                    // Mounted before the team loaded: the currentTeamId subscription below retries
+                    if (values.currentTeamId === null) {
+                        return null
+                    }
                     try {
                         const projectId = String(values.currentTeamId)
                         const tasks = await tasksList(projectId, { origin_product: 'onboarding', limit: 10 })
@@ -141,7 +156,7 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                             const runningRun = runsNewestFirst.find((run) => isRunRunning(run))
                             if (runningRun) {
                                 return {
-                                    status: { kind: 'installing' },
+                                    status: { kind: 'installing', mode: 'cloud' },
                                     handle: { taskId: newestTask.id, runId: runningRun.id },
                                 }
                             }
@@ -151,7 +166,7 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                             const run = asLatestRunDetail(task.latest_run)
                             if (isRunRunning(run)) {
                                 return {
-                                    status: { kind: 'installing' },
+                                    status: { kind: 'installing', mode: 'cloud' },
                                     handle: run?.id ? { taskId: task.id, runId: run.id } : null,
                                 }
                             }
@@ -185,8 +200,8 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
             },
         ],
         setupStatus: [
-            (s) => [s.liveProgress, s.discoveredRun],
-            (liveProgress, discoveredRun): SetupWizardStatus | null => {
+            (s) => [s.liveProgress, s.discoveredRun, s.hasActiveSession],
+            (liveProgress, discoveredRun, hasActiveSession): SetupWizardStatus | null => {
                 const live = statusFromProgress(liveProgress)
                 const discovered = discoveredRun?.status ?? null
                 if (live?.kind === 'pull_request') {
@@ -208,12 +223,24 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                 ) {
                     return null
                 }
-                return discovered
+                if (discovered) {
+                    return discovered
+                }
+                // No cloud run anywhere, but the CLI wizard has an active local session
+                return hasActiveSession ? { kind: 'installing', mode: 'local' } : null
             },
         ],
         setupStatusLoading: [(s) => [s.discoveredRunLoading], (discoveredRunLoading): boolean => discoveredRunLoading],
     }),
     subscriptions(({ actions, cache }) => ({
+        // The afterMount load no-ops when the logic mounts before the team is known; (re)load once
+        // the team id arrives or changes. kea-subscriptions' initial mount call (prev undefined) is
+        // skipped since afterMount already covers it.
+        currentTeamId: (teamId: number | null, prevTeamId: number | null | undefined) => {
+            if (teamId !== null && prevTeamId !== undefined && teamId !== prevTeamId) {
+                actions.loadDiscoveredRun()
+            }
+        },
         // installationProgressLogic is keyed by a run id we only know at runtime, so it can't be
         // connected statically. Mount it imperatively for the current handle and mirror its
         // progress selector through a store subscription; disposables tear it all down on unmount.

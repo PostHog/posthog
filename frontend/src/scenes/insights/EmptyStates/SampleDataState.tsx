@@ -135,12 +135,18 @@ function SampleDataTooltipContent(): JSX.Element {
                 This project hasn't received any events yet - you'll see your real data here as soon as events start
                 coming in.
             </p>
-            {setupStatus?.kind === 'installing' && (
-                <p className="m-0">
-                    The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull request
-                    for you to merge.
-                </p>
-            )}
+            {setupStatus?.kind === 'installing' &&
+                (setupStatus.mode === 'cloud' ? (
+                    <p className="m-0">
+                        The setup wizard is installing PostHog in your codebase. Once it's done, it will open a pull
+                        request for you to merge.
+                    </p>
+                ) : (
+                    <p className="m-0">
+                        The setup wizard is installing PostHog in your codebase. You'll see real data here soon after
+                        it's done.
+                    </p>
+                ))}
             {setupStatus?.kind === 'pull_request' &&
                 (setupStatus.pullRequest.merged ? (
                     <p className="m-0">
@@ -185,10 +191,18 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
                                 <div className="font-semibold">Setup wizard is running</div>
-                                <p className="m-0">
-                                    The AI setup wizard is installing PostHog in the cloud, on a copy of your codebase.
-                                    Once it's done, it will open a pull request for you to review and merge.
-                                </p>
+                                {setupStatus.mode === 'cloud' ? (
+                                    <p className="m-0">
+                                        The AI setup wizard is installing PostHog in the cloud, on a copy of your
+                                        codebase. Once it's done, it will open a pull request for you to review and
+                                        merge.
+                                    </p>
+                                ) : (
+                                    <p className="m-0">
+                                        The AI setup wizard is installing PostHog in your codebase from your terminal.
+                                        You'll see real data here soon after it's done.
+                                    </p>
+                                )}
                             </div>
                         }
                         placement="bottom"

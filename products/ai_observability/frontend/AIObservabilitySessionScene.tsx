@@ -196,13 +196,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         return <InsightErrorState />
     }
     if (!traces || traces.length === 0) {
-        return (
-            <InsightEmptyState
-                heading="No traces found"
-                detail="This session has no traces."
-                sampleDataVariant="table"
-            />
-        )
+        return <InsightEmptyState heading="No traces found" detail="This session has no traces." />
     }
 
     return (
