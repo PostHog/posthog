@@ -853,15 +853,6 @@ export function DataTable({
         showDateRange &&
         sourceFeatures.has(QueryFeature.dateRangePicker) &&
         (!isHogQLQuery(query.source) || queryUsesFiltersPlaceholder(query.source.query))
-    const readOnlyDateRangeControl = showReadOnlyDateRangeRow ? (
-        <DateRange
-            key="date-range"
-            query={
-                query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery
-            }
-            setQuery={setQuerySource}
-        />
-    ) : null
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     const editorButton = (
@@ -887,7 +878,20 @@ export function DataTable({
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showReadOnlyDateRangeRow && (
-                        <div className="flex gap-2 items-center flex-wrap">{readOnlyDateRangeControl}</div>
+                        <div className="flex gap-2 items-center flex-wrap">
+                            <DateRange
+                                key="date-range"
+                                query={
+                                    query.source as
+                                        | HogQLQuery
+                                        | EventsQuery
+                                        | SessionAttributionExplorerQuery
+                                        | SessionsQuery
+                                        | TracesQuery
+                                }
+                                setQuery={setQuerySource}
+                            />
+                        </div>
                     )}
                     {showFirstRow && (
                         <div className="flex gap-2 items-center flex-wrap">
