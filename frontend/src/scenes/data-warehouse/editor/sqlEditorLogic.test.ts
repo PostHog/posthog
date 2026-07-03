@@ -781,7 +781,7 @@ describe('sqlEditorLogic', () => {
             chartSettings: { seriesBreakdownColumn: 'event' },
         }
 
-        it('adopts visualization settings and auto-runs when opening a serialized DataVisualizationNode', async () => {
+        it('adopts visualization settings without auto-running when opening a serialized DataVisualizationNode', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -789,12 +789,12 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            // The URL Max's "Open as new insight" produces: insightNew redirects
-            // HogQL-backed nodes to the SQL editor with the node in open_query
             router.actions.push(urls.insightNew({ query: STACKED_BAR_NODE }))
 
+            // open_query is URL-controlled, so the node is prefilled but never auto-run
             await expectLogic(logic)
-                .toDispatchActions(['createTab', 'setSourceQuery', 'runQuery'])
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toNotHaveDispatchedActions(['runQuery'])
                 .toMatchValues({
                     queryInput: STACKED_BAR_NODE.source.query,
                     sourceQuery: partial({
@@ -831,7 +831,6 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            // A hand-crafted open_query URL carrying a node shape without a HogQL source must not throw
             router.actions.push(urls.sqlEditor(), { open_query: { kind: NodeKind.DataVisualizationNode } })
 
             await expectLogic(logic)
