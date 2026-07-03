@@ -30,14 +30,6 @@ ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
 )
 
 
-# Each activity's retry budget must exhaust inside workflow_execution: a server-side
-# workflow timeout skips workflow code entirely, so the SLO completion would never be
-# emitted and the alert's next_check_at would never advance. Compound worst cases
-# (several activities each exhausting their full retry budget) can still hit the
-# server-side timeout; activity_schedule_to_close guarantees no single activity does.
-# That residual risk is accepted: a timed-out check leaves the alert due, so the next
-# schedule tick re-queues it, and the deterministic child workflow ID prevents
-# overlapping runs in the meantime.
 @dataclasses.dataclass(frozen=True)
 class AlertTimeouts:
     workflow_execution: dt.timedelta
