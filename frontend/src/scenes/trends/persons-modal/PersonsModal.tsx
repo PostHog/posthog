@@ -1,6 +1,7 @@
 import './PersonsModal.scss'
 
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -75,6 +76,7 @@ export function PersonsModal({
     inline,
     additionalSelect,
     orderBy,
+    openedAtPathname,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -84,6 +86,7 @@ export function PersonsModal({
         query: _query,
         additionalSelect,
         orderBy,
+        openedAtPathname,
     })
 
     const {
@@ -616,5 +619,8 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     }
 
     document.body.appendChild(div)
-    root.render(<PersonsModal {...props} onAfterClose={destroy} />)
+    // Capture the pathname now, synchronously. The modal mounts asynchronously (createRoot),
+    // so its logic can't reliably read the "opened on" pathname itself — by then the user may
+    // have already navigated, which would leave the modal stuck open. See personsModalLogic.
+    root.render(<PersonsModal {...props} onAfterClose={destroy} openedAtPathname={router.values.location.pathname} />)
 }

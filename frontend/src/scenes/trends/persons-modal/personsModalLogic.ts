@@ -131,6 +131,10 @@ export interface PersonModalLogicProps {
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
+    // Pathname captured synchronously when the modal was opened. The modal renders into a
+    // standalone async React root, so this logic can mount only after the user has already
+    // navigated away — see urlToAction below for why a mount-time snapshot is unreliable.
+    openedAtPathname?: string
 }
 
 export interface ListActorsResponse {
@@ -698,11 +702,17 @@ export const personsModalLogic = kea<personsModalLogicType>([
         })
     }),
 
-    urlToAction(({ cache, actions }) => ({
+    urlToAction(({ cache, actions, props }) => ({
         '*': (_a, _b, _c, { pathname }) => {
-            if (!cache['lastPathname']) {
-                cache['lastPathname'] = pathname
-                return
+            // Baseline against which navigation is detected. We prefer the pathname captured
+            // synchronously when the modal was opened (openPersonsModal): the modal mounts in
+            // an async React root, so this handler can first fire only *after* the user has
+            // navigated away. Snapshotting the pathname here on mount would capture the
+            // post-navigation path, making lastPathname === pathname forever and leaving the
+            // modal stuck on screen. Fall back to the mount-time snapshot when no open-time
+            // pathname was provided (e.g. inline usage).
+            if (cache['lastPathname'] === undefined) {
+                cache['lastPathname'] = props.openedAtPathname ?? pathname
             }
             // If we click anything that navigates us away, close the modal but
             // allowing for changes in hash due to the SessionsRecordings Modal

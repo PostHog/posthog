@@ -1,4 +1,4 @@
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
@@ -687,6 +687,47 @@ describe('personsModalLogic', () => {
             logic.mount()
 
             expect(logic.values.insightEventsQueryUrl).toBeNull()
+        })
+    })
+
+    describe('closing on navigation', () => {
+        it('closes immediately when it mounts on a different pathname than where it was opened', async () => {
+            // The modal renders into an async React root, so this logic can mount only after the
+            // user has already navigated away. It must still close using the pathname captured
+            // when the modal was opened, otherwise it stays stuck on top of the page.
+            router.actions.push(urls.dashboard(2))
+            const openedAtPathname = urls.dashboard(1)
+            expect(openedAtPathname).not.toEqual(router.values.location.pathname)
+
+            logic = personsModalLogic({ url: null, query: null, openedAtPathname })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ isModalOpen: false })
+        })
+
+        it('closes when navigating to a different pathname after opening', async () => {
+            router.actions.push(urls.dashboard(1))
+            logic = personsModalLogic({
+                url: null,
+                query: null,
+                openedAtPathname: router.values.location.pathname,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ isModalOpen: true })
+
+            router.actions.push(urls.dashboard(2))
+            await expectLogic(logic).toMatchValues({ isModalOpen: false })
+        })
+
+        it('stays open when only the hash changes (e.g. opening the session recordings modal)', async () => {
+            router.actions.push(urls.dashboard(1))
+            const openedAtPathname = router.values.location.pathname
+            logic = personsModalLogic({ url: null, query: null, openedAtPathname })
+            logic.mount()
+
+            router.actions.push(openedAtPathname, {}, { sessionRecordingId: 'abc123' })
+            await expectLogic(logic).toMatchValues({ isModalOpen: true })
         })
     })
 })
