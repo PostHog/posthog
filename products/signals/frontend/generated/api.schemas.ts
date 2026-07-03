@@ -325,17 +325,6 @@ export interface PatchedSignalReportArtefactLogUpdateApi {
 }
 
 /**
- * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
- * repository default branch.
- */
-export interface CommitDiffResponseApi {
-    /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
-    readonly diff: string
-    /** True when the diff was too large to return in full and has been truncated. */
-    readonly truncated: boolean
-}
-
-/**
  * A single CI check run reported for a `commit` artefact's ref.
  */
 export interface CheckRunResponseApi {
@@ -370,6 +359,17 @@ export interface CheckRunsResponseApi {
      * @nullable
      */
     readonly rollup: string | null
+}
+
+/**
+ * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+ * repository default branch.
+ */
+export interface CommitDiffResponseApi {
+    /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+    readonly diff: string
+    /** True when the diff was too large to return in full and has been truncated. */
+    readonly truncated: boolean
 }
 
 export interface SignalReportBulkStateRequestApi {

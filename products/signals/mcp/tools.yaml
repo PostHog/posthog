@@ -341,6 +341,9 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-report-artefacts-checks:
+        operation: signals_report_artefacts_checks
+        enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false

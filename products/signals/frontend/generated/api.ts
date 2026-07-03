@@ -374,26 +374,6 @@ export const signalsReportArtefactsDestroy = async (
     })
 }
 
-export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
-}
-
-/**
- * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
- * @summary Fetch the diff for a commit artefact
- */
-export const signalsReportArtefactsDiff = async (
-    projectId: string,
-    reportId: string,
-    id: string,
-    options?: RequestInit
-): Promise<CommitDiffResponseApi> => {
-    return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getSignalsReportArtefactsChecksUrl = (projectId: string, reportId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/checks/`
 }
@@ -409,6 +389,26 @@ export const signalsReportArtefactsChecks = async (
     options?: RequestInit
 ): Promise<CheckRunsResponseApi> => {
     return apiMutator<CheckRunsResponseApi>(getSignalsReportArtefactsChecksUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
+}
+
+/**
+ * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * @summary Fetch the diff for a commit artefact
+ */
+export const signalsReportArtefactsDiff = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommitDiffResponseApi> => {
+    return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
     })
