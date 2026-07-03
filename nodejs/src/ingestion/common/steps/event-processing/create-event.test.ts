@@ -142,4 +142,17 @@ describe('getElementsChain', () => {
         expect(properties).not.toHaveProperty('$elements_chain')
         expect(properties).not.toHaveProperty('$elements')
     })
+
+    it.each([
+        ['a string', 'div > span'],
+        ['a number', 42],
+        ['an object', { tag_name: 'div' }],
+    ])('returns empty string without throwing when $elements is %s', (_desc, elements) => {
+        const properties = { $elements: elements }
+
+        const result = getElementsChain(properties)
+
+        expect(result).toBe('')
+        expect(properties).not.toHaveProperty('$elements')
+    })
 })

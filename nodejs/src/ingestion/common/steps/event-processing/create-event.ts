@@ -29,7 +29,7 @@ export function getElementsChain(properties: Properties): string {
     } else if (properties['$elements']) {
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
-        if (elements && elements.length) {
+        if (Array.isArray(elements) && elements.length) {
             elementsList = extractElements(elements)
             elementsChain = elementsToString(elementsList)
         }
