@@ -106,6 +106,9 @@ const meta: Meta = {
             return <Story />
         },
         mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            },
             get: {
                 '/api/projects/:team_id/elements/stats/': () => [200, { results: elementStatsResults, next: null }],
                 '/api/projects/:team_id/heatmaps/': () => [
