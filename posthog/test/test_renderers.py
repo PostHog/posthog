@@ -2,7 +2,24 @@ import json
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.renderers import SafeJSONRenderer
+
+
+class TestBytesRendering(TestCase):
+    @parameterized.expand(
+        [
+            # (label, input bytes, expected decoded string)
+            ("valid_utf8", b"hello world", "hello world"),
+            # Invalid UTF-8 bytes (e.g. binary content in a warehouse text column) must not crash
+            # the whole payload — they get lossily decoded to U+FFFD replacement chars instead.
+            ("invalid_utf8", b"\x80\x81payload", "��payload"),
+        ]
+    )
+    def test_renders_bytes_cells_without_crashing(self, _label: str, raw: bytes, expected: str) -> None:
+        data = SafeJSONRenderer().render({"results": [[raw]]})
+        self.assertEqual(json.loads(data), {"results": [[expected]]})
 
 
 class TestCleanDataForJSON(TestCase):

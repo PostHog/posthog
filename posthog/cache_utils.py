@@ -8,8 +8,8 @@ from django.utils.timezone import now
 
 import orjson
 from django_redis.serializers.base import BaseSerializer
-from rest_framework.utils.encoders import JSONEncoder
 
+from posthog.renderers import orjson_default
 from posthog.settings import TEST
 
 P = ParamSpec("P")
@@ -89,7 +89,7 @@ def instance_memoize(callback):
 class OrjsonJsonSerializer(BaseSerializer):
     def dumps(self, value: Any) -> bytes:
         option = orjson.OPT_UTC_Z
-        return orjson.dumps(value, default=JSONEncoder().default, option=option)
+        return orjson.dumps(value, default=orjson_default, option=option)
 
     def loads(self, value: bytes) -> Any:
         return orjson.loads(value)
