@@ -26,14 +26,16 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
-            - name: Checkout scripts from the trusted base branch
+            - name: Checkout scripts from the trusted default branch
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # NEVER the default merge ref: the step below runs this script with the
                   # privileged app token, and the merge ref contains PR-controlled code — a
-                  # same-repo PR could edit the script to exfiltrate the token. The base
-                  # branch is write-gated, so script changes only take effect once merged.
-                  ref: ${{ github.event.pull_request.base.ref }}
+                  # same-repo PR could edit the script to exfiltrate the token. The default
+                  # branch is protected (not just any base branch — a stacked PR's base is
+                  # unreviewed), so script changes only take effect once merged there. The
+                  # script is self-contained; it never needs to match the PR's base.
+                  ref: ${{ github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: .github/scripts
 
