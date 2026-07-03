@@ -31,9 +31,9 @@ describe('image-scrub sidecar server', () => {
         expect(out.equals(PNG)).toBe(false) // it actually transformed the image
     })
 
-    it('500s on undecodable bytes rather than passing them through', async () => {
+    it('422s on undecodable bytes so the consumer skips them instead of retrying forever', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST', body: Buffer.from('not-an-image') })
-        expect(res.status).toBe(500)
+        expect(res.status).toBe(422)
     })
 
     it('serves health + metrics', async () => {

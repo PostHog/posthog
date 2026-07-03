@@ -40,7 +40,13 @@ class FakeOffsets implements OffsetStore {
 const scrubClient = {
     scrub: (b: Buffer) => Promise.resolve(Buffer.concat([Buffer.from('x'), b])),
 } as unknown as ScrubClient
-const options = { flushIntervalMs: 0, maxImages: 1000, maxBytes: 1e9, scrubConcurrency: 4 }
+const options = {
+    flushIntervalMs: 0,
+    maxImages: 1000,
+    maxBytes: 1e9,
+    scrubConcurrency: 4,
+    batchDeadlineMs: 30_000,
+}
 
 describe('ImageBatcher', () => {
     it('scrubs a batch, writes one shard per team, and stores offsets after the flush', async () => {
@@ -79,5 +85,23 @@ describe('ImageBatcher', () => {
 
         await expect(batcher.handleBatch([msg(0, 0, 1, Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
         expect(offsets.stored).toBe(0) // uncommitted → the window replays
+    })
+
+    it('aborts the batch and replays when scrubbing exceeds the deadline', async () => {
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        // A sidecar that never answers: without a deadline handleBatch would hang the poll loop forever.
+        const hangingClient = { scrub: () => new Promise<Buffer>(() => {}) } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            hangingClient,
+            { ...options, batchDeadlineMs: 5 },
+            0
+        )
+
+        await expect(batcher.handleBatch([msg(0, 0, 1, Buffer.from('a'))], 1)).rejects.toThrow()
+        expect(offsets.stored).toBe(0) // uncommitted → the window replays instead of livelocking
+        expect(store.writes).toHaveLength(0)
     })
 })

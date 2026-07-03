@@ -13,12 +13,23 @@
  */
 import { createServer } from 'node:http'
 
-import { blurOnly } from './blur.ts'
+import { UndecodableImageError, blurOnly } from './blur.ts'
 import { loadConfig } from './config.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 
-/** Stage-1 scrub. Stage 2 replaces the body with the ML pipeline; the (bytes -> bytes) shape is fixed. */
-async function scrub(input: Buffer): Promise<Buffer> {
+/** Thrown when the consumer hangs up before we finish; we drop the request instead of scrubbing/responding. */
+class AbortError extends Error {}
+
+/**
+ * Stage-1 scrub. Stage 2 replaces the body with the ML pipeline; the (bytes -> bytes) shape is fixed.
+ * `signal` aborts when the consumer hangs up: Stage 1 is a single libvips op that can't be interrupted
+ * mid-flight, so we only check it at the boundary (skip before starting if the client is already gone);
+ * the multi-stage Stage-2 pipeline threads the same signal between stages to bail out of long ML work.
+ */
+async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
+    if (signal.aborted) {
+        throw new AbortError()
+    }
     return blurOnly(input)
 }
 
@@ -57,13 +68,40 @@ export function startServer(port: number, maxConcurrency: number): ReturnType<ty
         }
         inFlight += 1
         const done = ScrubMetrics.startTimer()
+        // Abort in-progress work if the consumer hangs up before we respond: don't scrub for a dead socket
+        // (and, in Stage 2, cut long ML work short). `res` fires 'close' once the response is done too, so
+        // only treat it as an abort while we haven't finished writing.
+        const controller = new AbortController()
+        res.on('close', () => {
+            if (!res.writableEnded) {
+                controller.abort()
+            }
+        })
+        // A write that loses the race with the client hanging up emits ECONNRESET here; swallow it so one
+        // dropped connection can't take the sidecar down with an uncaught error.
+        res.on('error', () => {})
         readBody(req)
-            .then((body) => scrub(body))
+            .then((body) => scrub(body, controller.signal))
             .then((out) => {
+                if (controller.signal.aborted) {
+                    ScrubMetrics.incAborted()
+                    return
+                }
                 ScrubMetrics.incScrubbed()
                 res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(out)
             })
             .catch((e) => {
+                if (controller.signal.aborted || e instanceof AbortError) {
+                    ScrubMetrics.incAborted()
+                    return
+                }
+                // 422 = the input isn't a decodable image: permanent, so the consumer skips it. 500 = an
+                // internal/transient failure (libvips OOM, truncated body): the consumer retries and replays.
+                if (e instanceof UndecodableImageError) {
+                    ScrubMetrics.incUndecodable()
+                    res.writeHead(422).end('undecodable image')
+                    return
+                }
                 ScrubMetrics.incFailed()
                 console.error(`scrub failed: ${String(e)}`)
                 res.writeHead(500).end('scrub failed')
@@ -85,7 +123,17 @@ function main(): void {
     const cfg = loadConfig()
     const server = startServer(cfg.port, cfg.maxConcurrency)
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-        process.on(sig, () => server.close(() => process.exit(0)))
+        process.on(sig, () => {
+            // Force-exit backstop so we never hang past the pod's termination grace period.
+            const force = setTimeout(() => process.exit(1), 10_000)
+            force.unref()
+            server.close(() => {
+                clearTimeout(force)
+                process.exit(0)
+            })
+            // Drop the consumer's idle keep-alive sockets so close() can complete; in-flight scrubs still drain.
+            server.closeIdleConnections()
+        })
     }
 }
 

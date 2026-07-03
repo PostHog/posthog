@@ -20,6 +20,10 @@ export interface ImageBatcherOptions {
     maxImages: number
     maxBytes: number
     scrubConcurrency: number
+    /** Wall-clock cap on scrubbing one Kafka batch. Must stay under the consumer's max.poll.interval.ms: if a
+     *  hung sidecar held the poll loop past it, the broker would evict us mid-batch and the window would
+     *  livelock. On timeout we abort the in-flight scrubs and throw, so the window replays cleanly instead. */
+    batchDeadlineMs: number
 }
 
 export class ImageBatcher {
@@ -58,15 +62,27 @@ export class ImageBatcher {
     }
 
     /** Scrub every message with bounded concurrency; skips resolve to null, transient sidecar failures
-     *  reject out of here (→ the batch replays). */
+     *  reject out of here (→ the batch replays). A wall-clock deadline aborts the whole batch so a hung
+     *  sidecar can't hold the poll loop long enough to get us evicted from the consumer group. */
     private async scrubBatch(messages: Message[]): Promise<ScrubbedImage[]> {
-        const scrubbed = await Promise.all(
-            messages.map((m) => this.scrubConcurrency.run({ fn: () => this.scrubOne(m) }))
-        )
-        return scrubbed.filter((image): image is ScrubbedImage => image !== null)
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), this.options.batchDeadlineMs)
+        try {
+            const scrubbed = await Promise.all(
+                messages.map((m) =>
+                    this.scrubConcurrency.run({
+                        fn: () => this.scrubOne(m, controller.signal),
+                        abortController: controller,
+                    })
+                )
+            )
+            return scrubbed.filter((image): image is ScrubbedImage => image !== null)
+        } finally {
+            clearTimeout(timer)
+        }
     }
 
-    private async scrubOne(m: Message): Promise<ScrubbedImage | null> {
+    private async scrubOne(m: Message, signal: AbortSignal): Promise<ScrubbedImage | null> {
         const ref = m.key?.toString('utf8')
         if (!ref || !isImageRef(ref) || !m.value) {
             return null
@@ -78,7 +94,7 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.incMismatch()
             return null
         }
-        const bytes = await this.scrubClient.scrub(m.value)
+        const bytes = await this.scrubClient.scrub(m.value, signal)
         if (bytes === null) {
             ImageScrubConsumerMetrics.incSkipped()
             return null
