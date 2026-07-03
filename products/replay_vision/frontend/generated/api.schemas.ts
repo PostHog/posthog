@@ -751,6 +751,13 @@ export interface ObservationLabelDayCountApi {
     down: number
 }
 
+export interface ObservationVersionMarkerApi {
+    /** First day (UTC) this prompt version produced observations in the window. */
+    date: string
+    /** The scanner (prompt) version number. */
+    version: number
+}
+
 export interface ObservationLabelStatsApi {
     /** Observations in the filtered set labeled correct (thumbs up). */
     up_total: number
@@ -758,6 +765,10 @@ export interface ObservationLabelStatsApi {
     down_total: number
     /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
     by_day: ObservationLabelDayCountApi[]
+    /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
+    by_rating_day: ObservationLabelDayCountApi[]
+    /** First day each scanner (prompt) version produced observations within the window, for marking version changes on charts. */
+    version_markers: ObservationVersionMarkerApi[]
 }
 
 export interface MonitorStatsApi {
@@ -831,6 +842,70 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `applied` - Applied
+ * * `dismissed` - Dismissed
+ * * `superseded` - Superseded
+ */
+export type ReplayScannerPromptSuggestionStatusEnumApi =
+    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+
+export const ReplayScannerPromptSuggestionStatusEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Dismissed: 'dismissed',
+    Superseded: 'superseded',
+} as const
+
+export interface ReplayScannerPromptSuggestionApi {
+    readonly id: string
+    /** pending (current), applied, dismissed, or superseded by a newer suggestion.
+     *
+     * * `pending` - Pending
+     * * `applied` - Applied
+     * * `dismissed` - Dismissed
+     * * `superseded` - Superseded */
+    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    /** The full rewritten prompt, ready to apply to the scanner. */
+    readonly suggested_prompt: string
+    /** The scanner prompt this suggestion was generated against, for diffing. */
+    readonly base_prompt: string
+    /** What the rewrite changed and why, grounded in the ratings. */
+    readonly rationale: string
+    /** Thumbs-up ratings the suggestion was based on. */
+    readonly based_on_up: number
+    /** Thumbs-down ratings the suggestion was based on. */
+    readonly based_on_down: number
+    /** The scanner version whose prompt this suggestion was generated against. */
+    readonly scanner_version: number
+    readonly created_at: string
+    /** User who requested this suggestion; null for automatic refreshes. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly applied_at: string | null
+    /** User who applied this suggestion to the scanner; null unless applied. */
+    readonly applied_by: UserBasicApi | null
+}
+
+export interface PaginatedReplayScannerPromptSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayScannerPromptSuggestionApi[]
+}
+
+export interface CurrentPromptSuggestionApi {
+    /** The newest suggestion for this scanner, or null when none has been generated yet. */
+    suggestion: ReplayScannerPromptSuggestionApi | null
+    /** True when the team's ratings changed since the newest suggestion was generated. */
+    stale: boolean
+    /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
+    rated_count: number
 }
 
 /**
@@ -1127,4 +1202,15 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

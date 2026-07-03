@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
     ObservationStatsApi,
@@ -16,6 +17,7 @@ import type {
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
+    PaginatedReplayScannerPromptSuggestionListApi,
     PaginatedVisionActionListApi,
     PaginatedVisionActionRunListListApi,
     PatchedReplayScannerApi,
@@ -23,6 +25,7 @@ import type {
     ReplayObservationApi,
     ReplayObservationLabelApi,
     ReplayScannerApi,
+    ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
@@ -37,6 +40,7 @@ import type {
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsStatsRetrieveParams,
+    VisionScannersPromptSuggestionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -613,6 +617,134 @@ export const visionScannersObservationsStatsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsListUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersPromptSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/`
+}
+
+/**
+ * AI prompt-rewrite suggestions for a scanner, generated from the team's thumbs up/down ratings.
+ */
+export const visionScannersPromptSuggestionsList = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersPromptSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayScannerPromptSuggestionListApi> => {
+    return apiMutator<PaginatedReplayScannerPromptSuggestionListApi>(
+        getVisionScannersPromptSuggestionsListUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/apply/`
+}
+
+/**
+ * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsApplyCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsApplyCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/dismiss/`
+}
+
+/**
+ * Dismiss this suggestion without applying it. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsDismissCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsDismissCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsCurrentRetrieveUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/current/`
+}
+
+/**
+ * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
+ */
+export const visionScannersPromptSuggestionsCurrentRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<CurrentPromptSuggestionApi> => {
+    return apiMutator<CurrentPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsCurrentRetrieveUrl(projectId, scannerId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/generate/`
+}
+
+/**
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and session recording edit access.
+ */
+export const visionScannersPromptSuggestionsGenerateCreate = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsGenerateCreateUrl(projectId, scannerId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
