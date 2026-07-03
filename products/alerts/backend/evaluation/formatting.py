@@ -89,8 +89,7 @@ def format_aggregation_value(
     """Render a single metric value per the insight's axis format, wrapped in its prefix/postfix."""
     if not math.isfinite(value):
         formatted = "∞" if value > 0 else "-∞" if value < 0 else "NaN"
-        effective_prefix = "" if (prefix and formatted.startswith(prefix)) else (prefix or "")
-        return f"{effective_prefix}{formatted}{postfix or ''}"
+        return f"{prefix or ''}{formatted}{postfix or ''}"
 
     match axis_format:
         case AggregationAxisFormat.DURATION:
