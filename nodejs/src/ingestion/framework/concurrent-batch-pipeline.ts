@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
@@ -30,10 +32,15 @@ export class ConcurrentBatchProcessingPipeline<
     private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>>[] = []
     private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
+    // Caps how many items process at once. Null means unbounded (start every item as it's pulled).
+    private readonly limit: ReturnType<typeof pLimit> | null
+
     constructor(
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        maxConcurrency?: number
     ) {
+        this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
         this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
             onFeed: (elements) => this.previousPipeline.feed(elements),
             onSourcePull: () => this.enqueueFromPrevious(),
@@ -58,9 +65,11 @@ export class ConcurrentBatchProcessingPipeline<
 
         for (const resultWithContext of previousResults) {
             if (isOkResult(resultWithContext.result)) {
-                this.promiseQueue.push(
+                const process = () =>
                     this.processor.process({ result: resultWithContext.result, context: resultWithContext.context })
-                )
+                // p-limit is FIFO, so the head of promiseQueue (pushed first) always acquires a permit
+                // first — it can never park behind a later item, keeping emission order intact.
+                this.promiseQueue.push(this.limit ? this.limit(process) : process())
             } else {
                 this.promiseQueue.push(
                     Promise.resolve({ result: resultWithContext.result, context: resultWithContext.context })

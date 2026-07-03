@@ -315,6 +315,72 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
     })
 
+    describe('bounded concurrency', () => {
+        it('caps how many groups (not items) process at once when maxConcurrency is set', async () => {
+            // Real timers so a full drain naturally lets each item's delay elapse; peak concurrency
+            // is observed across the whole run.
+            jest.useRealTimers()
+
+            const groupCount = 6
+            const itemsPerGroup = 3
+            const maxConcurrency = 2
+            // Track concurrent groups: a group is active from its first item's start to its last item's
+            // end. Items within a group run sequentially under one slot, so items-in-flight would peak
+            // higher than groups-in-flight if the cap counted items.
+            const activeItemsByGroup = new Map<string, number>()
+            let peakGroups = 0
+            let peakItems = 0
+
+            const processor = createNewPipeline<{ index: number; group: string }>().pipe(async (input) => {
+                activeItemsByGroup.set(input.group, (activeItemsByGroup.get(input.group) ?? 0) + 1)
+                peakGroups = Math.max(peakGroups, activeItemsByGroup.size)
+                peakItems = Math.max(
+                    peakItems,
+                    [...activeItemsByGroup.values()].reduce((a, b) => a + b, 0)
+                )
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                const remaining = (activeItemsByGroup.get(input.group) ?? 1) - 1
+                if (remaining === 0) {
+                    activeItemsByGroup.delete(input.group)
+                } else {
+                    activeItemsByGroup.set(input.group, remaining)
+                }
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ index: number; group: string }>().build()
+
+            const testBatch = []
+            let index = 0
+            for (let g = 0; g < groupCount; g++) {
+                for (let i = 0; i < itemsPerGroup; i++) {
+                    testBatch.push(createOkContext({ index: index++, group: `group-${g}` }, context1))
+                }
+            }
+            previousPipeline.feed(testBatch)
+
+            const pipeline = new ConcurrentlyGroupingBatchPipeline(
+                (input) => input.group,
+                processor,
+                previousPipeline,
+                maxConcurrency
+            )
+
+            const results: PipelineResultWithContext<any, any>[] = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                results.push(...result)
+                result = await pipeline.next()
+            }
+
+            expect(results).toHaveLength(groupCount * itemsPerGroup)
+            // The cap is on groups: at most `maxConcurrency` groups run at once...
+            expect(peakGroups).toBe(maxConcurrency)
+            // ...and a group's items run sequentially under its single slot, so items-in-flight never
+            // exceeds the group cap either (one active item per active group).
+            expect(peakItems).toBe(maxConcurrency)
+        })
+    })
+
     describe('non-success results', () => {
         it('should preserve non-success results without processing', async () => {
             let processorCallCount = 0

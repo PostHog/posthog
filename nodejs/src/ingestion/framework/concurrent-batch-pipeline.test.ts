@@ -292,6 +292,37 @@ describe('ConcurrentBatchProcessingPipeline', () => {
                 'end-slow',
             ])
         })
+
+        it('caps how many items process at once when maxConcurrency is set', async () => {
+            const itemCount = 6
+            const maxConcurrency = 2
+            let active = 0
+            let peak = 0
+
+            const processor = createNewPipeline<string>().pipe(async (input: string) => {
+                active++
+                peak = Math.max(peak, active)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                active--
+                return ok(input.toUpperCase())
+            })
+            const previousPipeline = createNewBatchPipeline<string>().build()
+            const testBatch = Array.from({ length: itemCount }, (_, i) => createOkContext(`item-${i}`, context1))
+            previousPipeline.feed(testBatch)
+
+            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline, maxConcurrency)
+
+            const results = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                results.push(...result)
+                result = await pipeline.next()
+            }
+
+            expect(results).toHaveLength(itemCount)
+            // Reached the cap (proves it's concurrent) but never exceeded it.
+            expect(peak).toBe(maxConcurrency)
+        })
     })
 
     describe('error poisoning', () => {
