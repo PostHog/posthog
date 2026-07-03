@@ -6,8 +6,8 @@ import sharp from 'sharp'
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
-// Cap decoded input size so one absurd image can't balloon libvips memory (a compressed image can
-// decode to many times its byte size). 50 MP is generous for real screenshots; larger inputs throw.
+// Cap decoded pixels so one absurd image can't balloon libvips memory (compressed bytes decode to many
+// times their size). 50 MP is generous for real screenshots; larger inputs throw.
 const LIMIT_INPUT_PIXELS = 50_000_000
 
 /** Input that sharp can't decode (or has no readable dimensions): a permanent reject, never a transient

@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
-/** `hash` is the original content hash (from the reference); `pseudoTeam` scopes it to a tenant; `bytes` are scrubbed. */
+/** `bytes` are the scrubbed image; `pseudoTeam` is the non-reversible tenant pseudonym, `hash` the original content hash. */
 export interface ScrubbedImage {
     pseudoTeam: string
     hash: string

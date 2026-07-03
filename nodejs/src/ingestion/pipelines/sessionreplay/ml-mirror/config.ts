@@ -41,9 +41,9 @@ export type MlMirrorConfig = {
     /** Retries on a transient (busy/network) sidecar failure before the batch replays. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
     /**
-     * Wall-clock cap on scrubbing one Kafka batch. Must stay well under `max.poll.interval.ms` (300s): a hung
-     * sidecar that held the poll loop past it would get us evicted from the group mid-batch and the window
-     * would livelock. On timeout the in-flight scrubs abort and the batch replays.
+     * Wall-clock cap on scrubbing one Kafka batch. Must stay well under `max.poll.interval.ms` (300s), or a hung
+     * sidecar holds the poll loop past it, we get evicted mid-batch, and the window livelocks. On timeout the
+     * in-flight scrubs abort and the batch replays.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_DEADLINE_MS: number
 }

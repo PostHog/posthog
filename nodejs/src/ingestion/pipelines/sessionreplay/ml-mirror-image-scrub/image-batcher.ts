@@ -1,5 +1,5 @@
-/** Accumulates scrubbed images across Kafka batches and flushes one shard + parquet index per flush (spanning
- *  many teams) on a time/size threshold — mirrors BlockMetadataBatcher's store-offsets-only-after-a-successful-write model. */
+/** Accumulates scrubbed images across Kafka batches, flushing one shard + parquet index on a time/size
+ *  threshold. Stores offsets only after a successful write (like BlockMetadataBatcher) so failures replay. */
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
@@ -61,9 +61,8 @@ export class ImageBatcher {
         }
     }
 
-    /** Scrub every message with bounded concurrency; skips resolve to null, transient sidecar failures
-     *  reject out of here (→ the batch replays). A wall-clock deadline aborts the whole batch so a hung
-     *  sidecar can't hold the poll loop long enough to get us evicted from the consumer group. */
+    /** Scrub every message with bounded concurrency; skips resolve to null, transient failures reject out
+     *  of here (→ the batch replays). The deadline (see batchDeadlineMs) aborts the whole batch. */
     private async scrubBatch(messages: Message[]): Promise<ScrubbedImage[]> {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), this.options.batchDeadlineMs)
@@ -111,9 +110,8 @@ export class ImageBatcher {
         return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
     }
 
-    /** Write buffered images as one shard + index for the whole flush (pseudo_team lives in the index rows),
-     *  then store the consumed offsets. Throws (without storing offsets, keeping the buffer) if the write
-     *  fails, so the window replays. */
+    /** Write buffered images as one shard + index, then store offsets. On write failure, throws without
+     *  storing offsets or clearing the buffer, so the window replays. */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {

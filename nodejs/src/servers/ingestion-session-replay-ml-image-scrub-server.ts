@@ -35,10 +35,7 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
     }
 }
 
-/**
- * Drains the image-scrub topic: hands each raw image to the co-located scrub sidecar and batches the
- * scrubbed bytes into shard objects + a content-hash parquet index in the ML bucket.
- */
+/** Drains the image-scrub topic: scrubs each image via the sidecar, batches the results into shard objects + a content-hash parquet index in the ML bucket. */
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig

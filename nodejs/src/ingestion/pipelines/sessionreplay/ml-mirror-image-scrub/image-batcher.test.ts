@@ -60,7 +60,7 @@ describe('ImageBatcher', () => {
         await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(2), Buffer.from('b'))], 1)
 
         expect(store.writes).toHaveLength(1) // one shard for the whole flush, not one per team
-        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)]) // both teams in it
+        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)])
         expect(offsets.stored).toBe(1) // committed only after the write landed
     })
 

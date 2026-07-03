@@ -47,7 +47,7 @@ export class ScrubClient {
                     throw new Error(`sidecar responded ${status}`) // 500 transient / 503 busy: retry
                 },
                 'image-scrub-sidecar',
-                // promiseRetry's count is total attempts, so +1 turns "N retries" into 1 initial try plus N retries.
+                // promiseRetry's count is total attempts, so +1 makes maxRetries mean retries-after-the-first-try.
                 this.maxRetries + 1,
                 undefined,
                 undefined,

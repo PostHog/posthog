@@ -1,11 +1,8 @@
 /**
- * Content reference for an inlined replay image: the ml-mirror producer swaps the raw image for one of
- * these, this consumer writes the scrubbed image to S3 under the same reference, and training resolves
- * block -> image by it. Format `image:{pseudo_team}:{hash}`, where `pseudo_team` is the non-reversible HMAC
- * team pseudonym (ml-mirror/pseudonymize.ts) and `hash` = 132-bit sha256, base64url, 22 chars. Using the
- * pseudonym rather than the raw team id keeps raw team ids out of the ML bucket, matching the block-metadata
- * dataset (which pseudonymises team_id the same way); it still scopes per-team dedup because a given team
- * always maps to the same pseudonym.
+ * Content reference for an inlined replay image, format `image:{pseudo_team}:{hash}`: the producer swaps a
+ * raw image for one, the consumer stores the scrubbed bytes under it, training joins block -> image by it.
+ * `pseudo_team` is the non-reversible HMAC team pseudonym (ml-mirror/pseudonymize.ts), `hash` a 22-char
+ * base64url sha256 slice; the pseudonym keeps raw team ids out of the ML bucket while still scoping per-team dedup.
  */
 import { createHash } from 'node:crypto'
 

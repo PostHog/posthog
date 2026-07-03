@@ -28,7 +28,7 @@ describe('image-scrub sidecar server', () => {
         expect(res.status).toBe(200)
         const out = Buffer.from(await res.arrayBuffer())
         expect(out.length).toBeGreaterThan(0)
-        expect(out.equals(PNG)).toBe(false) // it actually transformed the image
+        expect(out.equals(PNG)).toBe(false)
     })
 
     it('422s on undecodable bytes so the consumer skips them instead of retrying forever', async () => {
