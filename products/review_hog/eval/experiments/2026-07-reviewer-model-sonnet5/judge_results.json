@@ -1,0 +1,275 @@
+{
+    "protocol": "One LLM judge per dump (same as 2026-07-reviewer-topology): root-cause matching vs the old ReviewHog's 10 findings; every unmatched dump finding classified new_plausible/new_junk against the PR diff. Statuses: caught_valid (matched + validator VALID), caught_invalidated (matched + validator dismissed), caught_no_verdict (matched + validator never ruled — A1's dead validation session only), missed. verdict_valid on new findings: true=validator VALID, false=dismissed, null=no verdict. Judge calls are UNREVIEWED by a human — spot-check notes before acting on close calls. Known cross-judge divergence: the 'list_actions object-level access control' finding family was judged junk-with-sound-refutation by the A1/B1 judges (viewer access floor makes the leak unconstructible) but plausible by the A2/B2 judges (missing filter_queryset_by_access_level parity vs sibling list tools); the validator itself also split (dismissed in A1/B1, VALID in A2/B2).",
+    "suppressed": [],
+    "runs": [
+        {
+            "label": "A-opus48-xhigh-1",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_no_verdict",
+                    "matched_title": "Action name length is unvalidated in the tool path, diverging from the REST contract and causing an unhandled DataError"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions limit/offset ranges are documented but not enforced — negative values raise an unhandled ValueError"
+                },
+                { "num": 4, "status": "missed" },
+                {
+                    "num": 5,
+                    "status": "caught_valid",
+                    "matched_title": "UpdateActionTool performs an ungated destructive step replacement, unlike the sibling delete/dashboard tools"
+                },
+                { "num": 6, "status": "missed" },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_invalidated",
+                    "matched_title": "New action tools never surface in the ModeSelector capability lists"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-matching step fields are silently ignored unless event is \"$autocapture\"",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions description steers model to read_taxonomy instead of get_action",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions bypasses object-level access controls (data exposure)",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Pagination ordering is non-deterministic (no tiebreaker) and can skip/duplicate rows",
+                    "verdict_valid": null,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions fetches unused heavy JSON columns (bytecode, summary) for every row",
+                    "verdict_valid": null,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Five action tools added unconditionally to DEFAULT_TOOLS increase per-turn prompt cost for every conversation",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Max create/update path omits the \"action created\"/\"action updated\" product-analytics events the REST path emits",
+                    "verdict_valid": null,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Catch rate 4/10 (2 caught_valid, 1 caught_no_verdict, 1 caught_invalidated). #2 is a partial match: dump catches the max_length-400/DataError half of the old finding but not the untrimmed-name duplicate-check bypass; same underlying defect (tool path bypasses serializer name validation, uncaught DB error) so counted. #3 caught but validator downgraded should_fix→consider (still VALID). #4 NOT credited to 'list_actions bypasses object-level access controls': different root cause — old #4 is the update/delete resource-editor preflight blocking legitimate object-scoped editor grants (over-restrictive), the dump finding is list missing an object-level queryset filter (over-permissive data exposure); treated as a new finding, and its validator refutation is sound (action access-level floor is viewer, so restricting AccessControl rows cannot exist). #9 matched exactly but this run's validator dismissed it as a display-only tooltip nit — calibration divergence vs old pipeline, not a root-cause mismatch. The DEFAULT_TOOLS token-cost finding touches old #8's exact lines but is a different defect (prompt-cost preference vs subagent write-capability leak); nothing in the dump analyzes subagent toolkits, so #8 is missed. Notable misses also include activity attribution (#1), unbounded list output (#6), unbounded step payloads pre-bytecode-compile (#7), and the Markdown-injection exfiltration channel (#10). New plausibles are strong: the validated $autocapture element-matcher silent-drop (a real correctness defect old ReviewHog missed entirely), the missing 'action created/updated' product-analytics events (REST-parity claim in PR makes it actionable), and the pagination tiebreaker (nullable non-unique sort key, trivial order_by('name','id') fix). The defer(bytecode, summary) finding is borderline — bounded ≤100-row low-frequency path, modest win — but factually correct and a zero-risk one-liner a maintainer would likely apply, so classified plausible. RUN CAVEAT: the chunk-1 validation warm session died on an upstream API timeout — 4 of 11 findings carry no verdict; this run's valid counts are a floor."
+        },
+        {
+            "label": "A-opus48-xhigh-2",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                { "num": 2, "status": "missed" },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative offset/limit crashes list_actions with an unhandled ValueError"
+                },
+                { "num": 4, "status": "missed" },
+                { "num": 5, "status": "missed" },
+                { "num": 6, "status": "missed" },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_valid",
+                    "matched_title": "New action tools added to TOOL_DEFINITIONS but not to DEFAULT_TOOL_KEYS, so they never appear in the ModeSelector capability tooltip"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "Element-matching step fields are silently ignored unless event is \"$autocapture\"",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions bypasses object-level access control that the REST path enforces",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Pagination ordering by name alone is not deterministic",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions loads unused heavy columns (bytecode, summary) for every row",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Five action tools with verbose schemas added unconditionally to DEFAULT_TOOLS inflate every LLM request across all agent modes",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Action tools filter by `team=` (environment-scoped) while Actions are project-scoped, so list/get/update/delete break in multi-environment projects",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Catch rate 2/10. Borderline non-catches: (a) dump's must_fix 'list_actions bypasses object-level access control' shares the RBAC-vs-REST-divergence theme with old #4 but is the opposite defect — list read path too permissive (object-level 'none' overrides not filtered) vs #4's update/delete preflight too strict (resource-editor gate blocks object-specific editor grants before check_object_access); different code paths and fixes, so counted as NEW, not a catch. (b) dump's dismissed DEFAULT_TOOLS token-inflation finding overlaps old #8's file/lines (toolkit.py DEFAULT_TOOLS) but its root cause is prompt-token cost, not the subagent read-only capability-boundary bypass — not a catch. (c) dump's dismissed heavy-columns finding is adjacent to old #6 but concerns DB columns fetched-and-discarded (bytecode/summary), not unbounded rendered output blowing the context — not a catch. Caught #3 matches root cause exactly (no ge/gt bounds → negative Django slice ValueError; even cites the REST _parse_non_negative_int guard) though it omits old finding's limit=0-treated-as-default sub-point. Caught #9 matches exactly but validator kept it at consider vs old should_fix (severity downgrade). Standout new find: the team= vs team_id= environment/project scoping bug (must_fix) — verified against repo: Action inherits RootTeamMixin and RootTeamQuerySet.filter only rewrites the team_id kwarg (TODO in posthog/models/utils.py admits the team-object gap), so multi-environment projects genuinely break; arguably higher-impact than anything in the old report. The $autocapture-only element-matcher trap is also genuine (steps_to_expr gates all element logic on event==$autocapture, silently compiling to match-all). Dump produced 8 post-dedup findings: 6 valid, 2 dismissed junk; zero invalidated catches, no missing verdicts."
+        },
+        {
+            "label": "B-sonnet5-xhigh-1",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_valid",
+                    "matched_title": "Action name is not trimmed before the uniqueness check or save, unlike the REST path, letting whitespace-padded near-duplicates bypass the tool's own uniqueness contract"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative or zero `limit`/`offset` in list_actions crash with an unhandled ValueError instead of a retryable error"
+                },
+                { "num": 4, "status": "missed" },
+                { "num": 5, "status": "missed" },
+                {
+                    "num": 6,
+                    "status": "caught_valid",
+                    "matched_title": "list_actions caps item count but not per-item size, undermining the tool's own \"bounded output\" design goal"
+                },
+                { "num": 7, "status": "missed" },
+                { "num": 8, "status": "missed" },
+                {
+                    "num": 9,
+                    "status": "caught_invalidated",
+                    "matched_title": "New action tools missing from DEFAULT_TOOL_KEYS, so Auto-mode tooltip understates actual capabilities"
+                },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "ListActionsTool leaks actions restricted by object-level access control",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "TOCTOU race on action name uniqueness lets concurrent tool calls silently create duplicates",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Unprotected save() side effects can leave create/update in an ambiguous partial-success state, inviting a duplicate-creating retry",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Offset pagination in list_actions has no tie-breaking sort key for equal names",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "Action create/update/delete via Max tools emit no product-analytics event, unlike the REST path and this PR's own cited reference tool",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions displayFormatter drops the search/pagination context that sibling list tools in the same file already surface",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                }
+            ],
+            "notes": "Score: 3 caught_valid, 1 caught_invalidated, 6 missed; 11 dump findings = 5 matched to old + 6 new (3 plausible / 3 junk). Old #2 was split across two dump findings: the trim/normalization half was validated (validator downgraded should_fix→consider) and is counted as the catch; the length-validation half ('name has no max_length, so an oversized value crashes with an unhandled DB error') matched old #2's other half but was dismissed by the validator as an unreachable edge case. Old #6's match was also downgraded should_fix→consider by the validator. Old #9's match was root-cause identical (DEFAULT_TOOL_KEYS omission) but dismissed as deliberate curation, hence caught_invalidated. The 'ListActionsTool leaks actions...' finding overlaps old #4's territory (object-level access control in the action tools) but is the opposite defect — alleged false-allow on the list path vs old #4's false-deny of object-scoped editor grants on update/delete preflight — so not a catch; its dismissal was independently verified against the repo (minimum_access_level('action')=='viewer' floor enforced in AccessControlSerializer.validate_access_level, making the leak scenario unconstructible), hence new_junk despite its must_fix/security billing. Both of the old report's must_fix findings (#8: subagent exposure of mutating tools, #10: Markdown injection via nameArgKey) were missed, as were activity attribution (#1), unapproved destructive steps replacement (#5), and unbounded create/update payloads before sync bytecode compile (#7 — the bounded-output finding covers list output size only, a different path/root cause). New-plausible calls: pagination tie-breaker and missing report_user_action analytics are concrete, convention-backed, low-cost fixes a maintainer would take; the displayFormatter context gap is cosmetic but has direct in-file precedent (list_data/list_feature_flags) and validated at consider."
+        },
+        {
+            "label": "B-sonnet5-xhigh-2",
+            "old_findings": [
+                { "num": 1, "status": "missed" },
+                {
+                    "num": 2,
+                    "status": "caught_invalidated",
+                    "matched_title": "`name` input lacks the max_length parity the REST ActionSerializer enforces, risking an unhandled DB error"
+                },
+                {
+                    "num": 3,
+                    "status": "caught_valid",
+                    "matched_title": "Negative limit/offset in list_actions crash with an unhandled Django ValueError"
+                },
+                { "num": 4, "status": "missed" },
+                { "num": 5, "status": "missed" },
+                { "num": 6, "status": "missed" },
+                {
+                    "num": 7,
+                    "status": "caught_invalidated",
+                    "matched_title": "No limit on action step count — undermines the tool's own \"bounded by construction\" design goal"
+                },
+                { "num": 8, "status": "missed" },
+                { "num": 9, "status": "missed" },
+                { "num": 10, "status": "missed" }
+            ],
+            "new_findings": [
+                {
+                    "title": "Pagination ordering is not deterministic across pages",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "update_action status label keys off the optional 'name' field instead of the stable action identifier",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "delete_action status label carries no identifying info for the action being deleted",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions' filter+sort pattern has no supporting composite index",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "No operational logging around action create/update/delete tool calls",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "New action CRUD tools ship unconditionally with no feature-flag kill switch, unlike sibling tool categories in the same file",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "Update/delete tools make 3 sequential thread-sensitive DB round trips per call instead of 1",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                },
+                {
+                    "title": "list_actions leaks full details of object-level-restricted actions — missing the RBAC queryset filtering every sibling Max list tool already applies",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "list_actions status label drops the search/pagination context that sibling list tools in this same file surface",
+                    "verdict_valid": true,
+                    "classification": "new_plausible"
+                },
+                {
+                    "title": "New action tools use generic UI icons instead of the existing 'action' entity icon already used a few lines below in this same file",
+                    "verdict_valid": false,
+                    "classification": "new_junk"
+                }
+            ],
+            "notes": "Caught 3/10 (1 valid, 2 invalidated). Old #2 partial: dump caught only the max_length half (validator dismissed as unreachable edge case); the untrimmed-name duplicate-check bypass never surfaced. Old #3: primary catch validator-downgraded must_fix→should_fix; old #3's limit=0-coerced-to-default sub-aspect also appeared as a separate dump finding, dismissed as redundant to the bounds fix — counted under old #3, not as new. Old #7: root-cause match (unbounded step payloads → sync bytecode compile + oversized echo), dismissed as REST-parity/speculative — NOTE: #7 never surfaced in ANY of the 17 topology-round runs; this is its first-ever appearance. Old #6 is distinct and missed — one dump finding even asserts list_actions 'can never flood the agent's context', the exact premise old #6 refutes. Old #8 near-miss not counted: dump flagged the same toolkit.py DEFAULT_TOOLS lines but as a missing feature-flag kill switch (rollout gating), different root cause from subagent capability-boundary exposure. Old #10 missed despite two validated findings dissecting the same nameArgKey/status-label plumbing — the Markdown-injection angle was never considered. All four security/authz-grade old findings (#4, 5, 8, 10) missed. Standout novel catch: list_actions object-level RBAC queryset-filter leak (must_fix, validated, strongly code-grounded — sibling list tools apply filter_queryset_by_access_level, list path doesn't) — but see protocol note: the B1/A1 judges' refutation of the same finding family (viewer access floor) conflicts; needs human adjudication. The three validated status-label findings are cosmetic consider-grade polish at the plausibility floor; two were validator-downgraded should_fix→consider. Judge plausibility and validator verdicts fully aligned in this run: all 5 new_plausible passed validation, all 5 new_junk dismissed."
+        }
+    ]
+}

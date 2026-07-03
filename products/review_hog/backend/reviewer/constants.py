@@ -3,7 +3,7 @@ from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAda
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-REVIEW_MODEL = "claude-opus-4-8"
+REVIEW_MODEL = "claude-sonnet-5"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
 # extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
