@@ -216,6 +216,7 @@ the row lists both.
 | mssql                   | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                     | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
+| n8n                     | HTTP                        | requests                                                        | ✅                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
 | news_api                | HTTP                        | requests                                                        | ✅                          |
 | newsdata                | HTTP                        | requests                                                        | ✅                          |
@@ -531,7 +532,6 @@ doesn't conflict with concurrent PRs.
 - missive
 - mode
 - my_hours
-- n8n
 - nasa
 - navan
 - nebius_ai

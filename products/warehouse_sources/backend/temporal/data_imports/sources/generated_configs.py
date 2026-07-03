@@ -2102,7 +2102,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
