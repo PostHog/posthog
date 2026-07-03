@@ -12,6 +12,7 @@ const meta: Meta<typeof SampleDataState> = {
     parameters: {
         testOptions: {
             waitForSelector: '[data-attr="insight-sample-data-state"]',
+            waitForLoadersToDisappear: false,
         },
     },
 }
