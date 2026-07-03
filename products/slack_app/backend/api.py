@@ -1797,10 +1797,20 @@ def route_posthog_code_event_to_relevant_region(
             return region_route
 
         # A reply on a thread that mirrors a PostHog discussion becomes a comment, not agent work.
-        if event_type == "message" and try_ingest_discussion_reply(
-            event, workspace_result.candidates, channel_str, thread_ts_str, slack_team_id
-        ):
-            return ROUTE_HANDLED_LOCALLY
+        if event_type == "message":
+            try:
+                ingested = try_ingest_discussion_reply(
+                    event, workspace_result.candidates, channel_str, thread_ts_str, slack_team_id
+                )
+            except Exception:
+                # Never let discussion ingest break the shared event handler — a 500 here would
+                # also lose the agent-followup routing, and Slack retries are dropped upstream.
+                logger.exception(
+                    "slack_discussion_reply_ingest_failed", slack_team_id=slack_team_id, channel=channel_str
+                )
+                ingested = False
+            if ingested:
+                return ROUTE_HANDLED_LOCALLY
 
         # Threads we don't own (and orgs that haven't opted in) are dropped here
         # so the rest of the pipeline only runs for actionable messages.
