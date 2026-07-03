@@ -2,7 +2,7 @@ import { type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
-export type TimeInterval = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type TimeInterval = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 interface CreateXAxisTickCallbackArgs {
     interval?: TimeInterval
@@ -57,7 +57,7 @@ function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, la
     const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
     const spanDays = last.diff(first, 'day')
 
-    if (interval === 'month') {
+    if (interval === 'month' || interval === 'quarter' || interval === 'year') {
         return { type: 'month' }
     }
     if ((interval === 'day' || interval === 'week') && spanMonths >= 3) {

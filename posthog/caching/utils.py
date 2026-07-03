@@ -143,11 +143,11 @@ class ThresholdMode(Enum):
 staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
         None: timedelta(hours=6),
-        **{name: spec.staleness_default for name, spec in INTERVAL_SPECS.items() if spec.staleness_default},
+        **{name: spec.staleness_default for name, spec in INTERVAL_SPECS.items() if spec.staleness_default is not None},
     },
     ThresholdMode.LAZY: {
         None: timedelta(hours=12),
-        **{name: spec.staleness_lazy for name, spec in INTERVAL_SPECS.items() if spec.staleness_lazy},
+        **{name: spec.staleness_lazy for name, spec in INTERVAL_SPECS.items() if spec.staleness_lazy is not None},
     },
     ThresholdMode.AI: {
         None: timedelta(hours=1),
