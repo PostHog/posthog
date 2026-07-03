@@ -183,7 +183,12 @@ const cdpFunctionsList = (): ToolBase<
                     'created_at',
                     'updated_at',
                     'created_by',
-                    'filters',
+                    'filters.source',
+                    'filters.events',
+                    'filters.actions',
+                    'filters.properties',
+                    'filters.data_warehouse',
+                    'filters.filter_test_accounts',
                 ])
             ),
         } as typeof result

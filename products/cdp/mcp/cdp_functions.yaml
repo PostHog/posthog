@@ -208,7 +208,15 @@ tools:
                 - created_at
                 - updated_at
                 - created_by
-                - filters
+                # Human-readable filter expression only. The compiled filters.bytecode
+                # (up to ~2.4k elements/row) is redundant with these and huge — it stays
+                # on cdp-functions-retrieve, which returns the full config.
+                - filters.source
+                - filters.events
+                - filters.actions
+                - filters.properties
+                - filters.data_warehouse
+                - filters.filter_test_accounts
     cdp-functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
         enabled: true
