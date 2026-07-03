@@ -195,8 +195,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @property
     def is_high_frequency_interval(self) -> bool:
-        # Real-time counts as high frequency so its checks always run fresh ClickHouse
-        # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.
         return self.calculation_interval in (
             AlertCalculationInterval.EVERY_15_MINUTES,
             AlertCalculationInterval.REAL_TIME,
