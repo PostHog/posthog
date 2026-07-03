@@ -8,6 +8,11 @@
 //! lands on a different partition (re-keyed and re-produced). The chain `origin` is always the
 //! straggler's own person id, since it keys into `redirect_dedup`.
 
+// The sync `resolve`/`read_tombstone` here is the section-core surface (called inside drain/apply
+// `run_section` closures), so its direct `CohortStore` I/O is already off the runtime threads. The
+// async `resolve_offloaded` twin goes through the `StoreHandle` facade instead.
+#![allow(clippy::disallowed_methods)]
+
 use metrics::counter;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -16,7 +21,7 @@ use crate::filters::TeamId;
 use crate::merge::transfer::Tombstone;
 use crate::observability::metrics::MERGE_TOMBSTONE_REDIRECTS_TOTAL;
 use crate::partitions::partitioner::partition_of;
-use crate::store::{CohortStore, StoreError, TombstoneKey};
+use crate::store::{CohortStore, StoreError, StoreHandle, TombstoneKey};
 
 /// Defensive bound on same-partition tombstone hops in one [`resolve`] call.
 const MAX_TOMBSTONE_HOPS: usize = 16;
@@ -102,6 +107,82 @@ fn read_tombstone(
         person,
     };
     let Some(bytes) = store.get_tombstone(&key)? else {
+        return Ok(None);
+    };
+    match Tombstone::decode(&bytes) {
+        Ok(tombstone) => Ok(Some(tombstone)),
+        Err(error) => {
+            debug!(partition_id, %person, error = %error, "corrupt tombstone; treating as not merged");
+            Ok(None)
+        }
+    }
+}
+
+/// Async twin of [`resolve`] over the [`StoreHandle`] facade: same hop-by-hop tombstone walk, same
+/// [`Resolution`] semantics, same [`MAX_TOMBSTONE_HOPS`] cap, but each hop reads through the Event
+/// lane so the store I/O runs on the blocking pool. Used by the event-path worker; drain/apply call
+/// the sync [`resolve`] inside their `run_section` closures.
+pub async fn resolve_offloaded(
+    handle: &StoreHandle,
+    partition_id: u16,
+    team_id: TeamId,
+    person: Uuid,
+    partition_count: u32,
+) -> Result<Resolution, StoreError> {
+    let team = team_id.0 as u64;
+
+    let Some(first) = read_tombstone_offloaded(handle, partition_id, team, person).await? else {
+        return Ok(Resolution::NotMerged);
+    };
+
+    let origin = person;
+    let mut current = first.new_person;
+
+    for _hop in 0..MAX_TOMBSTONE_HOPS {
+        let current_partition = partition_of(team_id, &current, partition_count);
+        if current_partition as u16 != partition_id {
+            return Ok(Resolution::CrossPartition {
+                target_person: current,
+                origin,
+            });
+        }
+        match read_tombstone_offloaded(handle, partition_id, team, current).await? {
+            Some(next) => current = next.new_person,
+            None => {
+                return Ok(Resolution::Inline {
+                    final_person: current,
+                    origin,
+                })
+            }
+        }
+    }
+
+    warn!(
+        partition_id,
+        team_id = team_id.0,
+        %origin,
+        %current,
+        "tombstone chain exceeded the hop cap; resolving inline to the last hop",
+    );
+    Ok(Resolution::Inline {
+        final_person: current,
+        origin,
+    })
+}
+
+/// Read and decode one tombstone through the Event lane, or `None` when absent or corrupt.
+async fn read_tombstone_offloaded(
+    handle: &StoreHandle,
+    partition_id: u16,
+    team: u64,
+    person: Uuid,
+) -> Result<Option<Tombstone>, StoreError> {
+    let key = TombstoneKey {
+        partition_id,
+        team_id: team,
+        person,
+    };
+    let Some(bytes) = handle.get_tombstone(&key).await? else {
         return Ok(None);
     };
     match Tombstone::decode(&bytes) {

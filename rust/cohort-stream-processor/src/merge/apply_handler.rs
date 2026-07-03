@@ -11,6 +11,10 @@
 //! state to the live survivor instead — inline when the survivor co-resides on this partition,
 //! forwarded on `cohort_merge_state_transfer` when it lives on another.
 
+// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct `CohortStore`
+// I/O is already off the runtime threads.
+#![allow(clippy::disallowed_methods)]
+
 use metrics::counter;
 use uuid::Uuid;
 
@@ -31,6 +35,33 @@ use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
 use tracing::warn;
 
+/// The eviction-queue mutations a drain/apply commit implies. The handlers take owned inputs and no
+/// queue borrow, so they return these for the caller (which owns the queue) to apply right after the
+/// atomic write commits and before any produce — a produce failure must never leave the queue ahead
+/// of the store.
+///
+/// `cancels` are the old person's now-deleted keys; `schedules` are the survivor's new eviction
+/// deadlines.
+#[must_use]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct QueueEffects {
+    pub cancels: Vec<Stage1Key>,
+    pub schedules: Vec<(Stage1Key, i64)>,
+}
+
+impl QueueEffects {
+    /// Cancel first, then schedule. The two key sets are disjoint by construction (old person ≠ new
+    /// person), so the order is defensive rather than load-bearing.
+    pub fn apply_to(&self, queue: &mut EvictionQueue<Stage1Key>) {
+        for key in &self.cancels {
+            queue.cancel(key);
+        }
+        for &(key, deadline) in &self.schedules {
+            queue.schedule(key, deadline);
+        }
+    }
+}
+
 /// Bound on cross-partition transfer-forward hops (`forward_hops` on the wire). Mirrors the
 /// event-path [`crate::merge::tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS`] — prevents
 /// infinite re-production between partitions in case of a corrupt cross-partition tombstone cycle.
@@ -39,7 +70,11 @@ pub const MAX_TRANSFER_FORWARD_HOPS: u8 = 8;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyOutcome {
     /// Transfer applied; `transitions` are the resolved survivor's per-leaf membership flips.
-    Applied { transitions: Vec<LeafTransition> },
+    /// `effects` carries the survivor's eviction schedules for the caller to apply to its queue.
+    Applied {
+        transitions: Vec<LeafTransition>,
+        effects: QueueEffects,
+    },
     /// Idempotence hit — this transfer was already applied (replay / crash-recovery).
     AlreadyApplied,
     /// `new_person_uuid` is tombstoned to a survivor on a different partition. The caller forwards
@@ -67,7 +102,6 @@ pub fn handle_transfer(
     filters: &TeamFilters,
     transfer: &MergeStateTransfer,
     _transfer_coords: (i32, i64),
-    queue: &mut EvictionQueue<Stage1Key>,
     partition_count: u32,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_id = transfer.team_id;
@@ -93,12 +127,10 @@ pub fn handle_transfer(
         new_person,
         partition_count,
     )? {
-        Resolution::NotMerged => {
-            apply_into(partition_id, store, filters, transfer, new_person, queue)
-        }
+        Resolution::NotMerged => apply_into(partition_id, store, filters, transfer, new_person),
         Resolution::Inline { final_person, .. } => {
             counter!(MERGE_TRANSFER_FORWARDS_TOTAL, "path" => "inline").increment(1);
-            apply_into(partition_id, store, filters, transfer, final_person, queue)
+            apply_into(partition_id, store, filters, transfer, final_person)
         }
         Resolution::CrossPartition { target_person, .. } => {
             if transfer.forward_hops >= MAX_TRANSFER_FORWARD_HOPS {
@@ -149,7 +181,6 @@ fn apply_into(
     filters: &TeamFilters,
     transfer: &MergeStateTransfer,
     target: Uuid,
-    queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_u64 = transfer.team_id as u64;
     let old_person = transfer.old_person_uuid;
@@ -219,12 +250,12 @@ fn apply_into(
         }
     })?;
 
-    for (key, deadline) in &apply.schedules {
-        queue.schedule(*key, *deadline);
-    }
-
     Ok(ApplyOutcome::Applied {
         transitions: apply.transitions,
+        effects: QueueEffects {
+            cancels: Vec::new(),
+            schedules: apply.schedules,
+        },
     })
 }
 

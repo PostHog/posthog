@@ -9,6 +9,10 @@
 //! The Stage 2 section covers a time-driven leaf flip recomposing its composable (multi-leaf)
 //! cohorts through the sweep's second produce.
 
+// This test drives the store directly through `CohortStore` for seeding and assertions — the
+// sanctioned direct-store surface for tests.
+#![allow(clippy::disallowed_methods)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -32,7 +36,8 @@ use cohort_stream_processor::stage1::{
 };
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig,
+    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonIndexKey, Stage1Key, Stage2Key,
+    StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -56,6 +61,23 @@ fn temp_store() -> (TempDir, CohortStore) {
     })
     .expect("open store");
     (dir, store)
+}
+
+/// Wrap a test store in the default `All` operating point so the worker and dispatcher exercise the
+/// blocking-pool transport production uses; the tests keep the raw store for seeding and assertions.
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    test_handle_with_mode(store, OffloadMode::All)
+}
+
+fn test_handle_with_mode(store: &CohortStore, mode: OffloadMode) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 fn behavioral_bytecode() -> Value {
@@ -247,19 +269,29 @@ async fn send_sweep(tx: &mpsc::Sender<Vec<ShuffleMessage>>, due_before_ms: i64) 
         .unwrap();
 }
 
-/// Drive the current-thread runtime until the worker has recorded `count` changes, so a test can read
-/// the intermediate post-sweep state mid-stream (the queue is per-worker, so it can't drop the worker
-/// to barrier). [`CaptureSink::produce`] is immediately-ready and `handle_sweep` does its state write
-/// and reschedule synchronously right after it, so once a sweep's change lands its state mutation is
-/// durable too — no wall-clock sleep needed.
-async fn drain_until_changes(sink: &CaptureSink, count: usize) {
-    for _ in 0..10_000 {
-        if sink.changes().len() >= count {
+/// Drive the runtime until `predicate` holds, so a test can observe intermediate mid-stream state
+/// (the queue is per-worker, so it can't drop the worker to barrier). The worker's store I/O runs on
+/// the blocking pool, so progress takes wall-clock time regardless of this runtime's polling —
+/// sleeping between probes (rather than yield-spinning a bounded count) lets that work land.
+async fn drain_until(what: &str, mut predicate: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
+        if predicate() {
             return;
         }
-        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
-    panic!("worker did not record {count} changes");
+    panic!("timed out waiting for {what}");
+}
+
+/// [`drain_until`] on the sink's recorded change count. `handle_sweep` produces its changes BEFORE
+/// its state write, and that write completes on the blocking pool — a test that must inspect the
+/// post-sweep state should follow this with a [`drain_until`] on the store observable itself.
+async fn drain_until_changes(sink: &CaptureSink, count: usize) {
+    drain_until("the worker to record changes", || {
+        sink.changes().len() >= count
+    })
+    .await;
 }
 
 fn spawn_worker(
@@ -282,6 +314,29 @@ fn spawn_worker_durable(
     spawn_worker_with_restore(store, catalog, sink, tracker, true)
 }
 
+/// Like [`spawn_worker`] but pinned to one offload operating point instead of the default `All`.
+fn spawn_worker_with_mode(
+    store: &CohortStore,
+    catalog: Arc<CatalogHandle>,
+    sink: Arc<dyn MembershipSink>,
+    tracker: Arc<OffsetTracker>,
+    mode: OffloadMode,
+) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle_with_mode(store, mode),
+        catalog,
+        sink,
+        tracker,
+        MergeWorkerDeps::capture(),
+        false,
+    );
+    (tx, worker)
+}
+
 fn spawn_worker_with_restore(
     store: &CohortStore,
     catalog: Arc<CatalogHandle>,
@@ -294,7 +349,7 @@ fn spawn_worker_with_restore(
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(store),
         catalog,
         sink,
         tracker,
@@ -886,8 +941,17 @@ async fn sweep_emits_entered_when_a_daily_eq_count_falls_into_range() {
     send_sweep(&tx, start_of_day_ms_in_tz(day + 9, UTC)).await;
 
     // Barrier on the Enter+Leave (events) + Enter (sweep): the slide advanced the window and
-    // rescheduled to the surviving D+3 bucket's leave boundary (start of D+11).
+    // rescheduled to the surviving D+3 bucket's leave boundary (start of D+11). The sweep produces
+    // before its state write lands on the blocking pool, so also wait for the slid record itself.
     drain_until_changes(&sink, 3).await;
+    drain_until("the slid daily record to land", || {
+        matches!(
+            state_at(&store, lsk, alice),
+            Some(Stage1State::BehavioralDailyBuckets { ref buckets, .. })
+                if buckets.iter().sum::<u32>() == 1
+        )
+    })
+    .await;
     match state_at(&store, lsk, alice).expect("still a member after the slide into eq 1") {
         Stage1State::BehavioralDailyBuckets {
             buckets,
@@ -1088,7 +1152,17 @@ async fn sweep_emits_entered_when_a_compressed_eq_count_falls_into_range() {
     )
     .await;
 
+    // The sweep produces before its state write lands on the blocking pool, so also wait for the
+    // slid record itself before inspecting it.
     drain_until_changes(&sink, 3).await;
+    drain_until("the slid compressed record to land", || {
+        matches!(
+            state_at(&store, lsk, alice),
+            Some(Stage1State::BehavioralCompressedHistory { ref entries, .. })
+                if entries.len() == 1
+        )
+    })
+    .await;
     match state_at(&store, lsk, alice).expect("still a member after the slide into eq 1") {
         Stage1State::BehavioralCompressedHistory {
             entries,
@@ -1803,7 +1877,7 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store.clone(),
+        test_handle(&store),
         catalog_of(filters),
         sink.clone(),
         MergeWorkerDeps::capture(),
@@ -1896,5 +1970,83 @@ fn state_variants_are_exhaustive() {
         StateVariant::PersonProperty,
     ] {
         assert!(!variant.as_str().is_empty());
+    }
+}
+
+/// The three offload operating points route the same store ops inline vs onto the blocking pool; the
+/// observable outcome must be identical. One composable cohort (behavioral AND person) driven through
+/// enter-then-evict exercises every lane per mode: the event fold (Event-lane read + commit), stage-2
+/// composition (Event-lane reads + commit), and the sweep (Maintenance-lane prefetch + eviction
+/// commit + recompose). Catches mode plumbing inverting a lane — e.g. `Maintenance` offloading the
+/// event read it must run inline, or dropping a commit on one arm.
+#[tokio::test]
+async fn each_offload_mode_yields_the_same_emissions_and_state() {
+    #[derive(Debug, PartialEq)]
+    struct ModeOutcome {
+        statuses: Vec<MembershipStatus>,
+        stage2_bit: Option<bool>,
+        stage1: Vec<(Vec<u8>, Vec<u8>)>,
+    }
+
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let deadline = event_ms + 7 * DAY_MS;
+    let alice = person(1);
+
+    let mut per_mode: Vec<ModeOutcome> = Vec::new();
+    for mode in [OffloadMode::Off, OffloadMode::Maintenance, OffloadMode::All] {
+        let (_dir, store) = temp_store();
+        let filters = build_team_filters(vec![behavioral_leaf(7), person_leaf()]);
+        let sink = CaptureSink::new();
+        let tracker = Arc::new(OffsetTracker::new());
+        let (tx, worker) = spawn_worker_with_mode(
+            &store,
+            catalog_of(filters),
+            Arc::new(sink.clone()),
+            tracker.clone(),
+            mode,
+        );
+
+        // Enter: one event flips both leaves, so stage 2 composes the cohort in.
+        send_event(&tracker, &tx, person_event_at(alice, ts, 0), 0).await;
+        // Evict: the behavioral leaf ages out, so stage 2 recomposes the cohort out.
+        send_sweep(&tx, deadline + DAY_MS).await;
+        drop(tx);
+        // The join is the barrier: the worker awaited every commit before exiting.
+        worker.join().await.unwrap();
+
+        let statuses: Vec<MembershipStatus> =
+            sink.changes().iter().map(|change| change.status).collect();
+        assert_eq!(
+            statuses,
+            vec![MembershipStatus::Entered, MembershipStatus::Left],
+            "mode {mode:?}: the cohort enters on the event and leaves on the sweep",
+        );
+        let stage1: Vec<(Vec<u8>, Vec<u8>)> = store
+            .scan_stage1(PARTITION_ID, None, 10_000)
+            .unwrap()
+            .into_iter()
+            .map(|(key, value)| (key.encode().to_vec(), value))
+            .collect();
+        assert!(
+            !stage1.is_empty(),
+            "mode {mode:?}: the never-evicted person leaf still holds state",
+        );
+        per_mode.push(ModeOutcome {
+            statuses,
+            stage2_bit: stage2_bit(&store, 1, alice),
+            stage1,
+        });
+    }
+
+    let (off, rest) = per_mode.split_first().unwrap();
+    for (arm, mode) in rest
+        .iter()
+        .zip([OffloadMode::Maintenance, OffloadMode::All])
+    {
+        assert_eq!(
+            arm, off,
+            "mode {mode:?} diverged from Off: emissions, stage-2 bit, and cf_stage1 bytes must be identical across operating points",
+        );
     }
 }

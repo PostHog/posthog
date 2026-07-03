@@ -30,7 +30,7 @@ use crate::observability::metrics::{
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{CohortMembershipChange, MembershipSink};
 use crate::stage2::state::Stage2State;
-use crate::store::{CohortStore, Stage2Key};
+use crate::store::{Stage2Key, StagedBatch, StoreHandle};
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::stage2_path::recompute_and_diff;
 use crate::workers::worker::{produce_cascades, produce_membership};
@@ -40,7 +40,7 @@ use crate::workers::worker::{produce_cascades, produce_membership};
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_cascade(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
@@ -106,7 +106,7 @@ pub(crate) async fn handle_cascade(
         let Some(tree) = filters.cohorts.get(&referrer) else {
             continue;
         };
-        let diff = match recompute_and_diff(partition_id, person_id, tree, filters, store) {
+        let diff = match recompute_and_diff(partition_id, person_id, tree, filters, handle).await {
             Ok(diff) => diff,
             Err(error) => {
                 warn!(
@@ -196,11 +196,11 @@ pub(crate) async fn handle_cascade(
         return;
     }
 
-    if let Err(error) = store.write_batch(|batch| {
-        for (key, state) in &writes {
-            batch.put_stage2(key, &state.encode());
-        }
-    }) {
+    let mut staged = StagedBatch::default();
+    for (key, state) in &writes {
+        staged.put_stage2(key, &state.encode());
+    }
+    if let Err(error) = handle.commit(staged).await {
         warn!(
             partition_id,
             error = %error,
@@ -244,6 +244,9 @@ fn clickhouse_millis(ts: &str) -> i64 {
 }
 
 #[cfg(test)]
+// The tests seed and assert against the store directly through `CohortStore` (the sanctioned
+// direct-store surface for tests) while driving `handle_cascade` through the `StoreHandle` facade.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use chrono_tz::UTC;
@@ -258,7 +261,7 @@ mod tests {
     };
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::{Stage1Key, StoreConfig};
+    use crate::store::{CohortStore, OffloadConfig, OffloadMode, Stage1Key, StoreConfig};
     use crate::workers::{CascadeConfig, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT};
 
     const TEAM: i32 = 7;
@@ -276,6 +279,19 @@ mod tests {
         })
         .unwrap();
         (dir, store)
+    }
+
+    /// Wrap a test store in the default `All` operating point so `handle_cascade` exercises the
+    /// blocking-pool transport production uses.
+    fn handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
     }
 
     fn behavioral_leaf() -> Value {
@@ -468,7 +484,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         let changes = membership.changes();
         assert_eq!(changes.len(), 1, "B's external flip");
@@ -511,7 +537,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty(), "no flip, no membership");
         assert!(cascade.messages().is_empty(), "no flip, no onward cascade");
@@ -531,7 +567,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty());
         assert!(cascade.messages().is_empty());
@@ -557,7 +603,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, false, 1000); // gate OFF
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(membership.changes().is_empty(), "gate off: no re-eval");
         assert!(cascade.messages().is_empty());
@@ -585,7 +641,17 @@ mod tests {
         // Incoming depth == cap (8): the external flip still emits, the onward cascade drops.
         let msg = incoming(2, alice, 8, vec![2, 90, 91, 92, 93, 94, 95, 96]);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),
@@ -624,7 +690,17 @@ mod tests {
         // B (cohort 1) is already in the chain: the onward hop is a runtime cycle.
         let msg = incoming(2, alice, 2, vec![2, 1]);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),
@@ -661,7 +737,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 2); // cap 2 of 4 referrers
         let msg = first_cascade(incoming(100, alice, 1, vec![100]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         let cohorts: Vec<i32> = membership.changes().iter().map(|c| c.cohort_id).collect();
         assert_eq!(
@@ -695,10 +781,30 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
         assert_eq!(membership.changes().len(), 1, "first pass emits");
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
         assert_eq!(
             membership.changes().len(),
             1,
@@ -725,7 +831,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert!(
             membership.changes().is_empty(),
@@ -760,7 +876,17 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         let msg = first_cascade(incoming(2, alice, 1, vec![2]).change, 99);
 
-        handle_cascade(PARTITION, &store, &catalog, &sink, &deps, TS, &msg, OFFSET).await;
+        handle_cascade(
+            PARTITION,
+            &handle(&store),
+            &catalog,
+            &sink,
+            &deps,
+            TS,
+            &msg,
+            OFFSET,
+        )
+        .await;
 
         assert_eq!(
             membership.changes().len(),

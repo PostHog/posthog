@@ -4,6 +4,10 @@
 //! keyed to P_new from the start" oracle. Replays every handler twice for idempotence and exercises
 //! the reopen-without-wipe recovery via `scan_pending_transfers`.
 
+// This test drives the store directly through `CohortStore` (and the sync section-core handlers) for
+// seeding and assertions — the sanctioned direct-store surface for tests.
+#![allow(clippy::disallowed_methods)]
+
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
@@ -22,10 +26,9 @@ use cohort_stream_processor::producer::{now_last_updated, MembershipStatus};
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage1Key,
-    Stage2Key, StoreConfig, TombstoneKey,
+    CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig, OffloadMode,
+    PendingTransferKey, Stage1Key, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
 };
-use cohort_stream_processor::sweep::EvictionQueue;
 use cohort_stream_processor::workers::{
     compose_stage2, handle_merge_gc, handle_stage2_orphan_gc, process_event, MergeGcCursor,
     Stage2GcCursor,
@@ -45,6 +48,19 @@ fn temp_store_in(dir: &TempDir) -> CohortStore {
         ..StoreConfig::default()
     })
     .expect("open store")
+}
+
+/// Wrap a test store in the default `All` operating point so `compose_stage2` exercises the
+/// blocking-pool transport production uses; the handlers under test still take the raw store.
+fn handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 fn behavioral_bytecode() -> Value {
@@ -265,19 +281,17 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let drained = handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
     let transfer = match drained {
-        DrainOutcome::Drained { transfer } => transfer,
+        DrainOutcome::Drained { transfer, .. } => transfer,
         other => panic!("expected a cross-partition Drained, got {other:?}"),
     };
 
@@ -295,14 +309,12 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         .unwrap()
         .is_some());
 
-    let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let applied = handle_transfer(
         p_new_part,
         &store,
         &filters,
         &transfer,
         (5, 7),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -348,7 +360,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -359,7 +370,6 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &filters,
         &transfer,
         (5, 7),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -401,19 +411,17 @@ fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeS
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let transfer = match handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
-        DrainOutcome::Drained { transfer } => transfer,
+        DrainOutcome::Drained { transfer, .. } => transfer,
         other => panic!("expected Drained, got {other:?}"),
     };
     (store, filters, p_new_part, p_new, transfer)
@@ -425,14 +433,12 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
     let dir = TempDir::new().unwrap();
     let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
 
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let first = handle_transfer(
         p_new_part,
         &store,
         &filters,
         &transfer,
         (5, 7),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -444,7 +450,6 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
         &filters,
         &transfer,
         (63, 9_999),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -481,14 +486,12 @@ fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
     let dir = TempDir::new().unwrap();
     let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
 
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let first = handle_transfer(
         p_new_part,
         &store,
         &filters,
         &transfer,
         (5, 7),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -513,7 +516,6 @@ fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
         &filters,
         &redrained,
         (12, 345),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -541,20 +543,35 @@ fn fast_path_equals_the_cross_partition_result() {
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_old_part, p_new, 20, 0);
 
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let outcome = handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
+    let DrainOutcome::FastPath { effects, .. } = &outcome else {
+        panic!("same partition → fast path, got {outcome:?}");
+    };
+    // The fast path returns the queue effects for the caller to apply: the merged behavioral leaves
+    // carry finite eviction deadlines, so P_new (the survivor) gets scheduled and P_old's keys are
+    // cancelled. Pins the extracted-effects contract.
     assert!(
-        matches!(outcome, DrainOutcome::FastPath { .. }),
-        "same partition → fast path"
+        !effects.schedules.is_empty(),
+        "the merged behavioral leaves schedule P_new's eviction deadlines",
+    );
+    assert!(
+        effects
+            .schedules
+            .iter()
+            .all(|(key, _)| key.person_id == p_new),
+        "every scheduled key belongs to the survivor P_new",
+    );
+    assert!(
+        effects.cancels.iter().all(|key| key.person_id == p_old),
+        "the cancelled keys are P_old's drained keys",
     );
 
     let (s, d, c) = behavioral_states(&store, &filters, p_old_part, p_old);
@@ -586,14 +603,12 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
         let store = temp_store_in(&dir);
         fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
         fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
-        let mut queue = EvictionQueue::<Stage1Key>::new();
         let drained = handle_merge_event(
             p_old_part,
             &store,
             &filters,
             &merge_event(p_old, p_new),
             (5, 100),
-            &mut queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap();
@@ -613,14 +628,12 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
     let pending = PendingTransfer::decode(&recovered[0].1).unwrap();
     assert_eq!(pending.transfer.old_person_uuid, p_old);
 
-    let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let applied = handle_transfer(
         p_new_part,
         &store,
         &filters,
         &pending.transfer,
         (5, 7),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -656,8 +669,8 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
     assert_eq!(compressed_sum(&compressed.unwrap()), 2);
 }
 
-#[test]
-fn apply_transitions_compose_into_stage2() {
+#[tokio::test]
+async fn apply_transitions_compose_into_stage2() {
     let dir = TempDir::new().unwrap();
     let store = temp_store_in(&dir);
     let filters = build_filters();
@@ -671,45 +684,42 @@ fn apply_transitions_compose_into_stage2() {
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let transfer = match handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
-        DrainOutcome::Drained { transfer } => transfer,
+        DrainOutcome::Drained { transfer, .. } => transfer,
         other => panic!("expected Drained, got {other:?}"),
     };
-    let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let transitions = match handle_transfer(
         p_new_part,
         &store,
         &filters,
         &transfer,
         (5, 7),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
-        ApplyOutcome::Applied { transitions } => transitions,
+        ApplyOutcome::Applied { transitions, .. } => transitions,
         other => panic!("expected Applied, got {other:?}"),
     };
 
     let changes = compose_stage2(
         p_new_part,
-        &store,
+        &handle(&store),
         &filters,
         &transitions,
         MERGED_AT,
         &now_last_updated(),
     )
+    .await
     .unwrap();
     let composable_enter = changes
         .iter()
@@ -748,19 +758,18 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
     );
 
     // Different source coords → drain marker misses → re-drain (empty, P_old already gone).
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let redrain = handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 101),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
     let DrainOutcome::Drained {
         transfer: redrained,
+        ..
     } = redrain
     else {
         panic!("expected Drained, got {redrain:?}");
@@ -804,22 +813,19 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
     fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
     fold_pageview(&store, &filters, p_new_part, p_new, 20, 0);
 
-    let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let transfer = match handle_merge_event(
         p_old_part,
         &store,
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
-        DrainOutcome::Drained { transfer } => transfer,
+        DrainOutcome::Drained { transfer, .. } => transfer,
         other => panic!("expected Drained, got {other:?}"),
     };
-    let mut new_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             p_new_part,
@@ -827,7 +833,6 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &filters,
             &transfer,
             (5, 7),
-            &mut new_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -900,7 +905,6 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &filters,
             &merge_event(p_old, p_new),
             (5, 100),
-            &mut old_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -914,7 +918,6 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &filters,
             &transfer,
             (63, 9_999),
-            &mut new_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -960,12 +963,11 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         &filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
-        matches!(&reclaimed_redrain, DrainOutcome::Drained { transfer } if transfer.leaves.is_empty()),
+        matches!(&reclaimed_redrain, DrainOutcome::Drained { transfer, .. } if transfer.leaves.is_empty()),
         "after GC the marker no longer dedupes; the replay re-drains (empty), got {reclaimed_redrain:?}",
     );
 }
@@ -1000,14 +1002,12 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
 
     // Empty filters = absent-team fallback; drain deletes no cf_stage2 rows, so the row orphans.
     let absent_team_filters = TeamFiltersBuilder::default().freeze(UTC);
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     handle_merge_event(
         p_old_part,
         &store,
         &absent_team_filters,
         &merge_event(p_old, p_new),
         (5, 100),
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1058,19 +1058,17 @@ fn drain_cross(
     new: Uuid,
     coords: (i32, i64),
 ) -> MergeStateTransfer {
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     match handle_merge_event(
         part(old),
         store,
         filters,
         &merge_event(old, new),
         coords,
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
-        DrainOutcome::Drained { transfer } => transfer,
+        DrainOutcome::Drained { transfer, .. } => transfer,
         other => panic!("expected a cross-partition Drained for {old}->{new}, got {other:?}"),
     }
 }
@@ -1093,7 +1091,6 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
 
     // 1) B → C drains and applies at C → C = B + C (daily 2); B tombstoned to C.
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
-    let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             c_part,
@@ -1101,7 +1098,6 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
             &filters,
             &b_to_c,
             (5, 71),
-            &mut c_queue,
             COHORT_PARTITION_COUNT
         )
         .unwrap(),
@@ -1120,14 +1116,12 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
 
     // 3) Apply on B's partition: B tombstoned to C (cross-partition) → Forward(C, hops=1).
-    let mut b_queue = EvictionQueue::<Stage1Key>::new();
     let forwarded = match handle_transfer(
         b_part,
         &store,
         &filters,
         &a_to_b,
         (5, 80),
-        &mut b_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
@@ -1163,7 +1157,6 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
         &filters,
         &forwarded,
         (5, 81),
-        &mut c_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1213,7 +1206,6 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
 
     // 1) A → B drains and applies at B (not yet tombstoned) → marker under B.
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
-    let mut b_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             b_part,
@@ -1221,7 +1213,6 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
             &filters,
             &a_to_b,
             (5, 80),
-            &mut b_queue,
             COHORT_PARTITION_COUNT
         )
         .unwrap(),
@@ -1230,7 +1221,6 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
 
     // 2) B → C drains (B carries A + B) and applies at C → C = A + B + C.
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
-    let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             c_part,
@@ -1238,7 +1228,6 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
             &filters,
             &b_to_c,
             (5, 71),
-            &mut c_queue,
             COHORT_PARTITION_COUNT
         )
         .unwrap(),
@@ -1258,7 +1247,6 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
         &filters,
         &a_to_b,
         (61, 999),
-        &mut b_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1290,27 +1278,23 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
     fold_pageview(&store, &filters, c_part, c, 30, 0);
 
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
-    let mut c_queue = EvictionQueue::<Stage1Key>::new();
     handle_transfer(
         c_part,
         &store,
         &filters,
         &b_to_c,
         (5, 71),
-        &mut c_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
 
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
-    let mut b_queue = EvictionQueue::<Stage1Key>::new();
     let forwarded = match handle_transfer(
         b_part,
         &store,
         &filters,
         &a_to_b,
         (5, 80),
-        &mut b_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
@@ -1324,7 +1308,6 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
         &filters,
         &forwarded,
         (5, 81),
-        &mut c_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1338,7 +1321,6 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
         &filters,
         &a_to_b,
         (62, 1000),
-        &mut b_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap()
@@ -1352,7 +1334,6 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
         &filters,
         &reforwarded,
         (62, 1001),
-        &mut c_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1412,7 +1393,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
 
     // 1) B → C: same-partition fast path → B tombstoned to C, C = B + C (daily 2).
     //    Fast path writes no apply marker.
-    let mut bc_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_merge_event(
             bcd_part,
@@ -1420,7 +1400,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &filters,
             &merge_event(b, c),
             (5, 200),
-            &mut bc_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -1437,7 +1416,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
 
     // 3) Apply on chain's partition: B tombstoned to C (inline) → apply into C = A+B+C (daily 3).
     //    Dual-write: marker written under C (resolved target) and B (original target).
-    let mut chain_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             bcd_part,
@@ -1445,7 +1423,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &filters,
             &a_to_b,
             (5, 80),
-            &mut chain_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -1476,7 +1453,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
 
     // 4) C → D: same-partition fast path → C tombstoned to D, D = A+B+C+D (daily 4).
     //    The fast path writes no apply marker, so C's marker is stranded (no redelivery resolves to C).
-    let mut cd_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_merge_event(
             bcd_part,
@@ -1484,7 +1460,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &filters,
             &merge_event(c, d),
             (5, 300),
-            &mut cd_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -1505,7 +1480,6 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         &filters,
         &a_to_b,
         (61, 999),
-        &mut chain_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1558,7 +1532,6 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
     fold_pageview(&store, &filters, b_part, c, 30, 0);
 
     // B → C is a same-partition fast-path merge → B tombstoned to C, C has B + C.
-    let mut bc_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_merge_event(
             b_part,
@@ -1566,7 +1539,6 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
             &filters,
             &merge_event(b, c),
             (5, 200),
-            &mut bc_queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap(),
@@ -1580,7 +1552,6 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
         a_to_b.new_person_uuid, b,
         "A and B differ in partition, so the assist did not retarget at A's drain (B's tombstone lives on B's slice, not A's)",
     );
-    let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
         handle_transfer(
             b_part,
@@ -1588,7 +1559,6 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
             &filters,
             &a_to_b,
             (5, 81),
-            &mut c_queue,
             COHORT_PARTITION_COUNT
         )
         .unwrap(),
@@ -1626,7 +1596,6 @@ fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
 
     let mut transfer = a_to_b;
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let mut hops = 0u8;
     loop {
         let on_part = part(transfer.new_person_uuid);
@@ -1636,7 +1605,6 @@ fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
             &filters,
             &transfer,
             (5, 80 + hops as i64),
-            &mut queue,
             COHORT_PARTITION_COUNT,
         )
         .unwrap()
@@ -1754,14 +1722,12 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         p_new
     );
 
-    let mut new_queue = EvictionQueue::<Stage1Key>::new();
     let applied = handle_transfer(
         p_new_part,
         &restored,
         &filters,
         &pending.transfer,
         (5, 7),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1784,14 +1750,12 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
     );
     assert_eq!(compressed_sum(&compressed.unwrap()), 2);
 
-    let mut old_queue = EvictionQueue::<Stage1Key>::new();
     let replay_drain = handle_merge_event(
         p_old_part,
         &restored,
         &filters,
         &merge_event(p_old, p_new),
         merge_coords,
-        &mut old_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1807,7 +1771,6 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         &filters,
         &pending.transfer,
         (63, 9_999),
-        &mut new_queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();
@@ -1960,14 +1923,12 @@ fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re
         "the restored outbox starts empty",
     );
 
-    let mut queue = EvictionQueue::<Stage1Key>::new();
     let replay = handle_merge_event(
         p_old_part,
         &restored,
         &filters,
         &merge_event(p_old, p_new),
         merge_coords,
-        &mut queue,
         COHORT_PARTITION_COUNT,
     )
     .unwrap();

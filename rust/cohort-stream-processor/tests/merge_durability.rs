@@ -14,6 +14,10 @@
 //! cargo test -p cohort-stream-processor --test merge_durability -- --ignored --test-threads=1
 //! ```
 
+// This test drives the store directly through `CohortStore` for seeding and assertions — the
+// sanctioned direct-store surface for tests.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -47,7 +51,8 @@ use cohort_stream_processor::store::durability::{
     OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
+    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+    TombstoneKey,
 };
 use cohort_stream_processor::sweep::Sweeper;
 use cohort_stream_processor::workers::{
@@ -614,6 +619,17 @@ fn register_instance(manager: &mut Manager, name: &str) -> [Handle; 4] {
     ]
 }
 
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
+}
+
 struct Instance {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
@@ -705,7 +721,7 @@ async fn spawn_instance(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         events_tracker,
-        store.clone(),
+        test_handle(&store),
         Arc::new(catalog),
         membership_sink,
         merge_deps,

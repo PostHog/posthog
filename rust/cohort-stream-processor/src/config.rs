@@ -12,7 +12,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
-use crate::store::StoreConfig;
+use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::{CascadeConfig, EventNameGating, PersonMemoConfig, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
@@ -327,6 +327,24 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
+    /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller —
+    /// the pre-facade transport and the operator kill switch), `maintenance` (only maintenance-lane
+    /// reads, the WAL fsync, and sections offload; the event path stays inline), or `all` (every op
+    /// offloads to the blocking pool). Default `all`.
+    #[envconfig(from = "COHORT_STORE_OFFLOAD_MODE", default = "all")]
+    pub cohort_store_offload_mode: OffloadMode,
+
+    /// Bound on event-path store reads executing concurrently on the blocking pool. Keeps a burst of
+    /// event reads from saturating the disk queue; `0` disables the bound (unbounded lane).
+    #[envconfig(from = "COHORT_STORE_EVENT_READ_PERMITS", default = "16")]
+    pub cohort_store_event_read_permits: usize,
+
+    /// Bound on maintenance-lane store reads and sections executing concurrently on the blocking
+    /// pool (sweep prefetch, boot rebuild scans, GC). Held lower than the event lane so a
+    /// maintenance storm leaves disk headroom for the event path; `0` disables the bound.
+    #[envconfig(from = "COHORT_STORE_MAINTENANCE_PERMITS", default = "6")]
+    pub cohort_store_maintenance_permits: usize,
+
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
     /// `AppliedOffsets`). Refused alongside `cohort_cascade_enabled` — merge column families are not
@@ -636,6 +654,16 @@ impl Config {
         }
     }
 
+    /// Resolve the store-offload strategy and per-lane concurrency bounds handed to the
+    /// [`StoreHandle`](crate::store::StoreHandle).
+    pub fn offload_config(&self) -> OffloadConfig {
+        OffloadConfig {
+            mode: self.cohort_store_offload_mode,
+            event_read_permits: self.cohort_store_event_read_permits,
+            maintenance_permits: self.cohort_store_maintenance_permits,
+        }
+    }
+
     /// Stable per-pod identity for static group membership, `POD_NAME` preferred over `HOSTNAME`.
     /// `None` leaves static membership off.
     pub fn pod_identity(&self) -> Option<&str> {
@@ -838,6 +866,9 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_store_offload_mode: OffloadMode::All,
+            cohort_store_event_read_permits: 16,
+            cohort_store_maintenance_permits: 6,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -1041,6 +1072,55 @@ mod tests {
             config.store_config().read_sample_ratio,
             8,
             "the sample ratio reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn offload_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        let offload = defaults.offload_config();
+        assert_eq!(offload.mode, OffloadMode::All, "offload defaults to All");
+        assert_eq!(offload.event_read_permits, 16);
+        assert_eq!(offload.maintenance_permits, 6);
+
+        // Override all three, including `maintenance` mode and a `0` (unbounded) permit lane.
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_OFFLOAD_MODE", "maintenance"),
+            ("COHORT_STORE_EVENT_READ_PERMITS", "8"),
+            ("COHORT_STORE_MAINTENANCE_PERMITS", "0"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        let offload = config.offload_config();
+        assert_eq!(offload.mode, OffloadMode::Maintenance);
+        assert_eq!(offload.event_read_permits, 8);
+        assert_eq!(offload.maintenance_permits, 0, "0 = unbounded lane");
+
+        // `off` parses.
+        let off_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "off")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert_eq!(
+            Config::init_from_hashmap(&off_env)
+                .unwrap()
+                .offload_config()
+                .mode,
+            OffloadMode::Off,
+        );
+
+        // An unknown mode string fails init (the FromStr error surfaces through envconfig).
+        let bad_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "occasionally")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert!(
+            Config::init_from_hashmap(&bad_env).is_err(),
+            "an invalid offload mode must fail config init",
         );
     }
 

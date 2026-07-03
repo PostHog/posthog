@@ -18,6 +18,10 @@
 //!    mass-delete. A team whose realtime cohorts are all gone then keeps its orphans until any
 //!    composable cohort returns (or `delete_partition`/store retention reclaims them) — a space-only leak.
 
+// Sync core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct `CohortStore`
+// I/O is already off the runtime threads.
+#![allow(clippy::disallowed_methods)]
+
 use metrics::counter;
 use tracing::warn;
 

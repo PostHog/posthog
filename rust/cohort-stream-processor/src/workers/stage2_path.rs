@@ -23,11 +23,11 @@ use crate::stage1::transition::LeafTransition;
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
 use crate::stage2::CohortEligibility;
-use crate::store::{CohortStore, Stage2Key, StoreError};
+use crate::store::{ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle};
 
-pub fn compose_stage2(
+pub async fn compose_stage2(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     filters: &TeamFilters,
     transitions: &[LeafTransition],
     event_ms: i64,
@@ -57,7 +57,7 @@ pub fn compose_stage2(
             continue;
         };
 
-        let diff = recompute_and_diff(partition_id, person_id, tree, filters, store)?;
+        let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle).await?;
         evaluated += 1;
         if !diff.flipped() {
             continue;
@@ -81,11 +81,11 @@ pub fn compose_stage2(
     }
 
     if !pending.is_empty() {
-        store.write_batch(|batch| {
-            for (key, state) in &pending {
-                batch.put_stage2(key, &state.encode());
-            }
-        })?;
+        let mut staged = StagedBatch::default();
+        for (key, state) in &pending {
+            staged.put_stage2(key, &state.encode());
+        }
+        handle.commit(staged).await?;
     }
 
     counter!(STAGE2_COHORTS_EVALUATED).increment(evaluated);
@@ -120,22 +120,22 @@ impl RecomputeDiff {
 
 /// Recompute one cohort's membership and diff against the stored `cf_stage2` bit. Reads only — the
 /// caller stages the write, so it owns the produce/commit ordering.
-pub(crate) fn recompute_and_diff(
+pub(crate) async fn recompute_and_diff(
     partition_id: u16,
     person_id: Uuid,
     tree: &CohortTree,
     filters: &TeamFilters,
-    store: &CohortStore,
+    handle: &StoreHandle,
 ) -> Result<RecomputeDiff, StoreError> {
     let team_id = tree.team_id.0 as u64;
-    let new_bit = evaluate_cohort(partition_id, team_id, person_id, tree, filters, store)?;
+    let new_bit = evaluate_cohort(partition_id, team_id, person_id, tree, filters, handle).await?;
     let stage2_key = Stage2Key {
         partition_id,
         team_id,
         cohort_id: tree.cohort_id.0 as u64,
         person_id,
     };
-    let prior_bit = read_stage2_bit(store, &stage2_key)?;
+    let prior_bit = read_stage2_bit(handle, &stage2_key).await?;
     Ok(RecomputeDiff {
         new_bit,
         prior_bit,
@@ -145,13 +145,13 @@ pub(crate) fn recompute_and_diff(
 
 /// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;
 /// a cohort-reference leaf reads the referenced cohort's stored membership (see [`resolve_ref_membership`]).
-fn evaluate_cohort(
+async fn evaluate_cohort(
     partition_id: u16,
     team_id: u64,
     person_id: Uuid,
     tree: &CohortTree,
     filters: &TeamFilters,
-    store: &CohortStore,
+    handle: &StoreHandle,
 ) -> Result<bool, StoreError> {
     let mut lsks = Vec::new();
     collect_leaf_state_keys(&tree.root, &mut lsks);
@@ -165,7 +165,7 @@ fn evaluate_cohort(
             person_id,
         })
         .collect();
-    let raw = store.multi_get_stage1(&keys)?;
+    let raw = handle.multi_get_stage1(keys, ReadLane::Event).await?;
 
     let mut membership: HashMap<LeafStateKey, bool> = HashMap::with_capacity(lsks.len());
     for (lsk, bytes) in lsks.iter().zip(raw) {
@@ -177,7 +177,7 @@ fn evaluate_cohort(
     }
 
     let ref_membership =
-        resolve_ref_membership(partition_id, team_id, person_id, tree, filters, store)?;
+        resolve_ref_membership(partition_id, team_id, person_id, tree, filters, handle).await?;
 
     Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
 }
@@ -186,13 +186,13 @@ fn evaluate_cohort(
 /// A `SingleLeaf` referent is read from `cf_stage1` via [`leaf_membership`] (so its comparator
 /// applies); a composable referent from its stored `cf_stage2` bit; anything else as non-member.
 /// One batched read per store.
-fn resolve_ref_membership(
+async fn resolve_ref_membership(
     partition_id: u16,
     team_id: u64,
     person_id: Uuid,
     tree: &CohortTree,
     filters: &TeamFilters,
-    store: &CohortStore,
+    handle: &StoreHandle,
 ) -> Result<HashMap<CohortId, bool>, StoreError> {
     let mut ref_ids = Vec::new();
     collect_cohort_refs(&tree.root, &mut ref_ids);
@@ -226,7 +226,7 @@ fn resolve_ref_membership(
                 person_id,
             })
             .collect();
-        let raw = store.multi_get_stage1(&keys)?;
+        let raw = handle.multi_get_stage1(keys, ReadLane::Event).await?;
         for ((ref_id, lsk), bytes) in single_leaf_refs.iter().zip(raw) {
             let bit = filters
                 .by_lsk
@@ -247,7 +247,7 @@ fn resolve_ref_membership(
                 person_id,
             })
             .collect();
-        let raw = store.multi_get_stage2(&keys)?;
+        let raw = handle.multi_get_stage2(keys).await?;
         for (ref_id, bytes) in composable_refs.iter().zip(raw) {
             ref_membership.insert(*ref_id, decode_stage2_bit(bytes));
         }
@@ -269,8 +269,8 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
 }
 
 /// The stored `cf_stage2` membership bit for `key`, `false` when absent or undecodable.
-fn read_stage2_bit(store: &CohortStore, key: &Stage2Key) -> Result<bool, StoreError> {
-    Ok(decode_stage2_bit(store.get_stage2(key)?))
+async fn read_stage2_bit(handle: &StoreHandle, key: &Stage2Key) -> Result<bool, StoreError> {
+    Ok(decode_stage2_bit(handle.get_stage2(key).await?))
 }
 
 /// Decode a `cf_stage2` value into its membership bit, `false` when absent or undecodable.
@@ -318,6 +318,9 @@ fn collect_cohort_refs(node: &FilterNode, out: &mut Vec<CohortId>) {
 }
 
 #[cfg(test)]
+// The tests drive the store directly through `CohortStore` (seeding via `write_batch`), the
+// sanctioned direct-store surface for tests.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use chrono_tz::UTC;
@@ -328,7 +331,7 @@ mod tests {
     use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::transition::TransitionKind;
-    use crate::store::StoreConfig;
+    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig};
 
     const TEAM: u64 = 7;
     const PARTITION: u16 = 0;
@@ -345,6 +348,19 @@ mod tests {
         })
         .unwrap();
         (dir, store)
+    }
+
+    /// A facade over the store in the default `All` operating point, so the compose paths exercise the
+    /// blocking-pool transport the production workers use.
+    fn handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
     }
 
     fn behavioral_leaf(window_days: i64) -> Value {
@@ -462,8 +478,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn entered_when_the_and_is_satisfied() {
+    #[tokio::test]
+    async fn entered_when_the_and_is_satisfied() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
@@ -474,12 +490,13 @@ mod tests {
 
         let changes = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
 
         assert_eq!(changes.len(), 1);
@@ -491,8 +508,8 @@ mod tests {
         assert_eq!(stage2_bit(&store, 1, alice), Some(true), "bit committed");
     }
 
-    #[test]
-    fn no_emit_until_the_second_leaf_flips() {
+    #[tokio::test]
+    async fn no_emit_until_the_second_leaf_flips() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
@@ -501,12 +518,13 @@ mod tests {
         write_stage1(&store, beh_lsk, alice, behavioral_match());
         let phase_a = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert!(phase_a.is_empty(), "one leaf does not satisfy the AND");
         assert_eq!(
@@ -518,7 +536,7 @@ mod tests {
         write_stage1(&store, per_lsk, alice, person_state(true));
         let phase_b = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(
                 per_lsk,
@@ -529,14 +547,15 @@ mod tests {
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(phase_b.len(), 1);
         assert_eq!(phase_b[0].status, MembershipStatus::Entered);
         assert_eq!(stage2_bit(&store, 1, alice), Some(true));
     }
 
-    #[test]
-    fn left_when_a_leaf_drops() {
+    #[tokio::test]
+    async fn left_when_a_leaf_drops() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
@@ -546,12 +565,13 @@ mod tests {
         write_stage1(&store, per_lsk, alice, person_state(true));
         let entered = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
@@ -559,7 +579,7 @@ mod tests {
         write_stage1(&store, per_lsk, alice, person_state(false));
         let left = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(
                 per_lsk,
@@ -570,6 +590,7 @@ mod tests {
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].status, MembershipStatus::Left);
@@ -580,8 +601,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn idempotent_re_evaluation_emits_once() {
+    #[tokio::test]
+    async fn idempotent_re_evaluation_emits_once() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
@@ -591,23 +612,25 @@ mod tests {
 
         let first = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(first.len(), 1, "the first evaluation enters");
 
         let second = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert!(
             second.is_empty(),
@@ -615,8 +638,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn dedups_when_one_event_flips_two_leaves_of_one_cohort() {
+    #[tokio::test]
+    async fn dedups_when_one_event_flips_two_leaves_of_one_cohort() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), behavioral_leaf(30)]);
         let lsks = &filters.by_condition_to_lsk[&HASH];
@@ -627,7 +650,7 @@ mod tests {
 
         let changes = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[
                 transition(lsks[0], alice, HASH, TransitionKind::Entered),
@@ -636,6 +659,7 @@ mod tests {
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
 
         assert_eq!(
@@ -646,8 +670,8 @@ mod tests {
         assert_eq!(changes[0].status, MembershipStatus::Entered);
     }
 
-    #[test]
-    fn composes_a_performed_event_multiple_leaf_via_variant_dispatch() {
+    #[tokio::test]
+    async fn composes_a_performed_event_multiple_leaf_via_variant_dispatch() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![daily_leaf(7, "gte", 2), person_leaf()]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
@@ -658,12 +682,13 @@ mod tests {
 
         let changes = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(
             changes.len(),
@@ -678,12 +703,13 @@ mod tests {
         write_stage1(&store2, per_lsk, alice, person_state(true));
         let below = compose_stage2(
             PARTITION,
-            &store2,
+            &handle(&store2),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert!(
             below.is_empty(),
@@ -691,8 +717,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn transitions_touching_no_composable_cohort_emit_nothing() {
+    #[tokio::test]
+    async fn transitions_touching_no_composable_cohort_emit_nothing() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7)]);
         let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
@@ -701,12 +727,13 @@ mod tests {
 
         let changes = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert!(
             changes.is_empty(),
@@ -723,8 +750,8 @@ mod tests {
         })
     }
 
-    #[test]
-    fn negated_leaf_absent_means_entered() {
+    #[tokio::test]
+    async fn negated_leaf_absent_means_entered() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), negated_person_leaf()]);
         let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
@@ -734,19 +761,20 @@ mod tests {
 
         let changes = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].status, MembershipStatus::Entered);
     }
 
-    #[test]
-    fn negated_leaf_present_means_left() {
+    #[tokio::test]
+    async fn negated_leaf_present_means_left() {
         let (_dir, store) = temp_store();
         let filters = freeze(vec![behavioral_leaf(7), negated_person_leaf()]);
         let (beh_lsk, per_lsk) = and_leaf_keys(&filters);
@@ -755,12 +783,13 @@ mod tests {
         write_stage1(&store, beh_lsk, alice, behavioral_match());
         let entered = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
@@ -768,7 +797,7 @@ mod tests {
         write_stage1(&store, per_lsk, alice, person_state(true));
         let left = compose_stage2(
             PARTITION,
-            &store,
+            &handle(&store),
             &filters,
             &[transition(
                 per_lsk,
@@ -779,6 +808,7 @@ mod tests {
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].status, MembershipStatus::Left);
@@ -830,15 +860,15 @@ mod tests {
     }
 
     /// Compose after flipping cohort 1's own person leaf.
-    fn compose_referrer_on_own_leaf(
-        store: &CohortStore,
+    async fn compose_referrer_on_own_leaf(
+        handle: &StoreHandle,
         filters: &TeamFilters,
         who: Uuid,
     ) -> Vec<CohortMembershipChange> {
         let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         compose_stage2(
             PARTITION,
-            store,
+            handle,
             filters,
             &[transition(
                 per_lsk,
@@ -849,11 +879,12 @@ mod tests {
             EVENT_MS,
             TS,
         )
+        .await
         .unwrap()
     }
 
-    #[test]
-    fn composable_ref_reads_a_single_leaf_referent_from_cf_stage1_via_its_op() {
+    #[tokio::test]
+    async fn composable_ref_reads_a_single_leaf_referent_from_cf_stage1_via_its_op() {
         let filters = freeze_cascade(
             vec![
                 (2, vec![daily_leaf(7, "gte", 2)]),
@@ -873,7 +904,7 @@ mod tests {
         let (_dir, store) = temp_store();
         write_stage1(&store, ref2_lsk, alice, daily_state(2));
         write_stage1(&store, per_lsk, alice, person_state(true));
-        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].cohort_id, 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
@@ -882,15 +913,15 @@ mod tests {
         let (_dir2, store2) = temp_store();
         write_stage1(&store2, ref2_lsk, alice, daily_state(1));
         write_stage1(&store2, per_lsk, alice, person_state(true));
-        let below = compose_referrer_on_own_leaf(&store2, &filters, alice);
+        let below = compose_referrer_on_own_leaf(&handle(&store2), &filters, alice).await;
         assert!(
             below.is_empty(),
             "count 1 fails the referent's gte 2, so the referrer's AND is unsatisfied",
         );
     }
 
-    #[test]
-    fn composable_ref_reads_a_composable_referent_from_cf_stage2_verbatim() {
+    #[tokio::test]
+    async fn composable_ref_reads_a_composable_referent_from_cf_stage2_verbatim() {
         let filters = freeze_cascade(
             vec![
                 // Two distinct leaves make cohort 2 composable, so its membership lives in cf_stage2.
@@ -912,14 +943,14 @@ mod tests {
         write_stage2(&store, 2, alice, true);
         write_stage1(&store, per_lsk, alice, person_state(true));
 
-        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].cohort_id, 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
     }
 
-    #[test]
-    fn composable_ref_absent_referent_reads_non_member() {
+    #[tokio::test]
+    async fn composable_ref_absent_referent_reads_non_member() {
         let filters = freeze_cascade(
             vec![
                 (2, vec![daily_leaf(7, "gte", 2)]),
@@ -932,15 +963,15 @@ mod tests {
 
         let (_dir, store) = temp_store();
         write_stage1(&store, per_lsk, alice, person_state(true));
-        let changes = compose_referrer_on_own_leaf(&store, &filters, alice);
+        let changes = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert!(
             changes.is_empty(),
             "an absent referent reads as a non-member, so the AND is unsatisfied",
         );
     }
 
-    #[test]
-    fn composable_ref_negated_absent_referent_enters() {
+    #[tokio::test]
+    async fn composable_ref_negated_absent_referent_enters() {
         let filters = freeze_cascade(
             vec![
                 (2, vec![daily_leaf(7, "gte", 2)]),
@@ -958,14 +989,14 @@ mod tests {
         // Referent 2 absent → negated ref reads true → Entered.
         let (_dir, store) = temp_store();
         write_stage1(&store, per_lsk, alice, person_state(true));
-        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        let entered = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert_eq!(entered.len(), 1);
         assert_eq!(entered[0].cohort_id, 1);
         assert_eq!(entered[0].status, MembershipStatus::Entered);
     }
 
-    #[test]
-    fn composable_ref_is_dormant_when_the_gate_is_off() {
+    #[tokio::test]
+    async fn composable_ref_is_dormant_when_the_gate_is_off() {
         // Gate off: cohort 1 stays Excluded(HasCohortRef), is absent from the composable map, and
         // emits nothing even though both its own leaf and the referent are satisfied.
         let filters = freeze_cascade(
@@ -982,7 +1013,7 @@ mod tests {
         let (_dir, store) = temp_store();
         write_stage1(&store, ref2_lsk, alice, daily_state(2));
         write_stage1(&store, per_lsk, alice, person_state(true));
-        let changes = compose_referrer_on_own_leaf(&store, &filters, alice);
+        let changes = compose_referrer_on_own_leaf(&handle(&store), &filters, alice).await;
         assert!(
             changes.is_empty(),
             "gate off: the ref cohort is not in the composable map, so compose_stage2 skips it",

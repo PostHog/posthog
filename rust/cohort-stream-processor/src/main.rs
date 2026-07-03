@@ -38,7 +38,7 @@ use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
-use cohort_stream_processor::store::CohortStore;
+use cohort_stream_processor::store::{CohortStore, StoreHandle};
 use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
 use cohort_stream_processor::workers::MergeWorkerDeps;
 
@@ -212,19 +212,25 @@ async fn async_main(config: Config) -> Result<()> {
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
-    // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
+    // needs its own raw-store handle and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
+    // The checkpoint sweeper keeps the raw `CohortStore` (it runs its own `spawn_blocking` under a
+    // must-not-panic policy that conflicts with the facade's `resume_unwind` — see checkpoint.rs).
     let store_for_checkpoint = store.clone();
-    let store_for_stats = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
     let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
 
+    // The async facade over the store: the only store surface the dispatcher, its workers, and the
+    // stats sweeper see. Cheap to clone (the inner store is `Arc`-backed).
+    let handle = StoreHandle::new(store, config.offload_config());
+    let handle_for_stats = handle.clone();
+
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
-        store,
+        handle,
         catalog.clone(),
         sink,
         merge_deps,
@@ -415,7 +421,7 @@ async fn async_main(config: Config) -> Result<()> {
     // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
     // separate monitor.
     tokio::spawn(run_sweep_loop(
-        StoreStatsSweeper::new(store_for_stats),
+        StoreStatsSweeper::new(handle_for_stats),
         config.stats_publish_interval(),
         "store_stats",
         consumer_handle.shutdown_token(),

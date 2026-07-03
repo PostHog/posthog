@@ -3,6 +3,10 @@
 //! `cf_stage1` and the same leaf transitions. Covers a matching name, a non-matching name, and
 //! numeric-looking names (`"0"` vs `"0.0"`) that must not cross-match.
 
+// This test drives the store directly through `CohortStore` for seeding and assertions — the
+// sanctioned direct-store surface for tests.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 
 use chrono_tz::UTC;

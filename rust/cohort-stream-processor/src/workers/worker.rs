@@ -38,11 +38,11 @@ use crate::producer::{
 use crate::stage1::key::Stage1Key;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::{CohortStore, IndexOp, PersonIndexKey};
+use crate::store::{IndexOp, PersonIndexKey, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
-    process_event_with_memo, schedule_deadline, EventNameGating, SkipReason,
+    process_event_offloaded, schedule_deadline, EventNameGating, SkipReason,
 };
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
@@ -58,6 +58,11 @@ use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReaso
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
+
+/// Chunk size for a team's sweep-state prefetch. The keys are read in fixed-size batches so each
+/// `multi_get_stage1` call spans a bounded number of keys — capping the time any single read op holds
+/// before the sweep can make progress.
+const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
 /// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
@@ -75,7 +80,7 @@ impl Stage1Worker {
     pub fn spawn(
         partition_id: u16,
         receiver: MeteredReceiver,
-        store: CohortStore,
+        store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
@@ -102,7 +107,7 @@ impl Stage1Worker {
     pub fn spawn_with_memo(
         partition_id: u16,
         receiver: MeteredReceiver,
-        store: CohortStore,
+        store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
@@ -142,7 +147,7 @@ impl Stage1Worker {
 async fn run_worker(
     partition_id: u16,
     mut receiver: MeteredReceiver,
-    store: CohortStore,
+    handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
@@ -158,7 +163,7 @@ async fn run_worker(
     let mut person_memo = PersonMemo::new(person_memo);
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
-        rebuild_eviction_queue(partition_id, &store, &mut queue).await;
+        rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
@@ -181,14 +186,15 @@ async fn run_worker(
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
                     let effects = handle_event(
                         partition_id,
-                        &store,
+                        &handle,
                         &catalog,
                         &event,
                         &last_updated,
                         merge.partition_count,
                         &mut person_memo,
                         event_name_gating,
-                    );
+                    )
+                    .await;
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
                         queue.schedule(key, deadline);
@@ -208,7 +214,7 @@ async fn run_worker(
                     }
                     handle_sweep(
                         partition_id,
-                        &store,
+                        &handle,
                         &catalog,
                         &sink,
                         &merge,
@@ -231,7 +237,7 @@ async fn run_worker(
                     }
                     handle_merge(
                         partition_id,
-                        &store,
+                        &handle,
                         &catalog,
                         &sink,
                         &merge,
@@ -255,7 +261,7 @@ async fn run_worker(
                     }
                     handle_apply(
                         partition_id,
-                        &store,
+                        &handle,
                         &catalog,
                         &sink,
                         &merge,
@@ -279,7 +285,7 @@ async fn run_worker(
                     }
                     handle_cascade(
                         partition_id,
-                        &store,
+                        &handle,
                         &catalog,
                         &sink,
                         &merge,
@@ -290,28 +296,51 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::RedrivePendingTransfers => {
-                    handle_redrive(partition_id, &store, &merge).await;
+                    handle_redrive(partition_id, &handle, &merge).await;
                 }
                 ShuffleMessage::MergeCfGc {
                     marker_cutoff_ms,
                     tombstone_cutoff_ms,
                 } => {
-                    handle_merge_gc(
-                        partition_id,
-                        &store,
-                        &mut gc_cursor,
-                        marker_cutoff_ms,
-                        tombstone_cutoff_ms,
-                        merge.gc_scan_limit,
-                    );
+                    // Run each GC pass as a whole sync section on the blocking pool. The in-memory
+                    // resume cursor moves in and comes back out by value; a teardown cancellation
+                    // resets it to `Default`, which is benign — the GC re-scans from the prefix start
+                    // next tenure, exactly as it does after a rebalance.
+                    let scan_limit = merge.gc_scan_limit;
+                    let mut cursor = std::mem::take(&mut gc_cursor);
+                    gc_cursor = handle
+                        .run_section("merge_gc", move |store| {
+                            handle_merge_gc(
+                                partition_id,
+                                store,
+                                &mut cursor,
+                                marker_cutoff_ms,
+                                tombstone_cutoff_ms,
+                                scan_limit,
+                            );
+                            cursor
+                        })
+                        .await
+                        .unwrap_or_default();
                     if merge.stage2_orphan_gc_enabled {
-                        handle_stage2_orphan_gc(
-                            partition_id,
-                            &store,
-                            &catalog,
-                            &mut stage2_gc_cursor,
-                            merge.gc_scan_limit,
-                        );
+                        // An `Arc<CatalogHandle>` clone moves into the section so the handler keeps
+                        // its two safety gates (is_loaded, empty-catalog) unchanged; the cursor makes
+                        // the same by-value round-trip as the merge GC above.
+                        let catalog = catalog.clone();
+                        let mut cursor = std::mem::take(&mut stage2_gc_cursor);
+                        stage2_gc_cursor = handle
+                            .run_section("stage2_orphan_gc", move |store| {
+                                handle_stage2_orphan_gc(
+                                    partition_id,
+                                    store,
+                                    &catalog,
+                                    &mut cursor,
+                                    scan_limit,
+                                );
+                                cursor
+                            })
+                            .await
+                            .unwrap_or_default();
                     }
                 }
             }
@@ -493,9 +522,9 @@ struct EventEffects {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_event(
+async fn handle_event(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     event: &CohortStreamEvent,
     last_updated: &str,
@@ -513,7 +542,7 @@ fn handle_event(
     let filters: &TeamFilters = team_filters;
 
     let resolved: Cow<'_, CohortStreamEvent> =
-        match redirect_for_tombstone(partition_id, store, event, partition_count) {
+        match redirect_for_tombstone(partition_id, handle, event, partition_count).await {
             Redirected::Process(event) => event,
             Redirected::ReKey(re_keyed) => {
                 return EventEffects {
@@ -524,15 +553,16 @@ fn handle_event(
         };
 
     let started = Instant::now();
-    let result = process_event_with_memo(
+    let result = process_event_offloaded(
         partition_id,
-        store,
+        handle,
         filters,
         generation,
         &resolved,
         person_memo,
         event_name_gating,
-    );
+    )
+    .await;
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
     match result {
@@ -551,12 +581,14 @@ fn handle_event(
             }
             match compose_stage2(
                 partition_id,
-                store,
+                handle,
                 filters,
                 &outcome.transitions,
                 outcome.event_ms,
                 last_updated,
-            ) {
+            )
+            .await
+            {
                 Ok(stage2_changes) => changes.extend(stage2_changes),
                 Err(error) => warn!(
                     partition_id,
@@ -589,22 +621,24 @@ enum Redirected<'a> {
     ReKey(CohortStreamEvent),
 }
 
-fn redirect_for_tombstone<'a>(
+async fn redirect_for_tombstone<'a>(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     event: &'a CohortStreamEvent,
     partition_count: u32,
 ) -> Redirected<'a> {
     let Ok(person_id) = Uuid::parse_str(&event.person_id) else {
         return Redirected::Process(Cow::Borrowed(event));
     };
-    let resolution = match tombstone_redirect::resolve(
-        store,
+    let resolution = match tombstone_redirect::resolve_offloaded(
+        handle,
         partition_id,
         TeamId(event.team_id),
         person_id,
         partition_count,
-    ) {
+    )
+    .await
+    {
         Ok(resolution) => resolution,
         Err(error) => {
             warn!(
@@ -660,7 +694,7 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
 #[allow(clippy::too_many_arguments)]
 async fn handle_sweep(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
@@ -694,29 +728,47 @@ async fn handle_sweep(
             continue;
         };
         let filters: &TeamFilters = filters;
-        match sweep_evict(filters, keys, store, due_before_ms) {
-            Ok(evictions) => {
-                for result in &evictions.results {
-                    if let Some(transition) = &result.transition {
-                        if let Some(kind) = transition_metric_label(filters, transition) {
-                            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-                        }
-                        changes.extend(map_transition(filters, transition, last_updated));
-                    }
+        // Prefetch the team's states in bounded chunks so no single read op spans the whole wave. A
+        // read failure anywhere in the team reschedules the whole team's keys and applies none of it
+        // (the per-team retry semantics), so gather every chunk before evicting.
+        let mut values: Vec<Option<Vec<u8>>> = Vec::with_capacity(keys.len());
+        let mut read_failed = false;
+        for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
+            // Maintenance lane: the permit rotates between chunks so no single read op spans the whole
+            // wave, keeping each op short against the shutdown grace and fair against event reads.
+            match handle
+                .multi_get_stage1(chunk.to_vec(), ReadLane::Maintenance)
+                .await
+            {
+                Ok(chunk_values) => values.extend(chunk_values),
+                Err(error) => {
+                    warn!(
+                        partition_id,
+                        team_id,
+                        error = %error,
+                        "sweep state read failed; rescheduling the team's keys for retry",
+                    );
+                    reschedule_team(queue, &popped, *team_id);
+                    read_failed = true;
+                    break;
                 }
-                results.extend(evictions.results);
-                drops.extend(evictions.drops);
-            }
-            Err(error) => {
-                warn!(
-                    partition_id,
-                    team_id,
-                    error = %error,
-                    "sweep state read failed; rescheduling the team's keys for retry",
-                );
-                reschedule_team(queue, &popped, *team_id);
             }
         }
+        if read_failed {
+            continue;
+        }
+
+        let evictions = sweep_evict(filters, keys, values, due_before_ms);
+        for result in &evictions.results {
+            if let Some(transition) = &result.transition {
+                if let Some(kind) = transition_metric_label(filters, transition) {
+                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
+                }
+                changes.extend(map_transition(filters, transition, last_updated));
+            }
+        }
+        results.extend(evictions.results);
+        drops.extend(evictions.drops);
     }
 
     if !changes.is_empty() {
@@ -733,24 +785,24 @@ async fn handle_sweep(
     }
 
     if !results.is_empty() {
-        let written = store.write_batch(|batch| {
-            for result in &results {
-                match &result.action {
-                    EvictionAction::Write(bytes) => batch.put_stage1(&result.key, bytes),
-                    EvictionAction::Delete => {
-                        batch.delete_stage1(&result.key);
-                        batch.merge_person_index(
-                            &PersonIndexKey {
-                                partition_id: result.key.partition_id,
-                                team_id: result.key.team_id,
-                                person_id: result.key.person_id,
-                            },
-                            IndexOp::Remove(result.key.leaf_state_key),
-                        );
-                    }
+        let mut staged = StagedBatch::default();
+        for result in &results {
+            match &result.action {
+                EvictionAction::Write(bytes) => staged.put_stage1(&result.key, bytes),
+                EvictionAction::Delete => {
+                    staged.delete_stage1(&result.key);
+                    staged.merge_person_index(
+                        &PersonIndexKey {
+                            partition_id: result.key.partition_id,
+                            team_id: result.key.team_id,
+                            person_id: result.key.person_id,
+                        },
+                        IndexOp::Remove(result.key.leaf_state_key),
+                    );
                 }
             }
-        });
+        }
+        let written = handle.commit(staged).await;
         if let Err(error) = written {
             warn!(
                 partition_id,
@@ -790,12 +842,14 @@ async fn handle_sweep(
         let filters: &TeamFilters = filters;
         match compose_stage2(
             partition_id,
-            store,
+            handle,
             filters,
             transitions,
             due_before_ms,
             last_updated,
-        ) {
+        )
+        .await
+        {
             Ok(changes) => stage2_changes.extend(changes),
             Err(error) => warn!(
                 partition_id,
@@ -836,13 +890,17 @@ async fn handle_sweep(
 /// stops early; new events reschedule any missing keys.
 async fn rebuild_eviction_queue(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     queue: &mut EvictionQueue<Stage1Key>,
 ) {
     let mut cursor: Option<Vec<u8>> = None;
     let mut rebuilt: u64 = 0;
     loop {
-        let page = match store.scan_stage1(partition_id, cursor.as_deref(), REBUILD_SCAN_PAGE) {
+        // Maintenance lane inside the facade: the boot rebuild scans off the runtime threads.
+        let page = match handle
+            .scan_stage1(partition_id, cursor.clone(), REBUILD_SCAN_PAGE)
+            .await
+        {
             Ok(page) => page,
             Err(err) => {
                 warn!(
@@ -929,6 +987,9 @@ pub(crate) fn transition_metric_label(
 }
 
 #[cfg(test)]
+// The tests seed and assert against the store directly through `CohortStore` (the sanctioned
+// direct-store surface for tests) while driving the workers through the `StoreHandle` facade.
+#[allow(clippy::disallowed_methods)]
 mod tombstone_redirect_tests {
     use super::*;
     use chrono_tz::UTC;
@@ -945,7 +1006,9 @@ mod tombstone_redirect_tests {
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::stage2::state::Stage2State;
-    use crate::store::{Stage2Key, StoreConfig, TombstoneKey};
+    use crate::store::{
+        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, TombstoneKey,
+    };
     use crate::workers::merge_path::TransferRetryPolicy;
     use crate::workers::CascadeConfig;
 
@@ -960,6 +1023,19 @@ mod tombstone_redirect_tests {
         })
         .unwrap();
         (dir, store)
+    }
+
+    /// Wrap a test store in the default `All` operating point (permits 16/6) so the workers and the
+    /// direct `handle_event` calls exercise the same blocking-pool transport production uses.
+    fn test_handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
     }
 
     fn person_catalog() -> Arc<CatalogHandle> {
@@ -1197,7 +1273,7 @@ mod tombstone_redirect_tests {
         let worker = Stage1Worker::spawn(
             partition_id,
             rx,
-            store.clone(),
+            test_handle(store),
             catalog,
             Arc::new(membership.clone()),
             tracker.clone(),
@@ -1263,8 +1339,8 @@ mod tombstone_redirect_tests {
             .unwrap();
     }
 
-    #[test]
-    fn inline_redirect_folds_into_redirect_dedup_origin_not_the_main_map() {
+    #[tokio::test]
+    async fn inline_redirect_folds_into_redirect_dedup_origin_not_the_main_map() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -1291,14 +1367,15 @@ mod tombstone_redirect_tests {
         let straggler = person_event(p_old, "u@p.com", 5, 101);
         let effects = handle_event(
             partition_id,
-            &store,
+            &test_handle(&store),
             &catalog,
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1531,8 +1608,8 @@ mod tombstone_redirect_tests {
         );
     }
 
-    #[test]
-    fn re_keyed_event_folds_into_p_new_exactly_once_via_redirect_dedup() {
+    #[tokio::test]
+    async fn re_keyed_event_folds_into_p_new_exactly_once_via_redirect_dedup() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -1540,18 +1617,20 @@ mod tombstone_redirect_tests {
         let target_partition = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as u16;
         assert_ne!(source_partition, target_partition);
         write_tombstone(&store, source_partition, p_old, p_new);
+        let handle = test_handle(&store);
 
         let straggler = person_event(p_old, "u@p.com", 5, 9);
         let mut effects = handle_event(
             source_partition,
-            &store,
+            &handle,
             &catalog,
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
         assert_eq!(effects.re_keys.len(), 1);
@@ -1559,14 +1638,15 @@ mod tombstone_redirect_tests {
 
         let effects = handle_event(
             target_partition,
-            &store,
+            &handle,
             &catalog,
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
         assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
@@ -1590,20 +1670,21 @@ mod tombstone_redirect_tests {
 
         let dup = handle_event(
             target_partition,
-            &store,
+            &handle,
             &catalog,
             &re_keyed,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
     }
 
-    #[test]
-    fn hop_capped_redirect_processes_inline_at_the_best_known_target() {
+    #[tokio::test]
+    async fn hop_capped_redirect_processes_inline_at_the_best_known_target() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -1616,14 +1697,15 @@ mod tombstone_redirect_tests {
         };
         let effects = handle_event(
             partition_id,
-            &store,
+            &test_handle(&store),
             &catalog,
             &straggler,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
         assert_eq!(effects.changes.len(), 1, "processed inline instead");
@@ -1649,8 +1731,8 @@ mod tombstone_redirect_tests {
         );
     }
 
-    #[test]
-    fn no_tombstone_processes_the_event_normally() {
+    #[tokio::test]
+    async fn no_tombstone_processes_the_event_normally() {
         let (_dir, store) = temp_store();
         let catalog = person_catalog();
         let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
@@ -1660,14 +1742,15 @@ mod tombstone_redirect_tests {
         let event = person_event(alice, "u@p.com", 5, 0);
         let effects = handle_event(
             partition_id,
-            &store,
+            &test_handle(&store),
             &catalog,
             &event,
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
             EventNameGating::Disabled,
-        );
+        )
+        .await;
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());
         assert!(

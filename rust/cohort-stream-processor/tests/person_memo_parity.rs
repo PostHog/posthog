@@ -3,6 +3,10 @@
 //! is non-deterministic). Covers a hit, a property change (fingerprint miss), a generation bump
 //! (re-eval, no stale serve), an out-of-order stale event, and a second person.
 
+// This test drives the store directly through `CohortStore` for seeding and assertions — the
+// sanctioned direct-store surface for tests.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 
 use chrono_tz::UTC;
@@ -13,10 +17,12 @@ use cohort_stream_processor::filters::{
 use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::{LeafTransition, TransitionKind};
-use cohort_stream_processor::store::{CohortStore, StoreConfig};
+use cohort_stream_processor::store::{
+    CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+};
 use cohort_stream_processor::workers::{
-    process_event_with_memo, EventNameGating, EventOutcome, MergeWorkerDeps, PersonMemo,
-    PersonMemoConfig, Stage1Worker,
+    process_event, process_event_with_memo, EventNameGating, EventOutcome, MergeWorkerDeps,
+    PersonMemo, PersonMemoConfig, Stage1Worker,
 };
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -117,6 +123,17 @@ fn temp_store() -> (TempDir, CohortStore) {
     })
     .unwrap();
     (dir, store)
+}
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 /// The partition's full `cf_stage1`, keyed by encoded key bytes (`Stage1Key` is not `Ord`). Two runs
@@ -340,7 +357,7 @@ async fn run_worker_sequence(
     let worker = Stage1Worker::spawn_with_memo(
         PARTITION,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         std::sync::Arc::new(sink.clone()),
         tracker.clone(),
@@ -399,4 +416,120 @@ async fn memo_enabled_worker_matches_a_disabled_worker_end_to_end() {
     );
     assert_eq!(on_statuses, off_statuses, "membership output parity");
     assert_eq!(on_state, off_state, "cf_stage1 parity");
+}
+
+/// The person-index leaves for `person`, sorted so two runs compare regardless of merge order.
+fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<Vec<u8>> {
+    let mut leaves: Vec<Vec<u8>> = store
+        .get_person_index(&cohort_stream_processor::store::PersonIndexKey {
+            partition_id: PARTITION,
+            team_id: TEAM as u64,
+            person_id: person,
+        })
+        .unwrap()
+        .iter()
+        .map(|lsk| lsk.0.to_vec())
+        .collect();
+    leaves.sort_unstable();
+    leaves
+}
+
+/// An enter → hit → leave sequence for one person, as `(props, offset, ts)` triples.
+fn enter_hit_leave() -> [(&'static str, i64, &'static str); 3] {
+    [
+        (PROPS_PRO, 0, "2026-05-26 10:00:00.000000"), // enter (email matches)
+        (PROPS_PRO, 1, "2026-05-26 11:00:00.000000"), // hit, no change
+        (r#"{"email":"x@p.com"}"#, 2, "2026-05-26 12:00:00.000000"), // leave (email stops matching)
+    ]
+}
+
+/// The sync `process_event` composition and the production offloaded worker
+/// composition must agree byte-for-byte. Same single-leaf sequence through sync `process_event` on
+/// store A and through a spawned `All`-mode worker on store B; equal `cf_stage1`, equal person-index,
+/// equal emissions. Catches the two compositions (`process_event` vs `process_event_offloaded`)
+/// drifting — the one risk of keeping a sync twin for the test surface.
+#[tokio::test]
+async fn sync_and_offloaded_process_event_agree() {
+    let alice = Uuid::from_u128(1);
+    // A single person-property leaf: no stage-2 composition, so `cf_stage1` + person-index + the
+    // emitted membership fully capture the event fold both paths share.
+    let leaf = || person_leaf("email", "alice@p.com", EMAIL_ALICE);
+
+    // --- Store A: the sync `process_event` composition, with its own emissions collected. ---
+    let (_a_dir, a_store) = temp_store();
+    let a_filters = team_filters(vec![leaf()]);
+    let mut a_statuses: Vec<MembershipStatus> = Vec::new();
+    for (props, offset, ts) in enter_hit_leave() {
+        let outcome = process_event(
+            PARTITION,
+            &a_store,
+            &a_filters,
+            &event(alice, props, offset, ts),
+        )
+        .unwrap();
+        // A single-leaf cohort emits one membership change per leaf transition; mirror the worker's
+        // per-transition membership production so the emission lists compare.
+        for transition in &outcome.transitions {
+            a_statuses.push(match transition.kind {
+                TransitionKind::Entered => MembershipStatus::Entered,
+                TransitionKind::Left => MembershipStatus::Left,
+            });
+        }
+    }
+
+    // --- Store B: a spawned worker in the default `All` operating point (the production path). ---
+    let (_b_dir, b_store) = temp_store();
+    let b_filters = team_filters(vec![leaf()]);
+    let catalog = std::sync::Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+        TeamId(TEAM),
+        b_filters,
+    )])));
+    let sink = CaptureSink::new();
+    let tracker = std::sync::Arc::new(OffsetTracker::new());
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn_with_memo(
+        PARTITION,
+        rx,
+        test_handle(&b_store),
+        catalog,
+        std::sync::Arc::new(sink.clone()),
+        tracker.clone(),
+        MergeWorkerDeps::capture(),
+        false,
+        PersonMemoConfig::DISABLED,
+        EventNameGating::Disabled,
+    );
+    for (props, offset, ts) in enter_hit_leave() {
+        tracker.mark_dispatched(PARTITION as i32, offset + 1);
+        tx.send(vec![ShuffleMessage::Event {
+            event: Box::new(event(alice, props, offset, ts)),
+            cse_offset: offset,
+        }])
+        .await
+        .unwrap();
+    }
+    drop(tx);
+    worker.join().await.unwrap();
+    let b_statuses: Vec<MembershipStatus> = sink.changes().iter().map(|c| c.status).collect();
+
+    assert_eq!(
+        b_statuses,
+        vec![MembershipStatus::Entered, MembershipStatus::Left],
+        "the offloaded worker enters then leaves",
+    );
+    assert_eq!(
+        a_statuses, b_statuses,
+        "emissions agree (sync vs offloaded)"
+    );
+    assert_eq!(
+        dump_stage1(&a_store),
+        dump_stage1(&b_store),
+        "cf_stage1 bytes agree (sync vs offloaded)",
+    );
+    assert_eq!(
+        person_index_of(&a_store, alice),
+        person_index_of(&b_store, alice),
+        "person-index agrees (sync vs offloaded)",
+    );
 }

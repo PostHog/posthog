@@ -1,5 +1,8 @@
 //! End-to-end tests against a real RocksDB in a temp dir, through the public API only.
 
+// These tests exercise `CohortStore` directly — it IS the API under test here.
+#![allow(clippy::disallowed_methods)]
+
 use cohort_stream_processor::store::{
     Cf, CohortStore, IndexOp, LeafStateKey, MergeAppliedKey, MergeDrainKey, OpaqueCf,
     PendingTransferKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig, TombstoneKey,
