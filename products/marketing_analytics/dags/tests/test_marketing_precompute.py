@@ -29,6 +29,7 @@ _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomp
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
+_DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -321,6 +322,7 @@ class TestCostsWarming(APIBaseTest):
         team = self._make_team("A")
         with (
             patch(_FF, _flag_fn(costs=True)),
+            patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
@@ -336,6 +338,7 @@ class TestCostsWarming(APIBaseTest):
         team = self._make_team("A")
         with (
             patch(_FF, _flag_fn(costs=True)),
+            patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter(materializable=False)])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
@@ -352,6 +355,7 @@ class TestCostsWarming(APIBaseTest):
         team = self._make_team("A")
         with (
             patch(_FF, _flag_fn(costs=True)),
+            patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
@@ -373,6 +377,7 @@ class TestCostsWarming(APIBaseTest):
         src_campaign.supports_level.side_effect = lambda g: g == MarketingAnalyticsDrillDownLevel.CAMPAIGN
         with (
             patch(_FF, _flag_fn(costs=True)),
+            patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
             patch(_FACTORY, return_value=self._fake_factory([src_all, src_campaign])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
@@ -396,6 +401,7 @@ class TestCostsWarming(APIBaseTest):
         db_mock.create_for.side_effect = create_for
         with (
             patch(_FF, _flag_fn(costs=True)),
+            patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
             patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{broken.pk},{healthy.pk}"}),
         ):
@@ -405,3 +411,16 @@ class TestCostsWarming(APIBaseTest):
         assert result["costs_teams"] == 1  # healthy team still warmed
         warmed_teams = {c.kwargs["team"].pk for c in ensure_mock.call_args_list}
         assert warmed_teams == {healthy.pk}
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    @patch(_DB)
+    def test_costs_skipped_when_team_has_no_warehouse_tables(self, db_mock, ensure_mock):
+        # No DataWarehouseTable (real emptiness) → skip before the ~550ms Database.create_for; every cost
+        # adapter needs a warehouse table, so there is nothing to warm.
+        team = self._make_team("A")
+        with patch(_FF, _flag_fn(costs=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result["costs_teams"] == 0
+        db_mock.create_for.assert_not_called()
+        ensure_mock.assert_not_called()

@@ -68,6 +68,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -247,6 +248,13 @@ def _ensure_costs_for_team(
     INSERT is printed userless anyway, so this yields the maximal (and read-identical) adapter set without
     a requesting user. Returns (source_grain_pairs_warmed, failures).
     """
+    # Every cost adapter (native, external, self-managed) needs at least one warehouse table — the factory
+    # filters DataWarehouseTable by the hogql database's table names. With none, discovery yields nothing,
+    # so skip before paying the ~550ms Database.create_for. Safe superset: having tables doesn't guarantee
+    # a valid marketing source, but having none guarantees there isn't one.
+    if not DataWarehouseTable.objects.filter(team_id=team.pk, deleted=False).exists():
+        return 0, 0
+
     # Database.create_for is ~550ms; build once and share across grains/sources for this team.
     database = Database.create_for(
         team=team,
