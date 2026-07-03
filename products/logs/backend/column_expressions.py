@@ -54,6 +54,28 @@ def parse_shorthand(text: str) -> ast.Expr | None:
 # Mirrors posthog.hogql.database.schema.util.where_clause_extractor._ROW_MULTIPLYING_FUNCTIONS.
 _ROW_MULTIPLYING_FUNCTIONS = {"arrayjoin"}
 
+# ClickHouse functions whose output size is driven by a (typically constant) size argument rather than by
+# the row's own data — a reader could submit e.g. `range(1000000000)` or `repeat(body, 1000000000)` and make
+# ClickHouse build a huge array/string for every matching row without multiplying rows, a low-friction
+# availability hit that the row-multiplier check above does not cover. They have no legitimate use in a
+# per-row log column, so we reject them outright rather than trying to bound their argument. Matched
+# case-insensitively.
+_VALUE_GENERATING_FUNCTIONS = {
+    "range",
+    "arraywithconstant",
+    "arrayresize",
+    "repeat",
+    "space",
+    "randomstring",
+    "randomstringutf8",
+    "randomprintableascii",
+    "randomfixedstring",
+    "leftpad",
+    "rightpad",
+    "leftpadutf8",
+    "rightpadutf8",
+}
+
 
 class _ScalarValidator(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -66,15 +88,21 @@ class _ScalarValidator(TraversingVisitor):
         raise ValueError("Custom columns cannot contain placeholders")
 
     def visit_call(self, node: ast.Call) -> None:
+        name = node.name.lower()
         if find_hogql_aggregation(node.name) is not None:
             raise ValueError(f"Custom columns must be per-row: aggregation {node.name!r} is not allowed")
-        if node.name.lower() in _ROW_MULTIPLYING_FUNCTIONS:
+        if name in _ROW_MULTIPLYING_FUNCTIONS:
             raise ValueError(f"Custom columns must be per-row: {node.name!r} can multiply rows and is not allowed")
+        if name in _VALUE_GENERATING_FUNCTIONS:
+            raise ValueError(
+                f"Custom columns must be bounded: {node.name!r} can generate arbitrarily large values and is not allowed"
+            )
         super().visit_call(node)
 
 
 def _validate_scalar(expr: ast.Expr) -> None:
-    """Reject subqueries, aggregations, row-multiplying functions, and unresolved placeholders anywhere in `expr`.
+    """Reject subqueries, aggregations, row-multiplying and value-generating functions, and unresolved
+    placeholders anywhere in `expr`.
 
     Scalar function calls, field access, arithmetic, conditionals, and constants all
     pass. This is an AST check — the expression is never inspected as a string.
