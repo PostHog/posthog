@@ -43,6 +43,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
+from posthog.shared_link_viewer import SharedLinkViewer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
@@ -698,13 +699,15 @@ def custom_404_response(request):
     return render(request, "shared_resource_404.html", status=404)
 
 
-def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: Team) -> dict[str, Any]:
+def _compute_inline_query_results_for_shared_notebook(
+    notebook: Notebook, team: Team, user: Optional[SharedLinkViewer]
+) -> dict[str, Any]:
     """Pre-compute results for every inline (non-saved-insight) ``ph-query`` node in a notebook.
 
     Mirrors the shared-insight path (`InsightSerializer.insight_result`) but for queries that
     live inline in node attrs rather than as a `SavedInsightNode`. Each query is executed under
     `shared_insights_execution_mode`, which uses the cache aggressively and refreshes async if
-    stale — the same throttle dashboards use.
+    stale — the same throttle dashboards use. Queries run as the shared-link viewer.
 
     Returns a map of ``nodeId -> serialized result dict``. Nodes whose query fails to execute
     are silently omitted; the frontend renders ``UnsupportedNodePlaceholder`` for any inline
@@ -723,7 +726,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
                 team,
                 query,
                 execution_mode=execution_mode,
-                user=None,
+                user=user,
             )
             if isinstance(result, BaseModel):
                 serialized = result.model_dump(mode="json")
@@ -924,6 +927,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     message="Failed to parse cache_keys parameter - continuing without it",
                 )
 
+        # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
+        # is a bare AnonymousUser. Build the shared-link viewer from the resolved config so shared
+        # queries execute without warehouse access control.
+        shared_link_viewer = SharedLinkViewer(resource) if isinstance(resource, SharingConfiguration) else None
+
         context = {
             "view": self,
             "request": request,
@@ -932,6 +940,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
+            "shared_link_viewer": shared_link_viewer,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
@@ -1240,7 +1249,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update(
                 {
                     "inline_query_results": _compute_inline_query_results_for_shared_notebook(
-                        resource.notebook, resource.team
+                        resource.notebook, resource.team, shared_link_viewer
                     )
                 }
             )

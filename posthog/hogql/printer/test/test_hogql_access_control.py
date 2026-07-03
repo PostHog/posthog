@@ -765,6 +765,33 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
 
+    def test_shared_link_viewer_skips_warehouse_view_acl_but_hides_system_tables(self):
+        from posthog.models.sharing_configuration import SharingConfiguration
+        from posthog.shared_link_viewer import SharedLinkViewer
+
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        viewer = SharedLinkViewer(SharingConfiguration(team=self.team, enabled=True))
+
+        database = Database.create_for(team=self.team, user=viewer)
+
+        # A shared-link viewer executes without warehouse access control - the deny is skipped.
+        assert "denied_view" not in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
+        # But scoped system tables stay hidden, exactly like a userless build.
+        assert "system.dashboards" in database._denied_tables
+
+    def test_shared_link_viewer_requires_enabled_configuration(self):
+        from posthog.models.sharing_configuration import SharingConfiguration
+        from posthog.shared_link_viewer import SharedLinkViewer
+
+        with self.assertRaises(ValueError):
+            SharedLinkViewer(SharingConfiguration(team=self.team, enabled=False))
+
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
