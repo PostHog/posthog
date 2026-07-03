@@ -16,6 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil import parser
@@ -134,7 +135,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # pipeline's per-probe access-control checks. The progressive-window loop probes several
         # windows on this sparse dataset; the HogQL schema is built once and shared across them.
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
-        expected_queries = 24
+        expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

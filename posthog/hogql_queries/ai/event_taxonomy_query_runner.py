@@ -77,32 +77,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         count_expr = ast.Constant(value=self.query.maxPropertyValues or 5)
 
-        if not self.query.properties:
-            return parse_select(
-                """
-                SELECT
-                    key,
-                    -- Pick five latest distinct sample values.
-                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
-                    count(distinct value) AS total_count
-                FROM {from_query}
-                ARRAY JOIN kv.1 AS key, kv.2 AS value
-                WHERE {filter} AND value IS NOT NULL AND value != ''
-                GROUP BY key
-                ORDER BY total_count DESC
-            """,
-                placeholders={
-                    "from_query": self._get_subquery(),
-                    "filter": self._get_omit_filter(),
-                    "count": count_expr,
-                },
-            )
-
         return parse_select(
             """
                 SELECT
                     key,
-                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
+                    arrayMap(item -> item.3, arraySlice(reverse(arraySort(item -> (item.1, item.2, item.3), groupArray((value_count, latest_seen, value)))), 1, {count})) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
@@ -201,10 +180,12 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     SELECT
                         key,
                         value,
-                        count() as count
+                        count() as value_count,
+                        max(timestamp) as latest_seen
                     FROM (
                         SELECT
-                            {props} as kv
+                            {props} as kv,
+                            timestamp
                         FROM
                             events
                         WHERE {filter}
@@ -212,7 +193,6 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
                     WHERE value IS NOT NULL AND value != ''
                     GROUP BY key, value
-                    ORDER BY count DESC
                 """,
                 placeholders={
                     "props": ast.Array(
@@ -235,15 +215,29 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         else:
             query = parse_select(
                 """
-                SELECT
-                    JSONExtractKeysAndValues(properties, 'String') as kv
-                FROM
-                    events
-                WHERE {filter}
-                ORDER BY timestamp desc
-                LIMIT 100
-            """,
-                placeholders={"filter": self._get_subquery_filter()},
+                        SELECT
+                            key,
+                            value,
+                            count() as value_count,
+                            max(timestamp) as latest_seen
+                        FROM (
+                            SELECT
+                                JSONExtractKeysAndValues(properties, 'String') as kv,
+                                timestamp
+                            FROM
+                                events
+                            WHERE {subquery_filter}
+                            ORDER BY timestamp desc
+                            LIMIT 100
+                        )
+                        ARRAY JOIN kv.1 AS key, kv.2 AS value
+                        WHERE {omit_filter} AND value IS NOT NULL AND value != ''
+                        GROUP BY key, value
+                    """,
+                placeholders={
+                    "subquery_filter": self._get_subquery_filter(),
+                    "omit_filter": self._get_omit_filter(),
+                },
             )
 
         return cast(ast.SelectQuery, query)

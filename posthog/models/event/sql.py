@@ -153,10 +153,10 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_typ
 )
 
 
-def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
-    explicit_paths = ", ".join(_quote_clickhouse_string_literal(path) for path in EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+def _json_present_paths(properties_expr: str, subcolumns: dict[str, str]) -> str:
+    explicit_paths = ", ".join(_quote_clickhouse_string_literal(path) for path in subcolumns)
     present_typed_paths = []
-    for path, column_type in EVENTS_PROPERTIES_JSON_SUBCOLUMNS.items():
+    for path, column_type in subcolumns.items():
         subcolumn = f"{properties_expr}.{_escape_clickhouse_identifier(path)}"
         literal = _quote_clickhouse_string_literal(path)
         if column_type.startswith("Nullable("):
@@ -170,6 +170,10 @@ def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
         f"arrayFilter(path -> notEmpty(path), [{', '.join(present_typed_paths)}])"
         ")"
     )
+
+
+def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
+    return _json_present_paths(properties_expr, EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_types(
@@ -198,6 +202,10 @@ PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_typ
         "$referring_domain": "String",
     }
 )
+
+
+def PERSON_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
+    return _json_present_paths(properties_expr, PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:

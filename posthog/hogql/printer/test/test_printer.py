@@ -1218,27 +1218,29 @@ class TestPrinter(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-
         expected_by_expr = {
-            "JSONHas(properties, 'dynamic_key')": "isNotNull(events.properties.dynamic_key)",
+            "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), %(hogql_val_0)s))",
             "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
-            "JSONHas(properties, '$browser')": "ifNull(notEquals(length(events.properties.`$browser`), 0), 1)",
-            "JSONHas(properties, 'metadata', 'score')": "isNotNull(events.properties.metadata.score)",
+            "JSONHas(properties, '$browser')": "isNotNull(events.properties.`$browser`)",
+            "JSONHas(properties, 'metadata', 'score')": "or(isNotNull(events.properties.metadata.score), notEquals(toJSONString(events.properties.^metadata.score), %(hogql_val_0)s))",
         }
         for expression, expected in expected_by_expr.items():
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
             printed = self._expr(expression, context)
             self.assertEqual(printed, expected)
             self.assertNotIn("JSONAllPaths", printed)
 
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         with pytest.raises(QueryError, match="constant string property keys"):
             self._expr("JSONHas(properties, 'items', 1)", context)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_to_json_string_keeps_properties_native(self) -> None:
+    def test_new_events_schema_to_json_string_filters_present_paths(self) -> None:
         printed = self._expr("toJSONString(properties)")
 
-        self.assertEqual(printed, "toJSONString(events.properties)")
+        self.assertIn("JSONAllPaths(events.properties)", printed)
+        self.assertIn("arrayMap(path -> splitByChar('.', path)[1]", printed)
+        self.assertIn("JSONExtractRaw(toJSONString(events.properties), path)", printed)
         self.assertNotIn("toString(events.properties)", printed)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)

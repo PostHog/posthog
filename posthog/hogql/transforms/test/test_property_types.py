@@ -698,7 +698,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "events.properties.email" in printed, printed
         assert "accurateCastOrNull" in printed, printed
         assert "JSONExtract" not in printed, printed
-        assert "toJSONString" not in printed, printed
+        assert "toJSONString(events.properties)" not in printed, printed
+        assert "toJSONString(events.properties.^email)" in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_nested_jsonextractstring_uses_string_default(self):
@@ -724,7 +725,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
         assert "events_json" in printed, printed
         assert "toJSONString(events.properties.arr_field)" in printed, printed
-        assert "toString(events.properties.arr_field)" not in printed, printed
+        assert "toJSONString(events.properties.^arr_field)" in printed, printed
+        assert "JSONExtract(events.properties" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_jsonextract_respects_restricted_properties(self):
