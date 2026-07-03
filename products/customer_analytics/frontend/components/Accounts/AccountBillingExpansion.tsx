@@ -13,7 +13,10 @@ import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
     const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
     return (
-        <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+        <div
+            className="flex flex-col items-center justify-center gap-2 p-8 text-center"
+            data-attr="account-billing-insight-not-found"
+        >
             <Hog className="w-24 h-24" />
             <h4 className="mb-0">No billing {kind} insight here</h4>
             <p className="text-secondary max-w-sm mb-0">

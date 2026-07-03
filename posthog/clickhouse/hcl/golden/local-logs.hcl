@@ -1027,6 +1027,16 @@ database "posthog" {
       type  = "Float64"
       codec = "Gorilla(8)"
     }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
     column "trace_id" {
       type = "String"
     }
@@ -1069,6 +1079,16 @@ database "posthog" {
       type  = "Float64"
       codec = "Gorilla(8)"
     }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
     column "trace_id" {
       type = "String"
     }
@@ -1106,6 +1126,13 @@ database "posthog" {
     column "unit" {
       type = "LowCardinality(String)"
     }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
     column "service_name" {
       type = "LowCardinality(String)"
     }
@@ -1128,6 +1155,7 @@ database "posthog" {
 
   table "metric_series1" {
     order_by = ["team_id", "metric_name", "series_fingerprint"]
+    ttl      = "toDateTime(last_seen) + toIntervalDay(90)"
     settings = {
       index_granularity = "8192"
     }
@@ -1146,6 +1174,13 @@ database "posthog" {
     }
     column "unit" {
       type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
     }
     column "service_name" {
       type = "LowCardinality(String)"

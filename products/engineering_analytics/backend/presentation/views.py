@@ -31,13 +31,17 @@ from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     CIFailureLogsSerializer,
     GitHubSourceSerializer,
+    MasterFailureGroupSerializer,
     PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     QuarantineFileSerializer,
     QuarantineRequestResultSerializer,
     QuarantineRequestSerializer,
+    RepoOverviewSerializer,
+    RunFailureLogsSerializer,
     WorkflowHealthItemSerializer,
+    WorkflowJobAggregateSerializer,
     WorkflowJobSerializer,
     WorkflowRunActivitySerializer,
     WorkflowRunDetailSerializer,
@@ -137,6 +141,10 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "workflow_run_activity",
         "workflow_runner_costs",
         "workflow_jobs",
+        "repo_overview",
+        "master_failures",
+        "run_failure_logs",
+        "job_aggregates",
     ]
     scope_object_write_actions: list[str] = ["quarantine_request"]
 
@@ -698,6 +706,146 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_repo_overview",
+        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
+        responses={
+            200: RepoOverviewSerializer,
+            400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
+        },
+        description=(
+            "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
+            "cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), "
+            "and billable minutes + estimated cost — each with its equal-length previous-window twin so a "
+            "caller can render honest deltas. Also carries the detected default branch and its completed-run "
+            "history series. Cost figures are null until the job-level source is synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def repo_overview(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_repo_overview(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
+        return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_master_failures",
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        responses={
+            200: MasterFailureGroupSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
+        },
+        description=(
+            "Default-branch failures over a window (default -24h), grouped error-tracking style by "
+            "(workflow, de-sharded failing job) with a run count and first/last seen, newest group first. "
+            "`branch` overrides the detected default branch. PR-branch failures are deliberately excluded — "
+            "at monorepo volume a flat feed is a firehose; those surface per PR. Groups degrade to workflow "
+            "level (failed_job '') when the job-level source isn't synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def master_failures(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_master_failures(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
+        return Response(MasterFailureGroupSerializer(instance=result, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_run_failure_logs",
+        parameters=[
+            OpenApiParameter(
+                name="run_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow run id whose failure logs to fetch.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: RunFailureLogsSerializer,
+            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+        },
+        description=(
+            "The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of "
+            "ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). "
+            "logs_available is false when the run didn't fail or its logs aged out of the short Logs retention."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def run_failure_logs(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_run_failure_logs(
+                team=self.team,
+                run_id=_require_int_param(request, "run_id"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(RunFailureLogsSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_job_aggregates",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to aggregate jobs for.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            _BRANCH,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowJobAggregateSerializer(many=True),
+            400: OpenApiResponse(description="Missing workflow_name, or invalid date or source_id."),
+        },
+        description=(
+            "Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job "
+            "name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure "
+            "rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always "
+            "need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. "
+            "Empty when the job-level source isn't synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def job_aggregates(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        if not workflow_name:
+            return Response({"detail": "workflow_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = api.list_job_aggregates(
+                team=self.team,
+                workflow_name=workflow_name,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, workflow_name, or source_id")
+        return Response(WorkflowJobAggregateSerializer(instance=result, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_quarantine",

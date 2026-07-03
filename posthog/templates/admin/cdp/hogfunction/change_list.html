@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+    {% if show_rerun_google_ads_button %}
+        <li>
+            <a href="{% url 'admin:rerun-google-ads-failed-invocations' %}">Rerun Google Ads failed invocations</a>
+        </li>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

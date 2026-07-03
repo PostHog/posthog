@@ -50,6 +50,10 @@ interface UseChartInteractionOptions<Meta> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: given the nearest band index and the cursor, return the effective hover index —
+     *  or -1 to treat the position as a dead zone (no tooltip, pointer cursor, highlight, or click).
+     *  BarChart uses it to make a capped track's blank volume gap inert. Adapters provide this. */
+    resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
 }
 
 /** Resolves a click on a pinnable multi-series chart to whichever series is nearest the cursor,
@@ -113,6 +117,7 @@ export function useChartInteraction<Meta = unknown>({
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
+    resolveHoverIndex,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     // Falls back to the value resolver when the chart doesn't distinguish position from
     // value (i.e. non-stacked charts, where the two are identical).
@@ -225,10 +230,20 @@ export function useChartInteraction<Meta = unknown>({
             }
 
             const probe = interactionAxis === 'y' ? mouseY : mouseX
-            const index = findNearestIndexFromPositions(probe, labelPositions)
+            const nearestIndex = findNearestIndexFromPositions(probe, labelPositions)
+            // Chart-type dead-zone veto (e.g. a funnel compare bar's blank volume gap): treat as
+            // no-hover so tooltip, pointer cursor, highlight, and click are all suppressed there.
+            const index =
+                nearestIndex >= 0 && resolveHoverIndex
+                    ? resolveHoverIndex(nearestIndex, { x: mouseX, y: mouseY }, scales)
+                    : nearestIndex
+            if (index < 0) {
+                clearTooltip()
+                return
+            }
             setHover(index, { x: mouseX, y: mouseY })
 
-            if (index >= 0 && showTooltip) {
+            if (showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
                 // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
                 setTooltipCtx(
@@ -269,6 +284,7 @@ export function useChartInteraction<Meta = unknown>({
             setHover,
             setTooltipCtx,
             resolveBottomValue,
+            resolveHoverIndex,
         ]
     )
 

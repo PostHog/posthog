@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { stripEnumMinLength } from '../../scripts/lib/schema-transforms.mjs'
+import { stripEnumMinLength, stripUuidFormat } from '../../scripts/lib/schema-transforms.mjs'
 
 describe('stripEnumMinLength', () => {
     it('removes minLength from a schema with enum', () => {
@@ -147,5 +147,57 @@ describe('stripEnumMinLength', () => {
 
         expect(spec.a.b.c).not.toHaveProperty('minLength')
         expect(spec.a.b.c.enum).toEqual(['X', 'Y'])
+    })
+})
+
+describe('stripUuidFormat', () => {
+    it('strips format from a scalar string uuid field', () => {
+        const schema = { type: 'string', format: 'uuid' }
+
+        stripUuidFormat(schema)
+
+        expect(schema).not.toHaveProperty('format')
+        expect(schema.type).toBe('string')
+    })
+
+    it('strips format from a nullable uuid field with array-form type', () => {
+        const schema = { type: ['string', 'null'], format: 'uuid' }
+
+        stripUuidFormat(schema)
+
+        expect(schema).not.toHaveProperty('format')
+        expect(schema.type).toEqual(['string', 'null'])
+    })
+
+    it('leaves non-uuid formats untouched', () => {
+        const schema = { type: 'string', format: 'date-time' }
+
+        stripUuidFormat(schema)
+
+        expect(schema.format).toBe('date-time')
+    })
+
+    it('strips uuid format from a nested nullable provider key field', () => {
+        const spec = {
+            components: {
+                schemas: {
+                    ModelConfiguration: {
+                        type: 'object',
+                        properties: {
+                            provider_key_id: { type: ['string', 'null'], format: 'uuid' },
+                        },
+                    },
+                },
+            },
+        }
+
+        stripUuidFormat(spec)
+
+        expect(spec.components.schemas.ModelConfiguration.properties.provider_key_id).not.toHaveProperty('format')
+    })
+
+    it('is a no-op for null and undefined', () => {
+        expect(() => stripUuidFormat(null)).not.toThrow()
+        expect(() => stripUuidFormat(undefined)).not.toThrow()
     })
 })
