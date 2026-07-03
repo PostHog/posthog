@@ -130,21 +130,26 @@ def _git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
 def manifest_script_changes(manifest_paths: list[str], base_sha: str, head_sha: str, repo_root: Path) -> list[str]:
     """Manifests whose change touches scripts/hooks/build config.
 
-    Fails closed: if the shas can't be resolved every manifest counts as
-    risky — an unreadable repo state must not skip the deterministic gate.
+    Both the structural compare and the diff are anchored at the merge base,
+    matching the merge-base→head semantics of every other diff in this tool:
+    comparing against the base branch *tip* would count base-side drift
+    (someone else's scripts change landing on the base) as this PR's doing.
+    Fails closed: if the merge base can't be resolved every manifest counts
+    as risky — an unreadable repo state must not skip the deterministic gate.
     A file missing at one sha (added/deleted manifest) reads as empty.
     """
     if not manifest_paths:
         return []
-    for sha in (base_sha, head_sha):
-        if _git(["rev-parse", "--verify", f"{sha}^{{commit}}"], repo_root).returncode != 0:
-            return list(manifest_paths)
+    merge_base = _git(["merge-base", base_sha, head_sha], repo_root)
+    if merge_base.returncode != 0:
+        return list(manifest_paths)
+    base = merge_base.stdout.strip()
 
     risky = []
     for path in manifest_paths:
-        base_show = _git(["show", f"{base_sha}:{path}"], repo_root)
+        base_show = _git(["show", f"{base}:{path}"], repo_root)
         head_show = _git(["show", f"{head_sha}:{path}"], repo_root)
-        diff = _git(["diff", f"{base_sha}...{head_sha}", "--", path], repo_root)
+        diff = _git(["diff", f"{base}..{head_sha}", "--", path], repo_root)
         if manifest_change_is_risky(
             path,
             base_show.stdout if base_show.returncode == 0 else "",
