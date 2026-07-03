@@ -6,17 +6,19 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { setupExpressApp } from '~/api/router'
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
+import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
-import { defaultConfig } from '~/config/config'
-import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
+import { setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import * as envUtils from '~/common/utils/env-utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { closeHub, createHub } from '~/utils/db/hub'
-import * as envUtils from '~/utils/env-utils'
 
 import { Hub, Team } from '../../../types'
 import {
@@ -26,7 +28,8 @@ import {
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { SesWebhookHandler } from './helpers/ses'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -99,6 +102,21 @@ describe('EmailTrackingService', () => {
             const out = addTrackingToEmail(html, invocation, signer)
             expect(out).toContain('href="java&#x73;cript:alert(1)"')
             expect(out).not.toContain('target=')
+        })
+
+        it.each([
+            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
+            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
+        ])('leaves the href untouched when the anchor opts out via %s', (_name, html) => {
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('href="https://example.com"')
+            expect(out).not.toContain('target=')
+        })
+
+        it('still wraps the link when the opt-out marker is on a child, not the anchor tag', () => {
+            const html = '<body><a href="https://example.com"><span data-ph-no-track>x</span></a></body>'
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('target=')
         })
 
         const invocationWithDistinctId = {
@@ -246,6 +264,135 @@ describe('EmailTrackingService', () => {
 
                 const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                 expect(messages).toHaveLength(0)
+            })
+        })
+
+        describe('SES webhook log entries', () => {
+            // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
+            // stub the check and let a posted SNS envelope flow through the real handler + service.
+            let verifySignatureSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                verifySignatureSpy = jest
+                    .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
+                    .mockResolvedValue(true)
+            })
+
+            afterEach(() => {
+                verifySignatureSpy.mockRestore()
+            })
+
+            const postBounce = async ({
+                functionId,
+                parentRunId,
+            }: {
+                functionId: string
+                parentRunId?: string
+            }): Promise<supertest.Response> => {
+                const trackingCode = signer.generate({
+                    functionId,
+                    id: invocationId,
+                    teamId: team.id,
+                    parentRunId,
+                })
+                const sesRecord = {
+                    eventType: 'Bounce',
+                    mail: {
+                        timestamp: '2024-01-01T00:00:00.000Z',
+                        source: 'sender@posthog.com',
+                        messageId: 'ses-message-id',
+                        destination: ['user@example.com'],
+                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                    },
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                        timestamp: '2024-01-01T00:00:00.000Z',
+                    },
+                }
+                const envelope = {
+                    Type: 'Notification',
+                    MessageId: 'sns-message-id',
+                    TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                    Message: JSON.stringify(sesRecord),
+                    Timestamp: '2024-01-01T00:00:00.000Z',
+                    SignatureVersion: '1',
+                    Signature: 'stubbed',
+                    SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                }
+                return await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(JSON.stringify(envelope))
+            }
+
+            it('writes a hog_flow log entry for a bounce that resolves to a flow', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+
+                const res = await postBounce({ functionId: hogFlow.id })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    expect(logs).toHaveLength(1)
+                    expect(logs[0].value).toMatchObject({
+                        team_id: team.id,
+                        log_source: 'hog_flow',
+                        log_source_id: hogFlow.id,
+                        instance_id: invocationId,
+                        level: 'error',
+                    })
+                    expect(logs[0].value.message).toContain('Permanent bounce to user@example.com')
+                })
+
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(metrics).toHaveLength(1)
+                expect(metrics[0].value).toMatchObject({
+                    team_id: team.id,
+                    metric_name: 'email_bounced',
+                    metric_kind: 'email',
+                })
+            })
+
+            it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
+                const res = await postBounce({ functionId: hogFunction.id })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(metrics).toHaveLength(1)
+                    expect(metrics[0].value).toMatchObject({
+                        team_id: team.id,
+                        metric_name: 'email_bounced',
+                    })
+                })
+
+                const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                expect(logs).toHaveLength(0)
+            })
+
+            it('keys the log entry under parentRunId for batch-triggered runs', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const parentRunId = 'batch-run-id'
+
+                const res = await postBounce({ functionId: hogFlow.id, parentRunId })
+                expect(res.status).toBe(200)
+
+                await waitForExpect(() => {
+                    const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    expect(logs).toHaveLength(1)
+                    expect(logs[0].value).toMatchObject({
+                        log_source: 'hog_flow',
+                        log_source_id: parentRunId,
+                        instance_id: invocationId,
+                    })
+                })
             })
         })
     })

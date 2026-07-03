@@ -147,6 +147,52 @@ AddDashboardWidgetRequestOpenApi = PolymorphicProxySerializer(
     resource_type_field_name="widget_type",
 )
 
+
+class _UpdateDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        help_text="ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New display name for the widget. Empty string or null clears it; omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New markdown description for the widget. Omit to leave unchanged.",
+    )
+
+
+def _build_update_request_serializers() -> dict[str, type[serializers.Serializer]]:
+    update_request_serializers: dict[str, type[serializers.Serializer]] = {}
+    for widget_type, spec in WIDGET_SPECS.items():
+        prefix = _config_model_openapi_prefix(spec.config_model)
+        update_request_serializers[widget_type] = type(
+            f"{prefix}UpdateRequestOpenApiSerializer",
+            (_UpdateDashboardWidgetTileFieldsOpenApiSerializer,),
+            {
+                "widget_type": serializers.ChoiceField(choices=[widget_type]),
+                "config": pydantic_config_field(
+                    spec.config_model,
+                    required=False,
+                    help_text=f"New configuration for the {spec.label.lower()} widget. Omit to leave unchanged.",
+                ),
+            },
+        )
+    return update_request_serializers
+
+
+_WIDGET_UPDATE_REQUEST_SERIALIZERS = _build_update_request_serializers()
+
+UpdateDashboardWidgetRequestOpenApi = PolymorphicProxySerializer(
+    component_name="UpdateDashboardWidgetRequest",
+    serializers=cast("dict[str, Any]", _WIDGET_UPDATE_REQUEST_SERIALIZERS),
+    resource_type_field_name="widget_type",
+)
+
 WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
     component_name="WidgetCatalogEntry",
     serializers=cast("dict[str, Any]", _WIDGET_CATALOG_ENTRY_SERIALIZERS),
@@ -194,6 +240,30 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
+class DashboardFiltersOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+
+    Documents the dashboard-level filters that act as the single source of truth for the
+    dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+    extra keys are accepted, but these are the ones agents should set.
+    """
+
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+    )
+    properties = serializers.JSONField(
+        required=False,
+        help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+
+
 class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only PATCH body for dashboards (agents/MCP).
 
@@ -204,6 +274,10 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, required=False, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True)
     pinned = serializers.BooleanField(required=False)
+    filters = DashboardFiltersOpenApiSerializer(
+        required=False,
+        help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+    )
     breakdown_colors = serializers.JSONField(
         required=False,
         help_text="Custom color mapping for breakdown values.",

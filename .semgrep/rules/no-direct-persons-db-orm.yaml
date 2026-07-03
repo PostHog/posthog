@@ -1,13 +1,12 @@
 rules:
     - id: no-direct-persons-db-orm
       message: >-
-          Do not query persons DB models via the Django ORM. Use the personhog
-          client helpers in `posthog/models/person/util.py` (e.g.
-          `get_person_by_uuid`, `get_persons_by_distinct_ids`) and
-          `posthog/models/group_type_mapping.py` (`get_group_types_for_project`).
-          These route through the personhog gRPC service with ORM fallback.
-          When adding new access patterns, follow the `_personhog_routed()`
-          pattern in `posthog/models/person/util.py`.
+          Do not query persons DB models via the Django ORM — all calls must
+          route through the personhog gRPC service. Use the client helpers in
+          `posthog/models/person/util.py` (e.g. `get_person_by_uuid`,
+          `get_persons_by_distinct_ids`) and `posthog/models/group_type_mapping.py`
+          (`get_group_types_for_project`). When adding new access patterns, follow
+          the `_personhog_routed()` pattern in `posthog/models/person/util.py`.
           See `posthog/personhog_client/README.md` for client details
           or reach out to #team-ingestion for more information.
       severity: WARNING
@@ -23,7 +22,7 @@ rules:
           exclude:
               # personhog client implementation
               - '**/posthog/personhog_client/**'
-              # Routing helpers — intentional ORM fallback inside _personhog_routed()
+              # personhog routing helpers (reference the models internally)
               - '**/posthog/models/person/util.py'
               - '**/posthog/models/group_type_mapping.py'
               # semgrep test cases

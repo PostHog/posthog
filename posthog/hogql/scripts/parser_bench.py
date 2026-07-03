@@ -4,10 +4,8 @@
 """Side-by-side parser performance benchmark — backend-agnostic.
 
 `--oracle` defaults to `cpp-json`. `--candidate` is REQUIRED (no
-default) — the Python backend is several orders of magnitude slower
-than cpp on most queries and would take tens of minutes per row, so
-we refuse to default to a useless target. Pass any other backend
-explicitly when one is available in a feature branch.
+default) so the backend under test is always stated explicitly — pass
+e.g. `rust-py` or `rust-json`.
 
 The query corpus mirrors what the diagnostic PBT runner uses, so
 bench timings line up with parity numbers from the same workload.
@@ -503,12 +501,9 @@ def main() -> int:
         "--candidate",
         default=os.environ.get("CANDIDATE_BACKEND"),
         help=(
-            "Backend under test (no default). The Python backend is an "
-            "ANTLR-generated visitor and is several orders of magnitude "
-            "slower than cpp on most queries — the bench would take tens "
-            "of minutes per row — so this script intentionally has no "
-            "default. Set CANDIDATE_BACKEND or pass --candidate to any "
-            "other backend available in your environment."
+            "Backend under test (no default, so it's always stated "
+            "explicitly). Set CANDIDATE_BACKEND or pass --candidate to a "
+            "backend available in your environment, e.g. rust-py or rust-json."
         ),
     )
     parser.add_argument(
@@ -563,9 +558,8 @@ def main() -> int:
         return 2
     if not args.candidate:
         print(
-            "ERROR: --candidate is required (no default). The Python "
-            "backend is too slow to be a useful bench target; pass any "
-            "other backend available in your environment."
+            "ERROR: --candidate is required (no default); pass a backend "
+            "available in your environment, e.g. rust-py or rust-json."
         )
         return 2
 

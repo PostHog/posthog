@@ -5,12 +5,12 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
-import { HogFlowAction } from '../../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
@@ -64,7 +64,6 @@ describe('HogFunctionHandler', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
                 selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
@@ -389,6 +388,7 @@ describe('HogFunctionHandler', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
+            emailAssets: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {

@@ -27,7 +27,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
         )
     }
     if (activePanelIdentifier === 'Products') {
-        return <ProjectTree root="products://" searchPlaceholder="Search apps" />
+        return <ProjectTree root="products://" searchPlaceholder="Search tools" />
     }
     if (activePanelIdentifier === 'Shortcuts') {
         return <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />

@@ -1,69 +1,48 @@
 from typing import Union
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
-from posthog.queries.query_date_range import QueryDateRange
 
 
 def requires_flag_warning(filter: Filter, team: Team) -> bool:
-    date_params = {}
-    query_date_range = QueryDateRange(filter=filter, team=team, should_round=False)
-    parsed_date_from, date_from_params = query_date_range.date_from
-    parsed_date_to, date_to_params = query_date_range.date_to
-    date_params.update(date_from_params)
-    date_params.update(date_to_params)
-
-    date_query = f"""
-    {parsed_date_from}
-    {parsed_date_to}
-    """
-
     events: set[Union[int, str]] = set()
-    entities_to_use = filter.entities
 
-    for entity in entities_to_use:
+    for entity in filter.entities:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action(team.pk)
             for step_event in action.get_step_events():
                 if step_event:
-                    # TODO: Fix this to detect if "all events" (i.e. None) is in the list and change the entiry query to e.g. AND 1=1
+                    # TODO: Fix this to detect if "all events" (i.e. None) is in the list and change the entity query to e.g. AND 1=1
                     events.add(step_event)
         elif entity.id is not None:
             events.add(entity.id)
 
-    entity_query = f"AND event IN %(events_list)s"
-    entity_params = {"events_list": sorted(events)}
-
-    # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
-    events_result = sync_execute(
-        f"""
-        SELECT
-            event,
-            groupArraySample(%(limit)s)(properties)
+    query = parse_select(
+        """
+        SELECT event, groupArraySample({limit})(properties)
         FROM events
-        WHERE
-        team_id = %(team_id)s
-        {entity_query}
-        {date_query}
+        WHERE event IN {events}
+            AND timestamp >= {date_from}
+            AND timestamp <= {date_to}
         GROUP BY event
         """,
-        {
-            "team_id": team.pk,
-            "limit": filter.limit or 20,
-            **date_params,
-            **entity_params,
-            **filter.hogql_context.values,
+        placeholders={
+            "limit": ast.Constant(value=filter.limit or 20),
+            "events": ast.Constant(value=sorted(events)),
+            "date_from": ast.Constant(value=filter.date_from),
+            "date_to": ast.Constant(value=filter.date_to),
         },
     )
+    response = execute_hogql_query(query, team=team)
 
-    requires_flag_warning = True
-
-    for _event, property_group_list in events_result:
+    for _event, property_group_list in response.results:
         for property_group in property_group_list:
             if "$feature/" in property_group:
-                requires_flag_warning = False
-                break
+                return False
 
-    return requires_flag_warning
+    return True

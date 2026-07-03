@@ -330,7 +330,7 @@ describe('markdownNotebookDowngrade', () => {
     it('converts component tags to their v1 node type with props as attrs', () => {
         expect(convertMarkdownToNotebookContent('<Query query={{"kind":"DataTableNode"}} />')).toEqual({
             type: 'doc',
-            content: [{ type: NotebookNodeType.Query, attrs: { query: { kind: 'DataTableNode' } } }],
+            content: [{ type: NotebookNodeType.Query, attrs: { query: { kind: 'DataTableNode' }, edit: true } }],
         })
     })
 

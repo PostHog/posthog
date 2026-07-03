@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, ProjectId, TeamId } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { captureTeamEvent } from '~/utils/posthog'
 
-jest.mock('~/utils/posthog', () => ({
+jest.mock('~/common/utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 

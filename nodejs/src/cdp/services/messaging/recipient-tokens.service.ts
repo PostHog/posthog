@@ -1,4 +1,4 @@
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { JWT, PosthogJwtAudience } from '../../utils/jwt-utils'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'

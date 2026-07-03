@@ -831,6 +831,8 @@ export const DescriptionContentTypeEnumApi = {
 } as const
 
 export interface SurveyOpenQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyOpenQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -858,6 +860,8 @@ export const SurveyLinkQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveyLinkQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyLinkQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -985,6 +989,8 @@ export type SurveyBranchingSchemaApi =
     | SurveyResponseBasedBranchingApi
 
 export interface SurveyRatingQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyRatingQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -1027,6 +1033,8 @@ export const SurveySingleChoiceQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveySingleChoiceQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveySingleChoiceQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string
@@ -1065,6 +1073,8 @@ export const SurveyMultipleChoiceQuestionSchemaTypeEnumApi = {
 } as const
 
 export interface SurveyMultipleChoiceQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
     type: SurveyMultipleChoiceQuestionSchemaTypeEnumApi
     /** Question text shown to respondents. */
     question: string

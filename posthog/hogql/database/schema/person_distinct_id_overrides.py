@@ -18,8 +18,16 @@ from posthog.hogql.errors import ResolutionError
 
 PERSON_DISTINCT_ID_OVERRIDES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    "person_id": StringDatabaseField(name="person_id", nullable=False),
+    "distinct_id": StringDatabaseField(
+        name="distinct_id",
+        nullable=False,
+        description="Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
+    ),
+    "person_id": StringDatabaseField(
+        name="person_id",
+        nullable=False,
+        description="Corrected person this distinct_id now resolves to; matches `persons.id`.",
+    ),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
@@ -67,6 +75,11 @@ def join_with_person_distinct_id_overrides_table(
 
 
 class RawPersonDistinctIdOverridesTable(Table):
+    description: str = (
+        "Raw, un-deduplicated distinct_id-to-person override rows (one per version). Query "
+        "`person_distinct_id_overrides` instead unless you need to resolve the latest version yourself via "
+        "`is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSON_DISTINCT_ID_OVERRIDES_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
@@ -81,6 +94,10 @@ class RawPersonDistinctIdOverridesTable(Table):
 
 
 class PersonDistinctIdOverridesTable(LazyTable):
+    description: str = (
+        "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). "
+        "One row per overridden distinct_id; used to remap events to the right person at query time."
+    )
     fields: dict[str, FieldOrTable] = PERSON_DISTINCT_ID_OVERRIDES_FIELDS
 
     def lazy_select(

@@ -9,3 +9,4 @@ pub mod metrics;
 pub mod parse;
 pub mod person_processing_filter;
 pub mod source;
+pub mod staging;

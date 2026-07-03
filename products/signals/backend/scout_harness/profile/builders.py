@@ -7,7 +7,8 @@ the tools layer dumps it into the `SignalProjectProfile.payload` jsonb column.
 
 Sections fall into three layers. **Capability / configured (sticky)** — `project_context`,
 `products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
-`signal_source_configs`. Answers "what's turned on." **Aggregated recency** —
+`signal_source_configs`, `emit_eligibility` (whether findings can reach the inbox at all).
+Answers "what's turned on." **Aggregated recency** —
 `recent_activity` (per-scope counts off the activity log, cross-cutting orientation
 across every entity type). **Per-entity recent inventory** — `recent_dashboards`,
 `recent_surveys`, `recent_feature_flags`, `recent_experiments`, `recent_alerts`,
@@ -60,7 +61,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v6"
+INVENTORY_SOURCE_VERSION = "v8"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -99,6 +100,13 @@ RECENT_ENTITY_LIMIT = 5
 RECENT_ACTIVITY_WINDOW_DAYS = 14
 RECENT_ACTIVITY_LIMIT = 20
 
+# Human reviewer corrections are rare and precious routing precedent, so the window is
+# much longer than the general activity aggregate — 90d keeps a quarter of corrections
+# in the scout's orientation without an activity-log drill-down (which is premium-gated
+# on cloud, unlike this ORM read).
+REVIEWER_CORRECTIONS_WINDOW_DAYS = 90
+REVIEWER_CORRECTIONS_LIMIT = 20
+
 
 def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
@@ -120,8 +128,10 @@ def build_inventory(team: Team) -> Inventory:
             "integrations": _integrations(team),
             "external_data_sources": _external_data_sources(team),
             "signal_source_configs": _signal_source_configs(team),
+            "emit_eligibility": _emit_eligibility(team),
             "existing_inbox_reports": _existing_inbox_reports(team),
             "recent_activity": _recent_activity(team),
+            "recent_reviewer_corrections": _recent_reviewer_corrections(team),
             "recent_dashboards": _recent_dashboards(team),
             "recent_surveys": _recent_surveys(team),
             "recent_feature_flags": _recent_feature_flags(team),
@@ -238,6 +248,40 @@ def _signal_source_configs(team: Team) -> dict[str, list[dict[str, str]]]:
         entry = {"source_product": row.source_product, "source_type": row.source_type}
         (enabled if row.enabled else disabled).append(entry)
     return {"enabled": enabled, "disabled": disabled}
+
+
+def _emit_eligibility(team: Team) -> dict[str, Any]:
+    """Whether scout findings can actually reach the inbox for this team.
+
+    Mirrors the team/org-level half of the shared emit preflight (`_preflight_emit_gates`) so a
+    scout can read it at cold start and quick-close before doing throwaway work whose output would
+    be silently dropped. Both the signal and report channels gate on the same two conditions: the
+    org must have approved AI data processing, and the `signals_scout` source must be enabled.
+    `remediation` reuses the emit path's authoritative pointers so the profile and the skip
+    response never drift.
+    """
+    # Deferred to break the profile↔tools import cycle: `tools/__init__` eagerly imports
+    # `tools.profile`, which imports this `profile` package, so a module-level import here would
+    # re-enter a half-initialized `profile` package during `tools` package init.
+    from products.signals.backend.scout_harness.tools.emit import (  # noqa: PLC0415
+        SOURCE_PRODUCT,
+        SOURCE_TYPE,
+        remediation_for_skip,
+    )
+
+    ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
+    source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
+    can_emit = ai_processing_approved and source_enabled
+    # Point at the first failing gate, matching the preflight's check order.
+    blocking_reason = (
+        None if can_emit else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
+    )
+    return {
+        "ai_processing_approved": ai_processing_approved,
+        "source_enabled": source_enabled,
+        "can_emit": can_emit,
+        "remediation": remediation_for_skip(blocking_reason),
+    }
 
 
 def _existing_inbox_reports(team: Team) -> dict[str, Any]:
@@ -656,6 +700,44 @@ def _recent_activity(team: Team) -> dict[str, Any]:
             for row in rows
         ],
     }
+
+
+def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
+    """Human edits to report reviewer lists, from the activity log.
+
+    A human swapping a report's suggested reviewers is the strongest ownership
+    precedent a scout can route by, so it's surfaced directly in the profile —
+    an ORM read, deliberately not the activity-log API (premium-gated on cloud),
+    so every scout sees it regardless of the org's plan. The impersonation/system
+    filter matches the partial index `idx_alog_team_scp_act_crtd` (both flags
+    required False) and keeps support-staff edits out of the team's routing
+    precedent — the write path records `was_impersonated`, so such rows do exist.
+    """
+    cutoff = timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS)
+    rows = ActivityLog.objects.filter(
+        team_id=team.id,
+        scope="SignalReport",
+        activity="suggested_reviewers_changed",
+        created_at__gte=cutoff,
+        was_impersonated=False,
+        is_system=False,
+    ).order_by("-created_at")[:REVIEWER_CORRECTIONS_LIMIT]
+
+    corrections: list[dict[str, Any]] = []
+    for row in rows:
+        detail = row.detail or {}
+        changes = detail.get("changes") or []
+        change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        corrections.append(
+            {
+                "report_id": str(row.item_id),
+                "report_title": detail.get("name"),
+                "before": change.get("before") or [],
+                "after": change.get("after") or [],
+                "at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
+    return {"window_days": REVIEWER_CORRECTIONS_WINDOW_DAYS, "corrections": corrections}
 
 
 def _top_events(team: Team) -> list[dict[str, Any]] | None:

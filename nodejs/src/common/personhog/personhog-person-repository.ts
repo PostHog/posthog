@@ -4,6 +4,8 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult } from '~/common/utils/db/db'
+import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 import {
     InternalPerson,
@@ -13,8 +15,6 @@ import {
     Team,
     TeamId,
 } from '~/types'
-import { CreatePersonResult } from '~/utils/db/db'
-import { logger } from '~/utils/logger'
 
 import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeamItems } from './client'
 import { timedGrpc, timedPostgres } from './metrics'

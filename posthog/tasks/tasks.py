@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import ProgrammingError, connection
 from django.utils import timezone
 
 import requests
@@ -62,6 +62,25 @@ STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
 STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "posthog_task_run_stale_queued_errors_total",
     "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
+)
+
+ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER = Counter(
+    "posthog_task_run_orphaned_queued_reconciled_total",
+    "Orphaned QUEUED TaskRuns handled by the dispatch reconciler, by outcome",
+    labelnames=["outcome"],
+)
+
+# Separate from the stale-queued counters above so the 24h sweep and the prewarmed fast-reap
+# stay distinguishable in Prometheus (dashboards/alerts on the 24h sweep shouldn't absorb the
+# prewarmed reap rate).
+PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_swept_total",
+    "Orphaned prewarmed TaskRuns marked FAILED by the prewarmed-queued cleanup sweep",
+)
+
+PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_prewarmed_queued_errors_total",
+    "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
 )
 
 
@@ -135,41 +154,120 @@ def kill_stale_queued_task_runs() -> None:
     refetch with status=QUEUED handles the race where a worker picks up the run
     between selection and update.
 
-    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
-    been QUEUED for the full STALE_AFTER window.
+    been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
+    run whose `updated_at` keeps being bumped while it stays QUEUED.
     """
     from products.tasks.backend.facade import api as tasks_facade
 
     BATCH_SIZE = 500
     STALE_AFTER = datetime.timedelta(hours=24)
+    CREATED_HARD_CAP = datetime.timedelta(hours=48)
+    # A live warm run self-terminates via the in-workflow WARM_IDLE_TIMEOUT (10m); one still QUEUED
+    # past this window has no workflow behind it (dispatch lost) so there is nothing else to finalize
+    # it. Kept comfortably above WARM_IDLE_TIMEOUT so a still-idling warm run is never killed early.
+    PREWARMED_STALE_AFTER = datetime.timedelta(minutes=30)
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
+    PREWARMED_REASON = "Prewarmed run never started its workflow and was orphaned in QUEUED; reaped by the cleanup job."
+
+    def _fail_each(run_ids: list, reason: str, swept_counter: Counter, errors_counter: Counter) -> tuple[int, int]:
+        swept = errors = 0
+        for run_id in run_ids:
+            try:
+                # fail_task_run refetches with status=QUEUED, handling the race where a worker
+                # picked up the run between selection and update (returns False -> skip).
+                if tasks_facade.fail_task_run(run_id, reason):
+                    swept += 1
+                    swept_counter.inc()
+            except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+                errors += 1
+                errors_counter.inc()
+                capture_exception(exc)
+        return swept, errors
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE)
-    swept = 0
-    errors = 0
-    for run_id in stale_ids:
-        try:
-            # fail_task_run refetches with status=QUEUED, handling the race where a worker
-            # picked up the run between selection and update (returns False -> skip).
-            if tasks_facade.fail_task_run(run_id, REASON):
-                swept += 1
-                STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
-        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
-            errors += 1
-            STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
-            capture_exception(exc)
-    saturated = len(stale_ids) >= BATCH_SIZE
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
+    swept, errors = _fail_each(
+        stale_ids, REASON, STALE_QUEUED_TASK_RUN_SWEPT_COUNTER, STALE_QUEUED_TASK_RUN_ERRORS_COUNTER
+    )
+
+    # Fast-reap orphaned prewarmed runs so they don't ride QUEUED to the 24h sweep above.
+    prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
+    prewarmed_swept, prewarmed_errors = _fail_each(
+        prewarmed_ids,
+        PREWARMED_REASON,
+        PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
+
+    saturated = len(stale_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
+        prewarmed_candidates=len(prewarmed_ids),
+        prewarmed_swept=prewarmed_swept,
+        prewarmed_errors=prewarmed_errors,
+        batch_size=BATCH_SIZE,
+        saturated=saturated,
+    )
+
+
+@shared_task(ignore_result=True, soft_time_limit=110, time_limit=170)
+def redispatch_orphaned_queued_task_runs() -> None:
+    """Re-dispatch TaskRuns stranded in QUEUED because their create-time workflow dispatch was lost.
+
+    ``Task.create_and_run`` starts the Temporal ``process-task`` workflow from a
+    ``transaction.on_commit`` callback. If that callback never fires (the web process is recycled
+    in the commit->callback window, or an earlier on_commit hook raises and Django skips the rest),
+    the run stays QUEUED with no workflow — invisible to the workflow-start metrics — until the 24h
+    killer marks it FAILED. This sweep recovers those runs in minutes instead: it re-dispatches every
+    run QUEUED past a short grace window, reading the persisted dispatch params off the row. Prewarmed
+    runs are left alone (``redispatch_task_run`` skips them) — the prewarmed reaper owns them.
+
+    Recovery is idempotent and safe: ``ALLOW_DUPLICATE_FAILED_ONLY`` starts a workflow only when none
+    is live, so a run whose workflow already exists (slow queue, row not yet flipped to IN_PROGRESS)
+    is skipped rather than double-run. The reconciler never fails a run — the killer stays the only
+    terminal path — so a transient Temporal error simply retries next sweep.
+    """
+    from products.tasks.backend.facade import api as tasks_facade
+
+    BATCH_SIZE = 500
+    # Grace window: normal dispatch flips QUEUED->IN_PROGRESS in well under a second, so a run still
+    # QUEUED after this almost certainly lost its callback. Anything already dispatched is skipped by
+    # the reuse policy regardless, so the window only bounds churn, not correctness.
+    RECONCILE_AFTER = datetime.timedelta(minutes=5)
+
+    # Janitor sweep is intentionally cross-team — it runs without a team context.
+    # cloud_only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
+    # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE, cloud_only=True)
+    outcomes: dict[str, int] = {}
+    for run_id in candidate_ids:
+        try:
+            outcome = tasks_facade.redispatch_task_run(run_id)
+        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+            outcome = "error"
+            capture_exception(exc)
+        outcomes[outcome] = outcomes.get(outcome, 0) + 1
+        ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER.labels(outcome=outcome).inc()
+
+    saturated = len(candidate_ids) >= BATCH_SIZE
+    log = logger.warning if saturated else logger.info
+    log(
+        "redispatch_orphaned_queued_task_runs.sweep_done",
+        candidates=len(candidate_ids),
+        recovered=outcomes.get("recovered", 0),
+        already_running=outcomes.get("already_running", 0),
+        left_queue=outcomes.get("left_queue", 0),
+        skipped_local=outcomes.get("skipped_local", 0),
+        errors=outcomes.get("error", 0),
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
@@ -649,6 +747,11 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row.environment,
                 ).set(row.value)
 
+    except ProgrammingError as err:
+        # The tasks-product table isn't present in every environment/database. When the migration
+        # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
+        # not an error worth reporting every minute.
+        logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)
@@ -1050,185 +1153,6 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
         )
 
     asyncio.run(start_all())
-
-
-def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | None = None) -> None:
-    """
-    Shared logic for deleting teams and all associated data (Postgres, batch exports, ClickHouse).
-    """
-    from posthog.models.async_deletion import AsyncDeletion, DeletionType
-    from posthog.models.project import Project
-    from posthog.models.team import Team
-    from posthog.models.team.util import (
-        delete_batch_exports,
-        delete_bulky_postgres_data,
-        delete_data_modeling_schedules,
-    )
-    from posthog.models.user import User
-
-    # User may have already deleted their account after requesting org deletion,
-    # so we must not block the cleanup on user existence.
-    user = User.objects.filter(id=user_id).first()
-
-    try:
-        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
-        _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
-    except Exception:
-        logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
-        capture_exception()
-
-    logger.info("Deleting bulky postgres data", team_ids=team_ids)
-    delete_bulky_postgres_data(team_ids=team_ids)
-
-    logger.info("Deleting batch exports", team_ids=team_ids)
-    delete_batch_exports(team_ids=team_ids)
-
-    logger.info("Deleting data modeling schedules", team_ids=team_ids)
-    delete_data_modeling_schedules(team_ids=team_ids)
-
-    logger.info("Deleting team records", team_ids=team_ids)
-    # FOR UPDATE on teams blocks concurrent FK-inserts to any child table during cascade.
-    with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
-        if project_id:
-            Project.objects.filter(id=project_id).delete()
-        else:
-            Team.objects.filter(id__in=team_ids).delete()
-
-    logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
-    AsyncDeletion.objects.bulk_create(
-        [
-            AsyncDeletion(
-                deletion_type=DeletionType.Team,
-                team_id=team_id,
-                key=str(team_id),
-                created_by=user,
-            )
-            for team_id in team_ids
-        ],
-        ignore_conflicts=True,
-    )
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=60,
-    retry_backoff_max=300,
-)
-def delete_project_data_and_notify_task(
-    team_ids: list[int],
-    project_id: int | None,
-    user_id: int,
-    project_name: str,
-) -> None:
-    """
-    Task to delete project/team and all associated data, then notify user.
-
-    Args:
-        team_ids: List of team IDs whose data should be deleted
-        project_id: Project ID to delete (None if deleting just a team/environment)
-        user_id: User who initiated the deletion (for email notification)
-        project_name: Name of the deleted project/team (for email notification)
-    """
-    from posthog.email import is_email_available
-    from posthog.tasks.email import send_project_deleted_email
-
-    logger.info("Starting project data deletion", team_ids=team_ids, project_name=project_name, project_id=project_id)
-
-    try:
-        _delete_teams_and_data(team_ids, user_id, project_id)
-        logger.info("Project data deletion completed", team_ids=team_ids, project_name=project_name)
-        if is_email_available():
-            send_project_deleted_email.delay(user_id=user_id, project_name=project_name)
-    except Exception as e:
-        logger.error(
-            "Project data deletion failed", team_ids=team_ids, project_name=project_name, error=str(e), exc_info=True
-        )
-        capture_exception(
-            e,
-            additional_properties={
-                "task": "delete_project_data_and_notify",
-                "team_ids": team_ids,
-                "project_name": project_name,
-            },
-        )
-        raise
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=60,
-    retry_backoff_max=300,
-)
-@skip_team_scope_audit
-def delete_organization_data_and_notify_task(
-    team_ids: list[int],
-    organization_id: str,
-    user_id: int,
-    organization_name: str,
-    project_names: list[str],
-) -> None:
-    """
-    Task to delete organization and all associated data, then notify user.
-
-    Args:
-        team_ids: List of team IDs whose data should be deleted
-        organization_id: UUID of the organization to delete
-        user_id: User who initiated the deletion (for email notification)
-        organization_name: Name of the deleted organization (for email notification)
-        project_names: Names of all projects in the organization (for email notification)
-    """
-    from posthog.email import is_email_available
-    from posthog.event_usage import report_organization_deletion_completed
-    from posthog.models.organization import Organization
-    from posthog.tasks.email import send_organization_deleted_email
-
-    logger.info(
-        "Starting organization data deletion",
-        team_ids=team_ids,
-        organization_name=organization_name,
-        organization_id=organization_id,
-    )
-
-    try:
-        # Delete teams and their data first
-        if team_ids:
-            _delete_teams_and_data(team_ids, user_id)
-
-        # Delete the organization record
-        if organization_id:
-            logger.info("Deleting organization record", organization_id=organization_id)
-            Organization.objects.filter(id=organization_id).delete()
-
-        logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
-        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
-        if is_email_available():
-            send_organization_deleted_email.delay(
-                user_id=user_id, organization_name=organization_name, project_names=project_names
-            )
-    except Exception as e:
-        logger.error(
-            "Organization data deletion failed",
-            team_ids=team_ids,
-            organization_name=organization_name,
-            error=str(e),
-            exc_info=True,
-        )
-        capture_exception(
-            e,
-            additional_properties={
-                "task": "delete_organization_data_and_notify",
-                "team_ids": team_ids,
-                "organization_name": organization_name,
-            },
-        )
-        raise
 
 
 @shared_task(

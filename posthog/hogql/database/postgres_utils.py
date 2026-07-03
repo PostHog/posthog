@@ -9,9 +9,7 @@ from posthog.hogql.database.utils import get_join_field_chain
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 
 class DatabaseTableLookup(Protocol):

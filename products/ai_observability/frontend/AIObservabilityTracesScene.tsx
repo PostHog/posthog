@@ -30,6 +30,7 @@ import {
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
+    getTraceStepCount,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
     sanitizeTraceUrlSearchParams,
@@ -114,7 +115,7 @@ function TracesOptionsMenu(): JSX.Element | null {
                         onChange={setShowSentimentColumn}
                         label="Show sentiment"
                         fullWidth
-                        tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
+                        tooltip="Show the sentiment column from stored sentiment evaluation results."
                         data-attr="llm-traces-show-sentiment-toggle"
                     />
                 </div>
@@ -174,6 +175,12 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             errorCount: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
+            },
+            stepCount: {
+                renderTitle: () => (
+                    <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">Steps</Tooltip>
+                ),
+                render: StepsColumn,
             },
             totalLatency: {
                 renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
@@ -333,6 +340,16 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
+
+const StepsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    return (
+        <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">
+            <span>{getTraceStepCount(row)}</span>
+        </Tooltip>
+    )
+}
+StepsColumn.displayName = 'StepsColumn'
 
 // `undefined` = cache miss (still loading). Checking the cached record
 // directly avoids a one-frame dash flash before a separate loading reducer

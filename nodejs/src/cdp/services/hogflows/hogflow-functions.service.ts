@@ -1,3 +1,4 @@
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -5,7 +6,6 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '~/cdp/types'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'

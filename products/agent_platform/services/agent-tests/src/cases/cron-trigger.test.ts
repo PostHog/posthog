@@ -44,7 +44,7 @@ describe('cron trigger: real e2e', () => {
         const { application, revision } = await c.deployAgent({
             slug: 'cron-digest',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -114,7 +114,7 @@ describe('cron trigger: real e2e', () => {
         const { application, revision } = await c.deployAgent({
             slug: 'cron-manual',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -155,7 +155,7 @@ describe('cron trigger: real e2e', () => {
         const { revision } = await c.deployAgent({
             slug: 'cron-dedupe',
             spec: {
-                model: 'faux/test',
+                models: { mode: 'manual', models: [{ model: 'faux/test' }] },
                 triggers: [
                     {
                         type: 'cron',

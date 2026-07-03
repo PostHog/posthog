@@ -3,15 +3,44 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import type { defaultReleaseConditionsLogicType } from './defaultReleaseConditionsLogicType'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 
 export interface DefaultReleaseConditionsResponse {
     enabled: boolean
     default_groups: FeatureFlagGroupType[]
+}
+
+export async function fetchDefaultReleaseConditions(teamId: number): Promise<DefaultReleaseConditionsResponse> {
+    return await api.get(`/api/environments/${teamId}/default_release_conditions/`)
+}
+
+/**
+ * Returns the cached value if already loaded, otherwise fetches it directly.
+ * Used in loaders that need default release conditions on mount before the
+ * async load from defaultReleaseConditionsLogic has resolved.
+ */
+export async function resolveDefaultReleaseConditions(
+    cached: DefaultReleaseConditionsResponse | null,
+    teamId: number | undefined
+): Promise<DefaultReleaseConditionsResponse | null> {
+    if (cached) {
+        return cached
+    }
+    if (!teamId) {
+        return null
+    }
+    try {
+        return await fetchDefaultReleaseConditions(teamId)
+    } catch (e) {
+        console.warn('Failed to fetch default release conditions:', e)
+        return null
+    }
 }
 
 export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicType>([
@@ -55,9 +84,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                     if (!teamId) {
                         return null
                     }
-                    return (await api.get(
-                        `/api/environments/${teamId}/default_release_conditions/`
-                    )) as DefaultReleaseConditionsResponse
+                    return await fetchDefaultReleaseConditions(teamId)
                 },
 
                 saveDefaultReleaseConditions: async () => {
@@ -97,6 +124,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 groups: groups.length > 0 ? groups : [{ properties: [], rollout_percentage: 0, variant: null }],
                 multivariate: null,
                 payloads: {},
+                aggregation_group_type_index: uniformAggregationGroupTypeIndex(groups),
             }),
         ],
 
@@ -106,10 +134,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 if (!saved) {
                     return false
                 }
-                return (
-                    localEnabled !== saved.enabled ||
-                    JSON.stringify(localGroups) !== JSON.stringify(saved.default_groups)
-                )
+                return localEnabled !== saved.enabled || !objectsEqual(localGroups, saved.default_groups)
             },
         ],
     }),

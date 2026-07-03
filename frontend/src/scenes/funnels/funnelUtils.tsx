@@ -386,6 +386,21 @@ export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): bool
     )
 }
 
+/**
+ * Aggregate "conversion so far" (across all breakdown values) to show alongside a hovered breakdown
+ * variant's own conversion. Returns null unless `series` is a genuine breakdown variant of `step` —
+ * excluding the top-level step itself, compare-only bars, and breakdown+compare (the aggregate spans
+ * periods there and would be ambiguous).
+ */
+export function getFunnelAggregateConversionRate(
+    series: FunnelStepWithConversionMetrics,
+    step: FunnelStepWithConversionMetrics
+): number | null {
+    return series !== step && hasBreakdown(series.breakdown_value) && !series.compare_label
+        ? step.conversionRates.total
+        : null
+}
+
 /** String identifier for breakdowns used when determining visibility. */
 export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
     const breakdownValues = getBreakdownStepValues(
@@ -487,10 +502,26 @@ export function stepsWithConversionMetrics(
 ): FunnelStepWithConversionMetrics[] {
     const compareBars = steps[0]?.nested_breakdown
     const isCompare = compareBars?.some((b) => b.compare_label != null) ?? false
-    // Compare bars share one baseline (the larger period's first step) so both periods sit on a
-    // common scale: the previous bar shows its real volume instead of always starting full height,
-    // and the tallest bar never exceeds the column.
-    const compareBasisCount = isCompare ? Math.max(...(compareBars?.map((b) => b.count) ?? [0])) : 0
+    // Compare bars are sized per period, not per breakdown value. Within a period every value keeps its
+    // own conversion from its own first step — so at the first step all of a period's values share one
+    // height — and the whole period is then scaled by its share of the larger period's total entrants.
+    // The larger period fills the bar (100%); the smaller one is proportionally shorter, its missing
+    // volume left as a blank gap above. Applied below as (count * periodTotal) / (firstStep * basis) —
+    // a single division so the exact ratios stay clean. Pure compare has one value whose first step is
+    // the period total, so it collapses to count / max(current, previous).
+    let currentTotal = 0
+    let previousTotal = 0
+    let compareBasis = 0
+    if (isCompare && compareBars) {
+        for (const bar of compareBars) {
+            if (bar.compare_label === 'previous') {
+                previousTotal += bar.count
+            } else {
+                currentTotal += bar.count
+            }
+        }
+        compareBasis = Math.max(currentTotal, previousTotal, 0)
+    }
 
     let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
@@ -516,9 +547,11 @@ export function stepsWithConversionMetrics(
                 conversionRates: {
                     ...conversionRates,
                     fromBasisStep: isCompare
-                        ? compareBasisCount === 0
-                            ? 0
-                            : breakdown.count / compareBasisCount
+                        ? firstBreakdownCount > 0 && compareBasis > 0
+                            ? (breakdown.count *
+                                  (breakdown.compare_label === 'previous' ? previousTotal : currentTotal)) /
+                              (firstBreakdownCount * compareBasis)
+                            : 0
                         : stepReference === FunnelStepReference.total
                           ? conversionRates.total
                           : conversionRates.fromPrevious,

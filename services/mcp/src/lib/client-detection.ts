@@ -82,6 +82,21 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
     // wants single-exec mode like the other coding agents.
     'opencode',
+    // Amp is Sourcegraph's coding agent; its MCP client self-reports
+    // `clientInfo.name` as `amp-mcp-client` and benefits from single-exec mode.
+    'amp-mcp-client',
+    // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
+    // wants the same single-exec mode as the coding agents.
+    'poke',
+    // Grok (xAI) — both Grok Build (the terminal coding agent) and the grok.com
+    // assistant connect custom MCP servers and render text rather than MCP Apps
+    // UI, so they benefit from the same single-exec mode and formatted-text
+    // rendering as the other coding agents.
+    'grok',
+    // Ando is an LLM-driven assistant (Slack, chat, calls) whose MCP client
+    // self-reports `clientInfo.name` as `ando-mcp-gateway`; it renders text and
+    // benefits from the same single-exec mode as the coding agents.
+    'ando-mcp-gateway',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
@@ -91,12 +106,49 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // Every Anthropic product runs in CLI (single-exec) mode. Matched as normalized
 // substrings, so vendor-prefixed shapes like `Anthropic/ClaudeAI` resolve to
 // `claudeai`.
-export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowork'] as const
+export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowork', 'claudedesign'] as const
+
+// Anthropic clients connect through a pooled MCP transport and usually omit the
+// `initialize` body's `clientInfo.name`, reporting their live product only in the
+// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to the
+// canonical client-name token the MCP analytics dashboard buckets on, so these
+// sessions are attributed to a real client instead of falling into "Other".
+// Mirrors the vendor→name mapping in the dashboard (harnessRegistry.ts and
+// models-mcp.md) — keep the three in sync.
+const VENDOR_CLIENT_TO_CLIENT_NAME: Readonly<Record<string, string>> = {
+    claudecode: 'claude-code',
+    claudeai: 'claude-ai',
+    cowork: 'cowork',
+    claudedesign: 'claude-design',
+}
+
+/**
+ * Resolve the client name used for analytics (`$mcp_client_name`) and the API
+ * client header. Prefers the self-reported `clientInfo.name`; when that's absent
+ * — as it is for Anthropic clients on the pooled transport — it falls back to a
+ * canonical name derived from the `x-anthropic-client` vendor header, keeping the
+ * raw vendor value for any unrecognized Anthropic product. Returns undefined when
+ * neither is available.
+ */
+export function resolveEffectiveClientName(
+    clientName: string | undefined,
+    vendorClient: string | undefined
+): string | undefined {
+    if (clientName) {
+        return clientName
+    }
+    if (!vendorClient) {
+        return undefined
+    }
+    return VENDOR_CLIENT_TO_CLIENT_NAME[normalizeClientName(vendorClient)] ?? vendorClient
+}
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
 // PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
-// emission in single-exec mode. Slack-launched runs send `"slack"` instead.
+// emission in single-exec mode. Slack-launched runs send `"slack"` and
+// posthog_ai (Max) runs send `"posthog_ai"`; only PostHog Code renders MCP UI
+// apps, so this is the sole consumer that gates UI-apps payload emission.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
 // OAuth application names (from token introspection) for upstream tools that
@@ -121,7 +173,14 @@ export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'no
 // `clientInfo.name` is also `Anthropic/ClaudeAI`, and matching it would
 // misclassify Claude Code as a UI host.
 export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
-export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+
+// User-Agent Anthropic clients send when they connect without the
+// `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
+// tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
+// too — so it drives CLI-mode detection; the UI-host check reuses it as its own
+// user-agent fallback.
+export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -179,15 +238,28 @@ export class MCPClientProfile {
     }
 
     isCliModeEnabled(): boolean {
-        // Every known Anthropic client (matched against the `x-anthropic-client`
-        // header) runs in CLI (single-exec) mode — Anthropic pools MCP transports
-        // across all its products (Claude Code, Claude.ai, Cowork, …) and reports
-        // the live product in that header.
-        if (matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS)) {
+        // Every Anthropic product runs in CLI (single-exec) mode.
+        if (this.isAnthropicClient()) {
             return true
         }
         // Otherwise fall back to the self-reported client name for coding agents.
         return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+    }
+
+    isAnthropicClient(): boolean {
+        // Anthropic pools MCP transports across all its products (Claude Code,
+        // Claude.ai, Cowork, Claude Design, …), so the `x-anthropic-client` header
+        // is the reliable signal of the live product when present. Some surfaces
+        // (Claude.ai web/desktop, internal tools) connect without that header, so
+        // also accept the `Claude-User` user-agent and the pooled `Anthropic/…`
+        // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
+        // is safe and intended: every Anthropic product belongs in CLI mode, so
+        // there is nothing to misclassify.
+        return (
+            matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
+            normalizeClientName(this.clientName ?? '').startsWith('anthropic')
+        )
     }
 
     isPostHogCodeConsumer(): boolean {

@@ -7,7 +7,7 @@ from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
 
-SERVICE = "products.data_warehouse.backend.data_load.saved_query_service"
+SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 
 

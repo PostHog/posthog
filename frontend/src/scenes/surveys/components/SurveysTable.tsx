@@ -4,9 +4,9 @@ import { router } from 'kea-router'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -75,7 +75,7 @@ export function SurveysTable(): JSX.Element {
         <>
             <div>
                 <div className={cn('flex flex-wrap gap-2 justify-between mb-0')}>
-                    <AppShortcut
+                    <Shortcut
                         name="SearchSurveys"
                         keybind={[keyBinds.filter]}
                         intent="Search surveys"
@@ -88,7 +88,7 @@ export function SurveysTable(): JSX.Element {
                             onChange={setSearchTerm}
                             value={searchTerm || ''}
                         />
-                    </AppShortcut>
+                    </Shortcut>
 
                     <div className="flex gap-2 items-center">
                         {tab === SurveysTabs.Active && (

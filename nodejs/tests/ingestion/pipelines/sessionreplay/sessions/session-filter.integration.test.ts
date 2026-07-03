@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { SessionFilter, SessionFilterConfig } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
-import { createRedisPoolFromConfig } from '~/utils/db/redis'
 
 // nosemgrep: redis-unencrypted-transport (local testing only)
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1'

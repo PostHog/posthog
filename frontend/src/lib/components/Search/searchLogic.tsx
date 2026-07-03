@@ -29,6 +29,7 @@ import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
+let cachedProductIconTypeByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -55,6 +56,19 @@ const getProductDisplayLabelByPath = (): Map<string, string> => {
     return cachedProductDisplayLabelByPath
 }
 
+const getProductIconTypeByPath = (): Map<string, string> => {
+    if (cachedProductIconTypeByPath === null) {
+        cachedProductIconTypeByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const iconType = product.type || product.iconType
+            if (iconType) {
+                cachedProductIconTypeByPath.set(product.path, iconType)
+            }
+        }
+    }
+    return cachedProductIconTypeByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
@@ -62,13 +76,17 @@ const fileSystemEntryToSearchItem = (
     const name = splitPath(item.path).pop()
     const itemName = name ? unescapePath(name) : item.path
     const displayName = getProductDisplayLabelByPath().get(itemName)
-    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank (empty-string)
+    // type because their product only defines `iconType`. The `||` (not `??`) is deliberate: an
+    // empty string must fall through to the product registry, keyed by name, so the icon resolves.
+    const itemType = item.type || getProductIconTypeByPath().get(itemName) || null
+    const productIconColor = itemType ? getProductIconColorByType().get(itemType) : undefined
     return {
         name: itemName,
         displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
-        itemType: item.type ?? null,
+        itemType,
         record: { ...item, iconColor: productIconColor },
         ...overrides,
     }
@@ -352,7 +370,7 @@ export const searchLogic = kea<searchLogicType>([
                     )
             },
         ],
-        appsItems: [
+        toolsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
@@ -373,7 +391,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.displayLabel ?? product.path,
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: product.category || null,
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
@@ -389,7 +407,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: 'app-activity',
                     name: 'Activity',
                     displayName: 'Activity',
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: null,
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
@@ -880,7 +898,7 @@ export const searchLogic = kea<searchLogicType>([
                 recentsHasLoaded,
                 starredLoading: !shortcutDataHasLoaded,
                 starredHasLoaded: shortcutDataHasLoaded,
-                isAppsLoading: !sceneLogViewsHasLoaded,
+                isToolsLoading: !sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
@@ -890,7 +908,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
-                s.appsItems,
+                s.toolsItems,
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
@@ -907,7 +925,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems: SearchItem[],
                 starredItems: SearchItem[],
-                appsItems: SearchItem[],
+                toolsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -924,7 +942,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded: boolean
                     starredLoading: boolean
                     starredHasLoaded: boolean
-                    isAppsLoading: boolean
+                    isToolsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
@@ -937,7 +955,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded,
                     starredLoading,
                     starredHasLoaded,
-                    isAppsLoading,
+                    isToolsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     playlistSearchResultsLoading,
@@ -969,16 +987,16 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isStarredLoading,
                 })
 
-                // Filter apps and data management by search
-                const filteredApps = filterBySearch(appsItems)
+                // Filter tools and data management by search
+                const filteredTools = filterBySearch(toolsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
-                // Show apps if not searching or has matching results
-                if (!hasSearch || filteredApps.length > 0) {
+                // Show tools if not searching or has matching results
+                if (!hasSearch || filteredTools.length > 0) {
                     categories.push({
-                        key: 'apps',
-                        items: isAppsLoading ? [] : filteredApps,
-                        isLoading: isAppsLoading,
+                        key: 'tools',
+                        items: isToolsLoading ? [] : filteredTools,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -986,8 +1004,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (!hasSearch || filteredDataManagement.length > 0) {
                     categories.push({
                         key: 'data-management',
-                        items: isAppsLoading ? [] : filteredDataManagement,
-                        isLoading: isAppsLoading,
+                        items: isToolsLoading ? [] : filteredDataManagement,
+                        isLoading: isToolsLoading,
                     })
                 }
 

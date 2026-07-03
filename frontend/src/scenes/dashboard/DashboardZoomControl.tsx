@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -22,7 +22,7 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
 
     return (
         <div className="flex items-center gap-2 text-sm text-muted hidden md:flex">
-            <AppShortcut
+            <Shortcut
                 name="DashboardLayoutZoomToggle"
                 keybind={[['z']]}
                 intent="Toggle dashboard layout zoom while editing"
@@ -42,7 +42,7 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                 >
                     {layoutZoom < 1 ? 'Expand view' : 'Collapse view'}
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </div>
     )
 }

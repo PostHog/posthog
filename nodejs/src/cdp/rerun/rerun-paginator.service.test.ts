@@ -3,17 +3,17 @@ import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { UUIDT } from '../../utils/utils'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -26,7 +26,7 @@ import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFun
 import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 /**
  * Integration test for RerunPaginatorService.

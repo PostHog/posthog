@@ -2,7 +2,7 @@ import './InsightCard.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React, { useMemo, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
@@ -173,8 +173,15 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
-    // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
-    const insightLogicProps: InsightLogicProps = useMemo(
+
+    const canEditInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
+        : true
+    const canPersistDisplayOptions = !!dashboardId && canEditInsight
+
+    // Base props without setQuery — used to mount insightDataLogic and retrieve the
+    // persistDisplayOptions action before wiring it back in as setQuery below.
+    const insightLogicPropsBase: InsightLogicProps = useMemo(
         () => ({
             dashboardItemId: insight.short_id,
             dashboardId: dashboardId,
@@ -183,6 +190,17 @@ function InsightCardInternal(
             doNotLoad,
         }),
         [insight, dashboardId, loadPriority, doNotLoad]
+    )
+
+    const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
+
+    // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
+    const insightLogicProps: InsightLogicProps = useMemo(
+        () => ({
+            ...insightLogicPropsBase,
+            setQuery: canPersistDisplayOptions ? persistDisplayOptions : undefined,
+        }),
+        [insightLogicPropsBase, canPersistDisplayOptions, persistDisplayOptions]
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
@@ -299,6 +317,7 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}

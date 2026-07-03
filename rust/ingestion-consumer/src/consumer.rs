@@ -17,10 +17,6 @@ use crate::dispatcher::{Dispatcher, SubBatch};
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
 
-/// Max time `complete_oldest_batch` will keep retrying to flush a batch's
-/// deferred groups (waiting for a healthy worker) before failing the batch.
-const DEFERRED_FLUSH_TIMEOUT: Duration = Duration::from_secs(60);
-
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
 struct BatchStats {
     /// Max Kafka message timestamp (ms) per (topic, partition) — for `latest_processed_timestamp_ms`.
@@ -76,8 +72,8 @@ pub struct IngestionConsumerOptions {
     pub max_in_flight_batches: usize,
     pub group_id: String,
     /// Upper bound on how long `complete_oldest_batch` retries flushing a batch's
-    /// deferred groups before failing the batch. Defaults to
-    /// [`DEFERRED_FLUSH_TIMEOUT`] in `new`.
+    /// deferred groups before failing the batch. `new` takes it from
+    /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
 }
 
@@ -159,7 +155,9 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
-            deferred_flush_timeout: DEFERRED_FLUSH_TIMEOUT,
+            deferred_flush_timeout: Duration::from_millis(
+                config.consumer_deferred_flush_timeout_ms,
+            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -243,10 +241,18 @@ impl IngestionConsumer {
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
         let group_id = self.group_id.clone();
+        let max_batch_size = self.batch_size;
 
         let handle = tokio::spawn(async move {
-            Self::process_collected_batch(collected, task_batch_id, dispatcher, transport, group_id)
-                .await
+            Self::process_collected_batch(
+                collected,
+                task_batch_id,
+                dispatcher,
+                transport,
+                group_id,
+                max_batch_size,
+            )
+            .await
         });
 
         info!(
@@ -321,7 +327,7 @@ impl IngestionConsumer {
     /// Flush a completed batch's deferred groups (keys whose worker was
     /// draining/dead), re-routing them to healthy workers and accumulating the
     /// accepted count. Retries with backoff while a flush can't route (no healthy
-    /// worker yet), bounded by `DEFERRED_FLUSH_TIMEOUT`. Called serialized,
+    /// worker yet), bounded by `deferred_flush_timeout`. Called serialized,
     /// oldest-first, so a key's deferred messages flush in Kafka order.
     async fn flush_deferred(
         &self,
@@ -379,12 +385,21 @@ impl IngestionConsumer {
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
         group_id: String,
+        max_batch_size: usize,
     ) -> anyhow::Result<ProcessedBatch> {
         let batch_size = collected.messages.len();
         let start = Instant::now();
 
         counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
         gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
+
+        // Batch fill ratio (batch size / configured max) — matches Node.js
+        // `consumer_batch_utilization`. A useful scaling signal: sustained high
+        // utilization means batches are saturating and the consumer is demand-bound.
+        if max_batch_size > 0 {
+            gauge!("consumer_batch_utilization", "groupId" => group_id.clone())
+                .set(batch_size as f64 / max_batch_size as f64);
+        }
 
         // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
         histogram!("consumer_batch_size").record(batch_size as f64);
@@ -599,6 +614,14 @@ impl IngestionConsumer {
                 Ok(Some(Err(err))) => {
                     warn!(error = %err, "Kafka recv error");
                     counter!("ingestion_consumer_kafka_errors_total").increment(1);
+                    // A fatal client error (such as UnreleasedInstanceId from a
+                    // static-membership collision) permanently disables the
+                    // consumer. Propagate it so the process exits and Kubernetes
+                    // restarts the pod, instead of re-polling a dead client forever
+                    // while still reporting healthy.
+                    if let Some((code, reason)) = self.consumer.client().fatal_error() {
+                        anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
+                    }
                     break;
                 }
                 Ok(None) => break,

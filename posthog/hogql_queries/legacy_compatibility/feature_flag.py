@@ -1,16 +1,16 @@
 from typing import Literal
 
-import posthoganalytics
 from rest_framework.request import Request
 
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 
 
 def insight_api_use_legacy_queries(team: Team) -> bool:
     """
     Use the legacy implementation of insight api calculation endpoints.
     """
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "insight-api-use-legacy-queries",
         str(team.uuid),
         groups={

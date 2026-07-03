@@ -9,7 +9,6 @@ interface AIObservabilityTraceEventsProps {
     isLoading: boolean
     expandedEventIds: Set<string>
     onToggleEventExpand: (eventId: string) => void
-    traceId?: string
 }
 
 export function AIObservabilityTraceEvents({
@@ -17,7 +16,6 @@ export function AIObservabilityTraceEvents({
     isLoading,
     expandedEventIds,
     onToggleEventExpand,
-    traceId,
 }: AIObservabilityTraceEventsProps): JSX.Element {
     if (isLoading) {
         return <Spinner />
@@ -49,7 +47,6 @@ export function AIObservabilityTraceEvents({
                     event={event}
                     isExpanded={expandedEventIds.has(event.id)}
                     onToggleExpand={() => onToggleEventExpand(event.id)}
-                    traceId={traceId}
                 />
             ))}
         </>

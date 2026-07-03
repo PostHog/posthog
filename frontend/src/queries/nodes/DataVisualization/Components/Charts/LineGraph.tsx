@@ -52,7 +52,6 @@ import {
     AREA_FILL_OPACITY,
     canRenderSqlBarGraph,
     canRenderSqlComboGraph,
-    canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
     isAreaSeries,
@@ -143,6 +142,9 @@ export type LineGraphProps = {
     dashboardId?: string
     goalLines?: GoalLine[]
     className?: string
+    /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
+     *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
+    onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
 }
 
 const LegacyLineGraph = ({
@@ -630,6 +632,10 @@ const LegacyLineGraph = ({
                     showTooltip()
 
                     pinTooltip(() => {
+                        if (!chart.canvas?.isConnected) {
+                            return
+                        }
+
                         // Hide crosshair on tooltip unpin
                         if ((chart as any).crosshair) {
                             ;(chart as any).crosshair.enabled = false
@@ -736,16 +742,16 @@ export function sqlChartComponentFor(
     props: LineGraphProps,
     newChartsEnabled: boolean
 ): (props: LineGraphProps) => JSX.Element {
-    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
-        return SqlLineGraph
+    if (!newChartsEnabled) {
+        return LegacyLineGraph
     }
-    if (newChartsEnabled && canRenderSqlBarGraph(props)) {
-        return SqlBarGraph
-    }
-    if (newChartsEnabled && canRenderSqlComboGraph(props)) {
+    if (canRenderSqlComboGraph(props)) {
         return SqlComboGraph
     }
-    return LegacyLineGraph
+    if (canRenderSqlBarGraph(props)) {
+        return SqlBarGraph
+    }
+    return SqlLineGraph
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {

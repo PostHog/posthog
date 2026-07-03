@@ -11,6 +11,7 @@ import {
     AnyResponseType,
     DataTableNode,
     LLMTrace,
+    LLMTraceEvent,
     NodeKind,
     TraceQuery,
     TracesQueryResponse,
@@ -22,6 +23,7 @@ import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { restoreTree } from './aiObservabilityTraceDataLogic'
 import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
 import { llmAnalyticsSummarizationBatchCheckCreate } from './generated/api'
+import { eventLabel } from './utils'
 
 export interface TraceSummary {
     title: string
@@ -34,8 +36,12 @@ export interface TraceSummary {
 // button. Picking first N and not first and last N, because cross-trace dedup walks
 // chronologically and accumulates `seenSignatures`; any gap in loaded turns would
 // let the later turns' running history show as "new" content.
-// Most sessions have less than 10 turns, a proper fix later is a bulk query.
-const AUTO_LOAD_LIMIT = 10
+// Kept small because each trace is a separate query fired in parallel — a single
+// session open must stay well under the per-org concurrent-query budget. The proper
+// fix is one bulk query for the first N traces' events.
+const AUTO_LOAD_LIMIT = 5
+
+type SessionDateRange = { dateFrom: string | null; dateTo: string | null } | null
 
 export interface SessionDataLogicProps {
     sessionId: string
@@ -58,6 +64,41 @@ function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataL
     return dataNodeLogicProps
 }
 
+function getTraceQueryDateRange(dateRange: SessionDateRange): TraceQuery['dateRange'] {
+    if (!dateRange?.dateFrom && !dateRange?.dateTo) {
+        return undefined
+    }
+
+    return {
+        date_from: dateRange.dateFrom || undefined,
+        date_to: dateRange.dateTo || undefined,
+    }
+}
+
+function getDateRangeCacheKey(dateRange: SessionDateRange): string {
+    return `${dateRange?.dateFrom ?? ''}\0${dateRange?.dateTo ?? ''}`
+}
+
+function getFirstTraceStepEventId(trace: LLMTrace): string | null {
+    const firstEvent = trace.events
+        ?.filter((e) => e.event === '$ai_generation' || e.event === '$ai_span' || e.event === '$ai_embedding')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
+    return firstEvent?.id ?? null
+}
+
+// Maps a clicked tool/error pill to the trace event it represents so the drawer
+// can pre-expand that step. Tool spans and error labels both derive from the
+// event's `$ai_span_name`/`$ai_model` (via `eventLabel`), so an exact label match
+// finds the step; prefer the errored event when several share a label.
+function resolveFocusEventId(trace: LLMTrace, focusKey: string): string | null {
+    const events = trace.events ?? []
+    const isError = (e: LLMTraceEvent): boolean =>
+        e.properties?.$ai_is_error === true || e.properties?.$ai_is_error === 'true' || !!e.properties?.$ai_error
+    const match =
+        events.find((e) => eventLabel(e) === focusKey && isError(e)) ?? events.find((e) => eventLabel(e) === focusKey)
+    return match?.id ?? null
+}
+
 export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilitySessionDataLogic']),
     props({} as SessionDataLogicProps),
@@ -65,7 +106,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
     connect((props: SessionDataLogicProps) => ({
         values: [
             aiObservabilitySessionLogic,
-            ['sessionId'],
+            ['sessionId', 'dateRange'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],
             maxGlobalLogic,
@@ -73,17 +114,29 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             teamLogic,
             ['currentTeamId'],
         ],
-        actions: [dataNodeLogic(getDataNodeLogicProps(props)), ['loadNextData']],
+        actions: [
+            aiObservabilitySessionLogic,
+            ['setDateRange'],
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['loadNextData'],
+        ],
     })),
 
     actions({
-        // Steps panel = the per-turn `AIObservabilityTraceEvents` tree shown via the
-        // "Show steps" link. Distinct from "trace loaded" because the conversation
-        // bubbles render as soon as the full trace is fetched, regardless of steps state.
-        toggleSteps: (traceId: string) => ({ traceId }),
+        // Which trace's steps are open in the side drawer (one at a time, or null).
+        // `focusEventKey` (a tool name / error label) pre-expands the matching step.
+        openStepsDrawer: (traceId: string, focusEventKey: string | null = null) => ({ traceId, focusEventKey }),
+        closeStepsDrawer: true,
         toggleGenerationExpanded: (generationId: string) => ({ generationId }),
+        // Expand only this step, collapsing the rest (timeline / pill focus).
+        focusGenerationExpanded: (generationId: string) => ({ generationId }),
+        clearTraceDetails: true,
         loadFullTrace: (traceId: string) => ({ traceId }),
-        loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        loadFullTraceSuccess: (traceId: string, trace: LLMTrace, dateRangeCacheKey: string) => ({
+            traceId,
+            trace,
+            dateRangeCacheKey,
+        }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
         loadCachedSummaries: (traceIds: string[]) => ({ traceIds }),
         loadCachedSummariesSuccess: (summaries: Array<{ trace_id: string; title: string }>) => ({ summaries }),
@@ -95,18 +148,22 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
     }),
 
     reducers({
-        stepsExpandedTraceIds: [
-            new Set<string>() as Set<string>,
+        drawerTraceId: [
+            null as string | null,
             {
-                toggleSteps: (state, { traceId }) => {
-                    const newSet = new Set(state)
-                    if (newSet.has(traceId)) {
-                        newSet.delete(traceId)
-                    } else {
-                        newSet.add(traceId)
-                    }
-                    return newSet
-                },
+                openStepsDrawer: (_, { traceId }) => traceId,
+                closeStepsDrawer: () => null,
+                clearTraceDetails: () => null,
+            },
+        ],
+        // A pending tool/error label to focus once the drawer's trace finishes loading.
+        drawerFocusKey: [
+            null as string | null,
+            {
+                openStepsDrawer: (_, { focusEventKey }) => focusEventKey,
+                closeStepsDrawer: () => null,
+                focusGenerationExpanded: () => null,
+                clearTraceDetails: () => null,
             },
         ],
         expandedGenerationIds: [
@@ -121,6 +178,8 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     }
                     return newSet
                 },
+                focusGenerationExpanded: (_, { generationId }) => new Set([generationId]),
+                clearTraceDetails: () => new Set<string>(),
             },
         ],
         fullTraces: [
@@ -130,6 +189,17 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     ...state,
                     [traceId]: trace,
                 }),
+                clearTraceDetails: () => ({}),
+            },
+        ],
+        fullTraceDateRangeCacheKeys: [
+            {} as Record<string, string>,
+            {
+                loadFullTraceSuccess: (state, { traceId, dateRangeCacheKey }) => ({
+                    ...state,
+                    [traceId]: dateRangeCacheKey,
+                }),
+                clearTraceDetails: () => ({}),
             },
         ],
         loadingFullTraces: [
@@ -146,6 +216,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     newSet.delete(traceId)
                     return newSet
                 },
+                clearTraceDetails: () => new Set<string>(),
             },
         ],
         traceSummaries: [
@@ -199,12 +270,19 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             (traceSummaries: Record<string, TraceSummary>): boolean =>
                 Object.values(traceSummaries).some((s) => s.loading),
         ],
+        // Stay "loading" until the trace list AND the auto-loaded full traces settle,
+        // so the conversation appears at once instead of a second per-turn spinner.
+        initialLoading: [
+            (s) => [s.responseLoading, s.traces, s.loadingFullTraces],
+            (responseLoading: boolean, traces: LLMTrace[], loadingFullTraces: Set<string>): boolean =>
+                responseLoading || traces.slice(0, AUTO_LOAD_LIMIT).some((t) => loadingFullTraces.has(t.id)),
+        ],
     }),
 
     listeners(({ actions, values }) => {
         // Closure-scoped in-flight lock for `loadFullTrace`. Mirrors the pattern used
         // by sibling lazy loaders in this product (llmPersonsLazyLoaderLogic,
-        // llmSentimentLazyLoaderLogic, traceReviewsLazyLoaderLogic, etc.). We can't
+        // traceReviewsLazyLoaderLogic, etc.). We can't
         // rely on `values.loadingFullTraces` for this guard because kea reducers run
         // synchronously *before* listeners — so the reducer has already added this
         // traceId by the time the listener checks. The closure-scoped Set lets the
@@ -213,6 +291,9 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
         const inFlightTraceFetches = new Set<string>()
 
         return {
+            setDateRange: () => {
+                actions.clearTraceDetails()
+            },
             loadCachedSummaries: async ({ traceIds }) => {
                 if (traceIds.length === 0) {
                     return
@@ -241,18 +322,28 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
             },
             loadFullTrace: async ({ traceId }) => {
-                if (values.fullTraces[traceId] || inFlightTraceFetches.has(traceId)) {
+                const dateRangeCacheKey = getDateRangeCacheKey(values.dateRange)
+                if (
+                    (values.fullTraces[traceId] && values.fullTraceDateRangeCacheKeys[traceId] === dateRangeCacheKey) ||
+                    inFlightTraceFetches.has(`${traceId}:${dateRangeCacheKey}`)
+                ) {
                     return
                 }
-                inFlightTraceFetches.add(traceId)
+                inFlightTraceFetches.add(`${traceId}:${dateRangeCacheKey}`)
+                const dateRange = getTraceQueryDateRange(values.dateRange)
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
+                    dateRange,
                 }
                 try {
                     const response = await api.query(traceQuery)
+                    if (dateRangeCacheKey !== getDateRangeCacheKey(values.dateRange)) {
+                        return
+                    }
                     if (response.results && response.results[0]) {
-                        actions.loadFullTraceSuccess(traceId, response.results[0])
+                        actions.loadFullTraceSuccess(traceId, response.results[0], dateRangeCacheKey)
                     } else {
                         actions.loadFullTraceFailure(traceId)
                     }
@@ -260,7 +351,35 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     console.error('Error loading full trace:', error)
                     actions.loadFullTraceFailure(traceId)
                 } finally {
-                    inFlightTraceFetches.delete(traceId)
+                    inFlightTraceFetches.delete(`${traceId}:${dateRangeCacheKey}`)
+                }
+            },
+            openStepsDrawer: ({ traceId, focusEventKey }) => {
+                const trace = values.fullTraces[traceId]
+                const dateRangeCacheKey = getDateRangeCacheKey(values.dateRange)
+                const isTraceFresh = !!trace && values.fullTraceDateRangeCacheKeys[traceId] === dateRangeCacheKey
+                if (!isTraceFresh && !values.loadingFullTraces.has(traceId)) {
+                    actions.loadFullTrace(traceId)
+                }
+                // Already loaded: focus the clicked step now. Otherwise the
+                // loadFullTraceSuccess listener picks it up once events arrive.
+                if (isTraceFresh && trace) {
+                    const id = focusEventKey
+                        ? resolveFocusEventId(trace, focusEventKey)
+                        : getFirstTraceStepEventId(trace)
+                    if (id) {
+                        actions.focusGenerationExpanded(id)
+                    }
+                }
+            },
+            loadFullTraceSuccess: ({ traceId, trace }) => {
+                if (traceId === values.drawerTraceId) {
+                    const id = values.drawerFocusKey
+                        ? resolveFocusEventId(trace, values.drawerFocusKey)
+                        : getFirstTraceStepEventId(trace)
+                    if (id) {
+                        actions.focusGenerationExpanded(id)
+                    }
                 }
             },
             summarizeAllTraces: async () => {
@@ -285,9 +404,11 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     // First fetch the full trace with all events (session query only has direct children)
                     let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
                     if (!fullTrace) {
+                        const dateRange = getTraceQueryDateRange(values.dateRange)
                         const traceQuery: TraceQuery = {
                             kind: NodeKind.TraceQuery,
                             traceId,
+                            dateRange,
                         }
                         const traceResponse = await api.query(traceQuery)
                         if (traceResponse.results && traceResponse.results[0]) {

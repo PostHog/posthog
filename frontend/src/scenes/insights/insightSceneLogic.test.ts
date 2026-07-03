@@ -141,6 +141,92 @@ describe('insightSceneLogic', () => {
             })
     })
 
+    it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {
+        // The persons-modal "View events" button opens in a new tab, so the scene cold-loads with the
+        // query already in the URL (initial navigation -> upgradeQuery). A DataTableNode's source query
+        // is executed directly, so without a productKey tag ClickHouse rejects it as untagged — the
+        // upgrade path must tag the source when materializing the new insight.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('tags a DataTableNode drill-down query on in-app navigation', async () => {
+        // The "Open as new insight" button navigates in-app (router PUSH, not an initial load), which
+        // routes through urlToAction's PUSH branch rather than upgradeQuery. That path must tag too.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        // Settle a new-insight scene first, then navigate in-app to the drill-down query
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {
+        // A drill-down query that already declares its product (e.g. web analytics) must keep it.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+                tags: { productKey: ProductKey.WEB_ANALYTICS },
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
+    })
+
+    it('does not inject tags into a DataTableNode with an EventsNode source', async () => {
+        // EventsNode forbids extra keys in its schema, so tagging it would produce an invalid query.
+        // The source must be left untouched (no tags field added).
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source.kind).toEqual(NodeKind.EventsNode)
+        expect(query.source.tags).toBeUndefined()
+    })
+
     it('persists edit mode in the url', async () => {
         logic = insightSceneLogic()
         logic.mount()

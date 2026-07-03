@@ -1,7 +1,7 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { PartitionOffset } from '~/ingestion/pipelines/sessionreplay/types'
-import { logger } from '~/utils/logger'
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
 
@@ -14,8 +14,14 @@ export class KafkaOffsetManager {
     ) {}
 
     public trackOffset({ partition, offset }: PartitionOffset): void {
-        // We track the next offset to process
-        this.partitionOffsets.set(partition, offset + 1)
+        // We track the next offset to process. Never move a partition backwards: callers can arrive
+        // out of order (a drop tracked before a lower recorded offset), and committing the lower one
+        // would replay everything in between.
+        const nextOffset = offset + 1
+        const current = this.partitionOffsets.get(partition)
+        if (current === undefined || nextOffset > current) {
+            this.partitionOffsets.set(partition, nextOffset)
+        }
     }
 
     public discardPartition(partition: number): void {

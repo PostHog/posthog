@@ -172,8 +172,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
-            { persist: true },
+            { ai: true, project: true, files: true, favorites: false, tools: true } as Record<string, boolean>,
+            { persist: true, prefix: 'v2.' },
             {
                 toggleNavSection: (state, { section }) => ({
                     ...state,

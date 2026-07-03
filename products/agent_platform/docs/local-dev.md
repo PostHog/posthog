@@ -161,17 +161,24 @@ addition.
 
 ### 1. `bin/run-agent` — the smoke test
 
-Fires a chat trigger against the canned dev revision and tails SSE:
+Fires a chat trigger against an agent you've already authored + promoted
+to `live`, and tails SSE:
 
 ```bash
-bin/run-agent                            # default app (slug=demo)
-bin/run-agent --input='{"foo":"bar"}'
-bin/run-agent --no-listen                # skip SSE tail
+bin/run-agent --slug=<your-slug>
+bin/run-agent --slug=<your-slug> --message='hello'           # chat shape
+bin/run-agent --slug=<your-slug> --input='{"foo":"bar"}'     # raw JSON
+bin/run-agent --slug=<your-slug> --no-listen                 # skip SSE tail
 ```
 
 Validates the full ingress → queue → runner → bus → SSE path with one
 command. Reach for this first when anything changes in any of the three
 services.
+
+Auth: the script defaults to `x-posthog-internal: <dev-key>` so an agent
+whose spec declares `auth.modes: [{type:'posthog_internal'}]` (the
+ingress fallback when no modes are configured) works out of the box. For
+`auth.modes: [{type:'posthog'}]`, pass `--bearer=<PAT>`.
 
 ### 2. Local MCP — end-to-end via an MCP client
 

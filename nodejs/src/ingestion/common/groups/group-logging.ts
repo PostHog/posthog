@@ -1,6 +1,6 @@
+import { groupUpdateVersionMismatchCounter } from '~/common/utils/db/metrics'
+import { logger } from '~/common/utils/logger'
 import { GroupTypeIndex, TeamId } from '~/types'
-import { groupUpdateVersionMismatchCounter } from '~/utils/db/metrics'
-import { logger } from '~/utils/logger'
 
 export function logVersionMismatch(
     teamId: TeamId,
