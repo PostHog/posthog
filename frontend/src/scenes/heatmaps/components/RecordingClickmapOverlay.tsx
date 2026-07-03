@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { recordingClickmapLogic } from './recordingClickmapLogic'
 

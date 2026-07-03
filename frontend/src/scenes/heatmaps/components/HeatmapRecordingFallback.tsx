@@ -4,7 +4,7 @@ import { IconRewindPlay } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { heatmapRecordingFallbackLogic } from './heatmapRecordingFallbackLogic'
 
