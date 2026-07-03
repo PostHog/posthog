@@ -357,6 +357,26 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
 
         self.assertEqual(len(result), 0)
 
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_narrows_selected_columns_to_refresh_fields(self, mock_get_client):
+        """The refresh SELECT is narrowed via .only(), so a Team column the read replica
+        hasn't migrated yet can't turn the whole batch into an UndefinedColumn error.
+        Guards against reverting to a `SELECT *` that fetches every column."""
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.zrangebyscore.return_value = [self.team.api_token.encode()]
+
+        teams = get_teams_with_expiring_caches(ttl_threshold_hours=24)
+
+        self.assertEqual(len(teams), 1)
+        deferred = teams[0].get_deferred_fields()
+        # Columns outside the refresh set are deferred (not fetched) — a SELECT * regression
+        # would leave this empty.
+        self.assertTrue(deferred)
+        # Every column the refresh serializes is loaded, so serialization never triggers a
+        # per-field lazy load.
+        self.assertEqual(deferred & set(TEAM_METADATA_FIELDS), set())
+
 
 class TestVerifyTeamMetadata(BaseTest):
     """Test verify_team_metadata functionality."""

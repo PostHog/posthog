@@ -776,6 +776,11 @@ def _update_flag_definitions_without_cohorts(team: Team | int, ttl: int | None =
 # Each config uses a per-variant update_fn so that callers iterating both
 # configs (e.g., warm_caches, refresh) don't double-write a variant.
 # Verification runs both configs independently to keep each variant correct.
+# The refresh builds flag definitions from team id/project_id; it reads no other Team
+# columns. Narrowing the SELECT keeps it resilient to newly added Team columns the read
+# replica may not have applied yet (organization_id keeps the select_related valid).
+_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS = ["id", "project_id", "organization_id"]
+
 FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flag_definitions_hypercache,
     update_fn=_update_flag_definitions_with_cohorts,
@@ -788,6 +793,7 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # Guard the verifier's direct db_data write against caching an emptied
     # group_type_mapping (personhog lag), same as the signal-driven write path.
     should_skip_write=_skip_write_if_group_mapping_emptied,
+    refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
@@ -798,6 +804,7 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
     repair_miss_during_grace_period=True,
     should_skip_write=_skip_write_if_group_mapping_emptied,
+    refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
 )
 
 

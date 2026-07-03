@@ -209,6 +209,16 @@ class HyperCacheManagementConfig:
     # skip as an optimization and leave this False.
     repair_miss_during_grace_period: bool = False
 
+    # Team columns the refresh/warm path reads off each Team object. When set,
+    # get_teams_with_expiring_caches narrows its SELECT to these columns via .only()
+    # instead of fetching the whole row. This keeps the refresh working when a Team
+    # column added by a migration the read replica hasn't applied yet would otherwise
+    # make `SELECT *` raise UndefinedColumn (the replica lags on posthog_team DDL).
+    # Must list every Team field the config's update_fn/load_fn reads; related fields
+    # (organization/project) come via select_related and don't need listing, but the
+    # FK columns (organization_id, project_id) do. Leave None to select all columns.
+    refresh_only_fields: list[str] | None = None
+
     # Optional write guard: given (key, payload), returns True to skip the write. Used
     # to veto caching an emptied group_type_mapping over populated data when personhog
     # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
