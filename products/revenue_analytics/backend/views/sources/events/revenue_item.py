@@ -71,7 +71,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
             ast.Alias(
                 alias="subscription_id",
-                expr=ast.Field(chain=["properties", event.subscriptionProperty])
+                expr=ast.Call(name="toString", args=[ast.Field(chain=["properties", event.subscriptionProperty])])
                 if event.subscriptionProperty
                 else ast.Constant(value=None),
             ),

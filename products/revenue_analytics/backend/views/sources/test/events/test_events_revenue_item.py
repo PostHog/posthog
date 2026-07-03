@@ -77,8 +77,8 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         # Should include product_id from productProperty
         self.assertIn("properties.product_id AS product_id", query_sql)
 
-        # Should include subscription_id from subscriptionProperty
-        self.assertIn("properties.subscription_id AS subscription_id", query_sql)
+        # Should include subscription_id from subscriptionProperty, coerced to string to match the schema
+        self.assertIn("toString(properties.subscription_id) AS subscription_id", query_sql)
 
     def test_with_team_base_currency(self):
         """Test that team base currency is properly used."""

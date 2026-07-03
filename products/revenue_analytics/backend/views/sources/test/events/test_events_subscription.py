@@ -53,8 +53,8 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         query = build(handle)
         query_sql = query.query.to_hogql()
 
-        # Should map subscription_id from events properties
-        self.assertIn("properties.subscription_id AS subscription_id", query_sql)
+        # Should map subscription_id from events properties, coerced to string to match the schema
+        self.assertIn("toString(properties.subscription_id) AS subscription_id", query_sql)
 
         # Should use subscription_id as id
         self.assertIn("subscription_id AS id", query_sql)
@@ -85,7 +85,7 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Should use the custom property names
-        self.assertIn("properties.sub_id AS subscription_id", query_sql)
+        self.assertIn("toString(properties.sub_id) AS subscription_id", query_sql)
         self.assertIn("min(properties.product) AS product_id", query_sql)
 
     def test_subscription_without_product_property(self):
@@ -139,13 +139,13 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         handle = SourceHandle(type="events", team=self.team, event=event_config1)
         query = build(handle)
         created_sql = query.query.to_hogql()
-        self.assertIn("properties.sub_id AS subscription_id", created_sql)
+        self.assertIn("toString(properties.sub_id) AS subscription_id", created_sql)
         self.assertIn("min(properties.plan_id) AS product_id", created_sql)
 
         handle = SourceHandle(type="events", team=self.team, event=event_config2)
         query = build(handle)
         renewed_sql = query.query.to_hogql()
-        self.assertIn("properties.subscription_uuid AS subscription_id", renewed_sql)
+        self.assertIn("toString(properties.subscription_uuid) AS subscription_id", renewed_sql)
         self.assertIn("min(properties.service_name) AS product_id", renewed_sql)
 
     def test_empty_string_subscription_property_returns_empty_query(self):

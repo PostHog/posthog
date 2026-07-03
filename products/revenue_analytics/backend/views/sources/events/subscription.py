@@ -27,7 +27,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
     events_query = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["person", "id"])),
-            ast.Alias(alias="subscription_id", expr=ast.Field(chain=["properties", event.subscriptionProperty])),
+            ast.Alias(
+                alias="subscription_id",
+                expr=ast.Call(name="toString", args=[ast.Field(chain=["properties", event.subscriptionProperty])]),
+            ),
             ast.Alias(
                 alias="product_id",
                 expr=ast.Call(name="min", args=[ast.Field(chain=["properties", event.productProperty])])

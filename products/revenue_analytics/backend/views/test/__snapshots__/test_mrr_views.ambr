@@ -28,7 +28,7 @@
                   events.`$group_3` AS group_3_key,
                   events.`$group_4` AS group_4_key,
                   NULL AS invoice_id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                  toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
@@ -72,7 +72,7 @@
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                     toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
                      max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
@@ -374,7 +374,7 @@
                   events.`$group_3` AS group_3_key,
                   events.`$group_4` AS group_4_key,
                   NULL AS invoice_id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                  toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
@@ -418,7 +418,7 @@
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+                     toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS subscription_id,
                      min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '')) AS product_id,
                      min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
                      max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
