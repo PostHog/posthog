@@ -694,14 +694,26 @@ class _LogPatternSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text=(
             "Occurrences of this pattern within the sample. When `sampled` is true this is a sample "
-            "count, not the full-window total — scale by `total_count / scanned_count` to estimate."
+            "count, not the full-window total — prefer `estimated_count` for display."
+        ),
+    )
+    estimated_count = serializers.IntegerField(
+        help_text=(
+            "Estimated occurrences across the full window, extrapolated from the sample "
+            "(`count / scanned_count * total_count`). Equals `count` when the window was not sampled."
         ),
     )
     volume_share_pct = serializers.FloatField(
         help_text="Share of the sampled log volume this pattern represents (0–100).",
     )
     error_count = serializers.IntegerField(
-        help_text='Sampled occurrences at severity "error" or "fatal".',
+        help_text='Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display.',
+    )
+    estimated_error_count = serializers.IntegerField(
+        help_text=(
+            "Estimated error/fatal occurrences across the full window, extrapolated from the sample. "
+            "Equals `error_count` when the window was not sampled."
+        ),
     )
     first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
     last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
@@ -732,7 +744,14 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
     sampled = serializers.BooleanField(
         help_text=(
             "True when the window held more rows than the sample cap, so patterns were mined from "
-            "an evenly-distributed random sample rather than every matching row."
+            "a deterministic, evenly-distributed sample rather than every matching row."
+        ),
+    )
+    sample_coverage_pct = serializers.FloatField(
+        help_text=(
+            "Share of the window's log rows that were eligible for sampling (0–100). Below 100, "
+            "the scan was bounded to evenly-spaced time slices across the window to keep the "
+            "query within its execution budget; rows outside the slices could not appear in the sample."
         ),
     )
 

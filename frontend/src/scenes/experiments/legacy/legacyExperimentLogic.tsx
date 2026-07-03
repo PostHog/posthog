@@ -3,7 +3,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
-import { classifyError, extractErrorDetailString } from 'scenes/experiments/experimentLogic'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -259,18 +258,10 @@ const loadLegacyMetrics = async ({
                     }
                 )
             } catch (error: any) {
-                const durationMs = Math.round(performance.now() - startTime)
                 const errorCode = typeof error.code === 'string' ? error.code : null
                 const statusCode = typeof error.status === 'number' ? error.status : null
-                const errorMessage =
-                    typeof error.detail === 'string'
-                        ? error.detail
-                        : typeof error.message === 'string'
-                          ? error.message
-                          : null
                 const { detail: errorDetail, hasDiagnostics } = parseMetricErrorDetail(error)
                 const queryId = response?.query_status?.id || error.queryId || null
-                const errorType = classifyError(errorDetail, errorMessage, errorCode, statusCode)
 
                 currentErrors[originalIndex] = {
                     detail: errorDetail,
@@ -284,19 +275,7 @@ const loadLegacyMetrics = async ({
 
                 erroredCount++
 
-                eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
-                    duration_ms: durationMs,
-                    metric_index: metricIndex,
-                    is_primary: isPrimary,
-                    is_retry: isRetry,
-                    refresh_id: refreshId,
-                    metric_kind: metricKind,
-                    error_type: errorType,
-                    error_code: errorCode,
-                    error_message: errorMessage,
-                    error_detail: extractErrorDetailString(errorDetail),
-                    status_code: statusCode,
-                })
+                // No telemetry here: the terminal `experiment metric error` event is emitted by the backend.
 
                 legacyResults[originalIndex] = null
                 onSetLegacyResults([...legacyResults])

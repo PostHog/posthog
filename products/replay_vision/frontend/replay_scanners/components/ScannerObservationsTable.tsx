@@ -94,7 +94,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationStats,
         scanner,
         triggeringOnDemandObservation,
-        refreshing,
     } = useValues(logic)
     const {
         refreshObservations,
@@ -274,7 +273,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 type="secondary"
                                 icon={<IconRefresh />}
                                 onClick={() => refreshObservations()}
-                                loading={refreshing}
+                                loading={observationsLoading}
                                 data-attr="vision-observations-refresh"
                             >
                                 Refresh
@@ -295,16 +294,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
                         />
                         <Metric label="Ineligible" value={observationStats.ineligible} />
-                        {observationStats.inFlight > 0 && (
-                            <Metric label="In flight" value={observationStats.inFlight} />
-                        )}
+                        <Metric label="In flight" value={observationStats.inFlight} />
                     </div>
                 </div>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={refreshing || triggeringOnDemandObservation || observationsLoading}
+                loading={triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
@@ -317,6 +314,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 sorting={observationsSort}
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
+                // The URL scheme can't express "no sort", so a third header click would snap back with duplicate fetches.
+                noSortingCancellation
                 nouns={['observation', 'observations']}
                 emptyState={
                     <div className="p-6 text-center text-muted">

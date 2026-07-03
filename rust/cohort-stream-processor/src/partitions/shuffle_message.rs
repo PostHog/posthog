@@ -49,6 +49,21 @@ pub enum ShuffleMessage {
     },
 }
 
+impl ShuffleMessage {
+    /// The offset an [`Event`](Self::Event) carries; `None` for the maintenance variants.
+    pub fn event_offset(&self) -> Option<i64> {
+        match self {
+            ShuffleMessage::Event { cse_offset, .. } => Some(*cse_offset),
+            ShuffleMessage::Sweep { .. }
+            | ShuffleMessage::Merge { .. }
+            | ShuffleMessage::Transfer { .. }
+            | ShuffleMessage::Cascade { .. }
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

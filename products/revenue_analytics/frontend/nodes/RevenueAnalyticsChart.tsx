@@ -11,7 +11,7 @@ import type {
     YAxisConfig,
 } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -73,7 +73,7 @@ export function RevenueAnalyticsChart({
     const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     // isDarkModeOn is a dep (not an arg): getColor can resolve theme-dependent CSS colors into
     // concrete values, so the series must rebuild on a light/dark toggle.
@@ -111,14 +111,27 @@ export function RevenueAnalyticsChart({
 
     // No xAxis config: the backend ships pre-formatted period labels, so the time-axis date
     // formatter is intentionally left inert (it would otherwise re-format the labels itself).
-    if (kind === 'bar') {
-        const config: TimeSeriesBarChartConfig = {
+    const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
             yAxis,
             goalLines,
             barLayout: 'stacked',
             divergingStack,
             tooltip: TOOLTIP_CONFIG,
-        }
+        }),
+        [yAxis, goalLines, divergingStack]
+    )
+    const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({
+            yAxis,
+            goalLines,
+            showCrosshair: true,
+            tooltip: TOOLTIP_CONFIG,
+        }),
+        [yAxis, goalLines]
+    )
+
+    if (kind === 'bar') {
         return (
             <ChartLegend
                 show={showLegend}
@@ -130,7 +143,7 @@ export function RevenueAnalyticsChart({
                     series={series}
                     labels={labels}
                     theme={theme}
-                    config={config}
+                    config={barConfig}
                     tooltip={renderTooltip}
                     className="BarGraph"
                     dataAttr={dataAttr}
@@ -139,12 +152,6 @@ export function RevenueAnalyticsChart({
         )
     }
 
-    const config: TimeSeriesLineChartConfig = {
-        yAxis,
-        goalLines,
-        showCrosshair: true,
-        tooltip: TOOLTIP_CONFIG,
-    }
     return (
         <ChartLegend
             show={showLegend}
@@ -156,7 +163,7 @@ export function RevenueAnalyticsChart({
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={config}
+                config={lineConfig}
                 tooltip={renderTooltip}
                 className="LineGraph"
                 dataAttr={dataAttr}

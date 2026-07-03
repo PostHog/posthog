@@ -1879,7 +1879,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # long-lived stream begins — see sse_streaming_response. The stream body is
         # Redis-only, so it never re-acquires one.
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            endpoint="task_run_log",
         )
 
     @staticmethod
