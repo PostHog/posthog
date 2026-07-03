@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,9 +18,30 @@ INTRUDER_BASE_URL = "https://api.intruder.io/v1"
 # the request count down. Its list endpoints default to 25 per page and accept a `limit` param.
 PAGE_SIZE = 100
 
+_ALLOWED_URL = urlsplit(INTRUDER_BASE_URL)
+
 
 class IntruderRetryableError(Exception):
     pass
+
+
+def _validate_url(url: str) -> str:
+    """Reject any request URL that isn't on the Intruder API origin.
+
+    Pagination `next` URLs — and the resumed cursor loaded from Redis state — come from data we
+    don't fully trust. A poisoned resume value or a malicious `next` returned by the API (or an
+    intermediary) would otherwise make the worker send the customer's `Authorization: Bearer ...`
+    header to an attacker-controlled host, leaking the token (SSRF). Only allow the exact
+    `https://api.intruder.io/v1/...` origin through.
+    """
+    parts = urlsplit(url)
+    if (
+        parts.scheme != _ALLOWED_URL.scheme
+        or parts.netloc != _ALLOWED_URL.netloc
+        or not parts.path.startswith(f"{_ALLOWED_URL.path}/")
+    ):
+        raise ValueError(f"Refusing to follow non-Intruder URL: {url}")
+    return url
 
 
 @dataclasses.dataclass
@@ -74,7 +96,17 @@ def validate_credentials(access_token: str) -> bool:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=60)
+    # Validate before every request (not just on save/resume) so the origin allowlist is the single
+    # choke point covering initial, resumed, and API-returned `next` URLs. `allow_redirects=False`
+    # stops a 3xx from retargeting the authenticated request at another host.
+    response = session.get(_validate_url(url), headers=headers, timeout=60, allow_redirects=False)
+
+    # Pagination is driven by `next` URLs in the body, never HTTP redirects; an unexpected redirect
+    # is refused rather than followed, so the bearer token can't be forwarded off-origin.
+    if response.is_redirect:
+        raise requests.HTTPError(
+            f"Intruder API returned an unexpected redirect: status={response.status_code}, url={url}"
+        )
 
     # 429 (rate limit) and 5xx are transient — back off and retry rather than fail the whole sync.
     if response.status_code == 429 or response.status_code >= 500:

@@ -191,9 +191,11 @@ class TestFetchPageRetries:
         retryable = MagicMock()
         retryable.status_code = status
         retryable.ok = False
+        retryable.is_redirect = False
         good = MagicMock()
         good.status_code = 200
         good.ok = True
+        good.is_redirect = False
         good.json.return_value = {"results": []}
 
         session = MagicMock()
@@ -215,6 +217,7 @@ class TestFetchPageRetries:
         good = MagicMock()
         good.status_code = 200
         good.ok = True
+        good.is_redirect = False
         good.json.return_value = {"results": []}
 
         session = MagicMock()
@@ -240,6 +243,54 @@ class TestFetchPageRetries:
             intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
 
         assert session.get.call_count == 1
+
+
+class TestUrlSafety:
+    @parameterized.expand(
+        [
+            ("http_downgrade", "http://api.intruder.io/v1/targets/"),
+            ("attacker_host", "https://evil.com/v1/targets/"),
+            ("attacker_subdomain", "https://api.intruder.io.evil.com/v1/targets/"),
+            ("userinfo_trick", "https://api.intruder.io@evil.com/v1/targets/"),
+            ("wrong_path_prefix", "https://api.intruder.io/v2/targets/"),
+            ("root_path", "https://api.intruder.io/"),
+        ]
+    )
+    def test_validate_url_rejects_off_origin(self, _name: str, url: str) -> None:
+        # A poisoned resume cursor or a malicious API-returned `next` must never be followed with the
+        # bearer token — the allowlist is the SSRF guard.
+        with pytest.raises(ValueError):
+            intruder._validate_url(url)
+
+    @parameterized.expand(
+        [
+            ("collection", "https://api.intruder.io/v1/targets/"),
+            ("with_paging", "https://api.intruder.io/v1/issues/10/occurrences/?limit=100&offset=100"),
+        ]
+    )
+    def test_validate_url_allows_intruder_origin(self, _name: str, url: str) -> None:
+        assert intruder._validate_url(url) == url
+
+    def test_fetch_page_validates_before_requesting(self) -> None:
+        # Validation must run before the network call, so a bad URL never reaches the wire (and the
+        # session — carrying the token — is never contacted).
+        session = MagicMock()
+        with pytest.raises(ValueError):
+            intruder._fetch_page(session, "https://evil.com/v1/targets/", {}, MagicMock())
+        session.get.assert_not_called()
+
+    def test_fetch_page_refuses_redirects(self) -> None:
+        # Redirects could retarget the authenticated request off-origin; they must be refused, not
+        # followed. `allow_redirects=False` returns the 3xx, which we reject.
+        redirect = requests.Response()
+        redirect.status_code = 302
+        redirect.headers["Location"] = "https://evil.com"
+
+        session = MagicMock()
+        session.get.return_value = redirect
+
+        with pytest.raises(requests.HTTPError):
+            intruder._fetch_page(session, "https://api.intruder.io/v1/targets/", {}, MagicMock())
 
 
 class TestValidateCredentials:

@@ -67,7 +67,7 @@ Create an access token under **My account > API Access Tokens** in your [Intrude
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.canonical_descriptions import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
         )
 
