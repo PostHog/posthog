@@ -124,6 +124,7 @@ pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
 pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
 pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
+pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
 pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression_operator";
 pub const RULE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_rule_suppression_operator";

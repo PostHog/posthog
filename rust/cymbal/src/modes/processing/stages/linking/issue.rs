@@ -435,8 +435,16 @@ async fn maybe_alias_legacy_fingerprint(
     }
 
     let reopened = issue.maybe_reopen(&mut *conn).await?;
-    let assignment =
-        process_assignment(conn, &context.team_manager, &issue, event_properties).await?;
+    // Match the existing-issue convention: only evaluate assignment rules when
+    // the issue was reopened. Aliasing onto an already-active issue must not
+    // trigger auto-assignment the legacy-fingerprint path wouldn't have. In the
+    // steady state we just carry the issue's current assignment into the state
+    // message.
+    let assignment = if reopened {
+        process_assignment(conn, &context.team_manager, &issue, event_properties).await?
+    } else {
+        issue.get_assignments(&mut *conn).await?.first().cloned()
+    };
     send_fingerprint_issue_state(
         context,
         &issue,
