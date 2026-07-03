@@ -9,7 +9,7 @@ class SignalsConfig(AppConfig):
     def ready(self) -> None:
         # activity_logging: consumes model_activity_signal to persist SignalScoutConfig audit-log
         #   entries (ModelActivityMixin only emits the signal; this is the consumer).
-        # receivers: post_save receiver that closes a report's implementation PR on dismissal.
+        # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
         from . import (
             activity_logging,  # noqa: F401
             receivers,  # noqa: F401

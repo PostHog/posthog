@@ -1,5 +1,7 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
+from typing import Literal
+
 import structlog
 
 from posthog.models.github_integration_base import GitHubIntegrationBase
@@ -46,21 +48,31 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     return result
 
 
-# Left on the PR before it's closed, so anyone looking at the PR (not just whoever dismissed it,
-# and regardless of where the dismissal came from) sees why it was closed and how to undo it.
-_DISMISSAL_PR_COMMENT = (
-    "🔕 Closing this PR because the linked PostHog report was dismissed.\n\n"
+PrCloseReason = Literal["suppressed", "snoozed"]
+
+# Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
+_PR_CLOSE_COMMENT_TEMPLATE = (
+    "🔕 Closing this PR because the linked PostHog report was {action}.\n\n"
     "If that wasn't intended, restore the report in PostHog and reopen this PR."
 )
+_PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
+    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
+    for reason in ("suppressed", "snoozed")
+}
 
 
-def close_implementation_pr_for_report(team_id: int, report_id: str) -> bool:
+def close_implementation_pr_for_report(
+    team_id: int,
+    report_id: str,
+    *,
+    reason: PrCloseReason = "suppressed",
+) -> bool:
     """Best-effort: comment on and close the GitHub PR opened for this report's implementation task.
 
-    Called when a report is dismissed — a dismissed report means the fix isn't wanted, so the
-    open PR shouldn't linger. Leaves an explanatory comment, then closes the PR. Returns True when
-    the PR was closed, False when there was nothing to close or the close couldn't be completed.
-    Never raises: dismissal must succeed regardless.
+    Called when a report is suppressed or snoozed — the open PR shouldn't linger. Leaves an
+    explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
+    was nothing to close or the close couldn't be completed. Never raises: the state transition
+    must succeed regardless.
     """
     try:
         pr_url = fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
@@ -80,7 +92,7 @@ def close_implementation_pr_for_report(team_id: int, report_id: str) -> bool:
             return False
 
         # Explain first, close second — a failed comment shouldn't stop the close.
-        comment_outcome = github.comment_on_pull_request(repository, pr_number, _DISMISSAL_PR_COMMENT)
+        comment_outcome = github.comment_on_pull_request(repository, pr_number, _PR_CLOSE_COMMENTS[reason])
         if not comment_outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_comment_failed",
