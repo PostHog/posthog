@@ -157,13 +157,13 @@ class TestFetchPage:
     def test_success_returns_results_and_next_cursor(self) -> None:
         session = MagicMock()
         session.get.return_value = _response(
-            200, body={"results": [{"recall_number": "D-1"}]}, next_url="http://api.fda.gov/next"
+            200, body={"results": [{"recall_number": "D-1"}]}, next_url="https://api.fda.gov/next"
         )
         page = _fetch_page(session, "http://x", None, MagicMock())
         assert page is not None
         results, next_url = page
         assert results == [{"recall_number": "D-1"}]
-        assert next_url == "http://api.fda.gov/next"
+        assert next_url == "https://api.fda.gov/next"
 
     def test_last_page_has_no_next_cursor(self) -> None:
         session = MagicMock()
@@ -171,6 +171,29 @@ class TestFetchPage:
         page = _fetch_page(session, "http://x", None, MagicMock())
         assert page is not None
         assert page[1] is None
+
+    @parameterized.expand(
+        [
+            ("off_host", "https://evil.example.com/next"),
+            ("insecure_scheme", "http://api.fda.gov/next"),
+            ("subdomain_spoof", "https://api.fda.gov.evil.example.com/next"),
+        ]
+    )
+    def test_off_host_next_cursor_is_rejected(self, _name: str, next_url: str) -> None:
+        # A poisoned `Link` header would send the API key (Basic auth) off-host or hit an internal
+        # address. Following it must fail loudly, not be saved and requested.
+        session = MagicMock()
+        session.get.return_value = _response(200, body={"results": []}, next_url=next_url)
+        with pytest.raises(ValueError):
+            _fetch_page(session, "https://api.fda.gov/x", None, MagicMock())
+
+    def test_missing_results_key_raises(self) -> None:
+        # openFDA guarantees `results` on a 200; an unexpected shape should surface, not silently look
+        # like an empty page.
+        session = MagicMock()
+        session.get.return_value = _response(200, body={"meta": {}})
+        with pytest.raises(KeyError):
+            _fetch_page(session, "https://api.fda.gov/x", None, MagicMock())
 
 
 def _collect(
@@ -200,8 +223,8 @@ class TestGetRows:
     def test_follows_link_cursor_across_pages(self, monkeypatch: Any) -> None:
         initial = _build_initial_url(OPENFDA_ENDPOINTS["drug_enforcement"], False, None, None)
         pages = {
-            initial: ([{"recall_number": "D-1"}], "http://api.fda.gov/p2"),
-            "http://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
+            initial: ([{"recall_number": "D-1"}], "https://api.fda.gov/p2"),
+            "https://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
         }
         rows = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == [{"recall_number": "D-1"}, {"recall_number": "D-2"}]
@@ -209,20 +232,20 @@ class TestGetRows:
     def test_saves_cursor_after_yielding_each_page(self, monkeypatch: Any) -> None:
         initial = _build_initial_url(OPENFDA_ENDPOINTS["drug_enforcement"], False, None, None)
         pages = {
-            initial: ([{"recall_number": "D-1"}], "http://api.fda.gov/p2"),
-            "http://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
+            initial: ([{"recall_number": "D-1"}], "https://api.fda.gov/p2"),
+            "https://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
         }
         manager = _FakeResumableManager()
         _collect(manager, monkeypatch, pages)
         # State is saved only while more pages remain, and only the next cursor — so a crash re-fetches
         # the just-yielded page (merge dedupes) rather than skipping it. The final page saves nothing.
-        assert [s.next_url for s in manager.saved] == ["http://api.fda.gov/p2"]
+        assert [s.next_url for s in manager.saved] == ["https://api.fda.gov/p2"]
 
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         pages = {
-            "http://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
+            "https://api.fda.gov/p2": ([{"recall_number": "D-2"}], None),
         }
-        manager = _FakeResumableManager(OpenFDAResumeConfig(next_url="http://api.fda.gov/p2"))
+        manager = _FakeResumableManager(OpenFDAResumeConfig(next_url="https://api.fda.gov/p2"))
         rows = _collect(manager, monkeypatch, pages)
         # Resume must start at the saved cursor, not rebuild the initial URL (which would re-pull page 1).
         assert rows == [{"recall_number": "D-2"}]
@@ -231,6 +254,12 @@ class TestGetRows:
         initial = _build_initial_url(OPENFDA_ENDPOINTS["drug_enforcement"], False, None, None)
         rows = _collect(_FakeResumableManager(), monkeypatch, {initial: None})
         assert rows == []
+
+    def test_off_host_resume_cursor_is_rejected(self, monkeypatch: Any) -> None:
+        # Poisoned resume state must not be followed — it would leak the API key off-host.
+        manager = _FakeResumableManager(OpenFDAResumeConfig(next_url="https://evil.example.com/p2"))
+        with pytest.raises(ValueError):
+            _collect(manager, monkeypatch, {})
 
 
 class TestOpenfdaSource:

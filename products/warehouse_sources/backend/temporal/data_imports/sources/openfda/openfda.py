@@ -30,7 +30,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.se
 )
 
 OPENFDA_BASE_URL = "https://api.fda.gov"
+_OPENFDA_HOST = "api.fda.gov"
 
 # openFDA caps a single search request at 1,000 results; larger values 400.
 PAGE_SIZE = 1000
@@ -64,6 +65,14 @@ class OpenFDAResumeConfig:
     # Absolute, pre-encoded `Link: rel="next"` URL to fetch next. None means "start from the first
     # page" (the initial URL is rebuilt from the endpoint config + watermark).
     next_url: str | None = None
+
+
+def _is_valid_openfda_url(url: str) -> bool:
+    """Only absolute `https://api.fda.gov/...` URLs may be followed. A pagination cursor comes from a
+    `Link` header or from resumed state — both are attacker-influenceable, and following one off-host
+    would leak the API key (sent as Basic auth) or hit an internal address."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and parsed.hostname == _OPENFDA_HOST
 
 
 def _get_headers() -> dict[str, str]:
@@ -140,9 +149,16 @@ def _fetch_page(
         response.raise_for_status()
 
     body = response.json()
-    results = body.get("results", [])
+    # openFDA guarantees `results` on every 200 (empty sets come back as a 404, handled above), so
+    # access it directly — a missing key means an unexpected response shape we want to surface, not
+    # silently treat as an empty page.
+    results = body["results"]
     # `Link: rel="next"` carries the search_after cursor; absent once the dataset is exhausted.
     next_url = response.links.get("next", {}).get("url")
+    if next_url is not None and not _is_valid_openfda_url(next_url):
+        # A poisoned `Link` header pointing off-host would leak the API key (sent as Basic auth) to
+        # another server or fetch an internal URL — refuse to follow it.
+        raise ValueError(f"openFDA returned an off-host pagination URL, refusing to follow: {next_url}")
     return results, next_url
 
 
@@ -195,6 +211,9 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
+        if not _is_valid_openfda_url(resume.next_url):
+            # Poisoned resume state must not be followed — see `_is_valid_openfda_url`.
+            raise ValueError(f"openFDA resume cursor is not a valid api.fda.gov URL: {resume.next_url}")
         url: str | None = resume.next_url
         logger.debug(f"openFDA: resuming {endpoint} from cursor")
     else:
