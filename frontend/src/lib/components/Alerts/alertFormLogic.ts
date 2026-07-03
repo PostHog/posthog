@@ -8,6 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,6 +22,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
+import { alertsSimulateForecastCreate } from 'products/alerts/frontend/generated/api'
+import { ForecastConfigApi, ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     blockSubmitWithoutHighFrequencyAlertsEntitlement,
     getDefaultSimulationRange,
@@ -235,6 +238,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
             ['goalLines'],
             insightVizDataLogic({ dashboardItemId: undefined, ...props.insightVizDataLogicProps }),
             ['insightData'],
+            teamLogic,
+            ['currentTeamId'],
         ],
     })),
 
@@ -243,6 +248,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
         simulateAlert: true,
+        simulateForecast: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
         setAlertFormSubmitAttempted: true,
@@ -253,6 +259,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as string | null,
             {
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        // Cleared directly off the raw `clearSimulation` action (not via the loaders' Success dance)
+        // so it doesn't collide with `simulationResult`'s own loader, which reacts to the same action.
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                clearSimulation: () => null,
             },
         ],
         alertFormSubmitAttempted: [
@@ -287,6 +301,28 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     })
                 },
                 clearSimulation: () => null,
+            },
+        ],
+        forecastSimulationResult: [
+            null as ForecastSimulateResponseApi | null,
+            {
+                simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
+                    const forecastConfig = values.alertForm.forecast_config
+                    if (!forecastConfig || !props.insightId) {
+                        return null
+                    }
+                    const formConfig = values.alertForm.config
+                    return await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                        insight: props.insightId,
+                        // Bridges schema-general's TS enum config (ForecastConditionType/ForecastEngineType)
+                        // to the generated OpenAPI string-literal type — both serialize identically.
+                        forecast_config: forecastConfig as unknown as ForecastConfigApi,
+                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                        date_from:
+                            values.simulationDateFrom ??
+                            getDefaultSimulationRange(values.alertForm.calculation_interval),
+                    })
+                },
             },
         ],
     })),
@@ -711,6 +747,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         values.simulationDateFrom ?? getDefaultSimulationRange(values.alertForm.calculation_interval),
                     error: error ?? 'Unknown error',
                 })
+                lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
+            },
+            simulateForecastFailure: ({ error }) => {
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
         }

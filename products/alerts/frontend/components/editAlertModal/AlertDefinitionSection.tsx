@@ -24,12 +24,14 @@ import {
     supportsForecast,
 } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
+import { ForecastPreview } from 'lib/components/Alerts/views/ForecastPreview'
 import { ForecastSelector, getDefaultForecastConfig } from 'lib/components/Alerts/views/ForecastSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertConditionType, ForecastConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
@@ -78,9 +80,12 @@ export interface AlertDefinitionSectionProps {
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
+    forecastSimulationResult: ForecastSimulateResponseApi | null
+    forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
     onSimulateAlert: () => void
+    onSimulateForecast: () => void
     onSetSimulationDateFrom: (value: string) => void
     onClearSimulation: () => void
     onClearSimulationOverlay: () => void
@@ -104,9 +109,12 @@ export function AlertDefinitionSection({
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
+    forecastSimulationResult,
+    forecastSimulationResultLoading,
     simulationDateFrom,
     onSetAlertFormValue,
     onSimulateAlert,
+    onSimulateForecast,
     onSetSimulationDateFrom,
     onClearSimulation,
     onClearSimulationOverlay,
@@ -483,6 +491,41 @@ export function AlertDefinitionSection({
                     </div>
                     {simulationResult && (
                         <SimulationSummary result={simulationResult} detectorConfig={alertForm.detector_config} />
+                    )}
+                </div>
+            )}
+
+            {alertMode === 'forecast' && alertForm.forecast_config && (
+                <div className="deprecated-space-y-2">
+                    <div className="flex gap-2 items-center">
+                        <h4 className="m-0">Simulation</h4>
+                        <LemonSelect
+                            size="small"
+                            data-attr="alertForm-simulate-forecast-range"
+                            value={simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)}
+                            onChange={(value) => onSetSimulationDateFrom(value)}
+                            options={getSimulationRangeOptions(alertForm.calculation_interval)}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            data-attr="alertForm-simulate-forecast"
+                            onClick={onSimulateForecast}
+                            loading={forecastSimulationResultLoading}
+                            tooltip="Run the forecast on historical data to preview the predicted trend and its expected range"
+                        >
+                            Simulate
+                        </LemonButton>
+                    </div>
+                    {forecastSimulationResult && (
+                        <ForecastPreview
+                            result={forecastSimulationResult}
+                            thresholdBounds={
+                                alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
+                                    ? (alertForm.threshold.configuration.bounds ?? null)
+                                    : null
+                            }
+                        />
                     )}
                 </div>
             )}

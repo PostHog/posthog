@@ -112,6 +112,8 @@ export function EditAlertModal({
         alertFormChanged,
         simulationResult,
         simulationResultLoading,
+        forecastSimulationResult,
+        forecastSimulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
         hogqlAlertPreview,
@@ -125,6 +127,7 @@ export function EditAlertModal({
         snoozeAlert,
         clearSnooze,
         simulateAlert,
+        simulateForecast,
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
@@ -297,9 +300,12 @@ export function EditAlertModal({
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}
+                                        forecastSimulationResult={forecastSimulationResult}
+                                        forecastSimulationResultLoading={forecastSimulationResultLoading}
                                         simulationDateFrom={simulationDateFrom}
                                         onSetAlertFormValue={setAlertFormValue}
                                         onSimulateAlert={simulateAlert}
+                                        onSimulateForecast={simulateForecast}
                                         onSetSimulationDateFrom={setSimulationDateFrom}
                                         onClearSimulation={clearSimulation}
                                         onClearSimulationOverlay={clearSimulationOverlay}

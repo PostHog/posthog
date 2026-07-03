@@ -37,6 +37,13 @@ import { insightAlertsLogic } from './insightAlertsLogic'
 import { supportsOngoingInterval } from './types'
 import type { AlertType } from './types'
 
+jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsSimulateForecastCreate: jest.fn(),
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const generatedAlertsApi = require('products/alerts/frontend/generated/api')
+
 const Insight42 = '42' as InsightShortId
 
 const TRENDS_QUERY = {
@@ -127,6 +134,7 @@ describe('alertFormLogic', () => {
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+        ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockReset()
 
         insightLogic(insightLogicProps).mount()
         insightDataLogic(insightLogicProps).mount()
@@ -319,6 +327,64 @@ describe('alertFormLogic', () => {
         logic.actions.setAlertFormValue('detector_config', null)
         expect(logic.values.alertForm.forecast_config?.condition).toBe('future_breach')
         expect(logic.values.alertForm.detector_config).toBeNull()
+    })
+
+    describe('forecast simulation', () => {
+        const forecastConfig = {
+            type: 'ForecastConfig' as const,
+            engine: ForecastEngineType.PROPHET,
+            condition: ForecastConditionType.FUTURE_BREACH,
+            horizon: 7,
+            interval_width: 0.95,
+        }
+
+        function mountForecastForm(): ReturnType<typeof alertFormLogic.build> {
+            const logic = mountForm()
+            logic.actions.setAlertFormValue('forecast_config', forecastConfig)
+            return logic
+        }
+
+        // Regression guard: a dropped/misrouted response here would leave the preview blank even
+        // though the simulation succeeded — the loader value is what `ForecastPreview` renders from.
+        it('stores the response from a successful simulation', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                fit_quality: { mape: 0.05, coverage: 0.94, verdict: 'good' },
+            }
+            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(generatedAlertsApi.alertsSimulateForecastCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+            expect(logic.values.forecastSimulationResultLoading).toBe(false)
+        })
+
+        // Double-submit guard: the Simulate button disables on `forecastSimulationResultLoading`.
+        // If a failure left it stuck `true`, the button would stay disabled forever.
+        it('resets loading and shows an error toast when the simulation fails', async () => {
+            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(
+                new Error('Not enough history to forecast')
+            )
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith('Simulation failed: Not enough history to forecast')
+            expect(logic.values.forecastSimulationResult).toBeNull()
+            expect(logic.values.forecastSimulationResultLoading).toBe(false)
+        })
     })
 
     it('blocks save with error toast for 15-minute interval without entitlement', async () => {
