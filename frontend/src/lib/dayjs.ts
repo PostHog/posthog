@@ -13,8 +13,8 @@ import updateLocale from 'dayjs/plugin/updateLocale'
 import utc from 'dayjs/plugin/utc'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
 
-// necessary for parsing custom date formats like 'YYYYMMDD_HHmmss'
 dayjs.extend(advancedFormat)
+// necessary for parsing custom date formats like 'YYYYMMDD_HHmmss'
 dayjs.extend(customParseFormat)
 // necessary for any localized date formatting to work
 dayjs.extend(LocalizedFormat)

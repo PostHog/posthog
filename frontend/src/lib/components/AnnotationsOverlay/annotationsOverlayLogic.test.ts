@@ -416,7 +416,6 @@ describe('annotationsOverlayLogic', () => {
             ),
         }
 
-        // day/week/month/quarter/year intervals all group annotations at day level
         const GROUPINGS_AT_DAY_LEVEL_PHOENIX: Record<string, AnnotationType[]> = {
             '2022-08-09 00:00:00-0700': [
                 MOCK_ANNOTATION_ORG_SCOPED,
@@ -436,7 +435,6 @@ describe('annotationsOverlayLogic', () => {
             ),
         }
 
-        // day/week/month/quarter/year intervals all group annotations at day level
         const GROUPINGS_AT_DAY_LEVEL_MOSCOW: Record<string, AnnotationType[]> = {
             '2022-08-10 00:00:00+0300': [
                 MOCK_ANNOTATION_ORG_SCOPED,

@@ -946,11 +946,16 @@ const handleQuerySourceUpdateSideEffects = (
                 !!featureFlagLogic.findMounted()?.values.featureFlags[
                     FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS
                 ]
-            if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+            const parsedFrom = dayjs(date_from)
+            const parsedTo = dayjs(date_to)
+            const monthDiff = parsedTo.diff(parsedFrom, 'month')
+            // 3 years in months; quarter auto-interval kicks in beyond this threshold
+            const QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS = 36
+            if (parsedTo.diff(parsedFrom, 'day') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
-            } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+            } else if (monthDiff <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'
-            } else if (quarterYearEnabled && dayjs(date_to).diff(dayjs(date_from), 'month') > 36) {
+            } else if (quarterYearEnabled && monthDiff > QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS) {
                 ;(mergedUpdate as TrendsQuery).interval = 'quarter'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
