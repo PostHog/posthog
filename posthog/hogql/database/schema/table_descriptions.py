@@ -86,14 +86,15 @@ class TableDescriptions:
                     view_by_backing_table[str(backing_table_id)] = str(sq_id)
                 # Source-native descriptions live on `ExternalDataSchema` when enrichment didn't write a
                 # table-level annotation. `-updated_at` makes the pick deterministic across duplicates.
-                for table_id, description in (
+                for table_id, source_description in (
                     ExternalDataSchema.objects.filter(team_id=team_id, table_id__isnull=False, deleted=False)
                     .exclude(description__isnull=True)
                     .exclude(description="")
                     .order_by("table_id", "-updated_at")
                     .values_list("table_id", "description")
                 ):
-                    source_table.setdefault(str(table_id), description)
+                    if source_description:
+                        source_table.setdefault(str(table_id), source_description)
         except Exception:
             logger.exception("table_descriptions: failed to load annotations", team_id=team_id)
             return cls({}, {}, {}, {})
