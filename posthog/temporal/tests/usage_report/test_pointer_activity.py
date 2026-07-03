@@ -164,6 +164,38 @@ async def test_pointer_raises_when_send_returns_none(activity_environment) -> No
             )
 
 
+@pytest.mark.asyncio
+async def test_pointer_send_survives_post_send_metric_failure(activity_environment) -> None:
+    """A metric-layer failure after the SQS send must not fail the activity.
+
+    The pointer is already delivered at that point — if the activity raised,
+    Temporal would retry it and billing would receive a duplicate pointer.
+    """
+    fake_producer = MagicMock()
+    fake_producer.send_message.return_value = {"MessageId": "abc"}
+
+    with (
+        patch("posthog.temporal.usage_report.activities.settings") as mock_settings,
+        patch("posthog.temporal.usage_report.activities.bucket", return_value="posthog"),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=fake_producer),
+        patch("posthog.temporal.usage_report.activities.get_instance_region", return_value="US"),
+        patch(
+            "posthog.temporal.usage_report.activities.record_aggregate_output",
+            side_effect=RuntimeError("metrics backend down"),
+        ),
+    ):
+        mock_settings.EE_AVAILABLE = True
+        mock_settings.SITE_URL = "https://us.posthog.com"
+
+        await activity_environment.run(
+            enqueue_pointer_message,
+            EnqueuePointerInputs(ctx=_ctx(), aggregate=_agg()),
+        )
+
+    # Sent exactly once — and the metric failure did not bubble out.
+    fake_producer.send_message.assert_called_once()
+
+
 def test_v2_queue_is_configured_in_settings() -> None:
     queues = getattr(settings, "SQS_QUEUES", {})
     assert SQS_QUEUE_NAME in queues, (
