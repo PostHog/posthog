@@ -408,13 +408,19 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         )
 
         # Mock the dispatcher to raise a recoverable error (OperationalError)
-        with patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher:
+        with (
+            patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher,
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+        ):
             from django.db import OperationalError
 
             mock_dispatcher.side_effect = OperationalError("Connection timeout")
 
             # Process the scheduled change - should fail but not set executed_at
             process_scheduled_changes()
+
+            # Recoverable errors are genuinely unexpected and must still reach error tracking
+            mock_capture.assert_called_once()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
@@ -437,6 +443,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
     def test_unrecoverable_error_prevents_retry(self) -> None:
         """Test that unrecoverable errors set executed_at, preventing retries"""
+        from unittest.mock import patch
+
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",
             key="test-unrecoverable-error",
@@ -457,7 +465,12 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         )
 
         # Process the scheduled change - should fail and set executed_at
-        process_scheduled_changes()
+        with patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture:
+            process_scheduled_changes()
+
+            # Unrecoverable errors are expected and already handled, so they must not be
+            # reported to error tracking (they only add noise)
+            mock_capture.assert_not_called()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)

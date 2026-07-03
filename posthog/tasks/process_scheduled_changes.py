@@ -372,7 +372,20 @@ def process_scheduled_changes() -> None:
                     # For recoverable errors under retry limit, leave executed_at=NULL to allow retries
 
                     scheduled_change.save()
-                    capture_exception(e)
+
+                    # Unrecoverable errors are an expected, already-handled state (e.g. the target
+                    # feature flag was deleted): the failure is recorded on the row and the change is
+                    # marked executed above. Reporting it to error tracking is pure noise, so log it at
+                    # a lower level instead and reserve capture_exception for genuinely unexpected errors.
+                    if is_unrecoverable:
+                        logger.info(
+                            "Scheduled change skipped due to unrecoverable error",
+                            scheduled_change_id=scheduled_change.id,
+                            error=str(e),
+                            error_type=e.__class__.__name__,
+                        )
+                    else:
+                        capture_exception(e)
     except OperationalError:
         # Failed to obtain the lock
         pass
