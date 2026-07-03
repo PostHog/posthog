@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
@@ -337,11 +339,35 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
 
-    def test_error_reason_surfaced(self) -> None:
-        run = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "over budget"})
+    @parameterized.expand(
+        [
+            # (status, error, expected copy)
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "skipped_empty"},
+                "No new observations in this window to summarize.",
+            ),
+            # Historical run rows (pre-#66892) stored the old enum; the alias must still humanize.
+            (
+                VisionActionRunStatus.SKIPPED,
+                {"skip_reason": "no_delivery_flow"},
+                "No delivery destination is configured for this action.",
+            ),
+            # Abort reasons carry FAILED status — the copy must not contradict the "failed" banner by saying "Skipped".
+            (
+                VisionActionRunStatus.FAILED,
+                {"aborted": "aborted_no_consent"},
+                "AI data processing isn't enabled for this organization.",
+            ),
+        ]
+    )
+    def test_error_reason_humanized(self, status: str, error: dict[str, Any], expected: str) -> None:
+        # A raw engine skip/abort reason is mapped to human copy, not surfaced verbatim.
+        run = self._create_run(status=status, error=error)
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "over budget")
+        self.assertEqual(resp.json()["error_reason"], expected)
+        self.assertNotIn("Skipped", resp.json()["error_reason"])
 
     def test_failed_run_error_reason_does_not_leak_raw_exception(self) -> None:
         # The engine stamps error["message"] with raw exception text (str(e)[:500]); the API must not
@@ -352,7 +378,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         )
         resp = self.client.get(f"{self.runs_url()}{run.id}/")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertEqual(resp.json()["error_reason"], "Run failed")
+        self.assertNotIn("secret_token", resp.json()["error_reason"])
+        self.assertEqual(resp.json()["error_reason"], "This run failed while generating the summary.")
 
     def test_runs_scoped_to_their_action(self) -> None:
         other_action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="other-action")

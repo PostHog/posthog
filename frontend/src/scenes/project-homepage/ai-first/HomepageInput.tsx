@@ -7,12 +7,21 @@ import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin,
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
+import { cn } from 'lib/utils/css-classes'
 import { uuid } from 'lib/utils/dom'
+import {
+    CAPABILITY_CARDS_HEIGHT_PX,
+    CapabilityBadges,
+    CapabilitySuggestions,
+} from 'scenes/max/components/CapabilityBadges'
+import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
@@ -28,26 +37,33 @@ import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './
 import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
-    const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
+    const { query, fillInHint } = useValues(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
     const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
+    // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
+    const showFillInHint = !!fillInHint
 
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
         return () => clearTimeout(timer)
     }, [])
 
+    const submitAi = (): void => {
+        if (!query.trim()) {
+            return
+        }
+        posthog.capture('homepage query submitted', { mode: 'ai' })
+        submitQuery('ai')
+    }
+
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
-        if (query.trim()) {
-            posthog.capture('homepage query submitted', { mode: 'ai' })
-            submitQuery('ai')
-        }
+        submitAi()
     }
 
     return (
@@ -57,12 +73,18 @@ function IdleInput(): JSX.Element {
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
                 <div className="flex w-full py-1 px-1 max-h-[300px] items-end gap-1">
-                    {!query && (
+                    {!query && !fillInHint && (
                         <span className="text-tertiary pointer-events-none absolute left-2.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
                                 / for commands
                             </span>
+                        </span>
+                    )}
+                    {/* Postfix cue after the typed-in prefix (aligned to the textarea text origin). */}
+                    {fillInHint && (
+                        <span className="pointer-events-none absolute left-2 top-2 right-2 overflow-hidden">
+                            <FillInHint text={query} hint={fillInHint} />
                         </span>
                     )}
                     <TextareaPrimitive
@@ -79,6 +101,10 @@ function IdleInput(): JSX.Element {
                                 enterAiMode(value)
                                 return
                             }
+                            // The user typing their own text ends the fill-in cue.
+                            if (fillInHint) {
+                                setFillInHint(null)
+                            }
                             setQuery(value)
                         }}
                         onKeyDown={(e) => {
@@ -94,14 +120,12 @@ function IdleInput(): JSX.Element {
                                 }
                                 // Prevent newline, let form submit handle it
                                 e.preventDefault()
-                                if (query.trim()) {
-                                    posthog.capture('homepage query submitted', { mode: 'ai' })
-                                    submitQuery('ai')
-                                }
+                                submitAi()
                             }
-                            if (e.key === 'Escape' && query.trim()) {
+                            if (e.key === 'Escape' && (query.trim() || fillInHint)) {
                                 e.preventDefault()
                                 setQuery('')
+                                setFillInHint(null)
                             }
                             // When input is empty, ArrowDown moves focus to the grid
                             if (e.key === 'ArrowDown' && !query.trim()) {
@@ -114,7 +138,11 @@ function IdleInput(): JSX.Element {
                             }
                         }}
                         autoComplete="off"
-                        className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
+                        className={cn(
+                            'w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent',
+                            // Hide the native caret so only the enlarged fill-in caret shows.
+                            showFillInHint && 'caret-transparent'
+                        )}
                         autoFocus
                     />
                     <div className="flex items-end shrink-0">
@@ -265,11 +293,17 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const gridRef = useRef<HTMLDivElement>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
+    const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
+
+    const hasExtraMarginTop =
+        !!featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] ||
+        featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] === 'control'
 
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
@@ -404,108 +438,107 @@ function IdleGrid(): JSX.Element {
         }
     }, [highlight])
 
-    const isCollapsed = !!query.trim()
     const loadingByKind: Record<HomepageGridItemKind, boolean> = {
         dashboard: dashboardsLoading,
         recent: recentItemsLoading,
         starred: starredItemsLoading,
     }
 
+    // Collapse-on-typing is handled by the shared wrapper in HomepageInput, so this renders the
+    // grid content directly (no self-collapse) — keeping the badges and grid in one animated box.
     return (
         <div
-            className="w-full px-3 grid transition-[grid-template-rows] duration-200 ease-out mt-2"
-            style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}
+            ref={gridRef}
+            role="grid"
+            data-attr="homepage-grid"
+            // Fills the fixed-height swap container (see HomepageInput) so the recents grid and the
+            // capability cards are always the same height. Only shown at @xl+ where columns sit in a row.
+            className={cn(
+                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full',
+                hasExtraMarginTop && 'mt-2'
+            )}
+            tabIndex={-1}
+            onFocus={(e) => {
+                // Only auto-highlight when focused via keyboard (ArrowDown from input)
+                if (!highlight && e.currentTarget.dataset.keyboardFocus === 'true') {
+                    delete e.currentTarget.dataset.keyboardFocus
+                    const firstCol = columns.findIndex((c) => c.items.length > 0)
+                    if (firstCol !== -1) {
+                        setHighlight([firstCol, 0])
+                    }
+                }
+            }}
+            onKeyDown={handleGridKeyDown}
         >
-            <div className="overflow-hidden">
+            {columns.map((col, colIndex) => (
                 <div
-                    ref={gridRef}
-                    role="grid"
-                    data-attr="homepage-grid"
-                    className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full mt-3 outline-none min-h-[174px]"
-                    tabIndex={-1}
-                    aria-hidden={isCollapsed}
-                    onFocus={(e) => {
-                        // Only auto-highlight when focused via keyboard (ArrowDown from input)
-                        if (!highlight && e.currentTarget.dataset.keyboardFocus === 'true') {
-                            delete e.currentTarget.dataset.keyboardFocus
-                            const firstCol = columns.findIndex((c) => c.items.length > 0)
-                            if (firstCol !== -1) {
-                                setHighlight([firstCol, 0])
-                            }
-                        }
-                    }}
-                    onKeyDown={handleGridKeyDown}
+                    key={col.kind}
+                    role="rowgroup"
+                    className="flex-1 min-w-0 flex flex-col gap-px"
+                    data-attr={`homepage-grid-column-${col.kind}`}
                 >
-                    {columns.map((col, colIndex) => (
+                    <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
+                        {col.icon}
+                        {col.label}
+                    </Label>
+                    {loadingByKind[col.kind] &&
+                    col.items.length === 0 &&
+                    (skeletonCounts === null || (skeletonCounts[col.kind] ?? 0) > 0) ? (
+                        Array.from({ length: skeletonCounts?.[col.kind] ?? 3 }).map((_, i) => (
+                            <div key={`skeleton-${i}`}>
+                                <LemonSkeleton className="h-[30px]" />
+                            </div>
+                        ))
+                    ) : col.items.length === 0 ? (
                         <div
-                            key={col.kind}
-                            role="rowgroup"
-                            className="flex-1 min-w-0 flex flex-col gap-px"
-                            data-attr={`homepage-grid-column-${col.kind}`}
+                            className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
+                            data-attr={`homepage-grid-empty-${col.kind}`}
                         >
-                            <Label className="px-2 mb-1 flex items-center gap-1" intent="menu">
-                                {col.icon}
-                                {col.label}
-                            </Label>
-                            {loadingByKind[col.kind] &&
-                            col.items.length === 0 &&
-                            (skeletonCounts === null || (skeletonCounts[col.kind] ?? 0) > 0) ? (
-                                Array.from({ length: skeletonCounts?.[col.kind] ?? 3 }).map((_, i) => (
-                                    <div key={`skeleton-${i}`}>
-                                        <LemonSkeleton className="h-[30px]" />
-                                    </div>
-                                ))
-                            ) : col.items.length === 0 ? (
-                                <div
-                                    className="px-3 py-2 border border-dashed rounded text-xs text-tertiary"
-                                    data-attr={`homepage-grid-empty-${col.kind}`}
-                                >
-                                    {col.emptyLabel}{' '}
-                                    <Tooltip title={col.emptyTooltip} delayMs={0}>
-                                        <IconInfo
-                                            className="size-3 text-tertiary"
-                                            data-attr={`homepage-grid-empty-tooltip-${col.kind}`}
-                                        />
-                                    </Tooltip>
-                                </div>
-                            ) : (
-                                col.items.map((item, rowIndex) => (
-                                    <div key={item.id} role="row">
-                                        <Link
-                                            to={item.href}
-                                            role="gridcell"
-                                            title={item.label}
-                                            buttonProps={{
-                                                menuItem: true,
-                                                fullWidth: true,
-                                                className: 'truncate -outline-offset-2',
-                                            }}
-                                            data-attr={`homepage-grid-${item.kind}`}
-                                            data-highlighted={
-                                                highlight?.[0] === colIndex && highlight?.[1] === rowIndex
-                                                    ? 'true'
-                                                    : undefined
-                                            }
-                                            onMouseEnter={() => setHighlight([colIndex, rowIndex])}
-                                            onMouseLeave={() => setHighlight(null)}
-                                        >
-                                            <GridItemIcon item={item} />
-                                            <span className="truncate">{item.label}</span>
-                                        </Link>
-                                    </div>
-                                ))
-                            )}
+                            {col.emptyLabel}{' '}
+                            <Tooltip title={col.emptyTooltip} delayMs={0}>
+                                <IconInfo
+                                    className="size-3 text-tertiary"
+                                    data-attr={`homepage-grid-empty-tooltip-${col.kind}`}
+                                />
+                            </Tooltip>
                         </div>
-                    ))}
+                    ) : (
+                        col.items.map((item, rowIndex) => (
+                            <div key={item.id} role="row">
+                                <Link
+                                    to={item.href}
+                                    role="gridcell"
+                                    title={item.label}
+                                    buttonProps={{
+                                        menuItem: true,
+                                        fullWidth: true,
+                                        className: 'truncate -outline-offset-2',
+                                    }}
+                                    data-attr={`homepage-grid-${item.kind}`}
+                                    data-highlighted={
+                                        highlight?.[0] === colIndex && highlight?.[1] === rowIndex ? 'true' : undefined
+                                    }
+                                    onMouseEnter={() => setHighlight([colIndex, rowIndex])}
+                                    onMouseLeave={() => setHighlight(null)}
+                                >
+                                    <GridItemIcon item={item} />
+                                    <span className="truncate">{item.label}</span>
+                                </Link>
+                            </div>
+                        ))
+                    )}
                 </div>
-            </div>
+            ))}
         </div>
     )
 }
 
 export function HomepageInput(): JSX.Element {
-    const { mode } = useValues(aiFirstHomepageLogic)
+    const { mode, query, capabilities, selectedCapability } = useValues(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
+
+    const selectedCapabilityData = capabilities.find((capability) => capability.key === selectedCapability) ?? null
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -513,7 +546,47 @@ export function HomepageInput(): JSX.Element {
                 <div className="flex flex-col items-center gap-3 pb-(--scene-layout-header-height)">
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
-                    <IdleGrid />
+                    {/* Badges + (cards | recents grid) collapse together as a single box when the user
+                        starts typing / leaves idle. Hidden on mobile — only shown at @xl, where the grid
+                        lays its columns in a row. */}
+                    <div
+                        className="w-full hidden @xl/main-content:grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:duration-0"
+                        style={{ gridTemplateRows: query.trim() ? '0fr' : '1fr' }}
+                        aria-hidden={!!query.trim()}
+                    >
+                        {/* shrink-0 on the children so collapsing just clips them away (top-down) rather
+                            than squeezing their heights, which would reflow the cards/grid mid-animation.
+                            gap-6 spaces the badges from the row below — it's part of the flex column's
+                            laid-out height, so it's counted in the collapse and the vertical centering. */}
+                        <div className="overflow-hidden flex flex-col gap-6">
+                            <CapabilityBadges
+                                className="shrink-0"
+                                capabilities={capabilities}
+                                selectedKey={selectedCapability}
+                                onSelect={setSelectedCapability}
+                            />
+                            {/* Single fixed-height swap area — the cards and the recents grid both fill
+                                it (h-full), so switching never changes height. */}
+                            <div
+                                className="w-full shrink-0 overflow-hidden"
+                                style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
+                            >
+                                {selectedCapabilityData ? (
+                                    <CapabilitySuggestions
+                                        capability={selectedCapabilityData}
+                                        onType={setQuery}
+                                        onSubmit={() => submitQuery('ai')}
+                                        onFillIn={(hint) => {
+                                            setFillInHint(hint)
+                                            document.querySelector<HTMLElement>('#homepage-input')?.focus()
+                                        }}
+                                    />
+                                ) : (
+                                    <IdleGrid />
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}

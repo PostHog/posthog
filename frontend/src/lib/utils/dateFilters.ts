@@ -237,7 +237,7 @@ export type DateComponents = {
     clip: 'Start' | 'End'
 }
 
-export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqyMs])(|Start|End)$/
 
 export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
@@ -306,7 +306,11 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
     if (!dateComponents) {
         return null
     }
-    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    // Calendar units anchor at the start of today; sub-day units are rolling
+    // windows from now ("-30M" must mean 30 minutes ago, not today 00:00 minus
+    // 30 minutes = yesterday 23:30) — matching the backend's relative_date_parse.
+    const isSubDay = ['hour', 'minute', 'second'].includes(dateComponents.unit)
+    const offset: dayjs.Dayjs = isSubDay ? dayjs().tz(timezone) : dayjs().tz(timezone).startOf('day')
     const response = componentsToDayJs(dateComponents, offset, timezone)
     return response
 }
