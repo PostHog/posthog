@@ -150,6 +150,13 @@ describe('RustVmShadow', () => {
             expect(await outcomeCounts()).toEqual({ match: 1 })
         })
 
+        it('captures beyond the buffer cap are counted as dropped, not as rust errors', async () => {
+            for (let i = 0; i < 10_001; i++) {
+                shadow.capture(capture('fn-a', { name: 'a' }, 'ok'))
+            }
+            expect(await outcomeCounts()).toEqual({ dropped: 1 })
+        })
+
         it('flush drains the buffer, so a second flush does nothing', async () => {
             shadow.capture(capture('fn-a', { name: 'a1' }, 'ok-a1'))
             mockHogvmNode.executeBatch.mockResolvedValue([{ result: 'ok-a1', durationUs: 5 }])

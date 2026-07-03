@@ -50,7 +50,13 @@ export const shadowComparison = new Counter({
     labelNames: ['outcome'],
 })
 
-export type ShadowOutcome = 'match' | 'result_mismatch' | 'status_mismatch' | 'rust_error' | 'skipped_unsupported'
+export type ShadowOutcome =
+    | 'match'
+    | 'result_mismatch'
+    | 'status_mismatch'
+    | 'rust_error'
+    | 'skipped_unsupported'
+    | 'dropped'
 
 export interface ShadowNodeResult {
     finished: boolean
@@ -91,7 +97,9 @@ export function classifyShadowOutcome(node: ShadowNodeResult, rust: RustExecResu
     }
     if (rust.error) {
         // Host functions the rust binding doesn't implement — not comparable, not a divergence.
-        if (rust.error.includes('unsupported_ext_fn:') || rust.error.includes('Unknown Global')) {
+        // 'Unknown Global <name>' is the rust VM's exact error for calling a function it doesn't
+        // know; anchored to the prefix so other errors mentioning the words can't be swallowed.
+        if (rust.error.includes('unsupported_ext_fn:') || rust.error.startsWith('Unknown Global ')) {
             return 'skipped_unsupported'
         }
         // Both VMs failed the program: they agree.
@@ -125,7 +133,7 @@ export class RustVmShadow {
 
     public capture(item: ShadowCapturedInvocation): void {
         if (this.buffer.length >= MAX_BUFFER_SIZE) {
-            shadowComparison.inc({ outcome: 'rust_error' })
+            shadowComparison.inc({ outcome: 'dropped' })
             return
         }
         this.buffer.push(item)
