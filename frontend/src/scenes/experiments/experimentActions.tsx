@@ -4,7 +4,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { Experiment } from '~/types'
 
-import { hasEnded, isExperimentExposureFrozen } from './experimentsLogic'
+import { hasEnded, isExperimentExposureFrozen, isExperimentPaused, isLaunched } from './experimentsLogic'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(
@@ -13,13 +13,19 @@ export function canArchiveExperiment(
     return !experiment.archived && hasEnded(experiment)
 }
 
-/** Whether a running, unpaused experiment can have its exposure frozen (ignoring permissions). */
+/** Whether an experiment can have its exposure frozen (ignoring permissions). */
 export function canFreezeExposure(
     experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag'>
 ): boolean {
     // Freezing exposure narrows the flag to a person cohort, which group-aggregated flags can't use.
     const isGroupAggregated = experiment.feature_flag?.filters?.aggregation_group_type_index != null
-    return !isExperimentExposureFrozen(experiment) && !isGroupAggregated
+    return (
+        isLaunched(experiment) &&
+        !hasEnded(experiment) &&
+        !isExperimentPaused(experiment) &&
+        !isExperimentExposureFrozen(experiment) &&
+        !isGroupAggregated
+    )
 }
 
 export function confirmFreezeExposure(onConfirm: () => void): void {
