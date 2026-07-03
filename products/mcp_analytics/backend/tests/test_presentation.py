@@ -474,7 +474,10 @@ class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
         serializer = MCPSessionToolCallsQuerySerializer(data={"date_from": raw})
         assert serializer.is_valid(), serializer.errors
         resolved = serializer.validated_data["date_from"]
-        assert isinstance(resolved, datetime) if expect_datetime else resolved is None
+        if expect_datetime:
+            assert isinstance(resolved, datetime)
+        else:
+            assert resolved is None
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
