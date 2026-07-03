@@ -285,28 +285,21 @@ export class SessionRecordingIngester {
     }
 
     /**
-     * Drains the session replay pipeline to completion, tracking offsets as it goes. Writing to
-     * storage, committing offsets, and recording flush metrics are handled by the flush pipeline's
-     * steps; the consumer's job here is the offset lifecycle the pipeline leaves outside itself.
+     * Drains the session replay pipeline to completion. Offsets are tracked inside the record
+     * pipeline's afterBatch (for every fed message — recorded, dropped, or DLQ'd); writing to storage,
+     * committing offsets, and recording flush metrics are handled by the flush pipeline's steps.
      *
-     * A `flushed: false` turn carries the record-phase results — every fed message ends as exactly
-     * one terminal result carrying its source message, so tracking the max offset per partition here
-     * advances offsets for dropped and DLQ'd messages too, not just recorded ones. Before the next()
-     * that may flush (and commit those offsets), scheduled side effects (DLQ/overflow produces) are
-     * awaited, so a message's offset is never committed before its produce is durable.
+     * Each turn surfaces the side effects produced this turn (DLQ/overflow produces). We schedule them
+     * and await all in-flight produces before pulling the next turn, so a message's produce is durable
+     * before a later flush turn commits its offset.
      */
     private async drainPipeline(): Promise<void> {
         let result = await this.pipeline.next()
         while (result !== null) {
-            if (!result.flushed) {
-                for (const { context } of result.elements) {
-                    this.offsetManager.trackOffset({
-                        partition: context.message.partition,
-                        offset: context.message.offset,
-                    })
-                }
-                await this.promiseScheduler.waitForAllSettled()
+            for (const sideEffect of result.sideEffects) {
+                void this.promiseScheduler.schedule(sideEffect)
             }
+            await this.promiseScheduler.waitForAllSettled()
             result = await this.pipeline.next()
         }
     }
@@ -328,6 +321,7 @@ export class SessionRecordingIngester {
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),
             promiseScheduler: this.promiseScheduler,
+            offsetManager: this.offsetManager,
             teamService: this.teamService,
             retentionService: this.retentionService,
             sessionTracker: this.sessionTracker,

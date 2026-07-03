@@ -9,11 +9,16 @@ import { SessionBatchContext } from './session-batch-context'
  * stored on the recorder at record time, so nothing here touches Redis; a later flush step commits
  * offsets on the written result, so nothing here touches Kafka offsets either.
  *
- * Terminal transform (produces block metadata, not an extended context), but its input is generic
- * so it only requires the field it reads — the recorder.
+ * Reads the recorder off the flush input's batch context and threads the written block metadata onto
+ * the input, so the accumulated elements and batch context stay available to the downstream steps.
+ * The input is generic so it only requires the field it reads.
  */
-export function createWriteStep<T extends SessionBatchContext>(): ProcessingStep<T, SessionBlockMetadata[]> {
-    return async function writeStep(batchContext) {
-        return ok(await batchContext.sessionBatchRecorder.flush())
+export function createWriteStep<T extends { batchContext: SessionBatchContext }>(): ProcessingStep<
+    T,
+    T & { blockMetadata: SessionBlockMetadata[] }
+> {
+    return async function writeStep(input) {
+        const blockMetadata = await input.batchContext.sessionBatchRecorder.flush()
+        return ok({ ...input, blockMetadata })
     }
 }
