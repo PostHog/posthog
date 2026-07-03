@@ -129,9 +129,15 @@ describe('DatePicker', () => {
         })
 
         it.each<[string, Partial<DatePickerProps>, string]>([
+            ['size xsmall -> xs', { size: 'xsmall' }, 'quill-button--size-xs'],
             ['size small -> sm', { size: 'small' }, 'quill-button--size-sm'],
+            ['size medium -> default', { size: 'medium' }, 'quill-button--size-default'],
+            ['size large -> lg', { size: 'large' }, 'quill-button--size-lg'],
             ['type primary -> primary variant', { type: 'primary' }, 'quill-button--variant-primary'],
             ['type secondary -> outline variant', { type: 'secondary' }, 'quill-button--variant-outline'],
+            ['type tertiary -> default variant', { type: 'tertiary' }, 'quill-button--variant-default'],
+            ['no type -> outline variant', {}, 'quill-button--variant-outline'],
+            ['no size -> default size', {}, 'quill-button--size-default'],
             ['custom className', { className: 'bg-bg-light' }, 'bg-bg-light'],
         ])('maps trigger %s onto the Quill button', (_name, props, expectedClass) => {
             const { container } = renderDatePicker(dayjs('2023-01-15'), props)

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconCalendar, IconX } from '@posthog/icons'
-import { Button, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+import { Button, cn, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -61,7 +61,7 @@ export interface DatePickerProps {
     fullWidth?: boolean
     /** Trigger button size. Mapped to the underlying button per backing renderer. */
     size?: 'xsmall' | 'small' | 'medium' | 'large'
-    /** Trigger button style. Mapped to the underlying button per backing renderer (e.g. secondary -> Quill outline). */
+    /** Trigger button style. Mapped to the underlying button per backing renderer (secondary -> Quill outline; primary -> primary; tertiary -> default). When unset, the Quill trigger uses its neutral `outline`. */
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Extra class names merged onto the trigger. */
     className?: string
@@ -81,12 +81,16 @@ export interface DatePickerProps {
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
 const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
 
-function quillTriggerVariant(type: DatePickerProps['type']): 'primary' | 'outline' | 'default' {
-    return type === 'primary' ? 'primary' : type === 'tertiary' ? 'default' : 'outline'
+const QUILL_TRIGGER_VARIANT: Record<NonNullable<DatePickerProps['type']>, 'primary' | 'outline' | 'default'> = {
+    primary: 'primary',
+    secondary: 'outline',
+    tertiary: 'default',
 }
-
-function quillTriggerSize(size: DatePickerProps['size']): 'default' | 'xs' | 'sm' | 'lg' {
-    return size === 'xsmall' ? 'xs' : size === 'small' ? 'sm' : size === 'large' ? 'lg' : 'default'
+const QUILL_TRIGGER_SIZE: Record<NonNullable<DatePickerProps['size']>, 'default' | 'xs' | 'sm' | 'lg'> = {
+    xsmall: 'xs',
+    small: 'sm',
+    medium: 'default',
+    large: 'lg',
 }
 
 function quillCanRender(props: DatePickerProps): boolean {
@@ -148,15 +152,13 @@ function DatePickerQuill({
                 <PopoverTrigger
                     render={
                         <Button
-                            variant={quillTriggerVariant(type)}
-                            size={quillTriggerSize(size)}
+                            variant={type ? QUILL_TRIGGER_VARIANT[type] : 'outline'}
+                            size={size ? QUILL_TRIGGER_SIZE[size] : 'default'}
                             data-attr={dataAttr}
                             data-quill
                             disabled={!!disabledReason}
                             title={disabledReason}
-                            className={[fullWidth ? 'w-full justify-start' : 'justify-start', className]
-                                .filter(Boolean)
-                                .join(' ')}
+                            className={cn(fullWidth ? 'w-full justify-start' : 'justify-start', className)}
                         >
                             <IconCalendar />
                             {label}
