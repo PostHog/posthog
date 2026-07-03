@@ -564,10 +564,18 @@ snapshots:
         hash: v1.k794b7964.23536e5a2ab3d8bce7331e71b383b4bb7731540c1b7c12bf5b2f5c0dff99f549.YTAdBcwHbe9fmAoGrhasYXk8eOoyQseHQPfTaNHriE4
     components-hogcharts-barchart--stacked-mixed-sign--light:
         hash: v1.k794b7964.54ea51777cd1be48ada08afc6d9652348e58c55b4578259834125c1586df772a.puvvq3HL5w9hHEpev9dP2fRTzvd42bW7BZ-F7WiOIks
+    components-hogcharts-barchart--stacked-with-track-ceiling--dark:
+        hash: v1.k794b7964.1f85d679741bd81ee3e7ab488ce82596c1e9f29f396295d863ed51a53f5a3a55.Q0JUJARVeJV8GdQs-EpptVEuOCgB0zYkwCApvNmEc7A
+    components-hogcharts-barchart--stacked-with-track-ceiling--light:
+        hash: v1.k794b7964.eb413728e33e4274883d8126d1634e408b221e6c9b3d880f6feaae458b891e09.55R7ZeVRnWxZjkWcMuLk_k8ZLPvrFXLxRqC8xOzYtAo
     components-hogcharts-barchart--with-bar-track--dark:
         hash: v1.k794b7964.459993a07b1a8d239b43e5700fda3de963173c7c62792c3ca73ca7d26d3e967e.3i1wOTz8MkiBSViwUvFmF0H-bkd_5Yeu3YpGa4l5jP4
     components-hogcharts-barchart--with-bar-track--light:
         hash: v1.k794b7964.ba635da9134368b50adcd9ef7f0918d3c586f9282554e5395db438f04c1b9828.4CvwEAEAL4UT_K-Fs7S-laUq9wf3MMmOG2jnRIkffo4
+    components-hogcharts-barchart--with-bar-track-ceiling--dark:
+        hash: v1.k794b7964.3326668de4a2d7d75de261b264de264a7a60113b703e67f687a8ef8a42f36109.2lqjmeix3iZwdrVjXi8ZpxMk9tuHmyV0LWVEIdaPJJ4
+    components-hogcharts-barchart--with-bar-track-ceiling--light:
+        hash: v1.k794b7964.e9accba1ecd78df7cf201f4eccdb1879ff90a450c7052c10940b1406892dcd65.fu8AiHQlPz_QXbMIH-RxgXyBXyhX9x365WS4pFWbKA4
     components-hogcharts-barchart--with-reference-line--dark:
         hash: v1.k794b7964.da4e7911b8847da4a178564ba146bcc41c61036ce36b332c6a9615b7d3d43df4.WtDqIa4IKDYz7LljgNREGiso0w4-6JVJZHPTFlWDrMc
     components-hogcharts-barchart--with-reference-line--light:
@@ -2469,13 +2477,13 @@ snapshots:
     insights-funnelbarhorizontalchart--default-narrow--light:
         hash: v1.k794b7964.b6543758ca04b2e970af5d54a370ba18ced44e9ae8fc75814f19392942db7abc.y9qjx5SS8j1iMTyUqdHLGqjEZuGfzS23ao2GcioBRUc
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-breakdown-compare--dark:
-        hash: v1.k794b7964.e796992fbefdd3191e1ba79e60c77736a44741800bcf1449be26e6a13f7553c3.W-5yUtMfns_MAz8EcRrzSYEaJEKAttc_lzSc2fVESLE
+        hash: v1.k794b7964.eb479a84b636e03317606fce52cea935e6de48952d11fd691c42b13549869efd.2eMSpsP3yDXNFIgHD2By8EeD1TabFKSeMMCQC8ruPs4
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-breakdown-compare--light:
-        hash: v1.k794b7964.75ef16cea8a014fe7cd3a01b8962c91de81ba9d4b3bc7378e090caa2047ad4dc.R_kwF04YcEG0ODevUS8jJb1jDAng3JWl3_RbuT0kURk
+        hash: v1.k794b7964.d3a574096970494a064ece19dc2ccb7e87ae4e6d11b32e8a95113efa54502aa4.SOAuVY10b_EoDBE4kngDdaLXbpc5YQ2hSt5GaV02vsY
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--dark:
-        hash: v1.k794b7964.72d237b21ff6966313ce6117b09181395d56a21f3826cd06eb7de95d118389d4.aTEfL9HGvWY3WO-TKr-bs8nvdEuVWauwCh3BWg4n7iU
+        hash: v1.k794b7964.5ce2f4ec8a61d61a1f94928d052ad786c79677b6f2de7d87335e654675338925.ZOxo83II5vBuKBTcrmyXnN0aPlHRJjb1WiF-HuYHjRY
     insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--light:
-        hash: v1.k794b7964.8faec9e7852253456408ac542e54813dca156da131c8a9a3f3be2abce804e8c5.H71T2F5dlR2cNdBQ2EhRysiy-c0VzNWUiiaHDxHC7Co
+        hash: v1.k794b7964.d0d07f01bc19a506cd477621ecc413c3a828370af2eb911a612f4de6a313dde1.8ZZ9IsGnPTTB9dIJvIELaCyjppVcNDTaBDXhuzlwY0w
     insights-funnelcorrelationtable--default--dark:
         hash: v1.k794b7964.0c70fac4deda9be64c8b0c0d06eb0149e9d11176c31ab5861f6657fa80714836.YqZL0Grf9CN71TbXgR_pGO23EfnukP5X-Doi0-Xy48A
     insights-funnelcorrelationtable--default--light:
@@ -2517,13 +2525,13 @@ snapshots:
     insights-funnelstepsbarchart--breakdown--light:
         hash: v1.k794b7964.ef5b8d25d48688261cfaa80a3fc0eb72591947c058b608785e0b82ff0f9a789f.Ew5iFWL3G7CoqIph640J4EcyQkv7EMC__wX_42-3yME
     insights-funnelstepsbarchart--breakdown-and-compare--dark:
-        hash: v1.k794b7964.88ae974582c9dcba3100f28eb688af198cfd7480a56375eee40d42e4839c233a.CEFZgymiNhpGlXdyaHivgzWQ8u0Anj0u72yq4ulch9A
+        hash: v1.k794b7964.7350467709d4650cf71e064ea55b39d31d779f85c4e473d85b5f470aa6f4838a.xgIOFyhWCh8uwVbUQJu1TEkCwuEO-YmHH_14GYir2yk
     insights-funnelstepsbarchart--breakdown-and-compare--light:
-        hash: v1.k794b7964.9f202e1484c79485c02ddf726b822bccaa4f208f6663ff287dae0245bb3b4a5e.FbEco_G_czhBhk9FIXa5xVQ1aP6_Hi8ndmheuCgvPaI
+        hash: v1.k794b7964.64ae5f7f33d528b3d6796e61b4bebbd46b6395f6c1313b9c8f9b9771aed12dfd.pkZgbPRunP-ImmqKR91IhlSZzxA3_SrYjpNTAjXHprw
     insights-funnelstepsbarchart--compare--dark:
-        hash: v1.k794b7964.4b63e733bb826606ac813e27b2c259007c1c37f790fed33baf77d5069048bbf3.0_oTFagU6uG6SHNAfgui8JXZxijxgS2PtPF_lPCo4JY
+        hash: v1.k794b7964.bb56d814937bc56a8f9b315571b227511c2b51c43d6cad0d3c367a81b4a0185f.xi3342BT2p-FNZerZZdfZx7dlk1XdMTw9gK51SdudX4
     insights-funnelstepsbarchart--compare--light:
-        hash: v1.k794b7964.e7b47f099f0ae984c8bcc5f251e1eee8edbb20b3c4b10b504c3ee58d0a3d479d.5giqurdSr41CHswwkeVaNjraBs1OS2m5z_M0mt97QOI
+        hash: v1.k794b7964.837931443f7ced23d24066f0faa223b94700e48a50931af7ccdcc2f32a7b0a21.Y7xvlht0gaI3-y1u7o6wRueG8VC9vTJg93Lw0C3NbRc
     insights-funnelstepsbarchart--default--dark:
         hash: v1.k794b7964.5317f73d42180be586139ca1ee35001cb08f764246dc98d9a1421949c796f235.6kheIKEWojErjDJhqIIyLd6JPoj9uopMYZ2q1qxKlRg
     insights-funnelstepsbarchart--default--light:
@@ -5757,9 +5765,9 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.7ea36b6183af10b29a7294f85bfcff4a09590b90558904c7065018b77cfc35ef.jcwzdxAwnJjku6Nfe2HPb2IRClfbpiG3SFnh2EpSqXI
     scenes-app-insights-funnels--funnel-left-to-right-compare--dark:
-        hash: v1.k794b7964.e2b87a572d6503c8ebfbe7adf54031db98fda2b30d97b933c63fd094ef330ab4.GeSi46whIPeDDDWAO_Ow8pWiaDWnTg7VgQ5GJMdVBNE
+        hash: v1.k794b7964.7aa805f983ffd9a22957da8897abb9042ff85a8a7e53fc559ee5bf58ce60d932.YpPfgMNcecM0qO9eZ6KCWLqeyfVj27aOf-K40SIBJ7o
     scenes-app-insights-funnels--funnel-left-to-right-compare--light:
-        hash: v1.k794b7964.0a836d6b292fbfcccb587e3de3996e87a3b9933657642b4aee882a592da20008.3SxlWfNeYtsnARocwkgnRA43UgJECOkgM7e6rVSxnjE
+        hash: v1.k794b7964.529ba6a17ec80fec238a36bb9338b7c903356161df33471127bada959c4b55c7.4LJW1G8kS3MvdH3kVOx51dMGK8NAqcofqezIXRGxYes
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
         hash: v1.k794b7964.19e87533e1bdb4761c1a9f973894c8732e54fc65c230a4f675c0d71be67a01a0.WZPWNrUf1ZmNmJCLpgck7R_7RTWMaiuufEIDvKP08nk
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
