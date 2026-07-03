@@ -401,7 +401,7 @@ export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
+ * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle(s).
  */
 export const VisionScannersObserveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),

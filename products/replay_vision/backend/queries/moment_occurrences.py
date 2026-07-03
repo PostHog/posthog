@@ -1,15 +1,18 @@
-"""HogQL builders for focus-event occurrences, shared by the candidate query and the volume estimate."""
+"""HogQL builders for focus-event occurrences, shared by the candidate query, estimate, and on-demand observe."""
 
 import datetime as dt
 from typing import Literal, cast
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 
-from products.replay_vision.backend.moments import MomentsConfig
+from products.replay_vision.backend.moments import MomentOccurrence, MomentsConfig
 
 # One row is (timestamp, uuid, event); sorted before slicing so the kept subset — and therefore the
 # anchors — is stable across sweep retries. groupArray's own cap bounds aggregation memory on
@@ -17,6 +20,9 @@ from products.replay_vision.backend.moments import MomentsConfig
 # a retry — still capped per session and deduped per anchor.
 _GROUP_ARRAY_CAP = 1_000
 MAX_OCCURRENCES_PER_SESSION = 50
+
+# On-demand observe can target any listed recording; bound the event scan to the replay retention ceiling.
+_ON_DEMAND_LOOKBACK = dt.timedelta(days=90)
 
 
 def occurrence_match_expr(config: MomentsConfig, team: Team) -> ast.Expr:
@@ -69,3 +75,36 @@ def moment_occurrences_subquery(
         },
     )
     return cast(ast.SelectQuery, query)
+
+
+def fetch_session_moment_occurrences(
+    *, team: Team, config: MomentsConfig, session_id: str, max_execution_seconds: int = 30
+) -> list[MomentOccurrence]:
+    """Focus-event occurrences within one session, for on-demand observe; sorted, capped like the sweep's."""
+    query = parse_select(
+        f"""
+        SELECT timestamp, toString(uuid) AS uuid, event
+        FROM events
+        WHERE $session_id = {{session_id}} AND timestamp >= {{occurred_after}} AND {{match}}
+        ORDER BY timestamp ASC, uuid ASC
+        LIMIT {MAX_OCCURRENCES_PER_SESSION}
+        """,
+        placeholders={
+            "session_id": ast.Constant(value=session_id),
+            "occurred_after": ast.Constant(value=dt.datetime.now(dt.UTC) - _ON_DEMAND_LOOKBACK),
+            "match": occurrence_match_expr(config, team),
+        },
+    )
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.QUERY):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="ReplayVisionSessionMomentOccurrencesQuery",
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
+        )
+    occurrences = []
+    for timestamp, uuid, event in response.results or []:
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=dt.UTC)
+        occurrences.append(MomentOccurrence(uuid=uuid, timestamp=timestamp, event=event))
+    return occurrences

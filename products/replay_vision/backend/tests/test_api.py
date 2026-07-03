@@ -26,6 +26,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerScanScope,
     ScannerType,
 )
+from products.replay_vision.backend.moments import MomentOccurrence
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -1423,19 +1424,56 @@ class TestObserveAction(_VisionAPITestCase):
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
 
-    def test_observe_rejects_moments_scoped_scanner(
-        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
-    ) -> None:
-        # Guards the temporary gate: without it, observe would create a whole-recording observation
-        # for a scanner whose prompt and estimate assume clips.
-        scanner = self._create_scanner(
+    def _create_moments_scanner(self) -> ReplayScanner:
+        return self._create_scanner(
             name="moments-scanner",
             scan_scope=ScannerScanScope.MOMENTS,
             moments_config={"events": [{"event": "checkout_error"}], "before_seconds": 60, "after_seconds": 60},
         )
-        resp = self.client.post(self.observe_url(str(scanner.id)), data={"session_id": "sess-1"}, format="json")
+
+    def test_observe_moments_scanner_fans_out_one_workflow_per_moment(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        scanner = self._create_moments_scanner()
+        base = timezone.now() - timedelta(days=1)
+        occurrences = [
+            MomentOccurrence(
+                uuid=f"0197a000-0000-7000-8000-00000000000{i}",
+                timestamp=base + timedelta(minutes=10 * i),
+                event="checkout_error",
+            )
+            for i in range(2)
+        ]
+        with patch(
+            "products.replay_vision.backend.api.scanners.fetch_session_moment_occurrences",
+            return_value=occurrences,
+        ):
+            resp = self.client.post(self.observe_url(str(scanner.id)), data={"session_id": "sess-1"}, format="json")
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        body = resp.json()
+        self.assertEqual(len(body["workflow_ids"]), 2)
+        self.assertEqual(body["workflow_id"], body["workflow_ids"][0])
+        # Distinct per-anchor ids so the two moments can't dedup against each other.
+        self.assertEqual(len(set(body["workflow_ids"])), 2)
+        self.assertEqual(start_workflow.call_count, 2)
+        first_inputs = start_workflow.call_args_list[0].args[1]
+        self.assertEqual(first_inputs.moment.anchor_uuid, occurrences[0].uuid)
+
+    def test_observe_moments_scanner_with_no_occurrences_is_a_validation_error(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        scanner = self._create_moments_scanner()
+        with patch(
+            "products.replay_vision.backend.api.scanners.fetch_session_moment_occurrences",
+            return_value=[],
+        ):
+            resp = self.client.post(self.observe_url(str(scanner.id)), data={"session_id": "sess-1"}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertIn("not yet supported", resp.json()["detail"])
+        self.assertIn("No occurrences", resp.json()["detail"])
 
     def test_observe_returns_workflow_id_and_starts_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1449,7 +1487,7 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 202, resp.json())
 
         expected_workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-42")
-        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
+        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id, "workflow_ids": [expected_workflow_id]})
 
         self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-42").exists())
 
@@ -1548,7 +1586,7 @@ class TestObserveAction(_VisionAPITestCase):
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-coalesce"}, format="json"
         )
         self.assertEqual(resp.status_code, 202, resp.json())
-        self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id})
+        self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id, "workflow_ids": [coalesced_workflow_id]})
 
     def test_observe_workflow_already_started_with_mismatched_id_returns_503(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

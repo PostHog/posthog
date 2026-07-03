@@ -384,7 +384,7 @@ export const getVisionScannersObserveCreateUrl = (projectId: string, id: string)
 }
 
 /**
- * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
+ * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle(s).
  */
 export const visionScannersObserveCreate = async (
     projectId: string,

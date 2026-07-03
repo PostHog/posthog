@@ -168,7 +168,8 @@ def _encode_reason(kind: str, message: str) -> str:
 
 def _rasterizer_workflow_id(inputs: ApplyScannerInputs) -> str:
     # Per-scanner child id so concurrent observations of the same session don't collide on WorkflowAlreadyStartedError.
-    return f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}"
+    base = f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}"
+    return f"{base}-{inputs.moment.anchor_uuid}" if inputs.moment else base
 
 
 @wf.defn(name=APPLY_SCANNER_WORKFLOW_NAME)
@@ -330,10 +331,30 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 observation_id=observation_id,
                 team_id=inputs.team_id,
                 session_id=inputs.session_id,
+                moment=inputs.moment,
             ),
             start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=_FETCH_RETRY,
         )
+        if inputs.moment is not None:
+            # The clip asset needs the resolved (clamped) window, which only the fetch knows — sequence them.
+            fetch_result = await fetch_task
+            if fetch_result.resolved_moment is None:
+                raise ScannerFailureError(
+                    "Fetch returned no resolved moment for a moments-scoped observation",
+                    kind=FailureKind.INTERNAL_ERROR,
+                )
+            return await wf.execute_activity(
+                ensure_session_asset_activity,
+                EnsureSessionAssetInputs(
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                    window_start_s=fetch_result.resolved_moment.window_start_s,
+                    window_end_s=fetch_result.resolved_moment.window_end_s,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_ENSURE_ASSET_RETRY,
+            )
         asset_task = wf.execute_activity(
             ensure_session_asset_activity,
             EnsureSessionAssetInputs(team_id=inputs.team_id, session_id=inputs.session_id),

@@ -61,8 +61,14 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
 )
-from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
-from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.ensure_session_asset import (
+    _export_context,
+    ensure_session_asset_activity,
+)
+from products.replay_vision.backend.temporal.activities.fetch_session_events import (
+    _resolve_moment,
+    fetch_session_events_activity,
+)
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
@@ -107,10 +113,12 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionEventsOutput,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    ResolvedMoment,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerResult,
@@ -863,6 +871,58 @@ class TestObservationStateMetricsAndLogs:
         assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
 
 
+class TestResolveMomentWindow:
+    _START = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+
+    def _moment(self, start_s: float, end_s: float) -> CoalescedMoment:
+        return CoalescedMoment(
+            anchor_uuid="0197a000-0000-7000-8000-000000000001",
+            anchor_event="checkout_error",
+            anchor_timestamp=self._START + dt.timedelta(seconds=(start_s + end_s) / 2),
+            window_start=self._START + dt.timedelta(seconds=start_s),
+            window_end=self._START + dt.timedelta(seconds=end_s),
+            occurrence_count=1,
+        )
+
+    @pytest.mark.parametrize(
+        "start_s, end_s, expected",
+        [
+            pytest.param(30, 150, (30.0, 150.0), id="inside_recording_untouched"),
+            pytest.param(-40, 80, (0.0, 80.0), id="clamped_to_recording_start"),
+            pytest.param(500, 700, (500.0, 600.0), id="clamped_to_recording_end"),
+        ],
+    )
+    def test_clamps_window_to_recording(self, start_s: float, end_s: float, expected: tuple[float, float]) -> None:
+        resolved = _resolve_moment(self._moment(start_s, end_s), start_time=self._START, duration_seconds=600.0)
+        assert (resolved.window_start_s, resolved.window_end_s) == expected
+
+    @pytest.mark.parametrize(
+        "start_s, end_s",
+        [
+            pytest.param(700, 800, id="entirely_after_recording"),
+            pytest.param(-200, -100, id="entirely_before_recording"),
+        ],
+    )
+    def test_window_outside_recording_is_ineligible(self, start_s: float, end_s: float) -> None:
+        with pytest.raises(IneligibleSessionError) as exc_info:
+            _resolve_moment(self._moment(start_s, end_s), start_time=self._START, duration_seconds=600.0)
+        assert exc_info.value.kind == IneligibleSessionKind.MOMENT_OUTSIDE_RECORDING
+
+
+class TestEnsureSessionAssetExportContext:
+    def test_clip_context_carries_the_rasterizer_contract_keys(self) -> None:
+        # The rasterize child reads these exact keys off export_context; a rename silently renders the whole session.
+        context = _export_context(
+            EnsureSessionAssetInputs(team_id=1, session_id="s", window_start_s=30.0, window_end_s=150.0)
+        )
+        assert context["start_offset_s"] == 30.0
+        assert context["end_offset_s"] == 150.0
+        assert context["skip_inactivity"] is False
+        whole = _export_context(EnsureSessionAssetInputs(team_id=1, session_id="s"))
+        assert "start_offset_s" not in whole
+        assert whole["playback_speed"] != context["playback_speed"]
+
+
 @pytest.mark.django_db(transaction=True)
 class TestFetchSessionEventsActivity:
     def _make_session_replay_events_mock(
@@ -1556,6 +1616,50 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
 
 @pytest.mark.asyncio
+async def test_apply_scanner_workflow_moment_threads_window_into_clip_asset() -> None:
+    # Without the fetch->asset sequencing the clip asset gets no window and renders the whole recording.
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="failure investigated", confidence=0.9)
+    anchor_ts = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
+    moment = CoalescedMoment(
+        anchor_uuid="0197a000-0000-7000-8000-000000000001",
+        anchor_event="checkout_error",
+        anchor_timestamp=anchor_ts,
+        window_start=anchor_ts - dt.timedelta(seconds=60),
+        window_end=anchor_ts + dt.timedelta(seconds=60),
+        occurrence_count=1,
+    )
+    resolved = ResolvedMoment(
+        window_start_s=30.0, window_end_s=150.0, anchor_event="checkout_error", anchor_offset_s=90.0, occurrence_count=1
+    )
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            fetch_session_events_activity: FetchSessionEventsOutput(resolved_moment=resolved),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
+        },
+    )
+
+    inputs = _build_inputs(session_id="sess-1", team_id=99, moment=moment)
+    await _run_workflow(inputs, mocks, workflow_id="wf-moment")
+
+    fetch_input = next(arg for fn, arg in mocks.activity_calls if fn is fetch_session_events_activity)
+    assert fetch_input.moment == moment
+    asset_input = next(arg for fn, arg in mocks.activity_calls if fn is ensure_session_asset_activity)
+    assert asset_input.window_start_s == 30.0
+    assert asset_input.window_end_s == 150.0
+    assert (
+        mocks.child_calls[0][1]["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.scanner_id}-{moment.anchor_uuid}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
     fetch_error = ApplicationError("no events", non_retryable=True)
@@ -2229,7 +2333,7 @@ class TestExtractSegments:
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
-        plain, segments = _extract_segments(text, _DURATION_MS)
+        plain, segments = _extract_segments(text, (0, _DURATION_MS))
         assert plain == expected_plain
         assert segments == expected_segments
 
@@ -2237,7 +2341,7 @@ class TestExtractSegments:
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), (0, _DURATION_MS))
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
@@ -2248,14 +2352,14 @@ class TestResolveCitations:
 
     def test_summarizer_uses_summary_field(self) -> None:
         finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), (0, _DURATION_MS))
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
         assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), (0, _DURATION_MS))
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

@@ -80,7 +80,11 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     )
     scanner = scanner_from_snapshot(snapshot)
 
-    preamble_text = scanner.preamble(team_name=team_name, session_metadata=llm_inputs.metadata.as_prompt_dict())
+    preamble_text = scanner.preamble(
+        team_name=team_name,
+        session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        moment=_moment_prompt_dict(llm_inputs),
+    )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
     finalized, signals = await _run_mission(
@@ -91,15 +95,33 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         team_id=inputs.team_id,
         llm_inputs=llm_inputs,
     )
-    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(finalized, scanner, duration_ms)
+    if llm_inputs.moment is not None:
+        citation_bounds = (int(llm_inputs.moment.window_start_s * 1000), int(llm_inputs.moment.window_end_s * 1000))
+    else:
+        citation_bounds = (0, int(llm_inputs.metadata.duration_seconds * 1000))
+    finalized = _resolve_citations(finalized, scanner, citation_bounds)
     return ScannerCallOutput(model_output=finalized, signals=signals)
+
+
+def _moment_prompt_dict(llm_inputs: ScannerLlmInputs) -> dict[str, Any] | None:
+    """Whole-second clip bounds for the preamble's `<scope>` block; None for whole-recording scans."""
+    moment = llm_inputs.moment
+    if moment is None:
+        return None
+    return {
+        "window_start_s": int(moment.window_start_s),
+        "window_end_s": int(moment.window_end_s),
+        "anchor_event": moment.anchor_event,
+        "anchor_offset_s": int(moment.anchor_offset_s),
+        "occurrence_count": moment.occurrence_count,
+        "session_duration_s": int(llm_inputs.metadata.duration_seconds),
+    }
 
 
 def _resolve_citations(
     finalized: _OutputT,
     scanner: BaseScanner,
-    duration_ms: int,
+    citation_bounds: tuple[int, int],
 ) -> _OutputT:
     """Walk each `(t <sec>)` marker in the citation fields: drop out-of-range ones, build the plain text, and persist a parallel render-ready segment list."""
     field_updates: dict[str, str | list[Segment]] = {}
@@ -107,7 +129,7 @@ def _resolve_citations(
         text = getattr(finalized, field, None)
         if not isinstance(text, str):
             continue
-        plain, segments = _extract_segments(text, duration_ms)
+        plain, segments = _extract_segments(text, citation_bounds)
         field_updates[field] = plain
         field_updates[f"{field}_segments"] = segments
 
@@ -116,8 +138,9 @@ def _resolve_citations(
     return finalized
 
 
-def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
-    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments)."""
+def _extract_segments(text: str, citation_bounds: tuple[int, int]) -> tuple[str, list[Segment]]:
+    """Walk `(t <sec>)` markers in `text`; drop times outside the scanned range; return (plain text, render-ready text/chip segments)."""
+    min_ms, max_ms = citation_bounds
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
@@ -127,9 +150,9 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
         if chunk:
             segments.append(TextSegment(value=chunk))
         timestamp_ms = int(match.group(1)) * 1000
-        # Drop citations past the recording end (a misread footer value); 1s slack spares a genuine final-second
-        # citation from a sub-second start-time skew. The marker is stripped either way.
-        if timestamp_ms <= duration_ms + 1000:
+        # Drop citations outside the scanned range (a misread footer value); 1s slack each side spares a genuine
+        # boundary citation from a sub-second start-time skew. The marker is stripped either way.
+        if min_ms - 1000 <= timestamp_ms <= max_ms + 1000:
             segments.append(ChipSegment(timestamp_ms=timestamp_ms))
         last_end = match.end()
     trailing = text[last_end:]

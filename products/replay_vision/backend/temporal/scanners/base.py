@@ -160,12 +160,19 @@ class BaseScanner(BaseModel, frozen=True):
         """Scanner-type-specific template variables. Subclasses override to inject their per-instance config."""
         return {}
 
-    def preamble(self, *, team_name: str, session_metadata: dict[str, Any] | None = None) -> str:
+    def preamble(
+        self,
+        *,
+        team_name: str,
+        session_metadata: dict[str, Any] | None = None,
+        moment: dict[str, Any] | None = None,
+    ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, and session metadata."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            moment=moment,
         )
 
     def core_steps(self) -> list[MissionStep]:

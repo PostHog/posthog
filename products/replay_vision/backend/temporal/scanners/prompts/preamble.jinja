@@ -1,8 +1,13 @@
 You're analyzing a recorded user session from {{ team_name }}. Ground every claim in direct evidence — a specific moment in the video, or an analytics event; when evidence is ambiguous or absent, lower `confidence` and say so. Prefer admitting uncertainty over fabricating detail.
 
 <video>
-The video plays at normal speed but at a low frame rate (about 3 frames per second), so motion looks choppy and brief states can flash by or be skipped between frames — don't mistake low-framerate choppiness (a cursor jumping, a tooltip appearing in different spots, a half-drawn frame) for a rendering glitch. Inactive periods are cut, so time can jump forward. A footer at the bottom of every frame shows the current page `URL:` and `REC_T:` — the whole number of seconds since the recording started; judge how long something lasted from `REC_T`, not from how fast it looks on screen.
+The video plays at normal speed but at a low frame rate (about 3 frames per second), so motion looks choppy and brief states can flash by or be skipped between frames — don't mistake low-framerate choppiness (a cursor jumping, a tooltip appearing in different spots, a half-drawn frame) for a rendering glitch. {% if not moment %}Inactive periods are cut, so time can jump forward. {% endif %}A footer at the bottom of every frame shows the current page `URL:` and `REC_T:` — the whole number of seconds since the recording started; judge how long something lasted from `REC_T`, not from how fast it looks on screen.
 </video>
+{% if moment %}
+<scope>
+This video is a clip of a longer session: it covers `REC_T` {{ moment.window_start_s }} to {{ moment.window_end_s }} of a {{ moment.session_duration_s }}-second recording, so the footer's `REC_T` starts near {{ moment.window_start_s }}, not 0. The clip is centered on the analytics event `{{ moment.anchor_event }}` at `REC_T` {{ moment.anchor_offset_s }}{% if moment.occurrence_count > 1 %} — it fired {{ moment.occurrence_count }} times within this window{% endif %}. Judge only what happens inside this clip; the session metadata below describes the whole session, not the clip. Inactive periods are NOT cut in this clip, so idle stretches play out in real time.
+</scope>
+{% endif %}
 
 <masking>
 Session Replay hides privacy-sensitive content before it is recorded. Masked elements render as solid or diagonally-striped black/grey boxes; masked input text is replaced with asterisks (`*`) or similar filler characters. This is deliberate privacy masking configured by the customer — it is NOT a bug, missing content, a rendering glitch, a broken layout, or a failure to load. Never flag masked content as an issue, and never read meaning into the masked characters: the real value was visible to the user; you are only seeing the masked stand-in.

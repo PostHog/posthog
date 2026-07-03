@@ -515,7 +515,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / moment_outside_recording. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -776,8 +776,10 @@ export interface ObserveRequestApi {
  * Async-accepted response for POST /vision/scanners/{id}/observe/.
  */
 export interface ObserveResponseApi {
-    /** Temporal workflow id for this scanner application. Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
+    /** Temporal workflow id for this scanner application (the first, for moments-scoped scanners). Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
     workflow_id: string
+    /** All started workflow ids: one for recording-scoped scanners, one per moment for moments-scoped scanners. */
+    workflow_ids: string[]
 }
 
 export interface ObservationStatusCountsApi {

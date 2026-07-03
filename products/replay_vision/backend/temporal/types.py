@@ -115,10 +115,26 @@ class MarkObservationIneligibleInputs(BaseModel, frozen=True):
     scanner_type: ScannerType
 
 
+class ResolvedMoment(BaseModel, frozen=True):
+    """A moment's window resolved onto the recording timeline (seconds from recording start, clamped)."""
+
+    window_start_s: float
+    window_end_s: float
+    anchor_event: str
+    anchor_offset_s: float
+    occurrence_count: int
+
+
 class FetchSessionEventsInputs(BaseModel, frozen=True):
     observation_id: UUID
     team_id: int
     session_id: str
+    moment: CoalescedMoment | None = None
+
+
+class FetchSessionEventsOutput(BaseModel, frozen=True):
+    # Set when the inputs carried a moment; the workflow hands it to the asset + rasterize steps.
+    resolved_moment: ResolvedMoment | None = None
 
 
 class EventTable(BaseModel, frozen=True):
@@ -181,11 +197,16 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     metadata: SessionMetadata
     # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
     distinct_id: str | None = None
+    # Set for moments-scoped observations; drives the clip-aware preamble and citation bounds.
+    moment: ResolvedMoment | None = None
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
     team_id: int
     session_id: str
+    # Clip bounds for moments-scoped observations; None renders the whole recording.
+    window_start_s: float | None = None
+    window_end_s: float | None = None
 
 
 class EnsureSessionAssetOutput(BaseModel, frozen=True):

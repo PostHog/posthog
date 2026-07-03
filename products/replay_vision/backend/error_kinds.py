@@ -11,6 +11,8 @@ class IneligibleSessionKind(StrEnum):
     TOO_INACTIVE = "too_inactive"
     TOO_LONG = "too_long"
     NO_EVENTS = "no_events"
+    # Moments scope: the focus event fired while replay wasn't capturing (e.g. before recording started).
+    MOMENT_OUTSIDE_RECORDING = "moment_outside_recording"
 
 
 class FailureKind(StrEnum):

@@ -50,7 +50,13 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerScanScope,
     ScannerType,
 )
-from products.replay_vision.backend.moments import MomentEvent, MomentsConfig
+from products.replay_vision.backend.moments import (
+    MAX_MOMENTS_PER_SESSION,
+    CoalescedMoment,
+    MomentEvent,
+    MomentsConfig,
+    coalesce_moments,
+)
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
@@ -59,6 +65,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
+from products.replay_vision.backend.queries.moment_occurrences import fetch_session_moment_occurrences
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.tags import slugify_tag
@@ -540,8 +547,14 @@ class ObserveResponseSerializer(serializers.Serializer):
 
     workflow_id = serializers.CharField(
         help_text=(
-            "Temporal workflow id for this scanner application. Look up the resulting "
-            "ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>."
+            "Temporal workflow id for this scanner application (the first, for moments-scoped scanners). "
+            "Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>."
+        ),
+    )
+    workflow_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "All started workflow ids: one for recording-scoped scanners, one per moment for moments-scoped scanners."
         ),
     )
 
@@ -826,16 +839,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["replay_scanner:write", "session_recording:read"],
     )
     def observe(self, request: Request, **kwargs: Any) -> Response:
-        """Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle."""
+        """Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle(s)."""
         scanner = self.get_object()
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
-        if scanner.scan_scope == ScannerScanScope.MOMENTS:
-            # TODO(moments): resolve the session's focus-event occurrences and fan out per-moment workflows.
-            raise serializers.ValidationError(
-                {"session_id": "On-demand observation is not yet supported for moments-scoped scanners."}
-            )
 
         snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
         if snapshot.exhausted:
@@ -851,9 +859,57 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         session_id: str = body.validated_data["session_id"]
         user = cast(User, request.user)
 
-        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
+        moments: list[CoalescedMoment | None] = [None]
+        if scanner.scan_scope == ScannerScanScope.MOMENTS:
+            moments = list(self._resolve_session_moments(scanner, session_id))
+            if not moments:
+                raise serializers.ValidationError(
+                    {"session_id": "No occurrences of the scanner's focus events were found in this session."}
+                )
+
+        workflow_ids: list[str] = []
         try:
             client = sync_connect()
+            for moment in moments:
+                workflow_id = self._start_observe_workflow(client, scanner, session_id, user, moment)
+                if workflow_id is None:
+                    return Response(
+                        {"error": "Failed to start observation workflow"},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+                workflow_ids.append(workflow_id)
+        except Exception:
+            logger.exception("replay_vision.observe.workflow_start_failed", scanner_id=str(scanner.id))
+            return Response(
+                {"error": "Failed to start observation workflow"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            ObserveResponseSerializer({"workflow_id": workflow_ids[0], "workflow_ids": workflow_ids}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _resolve_session_moments(self, scanner: ReplayScanner, session_id: str) -> list[CoalescedMoment]:
+        config = scanner.moments_config_typed()
+        if config is None:
+            raise serializers.ValidationError({"session_id": "This scanner has no moments configuration."})
+        occurrences = fetch_session_moment_occurrences(team=self.team, config=config, session_id=session_id)
+        moments = coalesce_moments(
+            occurrences, before_seconds=config.before_seconds, after_seconds=config.after_seconds
+        )
+        return moments[:MAX_MOMENTS_PER_SESSION]
+
+    def _start_observe_workflow(
+        self,
+        client: Any,
+        scanner: ReplayScanner,
+        session_id: str,
+        user: User,
+        moment: "CoalescedMoment | None",
+    ) -> str | None:
+        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id, moment.anchor_uuid if moment else "")
+        try:
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 APPLY_SCANNER_WORKFLOW_NAME,  # type: ignore[arg-type]
                 ApplyScannerInputs(  # type: ignore[arg-type]
@@ -862,6 +918,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     team_id=scanner.team_id,
                     triggered_by=ObservationTrigger.ON_DEMAND,
                     triggered_by_user_id=user.id,
+                    moment=moment,
                 ),
                 id=workflow_id,
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
@@ -879,22 +936,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.
             if exc.workflow_id != workflow_id:
                 logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
-                return Response(
-                    {"error": "Failed to start observation workflow"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
+                return None
             logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        except Exception:
-            logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
-            return Response(
-                {"error": "Failed to start observation workflow"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(
-            ObserveResponseSerializer({"workflow_id": workflow_id}).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return workflow_id
 
     @extend_schema(
         request=EstimateRequestSerializer,

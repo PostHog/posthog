@@ -64,9 +64,22 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "model_used": snapshot.model,
         "provider_used": snapshot.provider,
         "emits_signals": snapshot.emits_signals,
+        "scan_scope": str(snapshot.scan_scope),
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
     }
+    if observation.moment_key:
+        properties.update(
+            {
+                "moment_event": observation.moment_event_name,
+                "moment_event_timestamp": observation.moment_event_timestamp.isoformat()
+                if observation.moment_event_timestamp
+                else None,
+                "moment_window_start_s": observation.window_start_offset_s,
+                "moment_window_end_s": observation.window_end_offset_s,
+                "moment_coalesced_event_count": observation.coalesced_event_count,
+            }
+        )
     distinct_id = (
         str(observation.triggered_by_user_id)
         if observation.triggered_by_user_id is not None and observation.triggered_by == ObservationTrigger.ON_DEMAND

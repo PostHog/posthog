@@ -12,6 +12,7 @@ from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.moments import CoalescedMoment
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -21,12 +22,15 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
+    get_data_class_from_redis,
     get_redis_state_client,
     store_data_in_redis,
 )
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionEventsOutput,
+    ResolvedMoment,
     ScannerLlmInputs,
     SessionMetadata,
 )
@@ -60,16 +64,18 @@ _DEDUP_HASH_BYTES = 8
 
 @activity.defn
 @track_activity()
-async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> None:
-    """Fetch analytics events for a session and stash in Redis; idempotent — a second call finds the key and returns."""
+async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> FetchSessionEventsOutput:
+    """Fetch analytics events for a session and stash in Redis; idempotent — a second call reloads the stored payload."""
     redis_client, redis_key = get_redis_state_client(
         label=StateActivitiesEnum.SESSION_EVENTS,
         state_id=str(inputs.observation_id),
     )
-    if await redis_client.exists(redis_key):
-        return
+    stored = await get_data_class_from_redis(redis_client, redis_key, ScannerLlmInputs)
+    if stored is not None:
+        # Re-derive the output from the stored blob so a retried call still hands the workflow the window.
+        return FetchSessionEventsOutput(resolved_moment=stored.moment)
 
-    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
+    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id, inputs.moment)
     if payload is None:
         raise IneligibleSessionError(
             "No events to analyze",
@@ -80,6 +86,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     await sync_to_async(_persist_session_identity)(inputs.observation_id, payload)
 
     await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
+    return FetchSessionEventsOutput(resolved_moment=payload.moment)
 
 
 def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) -> None:
@@ -96,10 +103,37 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         distinct_id=payload.distinct_id,
         recording_subject_email=email,
         session_started_at=payload.metadata.start_time,
+        window_start_offset_s=payload.moment.window_start_s if payload.moment else None,
+        window_end_offset_s=payload.moment.window_end_s if payload.moment else None,
     )
 
 
-def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
+def _resolve_moment(moment: CoalescedMoment, *, start_time: dt.datetime, duration_seconds: float) -> ResolvedMoment:
+    """Place the moment's absolute window onto the recording timeline, clamped to the recording bounds.
+
+    Uses the same event-timestamp − recording-start arithmetic as `_relative_ms`, so the clip and the
+    events tool agree on where events sit; the before/after margins absorb residual clock skew.
+    """
+    window_start_s = (moment.window_start - start_time).total_seconds()
+    window_end_s = (moment.window_end - start_time).total_seconds()
+    clamped_start = max(0.0, window_start_s)
+    clamped_end = min(duration_seconds, window_end_s)
+    if clamped_end <= clamped_start:
+        raise IneligibleSessionError(
+            f"Moment around {moment.anchor_event} falls outside the recording "
+            f"({round(window_start_s, 1)}s..{round(window_end_s, 1)}s of a {round(duration_seconds, 1)}s recording)",
+            kind=IneligibleSessionKind.MOMENT_OUTSIDE_RECORDING,
+        )
+    return ResolvedMoment(
+        window_start_s=clamped_start,
+        window_end_s=clamped_end,
+        anchor_event=moment.anchor_event,
+        anchor_offset_s=min(duration_seconds, max(0.0, (moment.anchor_timestamp - start_time).total_seconds())),
+        occurrence_count=moment.occurrence_count,
+    )
+
+
+def _fetch_payload(team_id: int, session_id: str, moment: CoalescedMoment | None = None) -> ScannerLlmInputs | None:
     team = Team.objects.get(pk=team_id)
     events_obj = SessionReplayEvents()
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
@@ -121,11 +155,17 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             f"Only {round(active_seconds, 1)}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_INACTIVE,
         )
-    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
+    # Moments render a bounded clip, so the whole-recording length cap doesn't apply.
+    if moment is None and active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
             f"{round(active_seconds, 1)}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_LONG,
         )
+    resolved_moment = (
+        _resolve_moment(moment, start_time=metadata["start_time"], duration_seconds=duration_seconds)
+        if moment is not None
+        else None
+    )
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []
@@ -164,6 +204,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         window_mapping=window_mapping,
         event_timestamps=event_timestamps,
         distinct_id=metadata.get("distinct_id"),
+        moment=resolved_moment,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],
