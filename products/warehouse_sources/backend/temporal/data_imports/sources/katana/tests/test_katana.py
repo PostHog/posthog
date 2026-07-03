@@ -23,6 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.katana.kat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import KATANA_ENDPOINTS
 
+# A stand-in API key long enough to be caught by the transport's value-based redaction.
+_SECRET_KEY = "katana-secret-key-abcdef123456"
+
 
 def _fake_response(status_code: int = 200, body: Any = None, headers: dict[str, str] | None = None) -> MagicMock:
     response = MagicMock()
@@ -141,13 +144,21 @@ class TestRequestPage:
         with pytest.raises(KatanaRetryableError):
             _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
 
-    def test_401_raises_http_error(self) -> None:
-        response = _fake_response(401)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=response)
+    @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
+    def test_4xx_raises_matchable_http_error_without_leaking_key(self, _name: str, status: int, reason: str) -> None:
+        # A credential-bearing final URL (redirect echoing the key) must never reach the exception text,
+        # but the stable `<status> Client Error: <reason> for url: https://api.katanamrp.com...` prefix
+        # that `KatanaSource.get_non_retryable_errors()` matches on must survive scrubbing.
+        response = _fake_response(status)
+        response.reason = reason
+        response.url = f"https://api.katanamrp.com/v1/customers?token={_SECRET_KEY}"
         session = MagicMock()
         session.get.return_value = response
-        with pytest.raises(requests.HTTPError):
-            _request_page(session, "url", {}, {}, MagicMock(), MagicMock())
+        with pytest.raises(requests.HTTPError) as exc:
+            _request_page(session, "https://api.katanamrp.com/v1/customers", {}, {}, MagicMock(), MagicMock())
+        message = str(exc.value)
+        assert _SECRET_KEY not in message
+        assert message.startswith(f"{status} Client Error: {reason} for url: https://api.katanamrp.com/v1/customers")
 
     def test_200_returns_body(self) -> None:
         session = MagicMock()
@@ -203,6 +214,8 @@ class TestGetRows:
         rows = [row for table in tables for row in table.to_pylist()]
         assert len(rows) == 2 * katana.PAGE_SIZE + 1
         assert session.get.call_count == 3
+        # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
+        mock_session_factory.assert_called_once_with(redact_values=("k",))
 
     @patch.object(katana.time, "sleep", lambda *_: None)
     @patch.object(katana, "make_tracked_session")
@@ -290,6 +303,8 @@ class TestValidateCredentials:
         session.get.return_value = _fake_response(200)
         mock_session_factory.return_value = session
         assert katana.validate_credentials("good-key") is True
+        # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
+        mock_session_factory.assert_called_once_with(redact_values=("good-key",))
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     @patch.object(katana, "make_tracked_session")

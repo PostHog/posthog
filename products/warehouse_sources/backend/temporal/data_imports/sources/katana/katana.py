@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -66,6 +67,20 @@ def _get_headers(api_key: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+
+
+def _safe_error_url(url: str) -> str:
+    """Scheme + host + path only — drop query and any userinfo so a redirected, credential-bearing
+    final URL never lands in a persisted error message (the Katana key rides in the Authorization
+    header, but a redirect could echo credentials into the URL)."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    netloc = parts.hostname or ""
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def _format_datetime_z(dt: datetime) -> str:
@@ -140,8 +155,16 @@ def _request_page(
         raise KatanaRetryableError(f"Katana API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Katana API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        # Surface 4xx as an HTTPError so `get_non_retryable_errors` can match and stop the sync. Build the
+        # message from a scrubbed URL rather than `raise_for_status()`, whose default text embeds the raw
+        # final URL — a redirect could carry the credential there, and the error is persisted to job logs.
+        # The scrubbed `... for url: https://api.katanamrp.com/...` prefix stays matchable.
+        safe_url = _safe_error_url(response.url or url)
+        logger.error(f"Katana API error: status={response.status_code}, url={safe_url}")
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe_url}",
+            response=response,
+        )
 
     body = response.json()
     # Every Katana list endpoint wraps results as {"data": [...]}, returning {"data": []} when empty.
@@ -181,7 +204,9 @@ def _fetch_page(
 def validate_credentials(api_key: str) -> bool:
     """Cheap token probe: `/user_info` returns 200 for a valid key regardless of resource scopes."""
     try:
-        response = make_tracked_session().get(f"{KATANA_BASE_URL}/user_info", headers=_get_headers(api_key), timeout=15)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            f"{KATANA_BASE_URL}/user_info", headers=_get_headers(api_key), timeout=15
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -198,7 +223,7 @@ def get_rows(
 ) -> Iterator[Any]:
     config = KATANA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     throttle = _Throttle(REQUEST_INTERVAL_SECONDS)
     batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=200 * 1024 * 1024)
 
@@ -216,7 +241,9 @@ def get_rows(
     while True:
         params = {**base_params, "page": page, "limit": PAGE_SIZE}
         data = _fetch_page(session, url, params, headers, logger, throttle)
-        items = data.get("data", [])
+        # `_request_page` already guaranteed the `data` key is present (it raises otherwise), so read it
+        # directly — a `.get(..., [])` fallback here would silently mask a regression in that guard.
+        items = data["data"]
 
         for item in items:
             batcher.batch(item)
