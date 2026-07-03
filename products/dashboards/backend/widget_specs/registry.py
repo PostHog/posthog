@@ -177,7 +177,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             widget_type=SURVEY_RESULTS_WIDGET_TYPE,
             config_model=SurveyResultsWidgetConfig,
             query_fn=run_survey_results_widget,
-            required_scopes=("survey:read", "query:read"),
+            required_scopes=("survey:read", "query:read", "person:read"),
             group_id="surveys",
             group_label="Surveys",
             label="Survey results",
