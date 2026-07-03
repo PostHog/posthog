@@ -31,12 +31,17 @@ const RESPONSE: _LogsPatternsResponseApi = {
             last_seen: '2026-06-23T12:05:00+00:00',
             examples: [],
             services: ['auth'],
+            sparkline: [1, 2],
         },
     ],
     scanned_count: 3,
     total_count: 3,
     sampled: false,
     sample_coverage_pct: 100,
+    sparkline_buckets: [
+        { start: '2026-06-23T12:00:00+00:00', end: '2026-06-23T12:30:00+00:00' },
+        { start: '2026-06-23T12:30:00+00:00', end: '2026-06-23T13:00:00+00:00' },
+    ],
 }
 
 describe('logsPatternsLogic', () => {
