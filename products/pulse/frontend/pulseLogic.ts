@@ -91,17 +91,28 @@ export type PulseTab = 'briefs' | 'opportunities'
 
 export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
 
-/** The three lifecycle transitions in one table so the endpoint and its optimistic status can't drift. */
+/** The lifecycle transitions in one table so endpoint, allowed source status, and button label can't drift. */
 export const OPPORTUNITY_TRANSITIONS: Record<
     OpportunityTransition,
     {
         call: (projectId: string, id: string) => Promise<OpportunityApi>
-        optimisticStatus: OpportunityStatusEnumApi
+        from: OpportunityStatusEnumApi
+        label: string
     }
 > = {
-    dismiss: { call: pulseOpportunitiesDismissCreate, optimisticStatus: OpportunityStatusEnumApi.Dismissed },
-    acted: { call: pulseOpportunitiesActedCreate, optimisticStatus: OpportunityStatusEnumApi.Acted },
-    reopen: { call: pulseOpportunitiesReopenCreate, optimisticStatus: OpportunityStatusEnumApi.Open },
+    // Key order is button order for statuses offering several transitions.
+    acted: { call: pulseOpportunitiesActedCreate, from: OpportunityStatusEnumApi.Open, label: 'Mark as acted' },
+    dismiss: { call: pulseOpportunitiesDismissCreate, from: OpportunityStatusEnumApi.Open, label: 'Dismiss' },
+    reopen: { call: pulseOpportunitiesReopenCreate, from: OpportunityStatusEnumApi.Dismissed, label: 'Reopen' },
+}
+
+/** The row actions a status offers, derived from the transition table. */
+export function transitionsForStatus(
+    status: OpportunityStatusEnumApi
+): { transition: OpportunityTransition; label: string }[] {
+    return (Object.keys(OPPORTUNITY_TRANSITIONS) as OpportunityTransition[])
+        .filter((transition) => OPPORTUNITY_TRANSITIONS[transition].from === status)
+        .map((transition) => ({ transition, label: OPPORTUNITY_TRANSITIONS[transition].label }))
 }
 
 /** Evidence entries ship as untyped dicts — narrow them to citations, dropping malformed entries. */
@@ -173,16 +184,12 @@ export const pulseLogic = kea<pulseLogicType>([
             opportunityId,
             transition,
         }),
-        opportunityTransitionStarted: (
-            opportunityId: string,
-            transition: OpportunityTransition,
-            optimisticStatus: OpportunityStatusEnumApi
-        ) => ({ opportunityId, transition, optimisticStatus }),
-        opportunityTransitionSucceeded: (opportunity: OpportunityApi) => ({ opportunity }),
-        opportunityTransitionFailed: (opportunityId: string, previousStatus: OpportunityStatusEnumApi) => ({
+        opportunityTransitionStarted: (opportunityId: string, transition: OpportunityTransition) => ({
             opportunityId,
-            previousStatus,
+            transition,
         }),
+        opportunityTransitionSucceeded: (opportunity: OpportunityApi) => ({ opportunity }),
+        opportunityTransitionFailed: (opportunityId: string) => ({ opportunityId }),
         setAiConsentRequired: (aiConsentRequired: boolean) => ({ aiConsentRequired }),
         startPolling: true,
         stopPolling: true,
@@ -365,17 +372,9 @@ export const pulseLogic = kea<pulseLogicType>([
             },
         },
         opportunities: {
-            // Optimistic flip; the failure branch restores the pre-transition status.
-            opportunityTransitionStarted: (state, { opportunityId, optimisticStatus }) =>
-                state.map((opportunity) =>
-                    opportunity.id === opportunityId ? { ...opportunity, status: optimisticStatus } : opportunity
-                ),
+            // Server-confirmed swap only — the per-row spinner covers the wait, no optimistic flip.
             opportunityTransitionSucceeded: (state, { opportunity }) =>
                 state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
-            opportunityTransitionFailed: (state, { opportunityId, previousStatus }) =>
-                state.map((opportunity) =>
-                    opportunity.id === opportunityId ? { ...opportunity, status: previousStatus } : opportunity
-                ),
         },
     }),
     selectors({
@@ -497,21 +496,23 @@ export const pulseLogic = kea<pulseLogicType>([
             if (opportunityId in values.transitionsInFlight) {
                 return // state-level double-submission guard; the row's buttons are also disabled
             }
-            // Captured before the optimistic flip so a failure can restore it.
-            const previous = values.opportunities.find((opportunity) => opportunity.id === opportunityId)
-            if (!previous) {
-                return
-            }
-            const { call, optimisticStatus } = OPPORTUNITY_TRANSITIONS[transition]
-            actions.opportunityTransitionStarted(opportunityId, transition, optimisticStatus)
+            actions.opportunityTransitionStarted(opportunityId, transition)
             try {
-                const updated = await call(currentProjectId(), opportunityId)
+                const updated = await OPPORTUNITY_TRANSITIONS[transition].call(currentProjectId(), opportunityId)
                 actions.opportunityTransitionSucceeded(updated)
             } catch (error) {
-                actions.opportunityTransitionFailed(opportunityId, previous.status)
+                actions.opportunityTransitionFailed(opportunityId)
                 lemonToast.error(
                     error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
                 )
+            }
+        },
+        setActiveTab: ({ tab }) => {
+            // Lazy first load — briefs are the default landing surface, so the opportunities
+            // request waits until the tab is actually opened.
+            if (tab === 'opportunities' && !cache.opportunitiesLoaded && values.featureFlags[FEATURE_FLAGS.PULSE]) {
+                cache.opportunitiesLoaded = true
+                actions.loadOpportunities()
             }
         },
         deleteConfig: async ({ configId }) => {
@@ -550,6 +551,5 @@ export const pulseLogic = kea<pulseLogicType>([
         }
         actions.loadBriefConfigs()
         actions.loadBriefs()
-        actions.loadOpportunities()
     }),
 ])

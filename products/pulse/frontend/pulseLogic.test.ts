@@ -8,13 +8,14 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, OpportunityApi, ProductBriefApi } from './generated/api.schemas'
+import type { BriefConfigApi, OpportunityApi, OpportunityStatusEnumApi, ProductBriefApi } from './generated/api.schemas'
 import {
     BRIEF_ALREADY_GENERATING_MESSAGE,
     CITATION_TYPES,
     MAX_CONSECUTIVE_POLL_FAILURES,
     parseOpportunityEvidence,
     pulseLogic,
+    transitionsForStatus,
 } from './pulseLogic'
 
 const generatingBrief = {
@@ -327,7 +328,18 @@ describe('pulseLogic', () => {
         ])
     })
 
-    it('applies a transition optimistically and swaps in the server row on success', async () => {
+    it.each<[string, string[]]>([
+        ['open', ['acted', 'dismiss']],
+        ['dismissed', ['reopen']],
+        ['acted', []],
+        ['resolved', []],
+    ])('offers the right transitions for a %s opportunity', (status, expected) => {
+        expect(transitionsForStatus(status as OpportunityStatusEnumApi).map(({ transition }) => transition)).toEqual(
+            expected
+        )
+    })
+
+    it('swaps in the server row on transition success', async () => {
         useMocks({
             post: {
                 '/api/projects/:team_id/pulse/opportunities/:id/dismiss/': () => [
@@ -348,7 +360,7 @@ describe('pulseLogic', () => {
         expect(logic.values.opportunities[0].updated_at).toEqual('2026-07-04T00:00:00Z')
     })
 
-    it('reverts the optimistic status and toasts when a transition fails', async () => {
+    it('keeps the status unchanged and toasts when a transition fails', async () => {
         const errorSpy = jest.spyOn(lemonToast, 'error')
         useMocks({
             post: {
@@ -393,6 +405,33 @@ describe('pulseLogic', () => {
             logic.actions.transitionOpportunity('opp-1', 'dismiss')
         }).toFinishAllListeners()
         expect(requests).toEqual(1)
+    })
+
+    it('loads opportunities on first switch to the tab only', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/pulse/opportunities/': () => {
+                    requests += 1
+                    return [200, { count: 1, results: [openOpportunity] }]
+                },
+            },
+        })
+        // Mounting the scene must not fetch the non-default tab.
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadOpportunities'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('opportunities')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1)
+        expect(logic.values.opportunities).toHaveLength(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('briefs')
+            logic.actions.setActiveTab('opportunities')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1) // subsequent switches reuse the loaded list
     })
 
     it('has no citation table entry for unknown types, which render unlinked', () => {

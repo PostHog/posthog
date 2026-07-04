@@ -69,7 +69,7 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
         for opp in out.opportunities:
             fingerprint = opportunity_fingerprint(opp.kind, opp.fingerprint_hint)
             if fingerprint in seen:
-                continue  # open dupes AND dismissed fingerprints both suppress re-creation
+                continue  # an existing fingerprint in ANY status suppresses re-creation (reopen doesn't resurrect)
             seen.add(fingerprint)
             new_opportunities.append(_build_opportunity(brief, opp, items_by_hint.get(opp.fingerprint_hint)))
         if not new_opportunities:
