@@ -68,6 +68,19 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
     if not source.job_inputs:
         return
 
+    # job_inputs is an EncryptedJSONField whose decrypt path falls through to str() for any stored
+    # value that isn't a dict or list, so a malformed source can decrypt back to a plain string. It's
+    # meant to hold a mapping of input keys to values, so anything else has nothing to trim - bail out
+    # rather than crashing the import activity on `.items()`.
+    if not isinstance(source.job_inputs, dict):
+        capture_exception(
+            Exception(
+                f"ExternalDataSource {source.id} has non-dict job_inputs of type "
+                f"{type(source.job_inputs).__name__}; skipping trim"
+            )
+        )
+        return
+
     did_update_inputs = False
     for key, value in source.job_inputs.items():
         if isinstance(value, str):
