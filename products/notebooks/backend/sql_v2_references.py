@@ -53,15 +53,21 @@ def _references(query: ast.SelectQuery | ast.SelectSetQuery, candidates: set[str
     return collector.found - own_ctes
 
 
-def resolve_sql_v2_references(code: str, refs: dict[str, str]) -> str:
+def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     """Return `code` with every referenced upstream definition inlined as a CTE.
 
-    `refs` maps a node's dataframe name to its HogQL. Names not actually referenced by
-    `code` (transitively) are ignored. Returns `code` unchanged when it references none
-    of them, so a plain single-node run is byte-for-byte what the user wrote.
+    `refs` maps a node's dataframe name to its **last-run** HogQL — the exact query that
+    produced the result the user is looking at — or None when that node has never
+    completed a run. A name absent from `refs` (e.g. a real table like ``events``) is
+    left untouched; a name present but None that `code` actually references raises,
+    since there is no definition to join against yet.
 
-    Raises SQLV2ReferenceError on a reference cycle or an unparseable referenced
-    definition; the caller surfaces the message on the run.
+    Names not actually referenced by `code` (transitively) are ignored. Returns `code`
+    unchanged when it references none of them, so a plain single-node run is byte-for-byte
+    what the user wrote.
+
+    Raises SQLV2ReferenceError on a reference cycle, an unparseable referenced
+    definition, or a referenced node that has not been run; the caller surfaces it.
     """
     candidates = {name for name in refs if name}
     if not candidates:
@@ -75,8 +81,11 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str]) -> str:
 
     def parse_ref(name: str) -> ast.SelectQuery | ast.SelectSetQuery:
         if name not in parsed:
+            raw = refs[name]
+            if raw is None or not raw.strip():
+                raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
             try:
-                parsed[name] = parse_select(refs[name])
+                parsed[name] = parse_select(raw)
             except ExposedHogQLError as exc:
                 raise SQLV2ReferenceError(f"Referenced query '{name}' is invalid: {exc}") from exc
         return parsed[name]

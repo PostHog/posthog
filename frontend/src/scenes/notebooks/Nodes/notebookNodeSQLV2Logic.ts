@@ -8,7 +8,8 @@ import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
 // Walk the notebook document for every named SQLV2 node (except this one) and return
-// its dataframe name -> HogQL. The backend inlines the referenced ones as CTEs.
+// its dataframe name -> node id. The backend resolves each referenced node to its
+// last-run query and inlines it as a CTE — the frontend only supplies the wiring.
 export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<string, string> {
     const refs: Record<string, string> = {}
     const visit = (node: unknown): void => {
@@ -17,14 +18,13 @@ export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<strin
         }
         const { type, attrs, content } = node as {
             type?: string
-            attrs?: { nodeId?: string; returnVariable?: string; code?: string }
+            attrs?: { nodeId?: string; returnVariable?: string }
             content?: unknown[]
         }
-        if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId !== selfNodeId) {
+        if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId && attrs.nodeId !== selfNodeId) {
             const name = attrs.returnVariable?.trim()
-            const code = attrs.code?.trim()
-            if (name && code) {
-                refs[name] = attrs.code as string
+            if (name) {
+                refs[name] = attrs.nodeId
             }
         }
         if (Array.isArray(content)) {

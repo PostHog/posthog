@@ -72,3 +72,12 @@ class TestResolveSQLV2References(SimpleTestCase):
     def test_invalid_referenced_definition_raises(self):
         with self.assertRaises(SQLV2ReferenceError):
             resolve_sql_v2_references("select * from df1", {"df1": "select from where ("})
+
+    def test_referencing_a_never_run_node_raises(self):
+        # df1 is a known node (present in refs) but has no last-run definition to inline.
+        with self.assertRaises(SQLV2ReferenceError):
+            resolve_sql_v2_references("select * from df1", {"df1": None})
+
+    def test_unreferenced_never_run_node_is_ignored(self):
+        # A never-run node nobody references must not block the run.
+        self.assertEqual(resolve_sql_v2_references("select 1", {"df1": None}), "select 1")

@@ -889,12 +889,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
 
-        # Inline referenced upstream nodes as CTEs now, once, so the run stores a
-        # self-contained query and paging re-queries it without re-resolving refs.
-        try:
-            resolved_code = resolve_sql_v2_references(
-                serializer.validated_data["code"], serializer.validated_data.get("refs") or {}
+        # Resolve each referenced node to its last-run query (not its live editor text), so a
+        # join recomputes against the definitions that produced the results on screen. Inlining
+        # happens once here, so the run stores a self-contained query and paging re-queries it
+        # without re-resolving refs.
+        ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        last_run_code: dict[str, str | None] = {
+            name: (
+                NotebookNodeRun.objects.for_team(self.team_id)
+                .filter(notebook=notebook, node_id=node_id, status=NotebookNodeRun.Status.DONE)
+                .order_by("-created_at")
+                .values_list("code", flat=True)
+                .first()
             )
+            for name, node_id in ref_node_ids.items()
+        }
+        try:
+            resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
         except SQLV2ReferenceError as e:
             return Response({"detail": str(e)}, status=400)
 

@@ -7,13 +7,13 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
         help_text="The HogQL the node contains; the sandbox runs it through the data plane. Must not be blank.",
     )
     refs = serializers.DictField(
-        child=serializers.CharField(allow_blank=True),
+        child=serializers.CharField(),
         required=False,
         default=dict,
         help_text=(
-            "Available upstream node definitions, mapping each named node's dataframe name to its "
-            "HogQL. The backend inlines the ones this node actually references as CTEs so the join "
-            "recomputes in ClickHouse; unreferenced entries are ignored."
+            "Available upstream nodes, mapping each named node's dataframe name to its ProseMirror "
+            "node id. The backend inlines the ones this node references as CTEs using each node's "
+            "last-run query (not its live editor text); unreferenced entries are ignored."
         ),
     )
 
