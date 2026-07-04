@@ -184,6 +184,7 @@ tools:
             (draft/active/archived), version, trigger configuration, timestamps, and creator. The action/edge graph
             (which can carry large rendered email HTML and compiled bytecode) is omitted here; call workflows-get for a
             single workflow's full definition.
+        ui_app: workflow-list
         response:
             include:
                 - id
@@ -195,7 +196,6 @@ tools:
                 - created_at
                 - updated_at
                 - created_by
-        ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
         enabled: true
