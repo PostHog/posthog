@@ -18,7 +18,7 @@ import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, P
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { infiniteListLogic } from './infiniteListLogic'
+import { clearApiCacheForTesting, infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from './taxonomicFilterPinnedPropertiesLogic'
 
@@ -74,6 +74,7 @@ describe('infiniteListLogic', () => {
             },
         })
         initKeaTests()
+        clearApiCacheForTesting()
     })
 
     const logicWith = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> => {

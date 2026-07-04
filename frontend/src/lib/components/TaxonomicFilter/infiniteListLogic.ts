@@ -192,11 +192,20 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
-function responseHasResults(response: any): boolean {
+type ListResponse = unknown[] | { results?: unknown[]; count?: number }
+
+function responseHasResults(response: ListResponse): boolean {
     if (Array.isArray(response)) {
         return response.length > 0
     }
     return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
+}
+
+/** Reset the module-level API cache. Exported for use in tests only. */
+export function clearApiCacheForTesting(): void {
+    Object.values(apiCacheTimers).forEach((timerId) => window.clearTimeout(timerId))
+    apiCache = {}
+    apiCacheTimers = {}
 }
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
@@ -581,14 +590,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 remoteItems: ListStorage,
                 searchQuery: string,
                 remoteFetchFailed: boolean
-            ): boolean =>
-                // Local-only groups resolve synchronously, so they're always "fresh". For remote
-                // groups the debounced fetch lags the typed query — treat results as fresh only once
-                // the response for the *current* query has landed. This keeps a stale (or transiently
-                // empty) list from being rendered as "No results" before the real response arrives.
-                // A failed fetch also counts as settled: `remoteItems.searchQuery` never catches up
-                // after a failure, and without this the loading state would spin forever.
-                !hasRemoteDataSource || remoteFetchFailed || (remoteItems.searchQuery ?? '') === searchQuery,
+            ): boolean => {
+                // Local-only groups resolve synchronously — always fresh.
+                const isLocalOnly = !hasRemoteDataSource
+                // A failed fetch counts as settled: remoteItems.searchQuery never catches up after a
+                // failure, and without this the loading state would spin forever.
+                const currentQuerySettled = (remoteItems.searchQuery ?? '') === searchQuery
+                return isLocalOnly || remoteFetchFailed || currentQuerySettled
+            },
         ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
