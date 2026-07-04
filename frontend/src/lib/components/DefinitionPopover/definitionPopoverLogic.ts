@@ -232,18 +232,25 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         viewFullDetailUrl: [
             (s) => [s.definition, s.isAction, s.isEvent, s.isProperty, s.isCohort],
             (definition, isAction, isEvent, isProperty, isCohort) => {
+                // Pinned/default items (e.g. `$current_url`, `email`) are seeded with only a
+                // name and no saved definition id. Guard against a missing id so we never build
+                // a `/data-management/properties/undefined` link that 404s and toasts a UUID error.
                 if (isAction) {
                     // Action Definitions
-                    return urls.action((definition as ActionType).id)
+                    const id = (definition as ActionType).id
+                    return id != null ? urls.action(id) : undefined
                 } else if (isEvent) {
                     // Event Definitions
-                    return urls.eventDefinition((definition as EventDefinition).id)
+                    const id = (definition as EventDefinition).id
+                    return id ? urls.eventDefinition(id) : undefined
                 } else if (isProperty) {
                     // Property Definitions
-                    return urls.propertyDefinition((definition as PropertyDefinition).id)
+                    const id = (definition as PropertyDefinition).id
+                    return id ? urls.propertyDefinition(id) : undefined
                 } else if (isCohort) {
                     // Cohort
-                    return urls.cohort((definition as CohortType).id)
+                    const id = (definition as CohortType).id
+                    return id != null ? urls.cohort(id) : undefined
                 }
                 return undefined
             },

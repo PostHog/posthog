@@ -353,6 +353,30 @@ describe('definitionPopoverLogic', () => {
                     await expectChain
                 })
             })
+
+            // Pinned/default items (e.g. `$current_url`, `email`) are seeded with only a name and
+            // no saved definition id. viewFullDetailUrl must stay undefined so we never build a
+            // `/data-management/properties/undefined` link that 404s with a UUID error.
+            const idlessGroups = [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Cohorts,
+            ]
+
+            idlessGroups.forEach((type) => {
+                it(`is undefined for id-less ${type} definition`, async () => {
+                    logic = definitionPopoverLogic({ type })
+                    logic.mount()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setDefinition({ name: '$current_url' })
+                    })
+                        .toDispatchActions(['setDefinitionSuccess'])
+                        .toMatchValues({ viewFullDetailUrl: undefined })
+                })
+            })
         })
     })
 })
