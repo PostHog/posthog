@@ -5829,9 +5829,9 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.74b546c76cf253175d30369f7ee3f5c1a4b6f7b68c2a094f3acf63350b0c545d.4vHP0Tt8HAgBIIQmgQY97lNOfTKAbiOCq1k1JB7g7QA
     scenes-app-insights-funnels--funnel-left-to-right-compare--dark:
-        hash: v1.k794b7964.0b73549ffdbd7ff8b55d142105452ba3d4655cc1df7beb2e05d2e3b2c19d6e6e.ind4l6a0Ihimcyji13CbKmEsHHospSpK4N50JfYl_S8
+        hash: v1.k794b7964.c324ef56bb71c8bd6be1734fc952d0d748c1e7f2c29d3af5041f6c9557cd5ab0.xVrxxIsOYEr9ZWjVrfZY9EIlkFVYMnne1GnGhJZO7H4
     scenes-app-insights-funnels--funnel-left-to-right-compare--light:
-        hash: v1.k794b7964.3d708ee43b8a6a4e220a356434b90f2743b53b02df241ff3221716cb1c0e02b9.MqMSm8tBzEMEKaWtclu8Xg217fol8zFVTaG0rzIZ_uQ
+        hash: v1.k794b7964.d7140c56c7b923ffc6b4ef7c4e6ee429c306ce59ba5e66845f429c1011d3790a.6oVvLragCNMr1hQ_T_8Hwtus67thdAhMPR4_k8nWqA4
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
         hash: v1.k794b7964.c822087b9f3b4dacc14222ae665653fcd28858c9d617f2366b5e1151ec753443.AmafMWLkpuA4Ef8YS5XEP5a5fYpfNh3fUMsu47OqFGM
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
@@ -5864,6 +5864,10 @@ snapshots:
         hash: v1.k794b7964.186af367d7220a6d8e08fb3e2d75b49fbf740a0a7a6fe51fd70662ae8e84352b.VEDaHnLEB6bWGXG2Ey2PgXMoeTj_eHeEXYzG9tcv7gU
     scenes-app-insights-funnels--funnel-top-to-bottom-breakdown--light:
         hash: v1.k794b7964.7bcd00bd90318d2b7f75676d74ea3216d298c2e51bc0e85ba29cf6fab0264372.YOaTHT9GG-5jzOkcc-_4eN7ECP3N5MxhsckVWuU6Tx0
+    scenes-app-insights-funnels--funnel-top-to-bottom-breakdown-compare--dark:
+        hash: v1.k794b7964.5ff8a0715d91c8e57bdd195c840f398c190f5474a2e5e30dc2dd77f12ded9cdb.utFlv1FJakAUeHqSczyq9p6tbHB-wA1qacoBrq4knKo
+    scenes-app-insights-funnels--funnel-top-to-bottom-breakdown-compare--light:
+        hash: v1.k794b7964.2bc2f48c847265069aa6776a824cb96b8e71905e212f2254eb6340b67222a420.ENDQudz4GTRaNxRpu0HPYo4gFiblMEnGZlDVdcHu7e4
     scenes-app-insights-funnels--funnel-top-to-bottom-breakdown-edit--dark:
         hash: v1.k794b7964.2824bf7b86b2602a6dda0fdd44f55469758e922b786aee1175096222c04e48fe.hhGVA6jWLUELBA-KLJWFiccDd7zRU-nm-GAd2C04uIE
     scenes-app-insights-funnels--funnel-top-to-bottom-breakdown-edit--light:
