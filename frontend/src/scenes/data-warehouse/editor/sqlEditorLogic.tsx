@@ -1870,7 +1870,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 actions.updateTab(nextActiveTab)
 
-                if (!values.isEmbeddedMode) {
+                // Skip history writes when the page isn't served over http(s) (e.g. a saved-HTML copy
+                // opened from file://, whose origin is 'null'). Browsers reject replaceState with an
+                // absolute URL in that case, throwing a SecurityError.
+                const isHttpOrigin = window.location.protocol === 'http:' || window.location.protocol === 'https:'
+                if (!values.isEmbeddedMode && isHttpOrigin) {
                     const nextHash = encodeURIComponent(
                         JSON.stringify(getTabHash({ ...values, activeTab: nextActiveTab }))
                     )
