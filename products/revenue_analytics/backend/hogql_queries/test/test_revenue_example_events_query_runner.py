@@ -126,6 +126,27 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_example_events_query().results
         assert len(results) == 0
 
+    def test_event_and_person_without_properties_does_not_crash(self):
+        # An event whose distinct_id has no person yields empty ('') person properties from ClickHouse,
+        # and an event with no properties yields '' too. json.loads('') used to blow up the whole response.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="no_person",
+            timestamp="2023-12-02",
+            properties={"revenue": 42},
+        )
+
+        self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_dump()]
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_example_events_query().results
+
+        assert len(results) == 1
+        event, person = results[0][0], results[0][7]
+        assert event["properties"] == {"revenue": 42}
+        assert person["properties"] == {}
+
     def test_single_event(self):
         s11 = str(uuid7("2023-12-02"))
 
