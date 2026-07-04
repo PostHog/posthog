@@ -1,7 +1,5 @@
 import gc
-import os
 import warnings
-from pathlib import Path
 
 import pytest
 
@@ -49,23 +47,6 @@ def pytest_unconfigure() -> None:
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
     # default heap state so shutdown behaves exactly as without the boot window.
     gc.unfreeze()
-
-
-if os.environ.get("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", "").lower() in ("1", "true", "t", "y", "yes", "on"):
-    from syrupy.extensions.amber import AmberSnapshotExtension
-    from syrupy.location import PyTestLocation
-
-    class _NewEventsSchemaAmberExtension(AmberSnapshotExtension):
-        @classmethod
-        def dirname(cls, *, test_location: PyTestLocation) -> str:
-            return str(Path(test_location.filepath).parent / "__snapshots__" / "new_events_schema")
-
-    @pytest.fixture
-    def snapshot(snapshot):
-        # New-events-schema runs keep a second, fully separate set of .ambr files so the two CI
-        # modes can never read or rewrite each other's snapshots (a shared file gets its
-        # other-mode blocks deleted on --snapshot-update).
-        return snapshot.use_extension(_NewEventsSchemaAmberExtension)
 
 
 @pytest.fixture(autouse=True)

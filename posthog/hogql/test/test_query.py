@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -51,12 +52,27 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    allow_dual_schema_snapshots = True
+
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False) -> Any:
+        if not (use_new_events_schema_snapshot or getattr(self, "_use_new_events_schema_snapshots", False)):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
 
     def assertResponseMatchesSnapshot(self, response) -> None:
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        snapshot_value = pretty_print_response_in_tests(response, self.team.pk)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in snapshot_value.lower():
+            self._use_new_events_schema_snapshots = True
+        assert snapshot_value == self._schema_snapshot()
 
     def assertHogQLMatchesSnapshot(self, query: str | None) -> None:
-        assert pretty_print_in_tests(query, self.team.pk) == self.snapshot
+        assert pretty_print_in_tests(query, self.team.pk) == self._schema_snapshot()
 
     def _create_random_events(self) -> str:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"

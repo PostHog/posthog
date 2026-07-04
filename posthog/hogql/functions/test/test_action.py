@@ -10,6 +10,8 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from django.conf import settings
+
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
@@ -37,6 +39,7 @@ def _create_action_with_property(**kwargs):
 
 class TestAction(BaseTest, QueryMatchingTest):
     snapshot: Any
+    allow_dual_schema_snapshots = True
     maxDiff = None
 
     def _create_random_events(self) -> str:
@@ -90,7 +93,10 @@ class TestAction(BaseTest, QueryMatchingTest):
         )
 
         formatted_response = pretty_print_response_in_tests(response, self.team.pk)
-        assert formatted_response == self.snapshot
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in formatted_response.lower()
+        )
+        assert formatted_response == self._schema_snapshot(use_new_events_schema_snapshot)
         assert response.results is not None
         assert len(response.results) == 1
         assert response.results[0][0] == random_uuid

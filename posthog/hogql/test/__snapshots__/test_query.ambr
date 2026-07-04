@@ -27,6 +27,34 @@
   OFFSET 0
   '''
 # ---
+# name: TestQuery.test_clickhouse_timestamp_handling[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.properties.`$exception_issue_id`, %(hogql_val_0)s)) AS id, count(DISTINCT events.uuid) AS occurrences, count(DISTINCT nullIf(events.`$session_id`, %(hogql_val_1)s)) AS sessions, count(DISTINCT events.distinct_id) AS users, max(toTimeZone(events.timestamp, %(hogql_val_2)s)) AS last_seen, min(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_4)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_5)s)), toStartOfHour(now64(6, %(hogql_val_6)s)))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_7)s, toStartOfDay(toTimeZone(events.timestamp, %(hogql_val_8)s)), toStartOfDay(now64(6, %(hogql_val_9)s)))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff(%(hogql_val_10)s, toStartOfHour(toTimeZone(events.timestamp, %(hogql_val_11)s)), toStartOfHour(now64(6, %(hogql_val_12)s)))), x), range(168))) AS customVolume 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT argMax(error_tracking_issue_fingerprint_overrides.issue_id, error_tracking_issue_fingerprint_overrides.version) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
+    FROM error_tracking_issue_fingerprint_overrides 
+    WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) 
+    GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint 
+    HAVING equals(argMax(error_tracking_issue_fingerprint_overrides.is_deleted, error_tracking_issue_fingerprint_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(events.properties.`$exception_fingerprint`, events__exception_issue_override.fingerprint) 
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_13)s), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.properties.`$exception_issue_id`, %(hogql_val_14)s))), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_15)s), parseDateTime64BestEffort(%(hogql_val_16)s, 6, %(hogql_val_17)s)), less(toTimeZone(events.timestamp, %(hogql_val_18)s), parseDateTime64BestEffort(%(hogql_val_19)s, 6, %(hogql_val_20)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_21)s), toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)), less(toTimeZone(events.timestamp, %(hogql_val_24)s), toDateTime64(%(hogql_val_25)s, 6, %(hogql_val_26)s)))))) 
+  GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.properties.`$exception_issue_id`, %(hogql_val_27)s)) 
+  ORDER BY occurrences DESC 
+  LIMIT 51 
+  OFFSET 0 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT issue_id AS id, count(DISTINCT uuid) AS occurrences, count(DISTINCT nullIf($session_id, '')) AS sessions, count(DISTINCT distinct_id) AS users, max(timestamp) AS last_seen, min(timestamp) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(168))) AS customVolume 
+  FROM events 
+  WHERE and(equals(event, '$exception'), isNotNull(issue_id), or(and(greater(timestamp, toDateTime('2025-02-10 23:53:03.175952+02:30')), less(timestamp, toDateTime('2025-02-11 23:53'))), and(greater(timestamp, toDateTime('2025-02-12 23:53:03')), less(timestamp, toDateTime('2025-02-13 23:53:03.175952'))))) 
+  GROUP BY issue_id 
+  ORDER BY occurrences DESC 
+  LIMIT 51 
+  OFFSET 0
+  '''
+# ---
 # name: TestQuery.test_hogql_arrays
   '''
   -- ClickHouse
@@ -44,6 +72,26 @@
   -- ClickHouse
   SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, count() AS cnt 
   FROM events 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10))) 
+  GROUP BY timestamp 
+  HAVING greater(cnt, 10) 
+  LIMIT 1 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT toDate(timestamp) AS timestamp, count() AS cnt 
+  FROM events 
+  WHERE greaterOrEquals(timestamp, addDays(today(), -10)) 
+  GROUP BY timestamp 
+  HAVING greater(cnt, 10) 
+  LIMIT 1
+  '''
+# ---
+# name: TestQuery.test_hogql_groupby_unnecessary_ifnull[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, count() AS cnt 
+  FROM events_json AS events 
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10))) 
   GROUP BY timestamp 
   HAVING greater(cnt, 10) 
@@ -84,6 +132,40 @@
   SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
   FROM major_versions 
   WHERE in(major_versions.major_version, tuple(%(hogql_val_7)s, %(hogql_val_8)s, %(hogql_val_9)s)) 
+  GROUP BY major_versions.major_version 
+  ORDER BY major_versions.major_version ASC 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  WITH latest_events AS (
+    SELECT distinct_id, argMax(properties.$os_version, timestamp) AS latest_os_version 
+    FROM events 
+    WHERE and(equals(properties.$os, 'iOS'), greaterOrEquals(timestamp, minus(now(), toIntervalDay(30)))) 
+    GROUP BY distinct_id), major_versions AS (
+    SELECT distinct_id, latest_os_version, splitByChar('.', ifNull(latest_os_version, ''))[1] AS major_version 
+    FROM latest_events) 
+  SELECT major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
+  FROM major_versions 
+  WHERE in(major_version, tuple('17', '18', '26')) 
+  GROUP BY major_version 
+  ORDER BY major_version ASC 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_proper_ifnull[new_events_schema]
+  '''
+  -- ClickHouse
+  WITH latest_events AS (
+    SELECT events.distinct_id AS distinct_id, argMax(nullIf(nullIf(events.properties.`$os_version`, ''), 'null'), toTimeZone(events.timestamp, %(hogql_val_0)s)) AS latest_os_version 
+    FROM events_json AS events 
+    WHERE and(equals(events.team_id, 99999), and(equals(events.properties.`$os`, %(hogql_val_1)s), isNotNull(events.properties.`$os`)), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_2)s), toIntervalDay(30)))) 
+    GROUP BY events.distinct_id), major_versions AS (
+    SELECT latest_events.distinct_id AS distinct_id, latest_events.latest_os_version AS latest_os_version, splitByChar(%(hogql_val_3)s, ifNull(latest_events.latest_os_version, %(hogql_val_4)s))[1] AS major_version 
+    FROM latest_events) 
+  SELECT major_versions.major_version AS major_version, count() AS user_count, round(divide(multiply(100, count()), sum(count()) OVER ()), 2) AS percentage 
+  FROM major_versions 
+  WHERE in(major_versions.major_version, tuple(%(hogql_val_5)s, %(hogql_val_6)s, %(hogql_val_7)s)) 
   GROUP BY major_versions.major_version 
   ORDER BY major_versions.major_version ASC 
   LIMIT 100 
@@ -155,12 +237,78 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_hogql_query_filters[new_events_schema.1]
+  '''
+  
+  SELECT event, distinct_id 
+  FROM events 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_query_filters[new_events_schema.2]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, events.distinct_id AS distinct_id 
+  FROM events_json AS events 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), %(hogql_val_1)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, distinct_id 
+  FROM events 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_query_filters[new_events_schema.3]
+  '''
+  
+  SELECT event, distinct_id 
+  FROM events 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_query_filters[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, events.distinct_id AS distinct_id 
+  FROM events_json AS events 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), %(hogql_val_1)s), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, distinct_id 
+  FROM events 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_hogql_query_filters_alias
   '''
   -- ClickHouse
   SELECT e.event AS event, e.distinct_id AS distinct_id 
   FROM events AS e 
   WHERE and(equals(e.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, distinct_id 
+  FROM events AS e 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_hogql_query_filters_alias[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, e.distinct_id AS distinct_id 
+  FROM events_json AS e 
+  WHERE and(equals(e.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(e.properties.^random_uuid), '{}'), toJSONString(e.properties.^random_uuid), if(isNull(e.properties.random_uuid), NULL, if(startsWith(dynamicType(e.properties.random_uuid), 'DateTime'), replaceOne(toString(e.properties.random_uuid), ' ', 'T'), toString(e.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -251,11 +399,49 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_hogql_union_all_limits[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event 
+  FROM events_json AS events 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 100 UNION ALL 
+  SELECT events.event AS event 
+  FROM events_json AS events 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event 
+  FROM events 
+  LIMIT 100 UNION ALL 
+  SELECT event 
+  FROM events 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_hogql_unnecessary_ifnull
   '''
   -- ClickHouse
   SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, JSONExtractInt(events.properties, %(hogql_val_1)s) AS json_int 
   FROM events 
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT toDate(timestamp) AS timestamp, JSONExtractInt(properties, 'field') AS json_int 
+  FROM events 
+  WHERE and(greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
+  LIMIT 1
+  '''
+# ---
+# name: TestQuery.test_hogql_unnecessary_ifnull[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS timestamp, ifNull(accurateCastOrNull(events.properties.field, %(hogql_val_1)s), 0) AS json_int 
+  FROM events_json AS events 
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(timestamp, addDays(today(), -10)), equals(json_int, 17)) 
   LIMIT 1 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -299,6 +485,38 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_join_with_property_materialized_session_id[new_events_schema.1]
+  '''
+  
+  SELECT e.event, s.session_id 
+  FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, e.properties.$session_id) 
+  WHERE notEquals(e.properties.$session_id, NULL) 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_join_with_property_materialized_session_id[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, s.session_id AS session_id 
+  FROM (
+    SELECT e.event AS event, nullIf(nullIf(e.properties.`$session_id`, ''), 'null') AS `properties__$session_id` 
+    FROM events_json AS e 
+    WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.properties.`$session_id`, ''), 'null'))) 
+    LIMIT 10) AS e LEFT JOIN (
+    SELECT session_replay_events.session_id AS session_id 
+    FROM session_replay_events 
+    WHERE equals(session_replay_events.team_id, 99999) 
+    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties__$session_id`) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT e.event, s.session_id 
+  FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, e.properties.$session_id) 
+  WHERE notEquals(e.properties.$session_id, NULL) 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_join_with_property_not_materialized
   '''
   -- ClickHouse
@@ -325,6 +543,38 @@
 # name: TestQuery.test_join_with_property_not_materialized.1
   '''
   
+  SELECT e.event, s.session_id 
+  FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, e.properties.$$$session_id) 
+  WHERE notEquals(e.properties.$$$session_id, NULL) 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_join_with_property_not_materialized[new_events_schema.1]
+  '''
+  
+  SELECT e.event, s.session_id 
+  FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, e.properties.$$$session_id) 
+  WHERE notEquals(e.properties.$$$session_id, NULL) 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_join_with_property_not_materialized[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, s.session_id AS session_id 
+  FROM (
+    SELECT e.event AS event, if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), toString(e.properties.`$$$session_id`)))) AS `properties__$$$session_id` 
+    FROM events_json AS e 
+    WHERE and(equals(e.team_id, 99999), isNotNull(if(notEquals(toJSONString(e.properties.^`$$$session_id`), '{}'), toJSONString(e.properties.^`$$$session_id`), if(isNull(e.properties.`$$$session_id`), NULL, if(startsWith(dynamicType(e.properties.`$$$session_id`), 'DateTime'), replaceOne(toString(e.properties.`$$$session_id`), ' ', 'T'), toString(e.properties.`$$$session_id`)))))) 
+    LIMIT 10) AS e LEFT JOIN (
+    SELECT session_replay_events.session_id AS session_id 
+    FROM session_replay_events 
+    WHERE equals(session_replay_events.team_id, 99999) 
+    GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties__$$$session_id`) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
   SELECT e.event, s.session_id 
   FROM events AS e LEFT JOIN session_replay_events AS s ON equals(s.session_id, e.properties.$$$session_id) 
   WHERE notEquals(e.properties.$$$session_id, NULL) 
@@ -393,6 +643,68 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_prop_cohort_basic[new_events_schema.1]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, count(*) AS `count(*)` 
+  FROM events_json AS events 
+  WHERE and(equals(events.team_id, 99999), in(events.person_id, (
+        SELECT cohortpeople.person_id AS person_id 
+        FROM cohortpeople 
+        WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX)) 
+        GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+        HAVING greater(sum(cohortpeople.sign), 0)))) 
+  GROUP BY events.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, count(*) 
+  FROM events 
+  WHERE in(person_id, (
+      SELECT person_id 
+      FROM raw_cohort_people 
+      WHERE equals(cohort_id, XX) 
+      GROUP BY person_id, cohort_id, version 
+      HAVING greater(sum(sign), 0))) 
+  GROUP BY event 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_prop_cohort_basic[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, count() AS `count()` 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 99999), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+        SELECT cohortpeople.person_id AS person_id 
+        FROM cohortpeople 
+        WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX)) 
+        GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+        HAVING greater(sum(cohortpeople.sign), 0)))) 
+  GROUP BY events.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, count() 
+  FROM events 
+  WHERE in(person_id, (
+      SELECT person_id 
+      FROM raw_cohort_people 
+      WHERE equals(cohort_id, XX) 
+      GROUP BY person_id, cohort_id, version 
+      HAVING greater(sum(sign), 0))) 
+  GROUP BY event 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_prop_cohort_static
   '''
   -- ClickHouse
@@ -447,12 +759,84 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_prop_cohort_static[new_events_schema.1]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, count(*) AS `count(*)` 
+  FROM events_json AS events 
+  WHERE and(equals(events.team_id, 99999), in(events.person_id, (
+        SELECT person_static_cohort.person_id AS person_id 
+        FROM person_static_cohort 
+        WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))))) 
+  GROUP BY events.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, count(*) 
+  FROM events 
+  WHERE in(person_id, (
+      SELECT person_id 
+      FROM static_cohort_people 
+      WHERE equals(cohort_id, XX))) 
+  GROUP BY event 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_prop_cohort_static[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, count() AS `count()` 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE and(equals(events.team_id, 99999), in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+        SELECT person_static_cohort.person_id AS person_id 
+        FROM person_static_cohort 
+        WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))))) 
+  GROUP BY events.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, count() 
+  FROM events 
+  WHERE in(person_id, (
+      SELECT person_id 
+      FROM static_cohort_people 
+      WHERE equals(cohort_id, XX))) 
+  GROUP BY event 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_query
   '''
   -- ClickHouse
   SELECT count() AS `count()`, events.event AS event 
   FROM events 
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  GROUP BY events.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT count(), event 
+  FROM events 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+  GROUP BY event 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_query[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT count() AS `count()`, events.event AS event 
+  FROM events_json AS events 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -510,11 +894,63 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_events_e_pdi[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi.person_id AS person_id 
+  FROM events_json AS e INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) 
+  WHERE equals(e.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id 
+  FROM events AS e 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_joins_events_first_to_persons
   '''
   -- ClickHouse
   SELECT events.event AS event, persons.properties___email AS email 
   FROM events LEFT OUTER JOIN (
+    SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), persons.id) 
+  WHERE and(equals(events.team_id, 99999), equals(events.event, %(hogql_val_3)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT events.event, persons.properties.email 
+  FROM events JOIN persons ON equals(events.person_id, persons.id) 
+  WHERE equals(events.event, 'pageview') 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_query_joins_events_first_to_persons[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, persons.properties___email AS email 
+  FROM events_json AS events LEFT OUTER JOIN (
     SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
     FROM person_distinct_id_overrides 
     WHERE equals(person_distinct_id_overrides.team_id, 99999) 
@@ -562,11 +998,62 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_events_pdi[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi.person_id AS person_id 
+  FROM events_json AS events INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, pdi.distinct_id, pdi.person_id 
+  FROM events 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_joins_events_pdi_e_person_properties
   '''
   -- ClickHouse
   SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
+  WHERE equals(e.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.sneaky_mail 
+  FROM events AS e 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_query_joins_events_pdi_e_person_properties[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM events_json AS e INNER JOIN (
     SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
     FROM person_distinct_id2 
     WHERE equals(person_distinct_id2.team_id, 99999) 
@@ -619,11 +1106,68 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_events_pdi_person[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_2)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.id AS id 
+  FROM events_json AS events INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 99999) 
+    GROUP BY person.id 
+    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, pdi.distinct_id, pdi.person.id 
+  FROM events 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_joins_events_pdi_person_properties
   '''
   -- ClickHouse
   SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.sneaky_mail 
+  FROM events 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_query_joins_events_pdi_person_properties[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM events_json AS events INNER JOIN (
     SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
     FROM person_distinct_id2 
     WHERE equals(person_distinct_id2.team_id, 99999) 
@@ -679,11 +1223,73 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_events_person_properties[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM events_json AS e INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
+  WHERE equals(e.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, e.timestamp, e.pdi.person.properties.sneaky_mail 
+  FROM events AS e 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_joins_events_person_properties_in_aggregration
   '''
   -- ClickHouse
   SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() AS `count()` 
   FROM events AS s INNER JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id) 
+  WHERE equals(s.team_id, 99999) 
+  GROUP BY s__pdi__person.properties___sneaky_mail 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT s.pdi.person.properties.sneaky_mail, count() 
+  FROM events AS s 
+  GROUP BY s.pdi.person.properties.sneaky_mail 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_query_joins_events_person_properties_in_aggregration[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() AS `count()` 
+  FROM events_json AS s INNER JOIN (
     SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
     FROM person_distinct_id2 
     WHERE equals(person_distinct_id2.team_id, 99999) 
@@ -742,11 +1348,66 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_query_joins_lazy_on_both_sides[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e1.event, e2.event AS event 
+  FROM events_json AS e1 LEFT OUTER JOIN (
+    SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS e1__override ON equals(e1.distinct_id, e1__override.distinct_id) JOIN (
+    SELECT e2.distinct_id AS distinct_id, e2.event AS event, e2.person_id AS event_person_id, if(not(empty(e2__override.distinct_id)), e2__override.person_id, e2.person_id) AS person_id 
+    FROM events_json AS e2 LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS e2__override ON equals(e2.distinct_id, e2__override.distinct_id) 
+    WHERE equals(e2.team_id, 99999)) AS e2 ON equals(if(not(empty(e1__override.distinct_id)), e1__override.person_id, e1.person_id), e2.person_id) 
+  WHERE and(equals(e1.team_id, 99999), equals(e1.event, %(hogql_val_0)s), equals(e2.event, %(hogql_val_1)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT e1.event, e2.event 
+  FROM events AS e1 JOIN events AS e2 ON equals(e1.person_id, e2.person_id) 
+  WHERE and(equals(e1.event, 'pageview'), equals(e2.event, 'click')) 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_query_joins_pdi
   '''
   -- ClickHouse
   SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.person_id AS person_id 
   FROM events AS e INNER JOIN (
+    SELECT person_distinct_id2.distinct_id AS distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) 
+  WHERE equals(e.team_id, 99999) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, pdi.person_id 
+  FROM events AS e INNER JOIN (
+    SELECT distinct_id, argMax(person_id, version) AS person_id 
+    FROM raw_person_distinct_ids 
+    GROUP BY distinct_id 
+    HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_query_joins_pdi[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.person_id AS person_id 
+  FROM events_json AS e INNER JOIN (
     SELECT person_distinct_id2.distinct_id AS distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
     FROM person_distinct_id2 
     WHERE equals(person_distinct_id2.team_id, 99999) 
@@ -850,11 +1511,70 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_persons_to_events[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT persons.id AS id, events.event AS event 
+  FROM (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 99999) 
+    GROUP BY person.id 
+    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS persons JOIN (
+    SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS event_person_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
+    FROM events_json AS events LEFT OUTER JOIN (
+      SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+      FROM person_distinct_id_overrides 
+      WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+      GROUP BY person_distinct_id_overrides.distinct_id 
+      HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+      SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+    WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT persons.id, events.event 
+  FROM persons JOIN events ON equals(persons.id, events.person_id) 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_joins_simple
   '''
   -- ClickHouse
   SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, p.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e LEFT JOIN (
+    SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 99999) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS p ON equals(p.id, pdi.person_id) 
+  WHERE equals(e.team_id, 99999) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.sneaky_mail 
+  FROM events AS e LEFT JOIN person_distinct_ids AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN persons AS p ON equals(p.id, pdi.person_id) 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_query_joins_simple[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, p.properties___sneaky_mail AS sneaky_mail 
+  FROM events_json AS e LEFT JOIN (
     SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
     FROM person_distinct_id2 
     WHERE equals(person_distinct_id2.team_id, 99999) 
@@ -930,11 +1650,56 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_select_person_with_joins_without_poe[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__person.id AS id, events__person.properties___sneaky_mail AS sneaky_mail 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+    FROM person 
+    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
+          SELECT person.id AS id, max(person.version) AS version 
+          FROM person 
+          WHERE equals(person.team_id, 99999) 
+          GROUP BY person.id 
+          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))))))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, person.id, person.properties.sneaky_mail 
+  FROM events 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_query_select_person_with_poe_without_joins
   '''
   -- ClickHouse
   SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM events 
+  WHERE equals(events.team_id, 99999) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event, timestamp, person.id, person.properties.sneaky_mail 
+  FROM events 
+  LIMIT 10
+  '''
+# ---
+# name: TestQuery.test_query_select_person_with_poe_without_joins[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS id, if(notEquals(toJSONString(events.person_properties.^sneaky_mail), '{}'), toJSONString(events.person_properties.^sneaky_mail), if(isNull(events.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(events.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(events.person_properties.sneaky_mail), ' ', 'T'), toString(events.person_properties.sneaky_mail)))) AS sneaky_mail 
+  FROM events_json AS events 
   WHERE equals(events.team_id, 99999) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
@@ -962,6 +1727,23 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_select_person_on_events[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), toString(s.person_properties.sneaky_mail)))) AS sneaky_mail, count() AS `count()` 
+  FROM events_json AS s 
+  WHERE equals(s.team_id, 99999) 
+  GROUP BY if(notEquals(toJSONString(s.person_properties.^sneaky_mail), '{}'), toJSONString(s.person_properties.^sneaky_mail), if(isNull(s.person_properties.sneaky_mail), NULL, if(startsWith(dynamicType(s.person_properties.sneaky_mail), 'DateTime'), replaceOne(toString(s.person_properties.sneaky_mail), ' ', 'T'), toString(s.person_properties.sneaky_mail)))) 
+  LIMIT 10 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT poe.properties.sneaky_mail, count() 
+  FROM events AS s 
+  GROUP BY poe.properties.sneaky_mail 
+  LIMIT 10
+  '''
+# ---
 # name: TestQuery.test_subquery
   '''
   -- ClickHouse
@@ -970,6 +1752,30 @@
     SELECT count() AS cnt, events.event AS event 
     FROM events 
     WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+    GROUP BY events.event) 
+  GROUP BY cnt, event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT cnt, event 
+  FROM (
+    SELECT count() AS cnt, event 
+    FROM events 
+    WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+    GROUP BY event) 
+  GROUP BY cnt, event 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_subquery[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT cnt AS cnt, event AS event 
+  FROM (
+    SELECT count() AS cnt, events.event AS event 
+    FROM events_json AS events 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
     GROUP BY events.event) 
   GROUP BY cnt, event 
   LIMIT 100 
@@ -1010,6 +1816,30 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_subquery_alias[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT c.cnt AS cnt, c.event AS event 
+  FROM (
+    SELECT count(*) AS cnt, events.event AS event 
+    FROM events_json AS events 
+    WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^random_uuid), '{}'), toJSONString(events.properties.^random_uuid), if(isNull(events.properties.random_uuid), NULL, if(startsWith(dynamicType(events.properties.random_uuid), 'DateTime'), replaceOne(toString(events.properties.random_uuid), ' ', 'T'), toString(events.properties.random_uuid)))), %(hogql_val_0)s), 0)) 
+    GROUP BY events.event) AS c 
+  GROUP BY c.cnt, c.event 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT cnt, event 
+  FROM (
+    SELECT count(*) AS cnt, event 
+    FROM events 
+    WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
+    GROUP BY event) AS c 
+  GROUP BY cnt, event 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_tuple_access
   '''
   -- ClickHouse
@@ -1021,6 +1851,37 @@
       FROM events 
       WHERE equals(events.team_id, 99999) 
       GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) 
+    GROUP BY col_a) 
+  GROUP BY col_a 
+  ORDER BY col_a ASC 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
+  FROM (
+    SELECT col_a, groupArray(tuple(col_b, col_c)) AS g 
+    FROM (
+      SELECT properties.index AS col_a, event AS col_b, count() AS col_c 
+      FROM events 
+      GROUP BY properties.index, event) 
+    GROUP BY col_a) 
+  GROUP BY col_a 
+  ORDER BY col_a ASC 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_tuple_access[new_events_schema]
+  '''
+  -- ClickHouse
+  SELECT col_a AS col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
+  FROM (
+    SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
+    FROM (
+      SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+      FROM events_json AS events 
+      WHERE equals(events.team_id, 99999) 
+      GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event) 
     GROUP BY col_a) 
   GROUP BY col_a 
   ORDER BY col_a ASC 
@@ -1078,6 +1939,43 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_with_pivot_table_1_level[new_events_schema]
+  '''
+  -- ClickHouse
+  WITH PIVOT_TABLE_COL_ABC AS (
+    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+    FROM events_json AS events 
+    WHERE equals(events.team_id, 99999) 
+    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event), PIVOT_FUNCTION_1 AS (
+    SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
+    FROM PIVOT_TABLE_COL_ABC 
+    GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
+    SELECT PIVOT_FUNCTION_1.col_a AS col_a, arrayZip((sumMap((PIVOT_FUNCTION_1.g).1, (PIVOT_FUNCTION_1.g).2) AS x).1, x.2) AS r 
+    FROM PIVOT_FUNCTION_1 
+    GROUP BY PIVOT_FUNCTION_1.col_a) 
+  SELECT PIVOT_FUNCTION_2.col_a AS col_a, PIVOT_FUNCTION_2.r AS r 
+  FROM PIVOT_FUNCTION_2 
+  ORDER BY PIVOT_FUNCTION_2.col_a ASC 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  WITH PIVOT_TABLE_COL_ABC AS (
+    SELECT properties.index AS col_a, event AS col_b, count() AS col_c 
+    FROM events 
+    GROUP BY properties.index, event), PIVOT_FUNCTION_1 AS (
+    SELECT col_a, groupArray(tuple(col_b, col_c)) AS g 
+    FROM PIVOT_TABLE_COL_ABC 
+    GROUP BY col_a), PIVOT_FUNCTION_2 AS (
+    SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
+    FROM PIVOT_FUNCTION_1 
+    GROUP BY col_a) 
+  SELECT col_a, r 
+  FROM PIVOT_FUNCTION_2 
+  ORDER BY col_a ASC 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_with_pivot_table_2_levels
   '''
   -- ClickHouse
@@ -1086,6 +1984,47 @@
     FROM events 
     WHERE equals(events.team_id, 99999) 
     GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event), PIVOT_FUNCTION_1 AS (
+    SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
+    FROM PIVOT_TABLE_COL_ABC 
+    GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
+    SELECT PIVOT_FUNCTION_1.col_a AS col_a, arrayZip((sumMap((PIVOT_FUNCTION_1.g).1, (PIVOT_FUNCTION_1.g).2) AS x).1, x.2) AS r 
+    FROM PIVOT_FUNCTION_1 
+    GROUP BY PIVOT_FUNCTION_1.col_a), final AS (
+    SELECT PIVOT_FUNCTION_2.col_a AS col_a, PIVOT_FUNCTION_2.r AS r 
+    FROM PIVOT_FUNCTION_2) 
+  SELECT final.col_a AS col_a, final.r AS r 
+  FROM final 
+  ORDER BY final.col_a ASC 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  WITH PIVOT_TABLE_COL_ABC AS (
+    SELECT properties.index AS col_a, event AS col_b, count() AS col_c 
+    FROM events 
+    GROUP BY properties.index, event), PIVOT_FUNCTION_1 AS (
+    SELECT col_a, groupArray(tuple(col_b, col_c)) AS g 
+    FROM PIVOT_TABLE_COL_ABC 
+    GROUP BY col_a), PIVOT_FUNCTION_2 AS (
+    SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
+    FROM PIVOT_FUNCTION_1 
+    GROUP BY col_a), final AS (
+    SELECT col_a, r 
+    FROM PIVOT_FUNCTION_2) 
+  SELECT col_a, r 
+  FROM final 
+  ORDER BY col_a ASC 
+  LIMIT 100
+  '''
+# ---
+# name: TestQuery.test_with_pivot_table_2_levels[new_events_schema]
+  '''
+  -- ClickHouse
+  WITH PIVOT_TABLE_COL_ABC AS (
+    SELECT if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))) AS col_a, events.event AS col_b, count() AS col_c 
+    FROM events_json AS events 
+    WHERE equals(events.team_id, 99999) 
+    GROUP BY if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), toString(events.properties.index)))), events.event), PIVOT_FUNCTION_1 AS (
     SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
     FROM PIVOT_TABLE_COL_ABC 
     GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (

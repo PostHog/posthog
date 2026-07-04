@@ -22,6 +22,28 @@
   '''
 # ---
 # ---
+# name: TestGeoipDictFallbackExecution.test_env_disabled_leaves_values_blank[new_events_schema]
+  '''
+  SELECT events.event AS event,
+         nullIf(nullIf(events.properties.`$geoip_city_name`, ''), 'null') AS `$geoip_city_name`,
+         if(notEquals(toJSONString(events.properties.^`$geoip_postal_code`), '{}'), toJSONString(events.properties.^`$geoip_postal_code`), if(isNull(events.properties.`$geoip_postal_code`), NULL, if(startsWith(dynamicType(events.properties.`$geoip_postal_code`), 'DateTime'), replaceOne(toString(events.properties.`$geoip_postal_code`), ' ', 'T'), toString(events.properties.`$geoip_postal_code`)))) AS `$geoip_postal_code`
+  FROM events_json AS events
+  WHERE equals(events.team_id, 99999)
+  ORDER BY events.event ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestGeoipDictFallbackExecution.test_fallback_recovers_blanked_values
   '''
   
@@ -41,6 +63,28 @@
          if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'), '')), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'), if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'city_name', toIPv6OrDefault(coalesce(nullIf(nullIf(events.`mat_$ip`, ''), 'null'), '')), ''), ''), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null')), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'))) AS `$geoip_city_name`,
          if(notEmpty(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''), '')), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''), if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'postal_code', toIPv6OrDefault(coalesce(nullIf(nullIf(events.`mat_$ip`, ''), 'null'), '')), ''), ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', '')), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''))) AS `$geoip_postal_code`
   FROM events
+  WHERE equals(events.team_id, 99999)
+  ORDER BY events.event ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestGeoipDictFallbackExecution.test_fallback_recovers_blanked_values[new_events_schema]
+  '''
+  SELECT events.event AS event,
+         if(notEmpty(ifNull(nullIf(nullIf(events.properties.`$geoip_city_name`, ''), 'null'), '')), nullIf(nullIf(events.properties.`$geoip_city_name`, ''), 'null'), if(notEmpty(ifNull(nullIf(nullIf(events.properties.`$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'city_name', toIPv6OrDefault(coalesce(nullIf(nullIf(events.properties.`$ip`, ''), 'null'), '')), ''), ''), nullIf(nullIf(events.properties.`$geoip_city_name`, ''), 'null')), nullIf(nullIf(events.properties.`$geoip_city_name`, ''), 'null'))) AS `$geoip_city_name`,
+         if(notEmpty(ifNull(if(notEquals(toJSONString(events.properties.^`$geoip_postal_code`), '{}'), toJSONString(events.properties.^`$geoip_postal_code`), if(isNull(events.properties.`$geoip_postal_code`), NULL, if(startsWith(dynamicType(events.properties.`$geoip_postal_code`), 'DateTime'), replaceOne(toString(events.properties.`$geoip_postal_code`), ' ', 'T'), toString(events.properties.`$geoip_postal_code`)))), '')), if(notEquals(toJSONString(events.properties.^`$geoip_postal_code`), '{}'), toJSONString(events.properties.^`$geoip_postal_code`), if(isNull(events.properties.`$geoip_postal_code`), NULL, if(startsWith(dynamicType(events.properties.`$geoip_postal_code`), 'DateTime'), replaceOne(toString(events.properties.`$geoip_postal_code`), ' ', 'T'), toString(events.properties.`$geoip_postal_code`)))), if(notEmpty(ifNull(nullIf(nullIf(events.properties.`$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'postal_code', toIPv6OrDefault(coalesce(nullIf(nullIf(events.properties.`$ip`, ''), 'null'), '')), ''), ''), if(notEquals(toJSONString(events.properties.^`$geoip_postal_code`), '{}'), toJSONString(events.properties.^`$geoip_postal_code`), if(isNull(events.properties.`$geoip_postal_code`), NULL, if(startsWith(dynamicType(events.properties.`$geoip_postal_code`), 'DateTime'), replaceOne(toString(events.properties.`$geoip_postal_code`), ' ', 'T'), toString(events.properties.`$geoip_postal_code`))))), if(notEquals(toJSONString(events.properties.^`$geoip_postal_code`), '{}'), toJSONString(events.properties.^`$geoip_postal_code`), if(isNull(events.properties.`$geoip_postal_code`), NULL, if(startsWith(dynamicType(events.properties.`$geoip_postal_code`), 'DateTime'), replaceOne(toString(events.properties.`$geoip_postal_code`), ' ', 'T'), toString(events.properties.`$geoip_postal_code`)))))) AS `$geoip_postal_code`
+  FROM events_json AS events
   WHERE equals(events.team_id, 99999)
   ORDER BY events.event ASC
   LIMIT 100 SETTINGS readonly=2,

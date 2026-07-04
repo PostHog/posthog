@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -21,8 +23,14 @@ from posthog.clickhouse.client.execute import sync_execute
 class TestStateTransforms(BaseTest):
     snapshot: Any
 
+    def _schema_snapshot(self, printed: str):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
     def _assert_matches_snapshot(self, printed: str) -> None:
-        assert printed == self.snapshot
+        assert printed == self._schema_snapshot(printed)
 
     def _print_select(self, expr: ast.SelectQuery | ast.SelectSetQuery):
         query, _ = prepare_and_print_ast(

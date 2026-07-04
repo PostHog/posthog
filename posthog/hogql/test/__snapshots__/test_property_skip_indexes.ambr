@@ -7,11 +7,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_dmat_string_no_skip_indexes[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '0'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '0'), 0))
   LIMIT 50000
   '''
 # ---
@@ -23,11 +39,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_1_neq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '0'), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_2_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(less(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', ''), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_2_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -39,11 +71,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_3_gt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_4_icontains
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', '')), '%0%'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_4_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%0%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -55,11 +103,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_5_is_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_6_is_not_set
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', '')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_6_is_not_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -71,11 +135,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_7_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('0', '1')))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_lt_typed_datetime_property
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(events.mat_lt_datetime_prop, 6, 'UTC'), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_lt_typed_datetime_property[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.properties.^lt_datetime_prop), '{}'), toJSONString(events.properties.^lt_datetime_prop), if(isNull(events.properties.lt_datetime_prop), NULL, if(startsWith(dynamicType(events.properties.lt_datetime_prop), 'DateTime'), replaceOne(toString(events.properties.lt_datetime_prop), ' ', 'T'), toString(events.properties.lt_datetime_prop)))), 6, 'UTC'), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
   LIMIT 50000
   '''
 # ---
@@ -87,11 +167,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_lt_typed_numeric_property[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), 'Float64'), 5), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.mat_test_prop, '5'))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -103,11 +199,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_1_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_2_in_with_sentinel
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), in(nullIf(nullIf(events.mat_test_prop, ''), 'null'), tuple('5', '')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_2_in_with_sentinel[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('5', '')))
   LIMIT 50000
   '''
 # ---
@@ -119,11 +231,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_3_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.mat_test_prop, '5'))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -135,11 +263,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_1_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_2_gt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(greater(events.mat_test_prop, '5'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_2_gt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -151,11 +295,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_3_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_4_icontains_no_isnotnull
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ilike(events.mat_test_prop, '%5%'))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_4_icontains_no_isnotnull[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -167,11 +327,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_minmax_5_regex[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '[0-9]'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_ngrambf_lower_0_icontains_long
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), like(lower(events.mat_test_prop), lower('%value_that_is_long_enough%')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_ngrambf_lower_0_icontains_long[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -183,11 +359,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_ngrambf_lower_1_icontains_null_sentinel[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%null%'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -199,11 +391,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_1_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_2_neq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(notEquals(events.mat_test_prop, '5'), 1))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_2_neq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 1))
   LIMIT 50000
   '''
 # ---
@@ -215,11 +423,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_3_not_in[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notIn(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_4_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_4_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -231,11 +455,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_5_gt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_6_icontains
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%5%'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_6_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -247,11 +487,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_bloom_filter_7_is_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -263,11 +519,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_1_neq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_2_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_2_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -279,11 +551,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_3_gt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_4_lte
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(lessOrEquals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_4_lte[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(lessOrEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -295,11 +583,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_5_gte[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_6_in_multi
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_6_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -311,11 +615,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_7_icontains_with_isnotnull[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%5%'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_8_regex
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(match(toString(events.mat_test_prop), '[0-9]'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_8_regex[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '[0-9]'), 0))
   LIMIT 50000
   '''
 # ---
@@ -327,6 +647,14 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_0_int[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), 5), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_1_float
   '''
   SELECT count() AS `count()`
@@ -335,11 +663,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_1_float[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), 5.5), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_2_datetime
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_2_datetime[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
   LIMIT 50000
   '''
 # ---
@@ -363,11 +707,39 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically[new_events_schema]
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '500'), 0))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_0_string_pure_alpha
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'apple'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_0_string_pure_alpha[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), 'apple'), 0))
   LIMIT 50000
   '''
 # ---
@@ -379,11 +751,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_1_string_numeric_looking[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_2_string_date_looking
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '2024-01-15'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_2_string_date_looking[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '2024-01-15'), 0))
   LIMIT 50000
   '''
 # ---
@@ -395,11 +783,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_3_string_iso_datetime_looking[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '2024-01-15T10:30:00Z'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_0_icontains_long
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%value_that_is_long_enough%')), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_0_icontains_long[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -411,11 +815,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_1_not_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%abc%'), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_2_eq
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, '5'), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_2_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -427,11 +847,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_3_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_4_regex
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(match(toString(events.mat_test_prop), 'value_that_is_long_enough'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_4_regex[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(match(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), 'value_that_is_long_enough'), 0))
   LIMIT 50000
   '''
 # ---
@@ -443,11 +879,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_0_eq_string[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_property_group_optimized_1_is_set
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), has(events.properties_group_custom, 'test_prop'))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_1_is_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))))
   LIMIT 50000
   '''
 # ---
@@ -459,11 +911,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_2_is_not_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNull(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_property_group_optimized_3_in_multi
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(has(events.properties_group_custom, 'test_prop'), in(events.properties_group_custom['test_prop'], tuple('2', '5'))))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_3_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -475,11 +943,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_4_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_property_group_optimized_5_icontains
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_5_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(startsWith(dynamicType(events.properties.test_prop), 'DateTime'), replaceOne(toString(events.properties.test_prop), ' ', 'T'), toString(events.properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -491,11 +975,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_typed_datetime_mat_col_uses_minmax_index[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(if(notEquals(toJSONString(events.properties.^typed_datetime_prop), '{}'), toJSONString(events.properties.^typed_datetime_prop), if(isNull(events.properties.typed_datetime_prop), NULL, if(startsWith(dynamicType(events.properties.typed_datetime_prop), 'DateTime'), replaceOne(toString(events.properties.typed_datetime_prop), ' ', 'T'), toString(events.properties.typed_datetime_prop)))), 6, 'UTC'), '2024-01-05 00:00:00'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_typed_numeric_mat_col_uses_minmax_index
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_typed_numeric_prop, 5), isNotNull(events.mat_typed_numeric_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_typed_numeric_mat_col_uses_minmax_index[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(if(notEquals(toJSONString(events.properties.^typed_numeric_prop), '{}'), toJSONString(events.properties.^typed_numeric_prop), if(isNull(events.properties.typed_numeric_prop), NULL, if(startsWith(dynamicType(events.properties.typed_numeric_prop), 'DateTime'), replaceOne(toString(events.properties.typed_numeric_prop), ' ', 'T'), toString(events.properties.typed_numeric_prop)))), 'Float64'), 5), 0))
   LIMIT 50000
   '''
 # ---
@@ -507,11 +1007,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_1_in_multi
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), isNotNull(events.mat_pp_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_1_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -523,11 +1039,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_2_not_in[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notIn(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), tuple('2', '5')), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_3_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_3_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -539,11 +1071,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_0_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_1_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_pp_test_prop, '5'), isNotNull(events.mat_pp_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_1_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -555,11 +1103,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_2_gt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greater(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_3_in_multi
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(has(['2', '5'], events.mat_pp_test_prop), isNotNull(events.mat_pp_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_3_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
   LIMIT 50000
   '''
 # ---
@@ -571,11 +1135,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_4_icontains_with_isnotnull[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop))))), '%5%'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_0_icontains_long
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_pp_test_prop, '')), lower('%value_that_is_long_enough%')), isNotNull(events.mat_pp_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_0_icontains_long[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop))))), '%value_that_is_long_enough%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -587,11 +1167,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_1_eq[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_0_eq_string
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.person_properties_map_custom['test_prop'], '5'))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_0_eq_string[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -603,6 +1199,14 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_1_is_set[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), isNotNull(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop))))))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_2_in_multi
   '''
   SELECT count() AS `count()`
@@ -611,11 +1215,27 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_2_in_multi[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), tuple('2', '5')))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_3_lt
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(less(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), '5'), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_3_lt[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(startsWith(dynamicType(events.person_properties.test_prop), 'DateTime'), replaceOne(toString(events.person_properties.test_prop), ' ', 'T'), toString(events.person_properties.test_prop)))), '5'), 0))
   LIMIT 50000
   '''
 # ---

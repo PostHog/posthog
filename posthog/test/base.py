@@ -1319,25 +1319,45 @@ class QueryMatchingTest:
     snapshot: Any
     replace_all_numbers: bool = False
 
+    def _allow_dual_schema_snapshots(self) -> None:
+        if getattr(self, "allow_dual_schema_snapshots", False):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False):
+        if not use_new_events_schema_snapshot:
+            self._allow_dual_schema_snapshots()
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
 
         query = clean_varying_query_parts(query, replace_all_numbers)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in query.lower()
+        )
 
+        query_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert sqlparse.format(query, reindent=True) == query_snapshot
         except AssertionError:
-            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            diff_lines = "\n".join(query_snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
             raise AssertionError(error_message)
 
         if params is not None:
             del params["team_id"]  # Changes every run
+            params_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
             try:
-                assert params == self.snapshot
+                assert params == params_snapshot
             except AssertionError:
-                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_diff_lines = "\n".join(params_snapshot.get_assert_diff())
                 params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
                 raise AssertionError(params_error_message)
 
