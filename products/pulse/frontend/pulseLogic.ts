@@ -15,12 +15,11 @@ import {
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { ApiError } from 'lib/api-error'
+import { getDefaultSubscriptionStartDate, validateEmailTargetValue } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { isEmail } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -214,14 +213,6 @@ export interface BriefScheduleForm {
 
 const EMPTY_SCHEDULE_FORM: BriefScheduleForm = { frequency: 'weekly', target_value: '' }
 
-function invalidScheduleTargetReason(target_value: string): string | undefined {
-    const emails = target_value.split(',').filter(Boolean)
-    if (emails.length === 0) {
-        return 'Add at least one email address'
-    }
-    return emails.some((email) => !isEmail(email)) ? 'One or more email addresses are invalid' : undefined
-}
-
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
     connect(() => ({ values: [featureFlagLogic, ['featureFlags']] })),
@@ -276,7 +267,7 @@ export const pulseLogic = kea<pulseLogicType>([
         scheduleForm: {
             defaults: EMPTY_SCHEDULE_FORM,
             errors: ({ target_value }: BriefScheduleForm) => ({
-                target_value: invalidScheduleTargetReason(target_value),
+                target_value: validateEmailTargetValue(target_value),
             }),
             submit: async (formValues: BriefScheduleForm) => {
                 const config = values.editingConfig
@@ -290,8 +281,7 @@ export const pulseLogic = kea<pulseLogicType>([
                     target_value: formValues.target_value,
                     frequency: formValues.frequency,
                     interval: 1,
-                    // Matches the subscription form convention: first delivery at the next 9:00.
-                    start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
+                    start_date: getDefaultSubscriptionStartDate(),
                 })
                 actions.briefScheduled(subscription)
             },

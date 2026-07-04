@@ -137,15 +137,15 @@ class Subscription(ModelActivityMixin, models.Model):
         SubscriptionFrequency.YEARLY: YEARLY,
     }
 
-    # Look-back window (in days) an AI report should analyse for each cadence. Unknown
-    # frequencies fall back to the weekly window.
-    _AI_REPORT_WINDOW_DAYS: dict[str, int] = {
+    # Look-back window (in days) a generated report (AI report, Pulse brief) should cover
+    # for each cadence. Unknown frequencies fall back to the weekly window.
+    _REPORT_WINDOW_DAYS: dict[str, int] = {
         SubscriptionFrequency.DAILY: 1,
         SubscriptionFrequency.WEEKLY: 7,
         SubscriptionFrequency.MONTHLY: 30,
         SubscriptionFrequency.YEARLY: 365,
     }
-    DEFAULT_AI_REPORT_WINDOW_DAYS = 7
+    DEFAULT_REPORT_WINDOW_DAYS = 7
 
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -166,9 +166,10 @@ class Subscription(ModelActivityMixin, models.Model):
 
     prompt = models.TextField(null=True, blank=True)
 
-    # Plain UUID (not an FK) referencing products.pulse.BriefConfig — keeps exports free of a
-    # cross-product model dependency; existence/ownership is enforced in the API serializer and
-    # re-checked at delivery time.
+    # Plain UUID (not an FK) referencing products.pulse.BriefConfig: decouples exports from
+    # pulse at the schema/migration level (no cross-app FK or migration dependency). Code-level
+    # coupling is deliberate and collected in the pulse_subscription/ delivery adapter and the
+    # ee subscription serializer, which enforce existence/ownership and re-check at delivery.
     pulse_brief_config_id = models.UUIDField(null=True, blank=True)
 
     # Subscription type (email, slack etc.)
@@ -332,9 +333,9 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
-    def ai_report_window_days(self) -> int:
-        """Days of history an AI report for this subscription should analyse, derived from its cadence."""
-        return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
+    def report_window_days(self) -> int:
+        """Days of history a generated report for this subscription should cover, derived from its cadence."""
+        return self._REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_REPORT_WINDOW_DAYS)
 
     @property
     def url(self) -> str | None:

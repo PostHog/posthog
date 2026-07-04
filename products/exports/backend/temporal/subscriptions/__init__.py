@@ -9,7 +9,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
-    mark_pulse_brief_generation_skipped,
+    cleanup_skipped_pulse_brief,
     prepare_pulse_brief_subscription,
     render_pulse_brief_for_delivery,
 )
@@ -37,7 +37,7 @@ ACTIVITIES = [
     deliver_subscription,
     generate_ai_subscription_report,
     prepare_pulse_brief_subscription,
-    mark_pulse_brief_generation_skipped,
+    cleanup_skipped_pulse_brief,
     render_pulse_brief_for_delivery,
     advance_next_delivery_date,
     create_delivery_record,

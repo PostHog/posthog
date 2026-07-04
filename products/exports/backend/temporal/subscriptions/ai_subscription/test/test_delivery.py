@@ -6,11 +6,13 @@ from unittest.mock import MagicMock, patch
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
-    SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
-    _split_text_into_chunks,
-    render_ai_email_html,
     send_email_ai_subscription_report,
+)
+from products.exports.backend.temporal.subscriptions.delivery_common import (
+    SLACK_MRKDWN_SECTION_LIMIT,
+    render_markdown_email_html,
+    split_text_into_slack_chunks,
 )
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
@@ -30,26 +32,26 @@ class TestSplitTextIntoChunks:
         ],
     )
     def test_exact_chunking(self, name: str, text: str, expected: list[str]) -> None:
-        assert _split_text_into_chunks(text) == expected
+        assert split_text_into_slack_chunks(text) == expected
 
     @pytest.mark.parametrize("prefix", ["\n\n", "\n", "  \n\n  "])
     def test_leading_blank_lines_do_not_emit_empty_chunk(self, prefix: str) -> None:
         # regression: a body starting on a paragraph boundary used to carve off an empty first chunk
-        chunks = _split_text_into_chunks(prefix + ("a" * (SLACK_MRKDWN_SECTION_LIMIT + 100)))
+        chunks = split_text_into_slack_chunks(prefix + ("a" * (SLACK_MRKDWN_SECTION_LIMIT + 100)))
         assert chunks
         assert all(chunk.strip() for chunk in chunks)
 
     def test_no_newlines_falls_back_to_hard_cut(self) -> None:
         text = "x" * (SLACK_MRKDWN_SECTION_LIMIT * 2 + 50)
-        chunks = _split_text_into_chunks(text)
+        chunks = split_text_into_slack_chunks(text)
         assert len(chunks) >= 3
         assert all(len(c) <= SLACK_MRKDWN_SECTION_LIMIT for c in chunks)
         assert "".join(chunks) == text
 
 
-class TestRenderAIEmailHtml:
+class TestRenderMarkdownEmailHtml:
     def test_neutralizes_raw_html_but_keeps_tables(self) -> None:
-        html = render_ai_email_html("## Heading\n\n<script>alert(1)</script>\n\n| a | b |\n|---|---|\n| 1 | 2 |")
+        html = render_markdown_email_html("## Heading\n\n<script>alert(1)</script>\n\n| a | b |\n|---|---|\n| 1 | 2 |")
         # Raw HTML in the markdown source is escaped to inert text (html=False), never a live tag.
         assert "<script>" not in html
         assert "&lt;script&gt;" in html
@@ -58,7 +60,7 @@ class TestRenderAIEmailHtml:
         assert "<h2>" in html
 
     def test_renders_basic_markdown(self) -> None:
-        html = render_ai_email_html("**bold** and *italic*")
+        html = render_markdown_email_html("**bold** and *italic*")
         assert "<strong>bold</strong>" in html
         assert "<em>italic</em>" in html
 
@@ -69,12 +71,12 @@ class TestExternalUrlExfilGuard:
     must be stripped from delivered output regardless of how the LLM was steered."""
 
     def test_email_strips_external_link_href_keeps_text(self) -> None:
-        html = render_ai_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
+        html = render_markdown_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
         assert "attacker.example" not in html
         assert "here" in html
 
     def test_email_keeps_posthog_links(self) -> None:
-        html = render_ai_email_html("Open [the dashboard](https://app.posthog.com/insights/abc).")
+        html = render_markdown_email_html("Open [the dashboard](https://app.posthog.com/insights/abc).")
         assert "app.posthog.com/insights/abc" in html
 
     @pytest.mark.parametrize(
@@ -88,12 +90,12 @@ class TestExternalUrlExfilGuard:
     def test_email_rejects_authority_confusion_bypass(self, raw: str) -> None:
         # urlparse may read the host as posthog.com, but browsers navigate to attacker.example —
         # the allowlist must not be fooled into preserving any of these as a live link.
-        html = render_ai_email_html(f"Click [here]({raw}).")
+        html = render_markdown_email_html(f"Click [here]({raw}).")
         assert "attacker.example" not in html, raw
         assert "here" in html
 
     def test_email_strips_markdown_images(self) -> None:
-        html = render_ai_email_html("Pixel: ![tracker](https://attacker.example/track.gif)")
+        html = render_markdown_email_html("Pixel: ![tracker](https://attacker.example/track.gif)")
         assert "attacker.example" not in html
         assert "<img" not in html
 
@@ -156,13 +158,13 @@ class TestExternalUrlExfilGuard:
         assert "`HTTPS://attacker.example/exfil`" in all_text
 
     def test_email_defangs_uppercase_autolink(self) -> None:
-        html = render_ai_email_html("See <HTTPS://attacker.example/exfil> now")
+        html = render_markdown_email_html("See <HTTPS://attacker.example/exfil> now")
         assert "href=" not in html.lower()  # never a live link, regardless of scheme case
         assert "<code>" in html
         assert "attacker.example" in html
 
     def test_email_defangs_bare_external_url(self) -> None:
-        html = render_ai_email_html("Visit https://attacker.example/exfil now")
+        html = render_markdown_email_html("Visit https://attacker.example/exfil now")
         assert 'href="https://attacker.example' not in html  # never a live link
         assert "<code>" in html  # rendered as inert code, still visible
         assert "attacker.example" in html
