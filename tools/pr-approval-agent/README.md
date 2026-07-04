@@ -125,7 +125,7 @@ Final verdict → GitHub review (approve) or sticky comment (everything else)
 
 The bot never posts request-changes.
 Approvals are posted as real PR reviews (they must count toward branch protection).
-Every other verdict (REFUSE, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter noting how many earlier stamphog reviews it replaces — repeated refusals don't stack up as separate review comments on the PR.
+Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers
 

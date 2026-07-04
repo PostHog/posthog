@@ -90,6 +90,9 @@ jobs:
                   # unlike GitHub App bot approvals which show author_association NONE.
                   GH_TOKEN_APPROVE: ${{ github.token }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # Derived from the token step so the sticky-comment author
+                  # filter tracks an app rename instead of failing silent.
+                  BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
               run: |
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
@@ -119,42 +122,77 @@ jobs:
                     # denial (e.g. the size gate) the refusals pile up — one PR
                     # collected 60+ near-identical stamphog reviews.
                     MARKER='<!-- stamphog-sticky-review -->'
-                    if [ -n "$REASONING" ]; then
-                      HEADLINE="stamphog reviewed \`${REVIEWED_SHA:-unknown}\` — verdict: **$VERDICT**"
-                      DETAIL="$REASONING"
-                    else
-                      HEADLINE="stamphog review failed before producing a verdict"
-                      DETAIL="Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry."
-                    fi
+                    RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-                      --jq "[.[] | select(.body | contains(\"$MARKER\"))][0] // empty")
+                    # Author + leading-marker filter: on a public repo anyone can
+                    # post a comment containing the marker; without the filter the
+                    # bot would PATCH (clobber) a third-party comment. Slurp so the
+                    # jq runs once over all pages — per-page --jq could emit one
+                    # object per page. The || guard keeps a transient lookup
+                    # failure from aborting the step before the label strip below
+                    # (it degrades to posting a fresh comment instead).
+                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+                      --jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
+                      || echo "")
                     COMMENT_ID=""
+                    EXISTING_BODY=""
                     PREV_COUNT=0
                     if [ -n "$EXISTING" ]; then
                       COMMENT_ID=$(jq -r '.id' <<<"$EXISTING")
-                      PREV_COUNT=$(jq -r '.body' <<<"$EXISTING" | sed -n 's/.*stamphog-review-count:\([0-9][0-9]*\).*/\1/p' | head -n1)
+                      EXISTING_BODY=$(jq -r '.body' <<<"$EXISTING")
+                      PREV_COUNT=$(jq -r '.body | (match("stamphog-review-count:([0-9]+)").captures[0].string // "0")' <<<"$EXISTING")
                       PREV_COUNT=${PREV_COUNT:-0}
                     fi
-                    COUNT=$((PREV_COUNT + 1))
 
-                    {
-                      echo "$MARKER"
-                      echo "<!-- stamphog-review-count:$COUNT -->"
-                      echo "> [!NOTE]"
-                      echo "> 🤖 $HEADLINE"
-                      echo
-                      echo "$DETAIL"
-                      if [ "$PREV_COUNT" -gt 0 ]; then
+                    # The append path requires an actual verdict in the prior body —
+                    # a crash-only prior comment goes through the rebuild branch so
+                    # it can't end up claiming "the verdict above" over no verdict.
+                    if [ -z "$REASONING" ] && [ -n "$COMMENT_ID" ] \
+                      && grep -q 'verdict: \*\*' <<<"$EXISTING_BODY"; then
+                      # Verdictless crash with a prior verdict on record: append the
+                      # failure note below it rather than clobbering the reasoning
+                      # the author still needs to act on. The anchored grep dedups
+                      # only the note itself, never verdict reasoning that happens
+                      # to mention review failures.
+                      { grep -v '^> ⚠️ A later review run failed' <<<"$EXISTING_BODY" || true; } > /tmp/stamphog-comment.md
+                      {
                         echo
-                        echo "_Updated in place — this replaces $PREV_COUNT earlier stamphog review(s) on this PR._"
+                        echo "> ⚠️ A later review run failed before producing a verdict — check the [workflow run]($RUN_URL). The verdict above is from an earlier run."
+                      } >> /tmp/stamphog-comment.md
+                    else
+                      COUNT=$((PREV_COUNT + 1))
+                      if [ -n "$REASONING" ]; then
+                        HEADLINE="stamphog reviewed \`${REVIEWED_SHA:-unknown}\` — verdict: **${VERDICT:-unknown}**"
+                        DETAIL="$REASONING"
+                      else
+                        HEADLINE="stamphog review failed before producing a verdict"
+                        DETAIL="Check the [workflow run]($RUN_URL) and re-apply the label to retry."
                       fi
-                    } > /tmp/stamphog-comment.md
+                      {
+                        echo "$MARKER"
+                        echo "<!-- stamphog-review-count:$COUNT -->"
+                        echo "> [!NOTE]"
+                        echo "> 🤖 $HEADLINE"
+                        echo
+                        echo "$DETAIL"
+                        if [ -n "$COMMENT_ID" ]; then
+                          echo
+                          [ "$PREV_COUNT" -gt 0 ] \
+                            && echo "_Updated in place — this replaces $PREV_COUNT earlier stamphog review(s) on this PR._" \
+                            || echo "_Updated in place from an earlier stamphog review._"
+                        fi
+                      } > /tmp/stamphog-comment.md
+                    fi
 
+                    # A failed PATCH (comment deleted, transient API error) falls
+                    # back to posting fresh, so the only unguarded API call left
+                    # ahead of the label strip is the same single POST the old
+                    # COMMENT-review path had.
                     if [ -n "$COMMENT_ID" ]; then
                       gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" \
-                        -F "body=@/tmp/stamphog-comment.md"
-                    else
+                        -F "body=@/tmp/stamphog-comment.md" || COMMENT_ID=""
+                    fi
+                    if [ -z "$COMMENT_ID" ]; then
                       gh api -X POST "repos/$REPO/issues/$PR/comments" \
                         -F "body=@/tmp/stamphog-comment.md"
                     fi
