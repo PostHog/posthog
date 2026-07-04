@@ -906,7 +906,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif main_distinct_id is not None and main_distinct_id not in distinct_ids:
             # An unknown main_distinct_id matches none of the person's IDs, so every ID would be split
             # off, leaving an ID-less shell that keeps only the properties. Reject it instead.
-            raise ValidationError({"main_distinct_id": "not on this person"})
+            raise ValidationError({"main_distinct_id": f"not on this person: {main_distinct_id}"})
 
         split_person.delay(
             person.id,

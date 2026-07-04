@@ -76,7 +76,7 @@ function SplitPerson(): JSX.Element | null {
     const distinctIdsMayBeTruncated = person.distinct_ids.length >= 101
     const pasteHint = distinctIdsMayBeTruncated ? (
         <p className="text-muted text-xs mt-1">
-            Not all distinct IDs are shown for a person with this many IDs. You can paste an exact distinct ID that
+            Not all distinct IDs may be shown for a person with this many IDs. You can paste an exact distinct ID that
             isn't listed.
         </p>
     ) : null
