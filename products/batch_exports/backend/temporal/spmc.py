@@ -28,7 +28,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES, BackfillDetails
 from products.batch_exports.backend.temporal.metrics import get_metric_meter
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
@@ -709,7 +709,11 @@ def compose_filters_clause(
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
     exprs = []
     for filter in filters:
-        match filter["type"]:
+        filter_type = filter["type"]
+        if filter_type not in SUPPORTED_FILTER_TYPES:
+            raise TypeError(f"Unknown filter type: '{filter_type}'")
+
+        match filter_type:
             case "event":
                 exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
             case "person":
@@ -734,8 +738,9 @@ def compose_filters_clause(
                 except (ExposedHogQLError, InternalHogQLError) as e:
                     raise InvalidFilterError(e) from e
 
-            case s:
-                raise TypeError(f"Unknown filter type: '{s}'")
+            case _:
+                # Reachable only if SUPPORTED_FILTER_TYPES gains a type without a handler here.
+                raise TypeError(f"Unhandled filter type: '{filter_type}'")
 
     and_expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.

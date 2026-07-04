@@ -23,7 +23,7 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES, KAFKA_MESSAGE_ASSETS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -1609,6 +1609,12 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        // Default in non-dev envs is `false`, so the message-assets capture path stays
+        // dormant in CI. The asset-capture tests below assert the row lands in the
+        // dedicated Kafka topic, so we flip the kill-switch on for this describe block.
+        // Set before `createCdpConsumerDeps` / worker construction so the value is
+        // captured in `MessageAssetsService` at instantiation.
+        hub.MESSAGE_ASSETS_CAPTURE_ENABLED = true
 
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
@@ -2670,6 +2676,173 @@ describe('Workflows E2E (email queue)', () => {
         const bucket = await limiterValkey.useClient({ name: 'read-bucket' }, (client) => client.hgetall(bucketKey))
         const pool = parseFloat(bucket?.pool ?? '0')
         expect(pool).toBeGreaterThanOrEqual(capacity - 1)
+    })
+
+    // ---- Message-assets bulk flush at the batch boundary ----
+    //
+    // Email assets used to be produced one-at-a-time via a fire-and-forget Kafka call
+    // from `email.service.ts → MessageAssetsService.captureSentEmail`. We've moved that
+    // to a buffer-then-flush pattern that drains `result.emailAssets` at the batch
+    // boundary and bulk-produces, gated on broker ack before the consumer commits
+    // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
+    // the `message_assets` Kafka topic with the right metadata, and a single batch with
+    // multiple emails produces all rows. The kill-switch is flipped on in this block's
+    // `beforeEach` so the asset Kafka topic actually receives writes.
+    describe('message_assets bulk capture', () => {
+        const buildEmailWorkflow = (subject: string) =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-workflows-e2e-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject,
+                                            text: 'plain text body',
+                                            html: `<p>${subject}</p>`,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const assetMessages = (): { key: string; value: any }[] =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_MESSAGE_ASSETS) as any
+
+        it('produces one message_assets row per workflow email with the rendered HTML and metadata', async () => {
+            const hogFlow = buildEmailWorkflow('Asset bulk-capture single')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+            await backgroundTask
+
+            // The asset row only lands once the email worker's batch flushes — wait for
+            // the workflow to reach a terminal state, then assert against the topic.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(1)
+            }, 15000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows).toHaveLength(1)
+
+                const row = rows[0].value as Record<string, any>
+                expect(row.team_id).toBe(team.id)
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.kind).toBe('email')
+                expect(row.status).toBe('sent')
+                expect(row.action_id).toBe('email_1')
+                expect(row.recipient).toBe('recipient@example.com')
+                expect(row.subject).toBe('Asset bulk-capture single')
+                expect(row.html).toBe('<p>Asset bulk-capture single</p>')
+                // Partition key must match invocation_id so retries collapse via the
+                // destination ReplacingMergeTree(version).
+                expect(rows[0].key).toBe(row.invocation_id)
+            }, 15000)
+        })
+
+        it('bulk-captures every asset when multiple workflow runs share a batch', async () => {
+            // Use distinct subjects so we can assert on row content regardless of the
+            // partition-level ordering the Kafka producer chooses.
+            const hogFlow = buildEmailWorkflow('Bulk asset capture')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            // Three globals dispatched in one `processBatch` call — they go through the
+            // events consumer together. Each fires its own workflow run, each emits one
+            // asset; the bulk-flush is what we're exercising.
+            const { backgroundTask } = await eventsConsumer.processBatch([
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000001' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000002' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000003' as any }),
+            ])
+            await backgroundTask
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(3)
+            }, 20000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows.length).toBeGreaterThanOrEqual(3)
+
+                // Every produced row must carry distinct invocation_id values (one per
+                // workflow run) — otherwise the buffer is dropping or aliasing rows.
+                const invocationIds = new Set(rows.map((r) => (r.value as any).invocation_id))
+                expect(invocationIds.size).toBeGreaterThanOrEqual(3)
+
+                // Subject and HTML are constant across the three runs (same flow), so we
+                // just sanity-check that every row carries the expected shape.
+                for (const row of rows) {
+                    const value = row.value as Record<string, any>
+                    expect(value.subject).toBe('Bulk asset capture')
+                    expect(value.html).toBe('<p>Bulk asset capture</p>')
+                    expect(value.kind).toBe('email')
+                    expect(value.status).toBe('sent')
+                    expect(row.key).toBe(value.invocation_id)
+                }
+            }, 20000)
+        })
+
+        it('emits no message_assets rows when the kill-switch is disabled', async () => {
+            // Restart the email worker with capture disabled — `MessageAssetsService` reads
+            // the config at construction time, so we have to recreate the deps + worker.
+            await emailWorker.stop()
+            hub.MESSAGE_ASSETS_CAPTURE_ENABLED = false
+            deps = createCdpConsumerDeps(hub, kafkaProducer)
+            const restartedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            emailWorker = new CdpCyclotronWorkerEmail(hub, deps, restartedQueue)
+            await emailWorker.start()
+
+            mockProducerObserver.resetKafkaProducer()
+
+            const hogFlow = buildEmailWorkflow('Capture disabled')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+            await backgroundTask
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(1)
+            }, 15000)
+
+            // Give the asset producer a chance to run — if anything is going to fire it
+            // happens within the same flush window. Re-check after a short delay so we
+            // don't accept a false negative from races.
+            await new Promise((resolve) => setTimeout(resolve, 500))
+            expect(assetMessages()).toHaveLength(0)
+        })
     })
 })
 

@@ -1202,10 +1202,65 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
+            - name: Compute master schema cache key
+              # Must match the migration-set computation in turbo-discover and the
+              # push-side save below (inputs, hash, and key prefix). Keyed off the
+              # master checkout (HEAD here) so a restored dump is exactly the state
+              # that "Run migrations up to master" would build from scratch; any
+              # difference in the migration set is a cache miss, never a stale hit.
+              if: github.event_name != 'push'
+              id: master-schema-key
+              run: |
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Restore master schema dump from cache
+              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.master-schema-key.outputs.key }}
+
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
+
+            - name: Prime posthog DB from cached schema
+              # Turns "Run migrations up to master" below into a no-op instead
+              # of ~10 minutes of full migrations.
+              if: github.event_name != 'push'
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
+                      exit 0
+                  fi
+                  # The load is atomic: on failure the transaction rolls back and
+                  # the fallback below recreates an empty DB for a full migrate.
+                  # ensure_migration_defaults re-seeds data-migration rows the
+                  # schema-only dump lacks.
+                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
+                      && .venv-master/bin/python manage.py ensure_migration_defaults; then
+                      echo "Primed posthog DB from cached master schema"
+                  else
+                      echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
+                      # Terminate lingering sessions first or DROP DATABASE fails
+                      # (same guard as _recreate_database in hogli's db_schema.py).
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog' AND pid <> pg_backend_pid();"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "DROP DATABASE IF EXISTS posthog;"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "CREATE DATABASE posthog;"
+                  fi
+                  rm -f schema.sql.gz
 
             - name: Run migrations up to master
               run: |
@@ -1592,7 +1647,8 @@ jobs:
                   key: posthog-schema-master-${{ github.sha }}
 
             - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover (inputs, hash, and key prefix).
+              # Must match the merge-base computation in turbo-discover and the
+              # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |

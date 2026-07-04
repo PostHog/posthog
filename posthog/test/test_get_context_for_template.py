@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory
@@ -68,3 +69,25 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert app_context["homepage"] == (stored_homepage or None)
+
+    @parameterized.expand(
+        [
+            ("anonymous_is_always_light", None, "light"),
+            ("missing_theme_mode_means_light", "", "light"),
+            ("dark", "dark", "dark"),
+            ("system_defers_to_the_os", "system", "system"),
+        ]
+    )
+    def test_boot_theme_mirrors_theme_logic(self, _name, theme_mode, expected):
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        if theme_mode is None:
+            request.user = AnonymousUser()
+        else:
+            self.user.theme_mode = theme_mode or None
+            self.user.save()
+            request.user = self.user
+
+        actual = get_context_for_template("index.html", request)
+
+        assert actual["boot_theme"] == expected

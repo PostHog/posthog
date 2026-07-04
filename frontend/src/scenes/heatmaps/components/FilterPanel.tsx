@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -121,9 +121,13 @@ export function ViewportChooser(): JSX.Element {
 export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
+    clickmapEnabled,
+    onClickmapEnabledChange,
 }: {
     captureMethod?: HeatmapType
     onCaptureMethodChange?: (type: HeatmapType) => void
+    clickmapEnabled?: boolean
+    onClickmapEnabledChange?: (enabled: boolean) => void
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
@@ -215,6 +219,19 @@ export function FilterPanel({
                                                         label: 'Iframe',
                                                     },
                                                 ]}
+                                                size="small"
+                                            />
+                                        </SectionSetting>
+                                    )}
+                                    {clickmapEnabled !== undefined && onClickmapEnabledChange && (
+                                        <SectionSetting
+                                            title="Clickmap"
+                                            info="Overlay click counts on the elements users actually clicked"
+                                        >
+                                            <LemonSwitch
+                                                checked={clickmapEnabled}
+                                                onChange={onClickmapEnabledChange}
+                                                label="Show clickmap"
                                                 size="small"
                                             />
                                         </SectionSetting>

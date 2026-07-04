@@ -17,6 +17,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
     Node,
     NodeType,
 )
@@ -110,6 +111,7 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )
@@ -285,6 +287,7 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ]
 
@@ -810,6 +813,7 @@ class TestSavedQuery(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )
@@ -1790,3 +1794,79 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         mock_trigger.assert_called_once()
+
+
+class TestSavedQueryDescription(APIBaseTest):
+    def _base(self) -> str:
+        return f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+
+    def _create(self, name: str = "revenue_view", description: str | None = None) -> dict:
+        payload: dict[str, Any] = {"name": name, "query": {"kind": "HogQLQuery", "query": "SELECT 1 AS amount"}}
+        if description is not None:
+            payload["description"] = description
+        response = self.client.post(self._base(), payload)
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
+
+    def _view_level_annotation(self, view_id: str) -> DataWarehouseSavedQueryColumnAnnotation | None:
+        return (
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query_id=view_id, column_name="")
+            .first()
+        )
+
+    def test_create_with_description_writes_user_edited_annotation_and_returns_it(self):
+        view = self._create(description="Revenue per order, one row per order.")
+        assert view["description"] == "Revenue per order, one row per order."
+        annotation = self._view_level_annotation(view["id"])
+        assert annotation is not None
+        assert annotation.description == "Revenue per order, one row per order."
+        assert annotation.is_user_edited is True
+
+    def test_get_returns_view_description(self):
+        view = self._create(description="What this view means.")
+        response = self.client.get(f"{self._base()}{view['id']}/")
+        assert response.status_code == 200, response.content
+        assert response.json()["description"] == "What this view means."
+
+    def test_update_description_only_upserts_and_is_returned(self):
+        view = self._create()
+        assert view["description"] is None
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"description": "Set via update."})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] == "Set via update."
+        annotation = self._view_level_annotation(view["id"])
+        assert annotation is not None and annotation.is_user_edited is True
+        get = self.client.get(f"{self._base()}{view['id']}/")
+        assert get.json()["description"] == "Set via update."
+
+    def test_update_empty_description_clears_it(self):
+        view = self._create(description="Initial.")
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"description": ""})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] is None
+        assert self._view_level_annotation(view["id"]) is None
+
+    def test_update_without_description_leaves_it_untouched(self):
+        view = self._create(description="Keep me.")
+        patch = self.client.patch(f"{self._base()}{view['id']}/", {"name": "renamed_view"})
+        assert patch.status_code == 200, patch.content
+        assert patch.json()["description"] == "Keep me."
+
+    def test_per_column_description_round_trips_into_columns(self):
+        view = self._create()
+        column_name = self.client.get(f"{self._base()}{view['id']}/").json()["columns"][0]["name"]
+        annotate = self.client.post(
+            f"/api/projects/{self.team.id}/saved_query_column_annotations/",
+            {"saved_query": view["id"], "column_name": column_name, "description": "The order amount in cents."},
+        )
+        assert annotate.status_code == 201, annotate.content
+        columns = self.client.get(f"{self._base()}{view['id']}/").json()["columns"]
+        described = {c["name"]: c.get("description") for c in columns}
+        assert described[column_name] == "The order amount in cents."
+
+    def test_list_includes_view_description(self):
+        self._create(name="described_view", description="Listed description.")
+        results = self.client.get(self._base()).json()["results"]
+        described = {v["name"]: v.get("description") for v in results}
+        assert described["described_view"] == "Listed description."
