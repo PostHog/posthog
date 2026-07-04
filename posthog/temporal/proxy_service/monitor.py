@@ -41,6 +41,9 @@ from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusR
 
 LOGGER = get_logger(__name__)
 
+# Bound the live-event probe so a slow or hostile proxy domain can't hang the monitor activity.
+PROXY_LIVE_CHECK_TIMEOUT_S = 10.0
+
 
 @dataclass
 class MonitorManagedProxyInputs:
@@ -255,10 +258,17 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
     # send dummy event to check the proxy is working
     try:
+        # allow_redirects=False is a security boundary: proxy_record.domain is attacker-controlled
+        # (an org admin sets it to a domain they own), and a 307/308 redirect preserves this POST's
+        # method and body — so following redirects could bounce the worker to internal targets
+        # (ClickHouse, cloud metadata, management APIs). Same protection as the _check_live_event
+        # probe in posthog/api/proxy_record_diagnostics.py.
         response = requests.post(
             f"https://{proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
         )
 
         response.raise_for_status()

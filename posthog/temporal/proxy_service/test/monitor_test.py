@@ -9,7 +9,7 @@ from django.test import TestCase
 import requests
 
 from posthog.models import Organization, ProxyRecord
-from posthog.temporal.proxy_service.monitor import CheckActivityInput, check_proxy_is_live
+from posthog.temporal.proxy_service.monitor import PROXY_LIVE_CHECK_TIMEOUT_S, CheckActivityInput, check_proxy_is_live
 
 
 class TestCheckProxyIsLive(TestCase):
@@ -60,11 +60,15 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        # Verify the request was made correctly
+        # Verify the request was made correctly, including the SSRF guards: a bounded timeout and
+        # allow_redirects=False so an attacker-controlled proxy domain can't 307-redirect the
+        # worker to an internal target.
         mock_post.assert_called_once_with(
             f"https://{self.proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
         )
 
         self.assertEqual(result.errors, [])
