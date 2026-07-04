@@ -26,8 +26,8 @@
             "type": "string"
         },
         "resource_type": {
-            "description": "Filter by subscription resource: insight, dashboard export, or AI report.",
-            "enum": ["ai_prompt", "dashboard", "insight"],
+            "description": "Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.",
+            "enum": ["ai_prompt", "dashboard", "insight", "pulse_brief"],
             "type": "string"
         },
         "search": {
