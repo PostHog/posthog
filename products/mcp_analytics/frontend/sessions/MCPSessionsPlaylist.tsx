@@ -239,6 +239,9 @@ function SessionsListPanel(): JSX.Element {
     )
 }
 
+// memo relies on stable identities: kea replaces the sessions array wholesale on load
+// (so unchanged rows keep their reference) and selectSession is a stable bound action.
+// A selector that maps or clones sessions would silently defeat this.
 const MCPSessionPreview = memo(function MCPSessionPreview({
     session,
     isActive,
