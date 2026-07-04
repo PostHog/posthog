@@ -19,6 +19,7 @@ from posthog.models.element.element import build_attributes_filter, chain_to_ele
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import format_query_params_absolute_url
 
 tracer = trace.get_tracer(__name__)
@@ -154,10 +155,18 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 # unless someone is using this as an API client, this is only for the toolbar,
                 # which only ever queries date range, event type, and URL
+                # person-property filters (e.g. filter_test_accounts) would otherwise render
+                # as a persons subquery, which exceeds query memory limits on large teams
+                person_properties_mode = (
+                    PersonPropertiesMode.DIRECT_ON_EVENTS
+                    if self.team.person_on_events_querying_enabled
+                    else PersonPropertiesMode.USING_SUBQUERY
+                )
                 prop_filters, prop_filter_params = parse_prop_grouped_clauses(
                     team_id=self.team.pk,
                     property_group=filter.property_groups,
                     hogql_context=filter.hogql_context,
+                    person_properties_mode=person_properties_mode,
                 )
 
             span.set_attribute("team_id", self.team.pk)
