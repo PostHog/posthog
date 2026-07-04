@@ -466,11 +466,7 @@ describe('infiniteListLogic', () => {
             await expectLogic(failingLogic, () => {
                 failingLogic.actions.setSearchQuery('user_signed_up')
             })
-                .toDispatchActions([
-                    'setSearchQuery',
-                    'loadRemoteItems',
-                    'loadRemoteItemsFailure',
-                ])
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
                 .toMatchValues({
                     showLoadingState: false,
                     showEmptyState: true,

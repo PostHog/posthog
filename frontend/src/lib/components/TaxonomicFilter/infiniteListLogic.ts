@@ -376,7 +376,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             response = apiResponse
                             expandedCountResponse = expandedApiResponse
                         }
-                    } catch (error) {
+                    } catch (error: any) {
                         if (!isBreakpoint(error)) {
                             // Carry the query that was in flight when this run errored so the
                             // reducer can attribute the failure to the right query string.
