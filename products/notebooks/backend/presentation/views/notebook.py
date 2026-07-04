@@ -30,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
+from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -44,6 +45,7 @@ from posthog.utils import relative_date_parse
 
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
+from products.notebooks.backend.analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
@@ -68,6 +70,21 @@ def depluralize(string: str | None) -> str | None:
         return string[:-1]
     else:
         return string
+
+
+def classify_request_source(request: Request) -> tuple[str, dict[str, str | None]]:
+    """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
+
+    Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
+    programmatic client. ``api_key_type`` + ``mcp_client`` let PostHog Code be separated from a
+    customer's own MCP client later. Shared by the create and (upcoming) read events."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return NotebookCreationSource.UI, {}
+    return NotebookCreationSource.MCP, {
+        "api_key_type": type(authenticator).__name__,
+        "mcp_client": request.META.get("HTTP_USER_AGENT"),
+    }
 
 
 _NOTEBOOK_FIELD_HELP_TEXTS = {
@@ -201,6 +218,18 @@ class NotebookSerializer(NotebookMinimalSerializer):
             team_id=team.id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated(request),
+        )
+
+        creation_source, source_props = classify_request_source(request)
+        capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team.id,
+            user=request.user,
+            request=request,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+            **source_props,
         )
 
         return notebook

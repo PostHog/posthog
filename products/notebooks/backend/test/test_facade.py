@@ -1,11 +1,13 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notebooks.backend import logic
+from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -71,12 +73,15 @@ class TestNotebooksFacade(BaseTest):
         self.assertEqual(len(summary.recent), 1)
         self.assertEqual(summary.recent[0].short_id, newer.short_id)
 
-    def test_create_group_notebook_links_internal_notebook(self):
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    def test_create_group_notebook_links_internal_notebook(self, mock_capture):
         data = api.create_group_notebook(self.team.id, group_id=42, title="Notes", content=self._doc())
         self.assertEqual(data.visibility, Notebook.Visibility.INTERNAL)
         self.assertTrue(api.group_has_notebook(42))
         self.assertEqual(api.get_group_notebook_short_id(42), data.short_id)
         self.assertFalse(api.group_has_notebook(43))
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.GROUP_AUTO)
 
     def test_create_account_notebook_and_list_notes(self):
         account = _create_account(self.team)
@@ -141,7 +146,8 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data.short_id, notebook.short_id)
 
     @pytest.mark.asyncio
-    async def test_aupsert_creates_then_overwrites_and_bumps_version(self):
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    async def test_aupsert_creates_then_overwrites_and_bumps_version(self, mock_capture):
         data, created = await api.aupsert_notebook(
             self.team.id,
             "abc123",
@@ -152,6 +158,9 @@ class TestNotebooksFacadeAsync(BaseTest):
         )
         self.assertTrue(created)
         self.assertEqual(data.version, 0)
+        # Emits `notebook created` once, on the create, labelled max_ai.
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.MAX_AI)
 
         data2, created2 = await api.aupsert_notebook(
             self.team.id,
@@ -165,6 +174,8 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data2.id, data.id)
         self.assertEqual(data2.title, "second")
         self.assertEqual(data2.version, 1)
+        # The overwrite is an update, not a create — no second event (guards double-counting).
+        mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_aupdate_notebook_content_bumps_version(self):
