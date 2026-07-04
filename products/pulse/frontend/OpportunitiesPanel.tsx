@@ -95,16 +95,50 @@ export function OpportunitiesPanel(): JSX.Element {
 
 function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi }): JSX.Element | null {
     const { transitionsInFlight } = useValues(pulseLogic)
-    const { transitionOpportunity } = useActions(pulseLogic)
+    const { transitionOpportunity, createExperimentFromOpportunity } = useActions(pulseLogic)
 
     const available = transitionsForStatus(opportunity.status)
-    if (available.length === 0) {
+    // Creating an experiment rides the acted transition, so it is only offered while that
+    // transition is — i.e. on open rows.
+    const proposal = opportunity.status === OpportunityStatusEnumApi.Open ? opportunity.proposed_experiment : null
+    if (available.length === 0 && !proposal) {
         return null
     }
     const inFlightTransition = transitionsInFlight[opportunity.id]
 
     return (
         <div className="flex gap-1">
+            {proposal && (
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    loading={inFlightTransition === 'create_experiment'}
+                    disabledReason={
+                        inFlightTransition && inFlightTransition !== 'create_experiment'
+                            ? 'Waiting for the current update'
+                            : undefined
+                    }
+                    tooltip={
+                        <div className="flex flex-col gap-1">
+                            <span>
+                                <strong>Hypothesis:</strong> {proposal.hypothesis}
+                            </span>
+                            <span>
+                                <strong>Variants:</strong> {proposal.variant_sketch}
+                            </span>
+                            <span>
+                                <strong>Flag key:</strong> {proposal.flag_key_suggestion}
+                            </span>
+                            <span className="text-muted">
+                                Marks the opportunity as acted, copies the proposal, and opens a new experiment.
+                            </span>
+                        </div>
+                    }
+                    onClick={() => createExperimentFromOpportunity(opportunity.id)}
+                >
+                    Create experiment
+                </LemonButton>
+            )}
             {available.map(({ label, transition }) => (
                 <LemonButton
                     key={transition}
