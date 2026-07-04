@@ -74,7 +74,7 @@ class PgCDCStreamReader:
 
             source_impl = PostgresSource()
             config = source_impl.parse_config(self._source.job_inputs or {})
-            tunnel_cm = source_impl.with_ssh_tunnel(config)
+            tunnel_cm = source_impl.with_ssh_tunnel(config, self._source.team_id)
             self._effective_host, self._effective_port = tunnel_cm.__enter__()
             self._tunnel_cm = tunnel_cm
 
