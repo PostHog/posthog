@@ -4,9 +4,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { CitationTag } from './CitationTag'
-import type { OpportunityApi } from './generated/api.schemas'
+import type { OpportunityApi, ProposedExperimentApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
 import { parseOpportunityEvidence, pulseLogic, transitionsForStatus } from './pulseLogic'
 
@@ -98,17 +99,18 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
     const { transitionOpportunity, createExperimentFromOpportunity } = useActions(pulseLogic)
 
     const available = transitionsForStatus(opportunity.status)
-    if (available.length === 0) {
+    const proposal = opportunity.proposed_experiment
+    if (available.length === 0 && !proposal) {
         return null
     }
-    // Creating an experiment rides the acted transition, so it is offered exactly when that
-    // transition is.
-    const proposal = available.some(({ transition }) => transition === 'acted') ? opportunity.proposed_experiment : null
+    // Creating an experiment rides the acted transition, so the button is offered exactly when
+    // that transition is; elsewhere the proposal stays visible read-only.
+    const canCreateExperiment = proposal !== null && available.some(({ transition }) => transition === 'acted')
     const inFlightTransition = transitionsInFlight[opportunity.id]
 
     return (
-        <div className="flex gap-1">
-            {proposal && (
+        <div className="flex items-center gap-1">
+            {proposal && canCreateExperiment && (
                 <LemonButton
                     size="small"
                     type="primary"
@@ -119,47 +121,68 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
                             : undefined
                     }
                     tooltip={
-                        <div className="flex flex-col gap-1">
-                            <span>
-                                <strong>Hypothesis:</strong> {proposal.hypothesis}
-                            </span>
-                            <span>
-                                <strong>Variants:</strong> {proposal.variant_sketch}
-                            </span>
-                            <span>
-                                <strong>Flag key:</strong> {proposal.flag_key_suggestion}
-                            </span>
-                            {proposal.target_metric && (
-                                <span>
-                                    <strong>Target metric:</strong> {proposal.target_metric.insight_short_id}
-                                </span>
-                            )}
-                            <span className="text-muted">
-                                Marks the opportunity as acted, copies the proposal, and opens a new experiment.
-                            </span>
-                        </div>
+                        <ProposedExperimentSummary
+                            proposal={proposal}
+                            footer="Marks the opportunity as acted, copies the proposal, and opens a new experiment."
+                        />
                     }
                     onClick={() => createExperimentFromOpportunity(opportunity.id)}
                 >
                     Create experiment
                 </LemonButton>
             )}
-            {available.map(({ label, transition }) => (
-                <LemonButton
-                    key={transition}
-                    size="small"
-                    type="secondary"
-                    loading={inFlightTransition === transition}
-                    disabledReason={
-                        inFlightTransition && inFlightTransition !== transition
-                            ? 'Waiting for the current update'
-                            : undefined
-                    }
-                    onClick={() => transitionOpportunity(opportunity.id, transition)}
-                >
-                    {label}
-                </LemonButton>
-            ))}
+            {proposal && !canCreateExperiment && (
+                <Tooltip title={<ProposedExperimentSummary proposal={proposal} />}>
+                    <LemonTag type="completion">Proposed experiment</LemonTag>
+                </Tooltip>
+            )}
+            {available
+                // "Create experiment" IS the acted action for proposal rows — one action per outcome.
+                .filter(({ transition }) => !(canCreateExperiment && transition === 'acted'))
+                .map(({ label, transition }) => (
+                    <LemonButton
+                        key={transition}
+                        size="small"
+                        type="secondary"
+                        loading={inFlightTransition === transition}
+                        disabledReason={
+                            inFlightTransition && inFlightTransition !== transition
+                                ? 'Waiting for the current update'
+                                : undefined
+                        }
+                        onClick={() => transitionOpportunity(opportunity.id, transition)}
+                    >
+                        {label}
+                    </LemonButton>
+                ))}
+        </div>
+    )
+}
+
+export function ProposedExperimentSummary({
+    proposal,
+    footer,
+}: {
+    proposal: ProposedExperimentApi
+    footer?: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span>
+                <strong>Hypothesis:</strong> {proposal.hypothesis}
+            </span>
+            <span>
+                <strong>Variants:</strong> {proposal.variant_sketch}
+            </span>
+            <span>
+                <strong>Flag key:</strong> {proposal.flag_key_suggestion}
+            </span>
+            {proposal.target_metric && (
+                <span>
+                    <strong>Target metric:</strong> {proposal.target_metric.insight_short_id}
+                </span>
+            )}
+            {footer && <span className="text-muted">{footer}</span>}
         </div>
     )
 }
