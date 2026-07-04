@@ -792,6 +792,22 @@ services:
             - jaeger
         networks:
             - otel_network
+        # Hard ceiling on the collector's footprint. It tails and parses every
+        # container's logs, so a single container that floods its logs (e.g. a
+        # crash or logging loop) would otherwise let the collector peg many cores
+        # and balloon RAM. The in-process memory_limiter sheds load under
+        # pressure; these bound the blast radius on the host.
+        cpus: 2
+        mem_limit: 2g
+        environment:
+            # Keep Go's GC under the container memory limit so pressure triggers
+            # collection instead of an OOM kill.
+            GOMEMLIMIT: 1750MiB
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0
