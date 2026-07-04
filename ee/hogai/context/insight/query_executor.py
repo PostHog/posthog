@@ -451,6 +451,15 @@ class AssistantQueryExecutor:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
             raise Exception("There was an unknown error running this query.")
 
+        # A failed query can come back as a structurally-valid response that carries an `error`
+        # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
+        # timeout (`_execute_direct_sql_query` stores `result.error`), or a ClickHouse error
+        # captured in debug mode. Without this guard that response is formatted as a header-only
+        # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
+        # `query_status.error` check the async-polling branch above already does.
+        if isinstance(response_dict, dict) and (error := response_dict.get("error")):
+            raise MaxToolRetryableError(str(error))
+
         total_elapsed = time.time() - start_time
         if debug_timing:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")

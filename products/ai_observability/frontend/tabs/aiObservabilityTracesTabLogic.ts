@@ -131,7 +131,6 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         ...(showSentimentColumn ? ['__llm_sentiment'] : []),
                         '__llm_tools',
                         'errorCount',
-                        'stepCount',
                         'totalLatency',
                         'usage',
                         'totalCost',

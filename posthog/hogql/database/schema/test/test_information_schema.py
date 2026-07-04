@@ -17,8 +17,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
@@ -131,7 +140,7 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
@@ -139,7 +148,7 @@ class TestWarehouseMetadata(APIBaseTest):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _descriptions, _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
+        _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
@@ -148,32 +157,8 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
-
-    def test_descriptions_are_keyed_by_table_id_not_name(self):
-        # A synced table's catalog name (source-prefixed) differs from its model name, so descriptions
-        # must key by table UUID — keying by name silently dropped every annotation in production.
-        table = self._table("orders", 100)
-        with team_scope(self.team.id, canonical=True):
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team,
-                table=table,
-                column_name="",
-                description="All orders placed by customers.",
-                description_source=WarehouseColumnAnnotation.DescriptionSource.CANONICAL,
-            )
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team,
-                table=table,
-                column_name="id",
-                description="Unique order identifier.",
-                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
-            )
-        descriptions, _row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert descriptions[(str(table.id), "")] == "All orders placed by customers."
-        assert descriptions[(str(table.id), "id")] == "Unique order identifier."
-        assert ("orders", "") not in descriptions
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
@@ -372,6 +357,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
 
+    def test_warehouse_source_native_table_description_appears(self):
+        table = self._create_warehouse_table()
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=table.name,
+            table=table,
+            description="Charges imported from Stripe via the Postgres sync.",
+        )
+        tables = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'stripe_charges'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert tables[0][0] == "Charges imported from Stripe via the Postgres sync."
+
     def test_warehouse_column_statistics_are_merged(self):
         # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,
         # keyed by table id + column (like descriptions). A warehouse column without stats stays NULL.
@@ -432,8 +436,8 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     def test_saved_query_view_columns_appear_with_types(self):
         # The view's columns (built from the model's `columns` JSONField via `hogql_definition`) must be
-        # enumerated with their HogQL types — that's the surface a later phase attaches column descriptions
-        # to. Guards both the field enumeration and the JSONField→HogQL type mapping for views.
+        # enumerated with their HogQL types. Guards both the field enumeration and the JSONField→HogQL
+        # type mapping for views.
         self._create_saved_query_view(name="revenue_view")
         response = execute_hogql_query(
             """
@@ -445,6 +449,50 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         columns = {row[0]: row[1] for row in response.results or []}
         assert columns["order_id"] == "String"
         assert columns["amount"] == "Integer"
+
+    def test_saved_query_view_descriptions_are_merged_from_annotations(self):
+        # View- and column-level descriptions stored as DataWarehouseSavedQueryColumnAnnotation must
+        # surface in the catalog so PostHog AI can read them. Guards the metadata loader plus the
+        # `table_type == "view"` resolution branch: a regression (loader dropped, wrong key, or branch
+        # gated on the wrong table_type) makes descriptions silently vanish from information_schema.
+        view = self._create_saved_query_view(name="revenue_view")
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=self.team,
+                saved_query=view,
+                column_name="",
+                description="Revenue per order, one row per completed order.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=self.team,
+                saved_query=view,
+                column_name="amount",
+                description="Order revenue in cents.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        table_rows = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert len(table_rows) == 1
+        assert table_rows[0][0] == "Revenue per order, one row per completed order."
+
+        column_rows = (
+            execute_hogql_query(
+                "SELECT column_name, description FROM system.information_schema.columns WHERE table_name = 'revenue_view'",
+                team=self.team,
+            ).results
+            or []
+        )
+        by_column = {row[0]: row[1] for row in column_rows}
+        assert by_column["amount"] == "Order revenue in cents."
+        # An unannotated column stays NULL rather than borrowing another column's description.
+        assert by_column["order_id"] is None
 
     def test_materialized_saved_query_view_reports_backing_table_row_count(self):
         # A materialized view stays classified as a view but carries the row count of its backing table.

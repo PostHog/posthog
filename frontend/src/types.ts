@@ -286,6 +286,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentHoldout = 'experiment_holdout',
@@ -4391,6 +4392,8 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** The effective access level the user has for this early access feature. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -4963,6 +4966,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
+    has_person_email: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
@@ -5420,6 +5424,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5615,6 +5620,7 @@ export type APIScopeObject =
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
+    | 'conversation'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'

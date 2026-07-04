@@ -1,3 +1,4 @@
+import shlex
 import threading
 from dataclasses import dataclass
 
@@ -13,9 +14,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase
+from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -94,6 +95,37 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     return branch
 
 
+def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    """Fail fast when the repository the agent-server will use as its cwd was never materialized.
+
+    A run can reach this point without a clone: no snapshot restored and no usable GitHub
+    credentials (``will_clone`` is false in the workflow). The agent-server then boots against a
+    missing working directory, every ACP ``session/new`` fails, and the health wait times out —
+    repeated 5-minute attempts surfacing as a misleading "Failed to start agent server". Check
+    the directory upfront and fail non-retryably with the actual reason instead.
+    """
+    if not ctx.repository:
+        return
+    repo_path = sandbox_repo_path(ctx.repository)
+    result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+    if result.exit_code == 0:
+        return
+    raise SandboxMissingRepositoryError(
+        f"Repository {ctx.repository} is not present in the sandbox at {repo_path} — it was never "
+        "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+        {
+            "task_id": ctx.task_id,
+            "run_id": ctx.run_id,
+            "sandbox_id": sandbox.id,
+            "repository": ctx.repository,
+            "repo_path": repo_path,
+            "github_integration_id": ctx.github_integration_id,
+            "github_user_integration_id": ctx.github_user_integration_id,
+        },
+        cause=RuntimeError(f"missing repository directory {repo_path}"),
+    )
+
+
 @dataclass
 class StartAgentServerInput:
     context: TaskProcessingContext
@@ -123,6 +155,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None
     event_ingest_url: str | None
+    event_ingest_keep_stream_open: bool
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -221,6 +254,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         event_ingest_url=event_ingest_url,
+        event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
 
 
@@ -249,6 +283,7 @@ def _invoke_start_agent_server(
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
             event_ingest_url=params.event_ingest_url,
+            event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
         )
@@ -311,6 +346,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
+        # Classic (non-deferred) path only: any clone has already happened by now, so a missing
+        # repo directory can never appear later. The deferred/overlap path clones in parallel
+        # and gates the session on the repo-ready barrier instead.
+        _ensure_repository_on_disk(ctx, sandbox)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes)
 
         with StepTimer("agent_server_ready"):

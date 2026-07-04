@@ -112,6 +112,12 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+@dataclass
+class InvalidateResumeSnapshotInput:
+    run_id: str
+    snapshot_external_id: str | None = None
+
+
 def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
     base = host[2:] if host.startswith("*.") else host
     for wildcard_base in wildcard_bases:
@@ -305,10 +311,14 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
-                snapshot_source = "repository"
                 snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                snapshot_kind = snapshot_metadata.kind
-                snapshot_mount_path = snapshot_metadata.mount_path
+                if not snapshot_metadata.is_usable:
+                    snapshot = None
+                    used_snapshot = False
+                else:
+                    snapshot_source = "repository"
+                    snapshot_kind = snapshot_metadata.kind
+                    snapshot_mount_path = snapshot_metadata.mount_path
         elif not has_repo:
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
@@ -356,10 +366,18 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # kind of new snapshot created after this run.
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
-            used_snapshot = True
-            snapshot_source = "resume"
-            snapshot_kind = run_state.resume_snapshot_kind()
-            snapshot_mount_path = run_state.resume_snapshot_mount_path()
+            if not run_state.resume_snapshot_is_usable():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Previous session snapshot is unusable; resuming with a fresh sandbox",
+                )
+                resume_snapshot_external_id = None
+            else:
+                used_snapshot = True
+                snapshot_source = "resume"
+                snapshot_kind = run_state.resume_snapshot_kind()
+                snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         activity.logger.info(
             "resume_decision",
@@ -673,3 +691,20 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
+
+
+@activity.defn
+@asyncify
+def invalidate_resume_snapshot(input: InvalidateResumeSnapshotInput) -> None:
+    """Drop the resume snapshot from the run state after a failed restore, so retries and
+    future runs of the task (which carry the previous run's snapshot) stop resuming from it."""
+    with log_activity_execution(
+        "invalidate_resume_snapshot",
+        run_id=input.run_id,
+        snapshot_external_id=input.snapshot_external_id,
+    ):
+        TaskRun.update_state_atomic(
+            input.run_id,
+            remove_keys=["snapshot_external_id", "snapshot_kind", "snapshot_mount_path"],
+        )
+        emit_agent_log(input.run_id, "debug", "Previous session snapshot could not be restored; discarded it")

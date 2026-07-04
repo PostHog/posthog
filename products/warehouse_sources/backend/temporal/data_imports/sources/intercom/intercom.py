@@ -72,6 +72,16 @@ def _is_server_error(exc: HTTPError) -> bool:
     return resp is not None and 500 <= resp.status_code < 600
 
 
+def _is_scroll_expired(exc: HTTPError) -> bool:
+    """A companies scroll cursor can be invalidated mid-walk (idle expiry, or a
+    concurrent scroll on the workspace — only one is allowed); the continuation
+    then returns 404. The scroll walk only ever hits `/companies/scroll`, so any
+    404 there is a dead cursor rather than a missing row — distinct from
+    `_is_not_found`, which classifies a vanished child row on a per-row fetch."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 404
+
+
 def _default_headers() -> dict[str, str]:
     return {
         "Accept": "application/json",
@@ -308,6 +318,13 @@ _SCROLL_EXISTS_MAX_RETRIES = 2
 _SCROLL_SERVER_ERROR_BACKOFF_SECONDS = 2.0
 _SCROLL_SERVER_ERROR_MAX_RETRIES = 3
 
+# A companies scroll cursor can be invalidated mid-walk: Intercom expires an idle
+# scroll (~1 min) and permits only one open scroll per workspace, so a concurrent
+# sync opening its own scroll kills this one. The continuation then returns 404. A
+# scroll can't be resumed, only restarted from the beginning, so recovery is a full
+# re-walk — safe only where no rows have been emitted yet (see `_drain_company_ids`).
+_SCROLL_EXPIRED_MAX_RETRIES = 2
+
 
 def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> dict[str, Any]:
     """Fetch one `/companies/scroll` page, retrying a transient 5xx inline.
@@ -387,6 +404,29 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
             return
 
 
+def _drain_company_ids(session: Session) -> list[str]:
+    """Walk the whole companies scroll and collect every id, restarting the walk
+    from the beginning if the scroll cursor expires mid-drain (404 on a
+    continuation — see `_SCROLL_EXPIRED_MAX_RETRIES`).
+
+    Restarting is safe here precisely because the ids are drained up front,
+    before any segment row is yielded downstream: nothing has been written to the
+    destination yet, so a re-walk can't duplicate rows. (The streaming `companies`
+    endpoint can't recover this way — it yields rows as it walks, and the load is
+    full-refresh with no primary-key dedup, so an expired cursor there surfaces
+    and Temporal restarts the whole run from a freshly-wiped table instead.)"""
+    for attempt in range(_SCROLL_EXPIRED_MAX_RETRIES + 1):
+        try:
+            return [company["id"] for company in _iter_companies(session)]
+        except HTTPError as exc:
+            if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
+                logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
@@ -397,8 +437,10 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     and a slow stretch of `/companies/{id}/segments` calls between two scroll
     pages lets the cursor lapse — the next continuation then 404s mid-walk.
     Draining first keeps the scroll requests back-to-back so it stays alive;
-    only the ids are held, so the memory cost stays flat regardless of count."""
-    company_ids = [company["id"] for company in _iter_companies(session)]
+    only the ids are held, not the full company payloads, so the memory
+    footprint stays small. If the cursor is still invalidated mid-drain,
+    `_drain_company_ids` restarts the walk from scratch."""
+    company_ids = _drain_company_ids(session)
     for company_id in company_ids:
         try:
             payload = _intercom_get(session, f"/companies/{company_id}/segments")

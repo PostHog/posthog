@@ -87,6 +87,34 @@ function recentItemMatchesSearch(
     return false
 }
 
+// The two key builders must stay format-aligned: recent and pinned rows dedupe
+// against each other only because both produce `sourceGroupType::value`.
+function recentSourceKey(item: TaxonomicDefinitionTypes): string | null {
+    return hasRecentContext(item) && item._recentContext.sourceValue != null
+        ? `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`
+        : null
+}
+
+function pinnedSourceKey(item: TaxonomicDefinitionTypes): string | null {
+    return hasPinnedContext(item) && item._pinnedContext.value != null
+        ? `${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`
+        : null
+}
+
+function withoutPinnedDuplicatesOfRecents(
+    pinnedItems: TaxonomicDefinitionTypes[],
+    recentItems: TaxonomicDefinitionTypes[]
+): TaxonomicDefinitionTypes[] {
+    const recentKeys = new Set(recentItems.map(recentSourceKey).filter((key): key is string => key != null))
+    if (recentKeys.size === 0) {
+        return pinnedItems
+    }
+    return pinnedItems.filter((item) => {
+        const key = pinnedSourceKey(item)
+        return key == null || !recentKeys.has(key)
+    })
+}
+
 export interface RowInfo {
     startIndex: number
     stopIndex: number
@@ -874,17 +902,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const pinnedPrefix = !searchQuery
+                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    : []
 
                 const dedupeKeys = new Set<string>()
                 const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
-                        dedupeKeys.add(`${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`)
+                    const key = recentSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 const addPinnedKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasPinnedContext(item) && item._pinnedContext.value != null) {
-                        dedupeKeys.add(`${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`)
+                    const key = pinnedSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 recentPrefix.forEach(addRecentKey)
@@ -961,7 +993,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // An item that is both recent and pinned shows once, under the section that
+                // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
+                const pinnedPrefix =
+                    isSuggested && !searchQuery
+                        ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                        : []
+                const pinnedMatches = withoutPinnedDuplicatesOfRecents(suggestedPinnedMatches, suggestedRecentMatches)
                 const topMatches = isSuggested ? dedupedTopMatches : []
 
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
@@ -975,7 +1013,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedRecentMatches,
-                    ...suggestedPinnedMatches,
+                    ...pinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
                     ...topMatches,
@@ -995,7 +1033,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedRecentMatches.length +
-                        suggestedPinnedMatches.length +
+                        pinnedMatches.length +
                         localItems.count +
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,

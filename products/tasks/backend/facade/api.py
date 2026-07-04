@@ -123,6 +123,7 @@ __all__ = [
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
+    "get_resume_snapshot_carry_state",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
@@ -165,6 +166,7 @@ __all__ = [
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_title",
     "signal_report_queryset",
     "signal_task_run_user_message",
     "signal_workflow_completion",
@@ -414,6 +416,16 @@ def _sandbox_snapshot_to_dto(snapshot: SandboxSnapshot) -> contracts.SandboxSnap
 # --- Reads ---
 
 
+def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[str, Any]:
+    """State keys a successor run must merge (whole dict, never ``snapshot_external_id`` alone)
+    to resume from a prior run's sandbox snapshot; empty when there is no usable snapshot."""
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        parse_run_state,
+    )
+
+    return parse_run_state(run_state).resume_snapshot_carry_state()
+
+
 def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")
@@ -536,8 +548,13 @@ def get_stale_queued_task_run_ids(
     *,
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
+    cloud_only: bool = False,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
+
+    ``cloud_only`` restricts the sweep to cloud-environment runs. Local (desktop) runs sit in
+    QUEUED by design while the desktop agent drives them, so dispatch-recovery callers must
+    exclude them — cloud-dispatching one hijacks the user's live local session.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
@@ -545,12 +562,10 @@ def get_stale_queued_task_run_ids(
     stale = Q(updated_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
-    return list(
-        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
-        .filter(stale)
-        .order_by("updated_at")
-        .values_list("id", flat=True)[:limit]
-    )
+    queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+    if cloud_only:
+        queryset = queryset.filter(environment=TaskRun.Environment.CLOUD)
+    return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
 
 
 def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
@@ -1440,6 +1455,15 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
+        # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
+        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
+        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        try:
+            run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
+            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     return _task_run_detail_to_dto(run)
 
@@ -2042,10 +2066,12 @@ def relay_task_run_message(
     text: str,
     text_parts: list[str] | None = None,
 ) -> tuple[str, str | None]:
-    """Queue a Slack relay workflow for a run message.
+    """Queue a Slack relay workflow for a run message, or under the agent-design
+    flag signal the running task workflow to stream the text inline.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
-    (run not found / terminal / no Slack mapping / empty text), or ``"failed"``.
+    (run not found / terminal / no Slack mapping / empty text / streamed inline under the
+    agent-design flag), or ``"failed"``.
 
     When ``text_parts`` is provided the last non-empty entry is used — it's the
     post-last-tool-use answer, and posting only that keeps the interim narration
@@ -2055,8 +2081,13 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keep ORM off the api import path
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
+        signal_agent_text_delta,
+    )
+    from products.tasks.backend.temporal.process_task.activities.feature_flags import (  # noqa: PLC0415 — keep temporal off the api import path
+        AGENT_DESIGN_STATE_KEY,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -2068,6 +2099,13 @@ def relay_task_run_message(
     posted_text = _pick_relay_text(text=text, text_parts=text_parts)
     trimmed = posted_text.strip()
     if not trimmed:
+        return "skipped", None
+
+    if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+        try:
+            signal_agent_text_delta(TaskRun.get_workflow_id(str(run.task_id), str(run.id)), trimmed)
+        except Exception:
+            logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
 
     try:
@@ -2577,9 +2615,7 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> QuerySet[Task]:
+def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
 
@@ -2625,8 +2661,13 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    # `internal` controls default visibility, not access — task visibility (applied above) is the real
+    # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
+    # and the default excludes internal tasks so the main task list stays clean.
     internal_param = filters.get("internal")
-    if internal_param is True and is_debug_or_staff:
+    if internal_param == "all":
+        pass
+    elif internal_param == "true":
         qs = qs.filter(internal=True)
     else:
         qs = qs.filter(internal=False)
@@ -2671,13 +2712,9 @@ def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDe
     return dtos
 
 
-def list_tasks(
-    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> list[contracts.TaskDetailDTO]:
+def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(
-        _list_tasks_queryset(team_id, user_id, filters=filters, is_debug_or_staff=is_debug_or_staff), team_id
-    )
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
@@ -2843,6 +2880,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
+    """Set a task's title, team-scoped. For automated relabels — e.g. backfilling a Signals research
+    task with ``"Research: <report title>"`` once research produces the title. Leaves
+    ``title_manually_set`` untouched (this isn't a user edit) and clamps to the column length. Returns
+    whether a row was updated.
+    """
+    return bool(Task.objects.filter(id=task_id, team_id=team_id).update(title=title[:255]))
 
 
 def update_task(
@@ -3305,12 +3351,7 @@ def run_task(
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        if prev_state.snapshot_external_id:
-            extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
-            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
-            snapshot_mount_path = prev_state.resume_snapshot_mount_path()
-            if snapshot_mount_path is not None:
-                extra_state["snapshot_mount_path"] = snapshot_mount_path
+        extra_state.update(prev_state.resume_snapshot_carry_state())
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

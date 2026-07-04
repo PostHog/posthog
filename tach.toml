@@ -43,6 +43,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_tools",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -81,6 +82,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
     "products.engineering_analytics",
@@ -220,6 +222,7 @@ depends_on = [
     "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -267,9 +270,28 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.demo"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.early_access_features"
 depends_on = [
     "posthog",
+    "ee",
     "products.feature_flags",
 ]
 layer = "modules"
@@ -719,7 +741,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -808,19 +830,6 @@ expose = [
 from = [
     "products.warehouse_sources",
 ]
-
-# data_modeling — facade landed; external consumers route through backend.facade.* now.
-# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
-# model-migration) that reference the historical model classes directly and cannot route
-# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
-[[interfaces]]
-expose = [
-    "backend\\.models.*",
-]
-from = [
-    "products.data_modeling",
-]
-
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
 # webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated

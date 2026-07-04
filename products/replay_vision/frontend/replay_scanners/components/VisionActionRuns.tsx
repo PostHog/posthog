@@ -94,7 +94,7 @@ export function VisionActionRuns(): JSX.Element {
         {
             title: 'Status',
             key: 'status',
-            render: (_, run) => <RunStatusTag status={run.status} />,
+            render: (_, run) => <RunStatusTag status={run.status} reason={run.error_reason} />,
         },
         {
             title: 'Observations',

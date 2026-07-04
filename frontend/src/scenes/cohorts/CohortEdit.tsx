@@ -152,7 +152,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         cohort,
         cohortLoading,
         cohortMissing,
-        query,
+        effectiveQuery,
         creationPersonQuery,
         personsToCreateStaticCohort,
         canRemovePersonFromCohort,
@@ -168,7 +168,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
-    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
 
     const cohortId = typeof cohort.id === 'number' ? cohort.id : null
@@ -716,7 +716,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 </div>
                                             ) : (
                                                 <Query
-                                                    query={query}
+                                                    query={effectiveQuery}
                                                     setQuery={setQuery}
                                                     context={{
                                                         refresh: 'force_blocking',
