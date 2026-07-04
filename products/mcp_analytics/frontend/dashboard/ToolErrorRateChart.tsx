@@ -10,6 +10,7 @@ import {
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
+import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
@@ -49,7 +50,7 @@ export function ToolErrorRateChart({
         ],
         [sorted, theme]
     )
-    const config = useMemo<BarChartConfig>(() => {
+    const config = useChartConfig<BarChartConfig>(() => {
         const axisMax = niceErrorAxisMax(sorted[0]?.error_rate_pct ?? 0)
         return {
             axisOrientation: 'horizontal',
