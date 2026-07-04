@@ -1349,7 +1349,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 self.assertIn("FROM events_json AS events", clickhouse)
                 self.assertIn(
-                    "if(isNull(events.properties.string), NULL, toString(events.properties.string)) AS string",
+                    "if(notEquals(toJSONString(events.properties.^string), '{}'), "
+                    "toJSONString(events.properties.^string), "
+                    "if(isNull(events.properties.string), NULL, "
+                    "if(startsWith(dynamicType(events.properties.string), 'DateTime'), "
+                    "replaceOne(toString(events.properties.string), ' ', 'T'), "
+                    "toString(events.properties.string)))) AS string",
                     clickhouse,
                 )
                 self.assertNotIn("JSONExtractRaw(events.properties,", clickhouse)
@@ -1362,8 +1367,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                self.assertIn("JSONExtractRaw(if(isNull(events.properties.array_str)", clickhouse)
-                self.assertIn("JSONExtractRaw(if(isNull(events.properties.obj_array.id)", clickhouse)
+                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^array_str)", clickhouse)
+                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^obj_array.id)", clickhouse)
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))

@@ -46,7 +46,9 @@ class TestQueryAiEvents:
         )
 
     def _make_result(self, results):
-        return Mock(results=results)
+        # The events fallback rewrites result.columns (restore_events_result_alias), so the mock
+        # needs a real list there like HogQLQueryResponse has.
+        return Mock(results=results, columns=[])
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_returns_ai_events_result_when_data_found(self, mock_execute):

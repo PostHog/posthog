@@ -47,7 +47,9 @@ from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumn
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
 from posthog.models.property import PropertyName, TableColumn
@@ -88,6 +90,9 @@ class MaterializedPropertySource:
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
     json_value_type: str | None = None
+    # Mat-column parity for typed JSON subcolumns: declared-String properties scrub '' to NULL like a
+    # non-nullable materialized column; declared-Nullable ones read bare.
+    scrub_empty: bool = False
 
 
 def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
@@ -173,12 +178,12 @@ def resolve_json_subcolumn_source(
     if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
         return None
     json_subcolumns_by_field = {
-        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+        "properties": (EVENTS_PROPERTIES_JSON_SUBCOLUMNS, EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES),
+        "person_properties": (PERSON_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES),
     }
-    subcolumns = json_subcolumns_by_field.get(field_name)
-    if subcolumns is None:
+    if field_name not in json_subcolumns_by_field:
         return None
+    subcolumns, declared_types = json_subcolumns_by_field[field_name]
 
     column_type = subcolumns.get(property_name)
     if column_type is None:
@@ -194,6 +199,7 @@ def resolve_json_subcolumn_source(
         column=property_name,
         is_nullable=column_type.startswith("Nullable("),
         column_type=column_type,
+        scrub_empty=not declared_types[property_name].startswith("Nullable("),
     )
 
 
@@ -376,8 +382,8 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
         name="replaceOne",
         args=[
             ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            _const(" "),
-            _const("T"),
+            _sentinel(" "),
+            _sentinel("T"),
         ],
         type=ast.StringType(nullable=False),
     )
@@ -385,7 +391,7 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
     if as_json:
         datetime_expr = ast.Call(
             name="concat",
-            args=[_const('"'), datetime_string, _const('"')],
+            args=[_sentinel('"'), datetime_string, _sentinel('"')],
             type=ast.StringType(nullable=False),
         )
     else:
@@ -394,7 +400,9 @@ def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.E
     return ast.Call(
         name="if",
         args=[
-            ast.Call(name="startsWith", args=[dynamic_type, _const("DateTime")], type=ast.BooleanType(nullable=False)),
+            ast.Call(
+                name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
+            ),
             datetime_expr,
             ast.Call(
                 name="toJSONString" if as_json else "toString",
@@ -438,7 +446,7 @@ def _json_subcolumn_value_expr(
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
     if _is_dynamic_json_source(source):
         object_value = _dynamic_json_object_string_expr(field_type, keys, source=source)
-        object_present = _call("notEquals", [clone_expr(object_value), _const("{}")])
+        object_present = _call("notEquals", [clone_expr(object_value), _sentinel("{}")])
         scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
         scalar_or_null = ast.Call(
             name="if",
@@ -458,9 +466,12 @@ def _json_subcolumn_value_expr(
             ],
             type=ast.StringType(nullable=True),
         )
-    if source.is_nullable or not _is_string_column(source):
+    if not _is_string_column(source) or not source.scrub_empty:
         return value
 
+    # Declared-String subcolumns scrub like non-nullable materialized columns — '' (and the 'null'
+    # sentinel) read as NULL — so both schemas agree on missing-value reads. Declared-Nullable ones
+    # read bare above, like nullable materialized columns.
     scrubbed_empty = ast.Call(name="nullIf", args=[value, _sentinel("")])
     if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
         return scrubbed_empty
@@ -980,7 +991,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 "or",
                 [
                     _call("isNotNull", [subcolumn]),
-                    _call("notEquals", [object_value, _const("{}")]),
+                    _call("notEquals", [object_value, _sentinel("{}")]),
                 ],
             )
         if source.is_nullable or _is_dynamic_json_source(source):

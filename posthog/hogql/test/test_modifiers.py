@@ -37,7 +37,9 @@ class TestModifiers(BaseTest):
 
     def _expected_events_person_properties_column(self) -> str:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return "toString(events.person_properties) AS properties"
+            # Whole-blob person_properties reads are reconstructed from the JSON column; assert the
+            # reconstruction reads the on-events column rather than pinning the full expression.
+            return "JSONAllPaths(events.person_properties)"
         return "events.person_properties AS properties"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -177,9 +179,10 @@ class TestModifiers(BaseTest):
                 pretty=False,
             ).clickhouse
             assert clickhouse_query is not None
-            assert f"SELECT {', '.join(test_case.expected_columns)} FROM" in clickhouse_query, (
-                f"PoE mode: {test_case.mode}"
-            )
+            # Columns are asserted individually: under the native-JSON schema the person_properties
+            # column prints as the whole-blob reconstruction, too large to pin as one SELECT string.
+            for expected_column in test_case.expected_columns:
+                assert expected_column in clickhouse_query, f"PoE mode: {test_case.mode}: {expected_column}"
             for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 

@@ -59,7 +59,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
-from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import (
+    EVENTS_JSON_DATA_TABLE,
+    EVENTS_PROPERTIES_JSON_PRESENT_PATHS,
+    PERSON_PROPERTIES_JSON_PRESENT_PATHS,
+)
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
@@ -122,15 +126,37 @@ class TestPrinter(BaseTest):
     def _events_table_ref(self) -> str:
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
+    def _json_reconstructed_blob(self, root: str) -> str:
+        present_paths = (
+            PERSON_PROPERTIES_JSON_PRESENT_PATHS(root)
+            if root.endswith("person_properties")
+            else EVENTS_PROPERTIES_JSON_PRESENT_PATHS(root)
+        )
+        top_level_paths = f"arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], {present_paths}))"
+        return (
+            "concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', "
+            + f"JSONExtractRaw(toJSONString({root}), path)), {top_level_paths}), ','), "
+            + "'}')"
+        )
+
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         if "%" in property_name:
-            return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(toString({root}), %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
-        field = f"{root}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
-        return f"if(isNull({field}), NULL, toString({field}))"
+            # '%' cannot appear in a subcolumn identifier, so the read falls back to a JSON extract
+            # over the reconstructed properties blob.
+            return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({self._json_reconstructed_blob(root)}, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
+        return self._json_dynamic_subcolumn_path_expr(root, [property_name])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
-        field = ".".join([root, *(escape_clickhouse_json_subcolumn_identifier(key) for key in property_path)])
-        return f"if(isNull({field}), NULL, toString({field}))"
+        escaped = [escape_clickhouse_json_subcolumn_identifier(key) for key in property_path]
+        field = ".".join([root, *escaped])
+        sub_object = f"{root}.^" + ".".join(escaped)
+        object_read = f"toJSONString({sub_object})"
+        scalar_read = (
+            f"if(isNull({field}), NULL, "
+            f"if(startsWith(dynamicType({field}), 'DateTime'), "
+            f"replaceOne(toString({field}), ' ', 'T'), toString({field})))"
+        )
+        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
@@ -812,8 +838,10 @@ class TestPrinter(BaseTest):
 
     def test_hogql_property_comparisons_use_active_storage_schema(self):
         context = HogQLContext(team_id=self.team.pk)
+        # The isNotNull guard keeps the comparison non-nullable while the bare column read stays
+        # skip-index eligible — same shape as nullable materialized columns on the legacy schema.
         expected_sql = (
-            "equals(events.properties.`$browser`, %(hogql_val_0)s)"
+            "and(equals(events.properties.`$browser`, %(hogql_val_0)s), isNotNull(events.properties.`$browser`))"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)"
         )
@@ -1219,10 +1247,10 @@ class TestPrinter(BaseTest):
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
         expected_by_expr = {
-            "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), %(hogql_val_0)s))",
+            "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
             "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
             "JSONHas(properties, '$browser')": "isNotNull(events.properties.`$browser`)",
-            "JSONHas(properties, 'metadata', 'score')": "or(isNotNull(events.properties.metadata.score), notEquals(toJSONString(events.properties.^metadata.score), %(hogql_val_0)s))",
+            "JSONHas(properties, 'metadata', 'score')": "or(isNotNull(events.properties.metadata.score), notEquals(toJSONString(events.properties.^metadata.score), '{}'))",
         }
         for expression, expected in expected_by_expr.items():
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3083,7 +3111,7 @@ class TestPrinter(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             other_prop_expr = self._json_dynamic_property_expr("other_prop")
             self.assertIn(f"ifNull(equals({other_prop_expr}, %({value_param_key})s), 0)", sql)
-            self.assertNotIn("JSONExtractRaw", sql)
+            self.assertNotIn("JSONExtractRaw(events.properties,", sql)
             mock_get_mat_col.assert_not_called()
         else:
             other_prop_param_key = next((k for k, v in context.values.items() if v == "other_prop"), None)
@@ -4810,9 +4838,17 @@ class TestPrinter(BaseTest):
                 "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
             ),
             (
+                # Under the JSON schema the property-access form keeps the resolver's generic
+                # nullable-comparison guard; it is redundant next to the uuid equality but does
+                # not block the uuid index.
                 "eq_property_access",
                 "properties.$session_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'",
-                "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
+                (
+                    "and(equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID'))), "
+                    "isNotNull(events.properties.`$session_id`))"
+                )
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+                else "equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull(%(hogql_val_0)s, 'UUID')))",
             ),
             (
                 "in_operation",
@@ -4962,8 +4998,15 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
-        field = f"{root}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
-        return f"if(isNull({field}), NULL, toString({field}))"
+        escaped = escape_clickhouse_json_subcolumn_identifier(property_name)
+        field = f"{root}.{escaped}"
+        object_read = f"toJSONString({root}.^{escaped})"
+        scalar_read = (
+            f"if(isNull({field}), NULL, "
+            f"if(startsWith(dynamicType({field}), 'DateTime'), "
+            f"replaceOne(toString({field}), ' ', 'T'), toString({field})))"
+        )
+        return f"if(notEquals({object_read}, '{{}}'), {object_read}, {scalar_read})"
 
     def _json_dynamic_property_expr(self, property_name: str, table_alias: str = "events") -> str:
         return self._json_dynamic_subcolumn_expr(f"{table_alias}.properties", property_name)
