@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 import { RefObject } from 'react'
 
+import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,7 +16,7 @@ import { escapeUnescapedRegex } from '~/toolbar/elements/heatmapToolbarMenuLogic
 import { ElementsEventType } from '~/toolbar/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { elementsStatsRetrieve } from 'products/product_analytics/frontend/generated/api'
+import { getElementsStatsRetrieveUrl } from 'products/product_analytics/frontend/generated/api'
 import type {
     ElementStatsResponseApi,
     ElementsStatsRetrieveParams,
@@ -30,6 +31,9 @@ export interface ClickmapBox {
     width: number
     height: number
     count: number
+    clickCount: number
+    rageclickCount: number
+    deadclickCount: number
     label: string
     selector: string
 }
@@ -83,10 +87,19 @@ export function buildElementStatsParams(
         date_from: commonFilters.date_from,
         date_to: commonFilters.date_to,
         filter_test_accounts: commonFilters.filter_test_accounts,
-        include: ['$autocapture'],
         limit: CLICKMAP_STATS_LIMIT,
         data_attributes: dataAttributes.join(','),
     } as unknown as ElementsStatsRetrieveParams
+}
+
+// repeated query params can't be expressed through the generated client's params
+// object (it stringifies arrays into one comma-joined value the endpoint rejects)
+const INCLUDE_EVENT_TYPES_SUFFIX = ['$autocapture', '$rageclick', '$dead_click']
+    .map((eventType) => `&include=${encodeURIComponent(eventType)}`)
+    .join('')
+
+function emptyCounts(): Pick<ClickmapBox, 'count' | 'clickCount' | 'rageclickCount' | 'deadclickCount'> {
+    return { count: 0, clickCount: 0, rageclickCount: 0, deadclickCount: 0 }
 }
 
 function describeElement(element: HTMLElement): { label: string; selector: string } {
@@ -103,27 +116,37 @@ export function computeClickmapBoxes(
     statsRows: ElementStatsResponseApi['results'],
     snapshotDocument: Document,
     snapshotWindow: { scrollX: number; scrollY: number } | null,
-    dataAttributes: string[]
+    dataAttributes: string[],
+    matchLinksByHref: boolean = false
 ): ClickmapBox[] {
     const pageElements = collectAllElementsDeep('*', snapshotDocument) as HTMLElement[]
     const domIndex = buildDOMIndex(pageElements)
-    const countsByElement = new Map<HTMLElement, number>()
+    const countsByElement = new Map<HTMLElement, ReturnType<typeof emptyCounts>>()
     for (const row of statsRows) {
         const match = matchEventToElementUsingIndex(
             row as unknown as ElementsEventType,
             dataAttributes,
-            false,
+            matchLinksByHref,
             domIndex
         )
         if (match) {
-            countsByElement.set(match.element, (countsByElement.get(match.element) ?? 0) + row.count)
+            const counts = countsByElement.get(match.element) ?? emptyCounts()
+            counts.count += row.count
+            if (row.type === '$rageclick') {
+                counts.rageclickCount += row.count
+            } else if (row.type === '$dead_click') {
+                counts.deadclickCount += row.count
+            } else {
+                counts.clickCount += row.count
+            }
+            countsByElement.set(match.element, counts)
         }
     }
 
     const scrollX = snapshotWindow?.scrollX ?? 0
     const scrollY = snapshotWindow?.scrollY ?? 0
     const boxes: ClickmapBox[] = []
-    countsByElement.forEach((count, element) => {
+    countsByElement.forEach((counts, element) => {
         const rect = element.getBoundingClientRect()
         if (rect.width > 0 && rect.height > 0) {
             boxes.push({
@@ -131,7 +154,7 @@ export function computeClickmapBoxes(
                 left: rect.left + scrollX,
                 width: rect.width,
                 height: rect.height,
-                count,
+                ...counts,
                 ...describeElement(element),
             })
         }
@@ -164,6 +187,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
     })),
     actions({
         setClickmapEnabled: (enabled: boolean) => ({ enabled }),
+        setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         selectClickmapBox: (key: string | null) => ({ key }),
         loadElementStats: true,
         maybeLoadElementStats: true,
@@ -175,6 +199,12 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             true,
             {
                 setClickmapEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        matchLinksByHref: [
+            false,
+            {
+                setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref,
             },
         ],
         clickmapBoxes: [
@@ -221,7 +251,10 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                         values.commonFilters,
                         values.wantedDataAttributes
                     )
-                    const response = await elementsStatsRetrieve(String(values.currentProjectId), params)
+                    const response = await api.get<ElementStatsResponseApi>(
+                        getElementsStatsRetrieveUrl(String(values.currentProjectId), params) +
+                            INCLUDE_EVENT_TYPES_SUFFIX
+                    )
                     breakpoint()
                     return response
                 },
@@ -245,6 +278,10 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             (s) => [s.clickmapBoxes],
             (clickmapBoxes) => clickmapBoxes.reduce((max, box) => Math.max(max, box.count), 0),
         ],
+        totalClickCount: [
+            (s) => [s.clickmapBoxes],
+            (clickmapBoxes) => clickmapBoxes.reduce((sum, box) => sum + box.count, 0),
+        ],
     }),
     listeners(({ actions, values, props }) => ({
         setClickmapEnabled: ({ enabled }) => {
@@ -261,6 +298,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         setReplayIframeData: () => actions.maybeLoadElementStats(),
         setReplayIframeDataURL: () => actions.maybeLoadElementStats(),
         setCommonFilters: () => actions.maybeLoadElementStats(),
+        setMatchLinksByHref: () => actions.recomputeClickmap(),
         setWindowWidthOverride: () => actions.recomputeClickmap(),
         onIframeLoad: () => {
             if (values.elementStats) {
@@ -287,7 +325,8 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 statsRows,
                 snapshotDocument,
                 iframe?.contentWindow ?? null,
-                values.wantedDataAttributes
+                values.wantedDataAttributes,
+                values.matchLinksByHref
             )
             posthog.capture('in-app heatmap clickmap rendered', {
                 stats_rows: statsRows.length,
