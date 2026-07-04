@@ -66,7 +66,11 @@ from products.exports.backend.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
-from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
+from products.pulse.backend.temporal.inputs import (
+    GENERATE_BRIEF_WORKFLOW_NAME,
+    GenerateBriefWorkflowInputs,
+    pulse_brief_workflow_id,
+)
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -102,6 +106,78 @@ def _build_outcome_assets(
             if result.success:
                 successful_asset_ids.append(result.exported_asset_id)
     return outcome_assets, successful_asset_ids
+
+
+def _salvage_recipient_results(error: BaseException) -> list[dict] | None:
+    """Recipient outcomes carried in non-retryable delivery errors (e.g. Slack missing
+    integration) — salvaged so the delivery history isn't empty on failure."""
+    if isinstance(error, ActivityError) and isinstance(error.cause, ApplicationError):
+        details = error.cause.details
+        if details and isinstance(details[0], dict):
+            recipient_results = details[0].get("recipient_results")
+            if isinstance(recipient_results, list):
+                return recipient_results
+    return None
+
+
+async def _finalize_delivery_and_schedule(
+    inputs: TrackedSubscriptionInputs,
+    *,
+    delivery_id: uuid.UUID | None,
+    final_status: str,
+    recipient_results: list[dict],
+    caught_error: BaseException | None,
+    exported_asset_ids: list[int] | None = None,
+    change_summary: str | None = None,
+    slo_resource_type: str | None = None,
+) -> None:
+    """Shared finally-block tail for every Process*Workflow (deterministic — control flow
+    plus activity calls only): finalize the delivery record with whatever state we have,
+    then advance the schedule for scheduled deliveries. The advance activity no-ops when
+    the subscription is disabled, so a just-auto-disabled sub doesn't get a misleading
+    future delivery date.
+
+    On the SLO stamp: auto-disable aborts return normally rather than raising, so they
+    record delivery status FAILED but keep the SLO outcome SUCCESS — a user-config
+    terminal state is not a platform failure. Genuine errors re-raise in the caller after
+    this returns (Temporal blocks activity scheduling in a finally block while an
+    exception is propagating), and SloInterceptor maps them to a FAILURE outcome.
+    """
+    if delivery_id is not None:
+        try:
+            await temporalio.workflow.execute_activity(
+                update_delivery_record,
+                UpdateDeliveryRecordInputs(
+                    delivery_id=delivery_id,
+                    status=final_status,
+                    exported_asset_ids=exported_asset_ids,
+                    recipient_results=recipient_results or None,
+                    change_summary=change_summary,
+                    error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                    if caught_error
+                    else None,
+                    finished=True,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+        except Exception:
+            temporalio.workflow.logger.exception(
+                "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
+            )
+            if caught_error is None:
+                raise
+
+    if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+        await temporalio.workflow.execute_activity(
+            advance_next_delivery_date,
+            inputs.subscription_id,
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+
+    if inputs.slo and slo_resource_type is not None:
+        inputs.slo.completion_properties.setdefault("resource_type", slo_resource_type)
 
 
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
@@ -373,55 +449,23 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
-            # Preserve recipient outcomes carried in non-retryable delivery errors
-            # (e.g. Slack missing integration) so history isn't empty on failure.
-            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
-                details = e.cause.details
-                if details and isinstance(details[0], dict):
-                    recipient_results = details[0].get("recipient_results")
-                    if isinstance(recipient_results, list):
-                        delivery_recipient_results = recipient_results
+            salvaged = _salvage_recipient_results(e)
+            if salvaged is not None:
+                delivery_recipient_results = salvaged
             caught_error = e
             final_status = DeliveryStatus.FAILED
             # Defer the re-raise until after the finally block — see note below.
 
         finally:
-            # Finalize delivery record with whatever state we have
-            if delivery_id is not None:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        update_delivery_record,
-                        UpdateDeliveryRecordInputs(
-                            delivery_id=delivery_id,
-                            status=final_status,
-                            exported_asset_ids=delivery_exported_asset_ids or None,
-                            recipient_results=delivery_recipient_results or None,
-                            change_summary=change_summary,
-                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                            if caught_error
-                            else None,
-                            finished=True,
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                    )
-                except Exception:
-                    temporalio.workflow.logger.exception(
-                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
-                    )
-                    if caught_error is None:
-                        raise
-
-            # Advance schedule — always for scheduled deliveries, even on failure.
-            # The activity itself no-ops when the subscription is disabled, so a
-            # just-auto-disabled sub doesn't get a misleading future delivery date.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
-                await temporalio.workflow.execute_activity(
-                    advance_next_delivery_date,
-                    inputs.subscription_id,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
+            await _finalize_delivery_and_schedule(
+                inputs,
+                delivery_id=delivery_id,
+                final_status=final_status,
+                recipient_results=delivery_recipient_results,
+                caught_error=caught_error,
+                exported_asset_ids=delivery_exported_asset_ids or None,
+                change_summary=change_summary,
+            )
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
@@ -448,9 +492,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 class ProcessAISubscriptionWorkflow(PostHogWorkflow):
     """Scheduled delivery for AI-prompt subs: create-record -> validate -> generate (LLM) -> deliver.
 
-    The lifecycle scaffolding mirrors ProcessSubscriptionWorkflow (only the middle phase
-    differs); keep the two in sync. Not a shared base — Temporal workflow classes can't
-    share run-method control flow without sandbox-determinism risk.
+    The error/finalize tails are shared with the other Process*Workflows via
+    `_salvage_recipient_results` / `_finalize_delivery_and_schedule`; the per-phase bodies
+    differ by design. Not a shared base — Temporal workflow classes can't share run-method
+    control flow without sandbox-determinism risk.
     """
 
     @staticmethod
@@ -543,60 +588,21 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
-            # Preserve recipient outcomes carried in non-retryable delivery errors so the
-            # delivery history isn't empty on failure (matches ProcessSubscriptionWorkflow).
-            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
-                details = e.cause.details
-                if details and isinstance(details[0], dict):
-                    recipient_results = details[0].get("recipient_results")
-                    if isinstance(recipient_results, list):
-                        delivery_recipient_results = recipient_results
+            salvaged = _salvage_recipient_results(e)
+            if salvaged is not None:
+                delivery_recipient_results = salvaged
             caught_error = e
             final_status = DeliveryStatus.FAILED
 
         finally:
-            if delivery_id is not None:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        update_delivery_record,
-                        UpdateDeliveryRecordInputs(
-                            delivery_id=delivery_id,
-                            status=final_status,
-                            recipient_results=delivery_recipient_results or None,
-                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                            if caught_error
-                            else None,
-                            finished=True,
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                    )
-                except Exception:
-                    temporalio.workflow.logger.exception(
-                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
-                    )
-                    if caught_error is None:
-                        raise
-
-            # Advance schedule for scheduled deliveries even on failure — the activity
-            # no-ops when the subscription is disabled, so a just-auto-disabled sub
-            # doesn't get a misleading future delivery date.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
-                await temporalio.workflow.execute_activity(
-                    advance_next_delivery_date,
-                    inputs.subscription_id,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
-
-            # Auto-disable aborts (consent revoked / prompt invalid) return normally rather
-            # than raising, so they record delivery status FAILED but keep the SLO outcome
-            # SUCCESS — a user-config terminal state is not a platform failure (matches the
-            # non-AI auto-disable convention). Genuine errors set caught_error and re-raise
-            # below; SloInterceptor maps the exception to a FAILURE outcome, same as
-            # ProcessSubscriptionWorkflow, so we don't set the outcome here.
-            if inputs.slo:
-                inputs.slo.completion_properties.setdefault("resource_type", AI_PROMPT_RESOURCE_TYPE)
+            await _finalize_delivery_and_schedule(
+                inputs,
+                delivery_id=delivery_id,
+                final_status=final_status,
+                recipient_results=delivery_recipient_results,
+                caught_error=caught_error,
+                slo_resource_type=AI_PROMPT_RESOURCE_TYPE,
+            )
 
         # Re-raise after cleanup completes — Temporal blocks activity scheduling in the
         # finally block while an exception is propagating.
@@ -609,9 +615,10 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
     """Scheduled delivery for Pulse brief subs: create-record -> validate -> prepare (brief
     row) -> generate (child pulse-generate-brief workflow) -> render -> deliver.
 
-    The lifecycle scaffolding mirrors ProcessAISubscriptionWorkflow (only the middle phases
-    differ); keep the two in sync. Not a shared base — Temporal workflow classes can't
-    share run-method control flow without sandbox-determinism risk.
+    The error/finalize tails are shared with the other Process*Workflows via
+    `_salvage_recipient_results` / `_finalize_delivery_and_schedule`; the per-phase bodies
+    differ by design. Not a shared base — Temporal workflow classes can't share run-method
+    control flow without sandbox-determinism risk.
     """
 
     @staticmethod
@@ -671,7 +678,8 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2: generate by executing the existing pulse workflow as a child, on its
-            # single-flight id (per team+config). A colliding run — e.g. an on-demand
+            # single-flight id (per team+config). One-shot synthesis: v1 does not re-generate
+            # a brief for the same delivery. A colliding run — e.g. an on-demand
             # generation started from the Pulse page — surfaces as WorkflowAlreadyStartedError:
             # skip this delivery rather than wait an unbounded time on someone else's run.
             # ABANDON: if this parent dies mid-generate, the brief still completes in-app.
@@ -684,7 +692,7 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
                         brief_config_id=prepare_result.config_id,
                         period_days=prepare_result.period_days,
                     ),
-                    id=f"pulse-brief-{inputs.team_id}-{prepare_result.config_id}",
+                    id=pulse_brief_workflow_id(inputs.team_id, prepare_result.config_id),
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=1),
                 )
@@ -742,56 +750,21 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
             final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
-            # Preserve recipient outcomes carried in non-retryable delivery errors so the
-            # delivery history isn't empty on failure (matches ProcessAISubscriptionWorkflow).
-            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
-                details = e.cause.details
-                if details and isinstance(details[0], dict):
-                    recipient_results = details[0].get("recipient_results")
-                    if isinstance(recipient_results, list):
-                        delivery_recipient_results = recipient_results
+            salvaged = _salvage_recipient_results(e)
+            if salvaged is not None:
+                delivery_recipient_results = salvaged
             caught_error = e
             final_status = DeliveryStatus.FAILED
 
         finally:
-            if delivery_id is not None:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        update_delivery_record,
-                        UpdateDeliveryRecordInputs(
-                            delivery_id=delivery_id,
-                            status=final_status,
-                            recipient_results=delivery_recipient_results or None,
-                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                            if caught_error
-                            else None,
-                            finished=True,
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                    )
-                except Exception:
-                    temporalio.workflow.logger.exception(
-                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
-                    )
-                    if caught_error is None:
-                        raise
-
-            # Advance schedule for scheduled deliveries even on failure — the activity
-            # no-ops when the subscription is disabled.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
-                await temporalio.workflow.execute_activity(
-                    advance_next_delivery_date,
-                    inputs.subscription_id,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
-
-            # Auto-disable aborts return normally (delivery FAILED, SLO SUCCESS — a
-            # user-config terminal state is not a platform failure); genuine errors re-raise
-            # below and SloInterceptor maps them to FAILURE. Matches the AI workflow.
-            if inputs.slo:
-                inputs.slo.completion_properties.setdefault("resource_type", PULSE_BRIEF_RESOURCE_TYPE)
+            await _finalize_delivery_and_schedule(
+                inputs,
+                delivery_id=delivery_id,
+                final_status=final_status,
+                recipient_results=delivery_recipient_results,
+                caught_error=caught_error,
+                slo_resource_type=PULSE_BRIEF_RESOURCE_TYPE,
+            )
 
         # Re-raise after cleanup completes — Temporal blocks activity scheduling in the
         # finally block while an exception is propagating.
