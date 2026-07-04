@@ -111,3 +111,41 @@ fn to_unix_timestamp_of_unparseable_string_is_null() {
     // The reference yields NaN, which serializes to null.
     assert_eq!(run(to_unix_timestamp_of(json!("not a date"))), Value::Null);
 }
+
+fn to_unix_timestamp_with_zone(ts: Value, push_zone: &[Value]) -> Vec<Value> {
+    let mut bc = vec![json!("_H"), json!(1), json!(OP_STRING), ts];
+    bc.extend_from_slice(push_zone);
+    bc.extend_from_slice(&[
+        json!(OP_CALL_GLOBAL),
+        json!("toUnixTimestamp"),
+        json!(2),
+        json!(OP_RETURN),
+    ]);
+    bc
+}
+
+#[test]
+fn to_unix_timestamp_null_zone_falls_back_to_utc() {
+    // The reference does `zone || 'UTC'`, so a null zone (an absent event
+    // property) parses the naive timestamp as UTC instead of erroring.
+    assert_eq!(
+        run(to_unix_timestamp_with_zone(
+            json!("2026-07-03T12:00:00"),
+            &[json!(OP_NULL)]
+        )),
+        json!(1783080000.0)
+    );
+}
+
+#[test]
+fn to_unix_timestamp_non_string_zone_is_null() {
+    // Any other non-string zone is an invalid luxon zone in the reference,
+    // yielding NaN — observably null — rather than an error.
+    assert_eq!(
+        run(to_unix_timestamp_with_zone(
+            json!("2026-07-03T12:00:00"),
+            &[json!(OP_INTEGER), json!(5)]
+        )),
+        Value::Null
+    );
+}

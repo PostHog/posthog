@@ -863,16 +863,6 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
-    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
-    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
-    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
-    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
-    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
-    /// top of the stack.
-    // `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
-    // either operand being null never matches (the reference's external matcher returns false), so
-    // `=~` is false and `!~` is true.
     // The reference VM applies JS arithmetic coercion, where null behaves as 0 (`5 - null` is
     // 5); real transformations do arithmetic on absent event properties.
     fn pop_arith_operand(&mut self) -> Result<Num, VmError> {
@@ -909,6 +899,9 @@ impl<'a> HogVM<'a> {
         }
     }
 
+    /// `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
+    /// either operand being null never matches (the reference's external matcher returns false), so
+    /// `=~` is false and `!~` is true.
     fn regex_op(&mut self, case_sensitive: bool, negate: bool) -> Result<(), VmError> {
         let val = self.pop_stack()?;
         let pat = self.pop_stack()?;
@@ -928,6 +921,13 @@ impl<'a> HogVM<'a> {
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
     }
 
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
+    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
+    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
+    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
+    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
+    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
+    /// top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         if !self.context.coerce_comparisons {
             // Legacy/reference path: both operands must be `Number` or this errors.

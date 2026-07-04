@@ -1899,8 +1899,15 @@ fn unix_timestamp_seconds(
     name: &str,
 ) -> Result<Option<f64>, VmError> {
     if let HogLiteral::String(s) = args[0].deref(&vm.heap)? {
+        // The reference does `zone || 'UTC'`, so a null zone (an absent event
+        // property) silently falls back to UTC; any other non-string zone is an
+        // invalid luxon zone there, yielding NaN — observably null.
         let zone = match args.get(1) {
-            Some(arg) => Some(arg.deref(&vm.heap)?.try_as::<str>()?.to_string()),
+            Some(arg) => match arg.deref(&vm.heap)? {
+                HogLiteral::String(z) => Some(z.clone()),
+                HogLiteral::Null => None,
+                _ => return Ok(None),
+            },
             None => None,
         };
         return Ok(parse_datetime_to_seconds(s, zone.as_deref()).ok());
