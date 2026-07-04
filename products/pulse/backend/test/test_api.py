@@ -5,12 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig, ProductBrief
 
 
@@ -100,11 +102,21 @@ class TestPulseAPI(APIBaseTest):
         assert str(other_brief.id) not in [row["id"] for row in response.json()["results"]]
 
     def test_config_crud_roundtrip(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        goal_insight = Insight.objects.create(team=self.team, name="Subscriptions created")
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "Feature flags focus", "focus_prompt": "flags team", "anchors": {"insights": ["abc123"]}},
+            {
+                "name": "Feature flags focus",
+                "focus_prompt": "flags team",
+                "anchors": {"insights": ["abc123"]},
+                "goal": "Increase subscription usage",
+                "goal_metric": {"insight_short_id": goal_insight.short_id},
+            },
+            format="json",
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        assert create_response.json()["goal"] == "Increase subscription usage"
+        assert create_response.json()["goal_metric"] == {"insight_short_id": goal_insight.short_id}
         config_id = create_response.json()["id"]
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/")
@@ -112,10 +124,13 @@ class TestPulseAPI(APIBaseTest):
         assert [row["id"] for row in list_response.json()["results"]] == [config_id]
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/", {"name": "Renamed"}
+            f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/",
+            {"name": "Renamed", "goal_metric": None},
+            format="json",
         )
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["name"] == "Renamed"
+        assert patch_response.json()["goal_metric"] is None
 
         with team_scope(self.team.pk, canonical=True):
             brief = ProductBrief.objects.create(
@@ -155,3 +170,38 @@ class TestPulseAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "focus_prompt"
+
+    @parameterized.expand(
+        [
+            ("not_a_dict", "increase usage"),
+            ("missing_short_id", {}),
+            ("blank_short_id", {"insight_short_id": ""}),
+            ("null_short_id", {"insight_short_id": None}),
+        ]
+    )
+    def test_config_rejects_invalid_goal_metric_shape(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock, _name: str, goal_metric: object
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Goals", "goal": "grow", "goal_metric": goal_metric},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"].startswith("goal_metric")
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
+
+    def test_config_rejects_goal_metric_insight_not_in_team(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign_insight = Insight.objects.create(team=other_team, name="Foreign")
+        for short_id in [foreign_insight.short_id, "missing1"]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/pulse/brief_configs/",
+                {"name": "Goals", "goal": "grow", "goal_metric": {"insight_short_id": short_id}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, short_id
+            assert "does not exist or does not belong to your team" in str(response.json())
+        assert not BriefConfig.objects.for_team(self.team.pk).exists()
