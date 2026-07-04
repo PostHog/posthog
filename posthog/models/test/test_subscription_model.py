@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -85,6 +86,11 @@ class TestSubscription(BaseTest):
                 lambda self: self._create_subscription(prompt="Summarize signups"),
                 Subscription.ResourceType.AI_PROMPT,
             ),
+            (
+                "pulse_brief_config_no_relation",
+                lambda self: self._create_subscription(pulse_brief_config_id=uuid.uuid4()),
+                Subscription.ResourceType.PULSE_BRIEF,
+            ),
         ]
     )
     def test_resource_type_derived_from_relation(
@@ -103,20 +109,27 @@ class TestSubscription(BaseTest):
 
     @parameterized.expand(
         [
-            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
-            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
-            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
-            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+            ("insight", 1, None, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", None, Subscription.ResourceType.AI_PROMPT),
+            ("pulse_brief", None, None, None, uuid.uuid4(), Subscription.ResourceType.PULSE_BRIEF),
+            ("insight_takes_precedence", 1, 2, "ignored", uuid.uuid4(), Subscription.ResourceType.INSIGHT),
         ]
     )
     def test_derive_resource_type(
-        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+        self,
+        _name: str,
+        insight_id: int | None,
+        dashboard_id: int | None,
+        prompt: str | None,
+        pulse_brief_config_id: "uuid.UUID | None",
+        expected: str,
     ):
-        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt, pulse_brief_config_id) == expected
 
     @parameterized.expand([("all_none", None), ("empty_prompt", "")])
     def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
-        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+        with pytest.raises(ValueError, match="no insight, dashboard, prompt, or brief config"):
             Subscription.derive_resource_type(None, None, prompt)
 
     def test_update_next_delivery_date_on_save(self):

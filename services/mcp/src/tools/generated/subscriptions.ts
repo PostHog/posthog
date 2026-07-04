@@ -38,6 +38,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.pulse_brief_config_id !== undefined) {
+            body['pulse_brief_config_id'] = params.pulse_brief_config_id
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -211,6 +214,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.pulse_brief_config_id !== undefined) {
+            body['pulse_brief_config_id'] = params.pulse_brief_config_id
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

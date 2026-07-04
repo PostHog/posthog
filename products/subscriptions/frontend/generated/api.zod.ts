@@ -43,6 +43,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        pulse_brief_config_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
+            ),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -162,6 +168,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        pulse_brief_config_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
+            ),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -280,6 +292,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+            ),
+        pulse_brief_config_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
             ),
         target_type: zod
             .enum(['email', 'slack'])
