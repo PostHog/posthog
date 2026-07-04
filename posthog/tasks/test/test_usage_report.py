@@ -4024,6 +4024,33 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         mock_instance_group_type_index.assert_called_once_with(1)
         mock_sync_execute.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("dev", "DEV"),
+            ("none", None),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.sync_execute")
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_returns_no_rows_for_non_cloud_region(
+        self,
+        _name: str,
+        region: str | None,
+        mock_region: MagicMock,
+        mock_sync_execute: MagicMock,
+    ) -> None:
+        # DEV/staging (and an unset region under TEST) have no prod team to attribute AI-billing
+        # events to, so we must return early rather than KeyError on CLOUD_REGION_TO_TEAM_ID.
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = region
+        period_start, period_end = get_previous_day(at=now() + relativedelta(days=1))
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(result, [])
+        mock_sync_execute.assert_not_called()
+
     @patch("posthog.tasks.usage_report.get_ai_billing_instance_group_type_index", return_value=1)
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_uses_correct_team_for_us_region(

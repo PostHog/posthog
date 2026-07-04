@@ -1348,12 +1348,13 @@ def _get_teams_with_ai_credits_for_products(
     """
     region = get_instance_region()
 
-    if region is None:
-        # In production, we want to fail fast if region is not set
-        # In non-production environments (e.g., tests), we can return gracefully
+    if region is None or region not in CLOUD_REGION_TO_TEAM_ID:
+        # In production, we want to fail fast if region is not a real cloud region (US/EU)
+        # In non-production environments (e.g., tests, DEV/staging), we can return gracefully
+        # since there's no prod team to attribute AI-billing events to
         from posthog.settings import TEST
 
-        if not TEST:
+        if not TEST and region is None:
             assert region is not None, "Region must be set in production infrastructure"
         return []
 
