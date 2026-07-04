@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -6,20 +7,33 @@ import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/g
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, OpportunityApi, OpportunityStatusEnumApi, ProductBriefApi } from './generated/api.schemas'
+import type {
+    BriefConfigApi,
+    OpportunityApi,
+    OpportunityStatusEnumApi,
+    ProductBriefApi,
+    ProposedExperimentApi,
+} from './generated/api.schemas'
 import {
     BRIEF_ALREADY_GENERATING_MESSAGE,
     CITATION_TYPES,
     MAX_CONSECUTIVE_POLL_FAILURES,
+    formatProposedExperiment,
     parseOpportunityEvidence,
     pulseLogic,
     transitionsForStatus,
 } from './pulseLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn(async () => true),
+}))
+const { copyToClipboard } = jest.requireMock('lib/utils/copyToClipboard')
 
 const generatingBrief = {
     id: 'brief-1',
@@ -59,10 +73,18 @@ const openOpportunity: OpportunityApi = {
     suggested_action: 'a',
     evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups' }],
     goal_relevant: false,
+    proposed_experiment: null,
     first_seen_brief: null,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
     updated_at: null,
+}
+
+const proposedExperiment: ProposedExperimentApi = {
+    hypothesis: 'Moving the entry point above the fold lifts subscription creation',
+    flag_key_suggestion: 'subscription-entry-point',
+    target_metric: { insight_short_id: 'abc123' },
+    variant_sketch: 'Control keeps the sidebar entry; test adds a button above the insights list.',
 }
 
 const existingConfig: BriefConfigApi = {
@@ -110,6 +132,7 @@ describe('pulseLogic', () => {
             },
         })
         initKeaTests()
+        copyToClipboard.mockClear()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PULSE], { [FEATURE_FLAGS.PULSE]: true })
         logic = pulseLogic()
@@ -582,6 +605,78 @@ describe('pulseLogic', () => {
             logic.actions.transitionOpportunity('opp-1', 'dismiss')
         }).toFinishAllListeners()
         expect(requests).toEqual(1)
+    })
+
+    it('marks the opportunity acted, copies the proposal, then navigates to the new-experiment page', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/acted/': () => [
+                    200,
+                    { ...openOpportunity, proposed_experiment: proposedExperiment, status: 'acted' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([{ ...openOpportunity, proposed_experiment: proposedExperiment }])
+
+        await expectLogic(logic, () => {
+            logic.actions.createExperimentFromOpportunity('opp-1')
+        })
+            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionSucceeded'])
+            .toMatchValues({ transitionsInFlight: {} })
+
+        // The acted transition landed before the navigation, so accountability re-scores it.
+        expect(logic.values.opportunities[0].status).toEqual('acted')
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            formatProposedExperiment(proposedExperiment),
+            'experiment proposal'
+        )
+        // The router prefixes the current project, so assert the app path suffix.
+        expect(router.values.location.pathname.endsWith(urls.experiment('new'))).toBe(true)
+    })
+
+    it('stays on the scene and keeps the row open when the acted transition fails', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        const pathBefore = router.values.location.pathname
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/acted/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid', detail: 'This opportunity is acted.', attr: null },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([{ ...openOpportunity, proposed_experiment: proposedExperiment }])
+
+        await expectLogic(logic, () => {
+            logic.actions.createExperimentFromOpportunity('opp-1')
+        })
+            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionFailed'])
+            .toMatchValues({ transitionsInFlight: {} })
+
+        expect(logic.values.opportunities[0].status).toEqual('open')
+        expect(router.values.location.pathname).toEqual(pathBefore)
+        expect(errorSpy).toHaveBeenCalledWith('This opportunity is acted.')
+    })
+
+    it('ignores a create-experiment click for a row without a proposal', async () => {
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/acted/': () => {
+                    requests += 1
+                    return [200, { ...openOpportunity, status: 'acted' }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.createExperimentFromOpportunity('opp-1')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(0)
     })
 
     it('loads opportunities on first switch to the tab only', async () => {

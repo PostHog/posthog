@@ -19,6 +19,7 @@ import { getDefaultSubscriptionStartDate, validateEmailTargetValue } from 'lib/c
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +46,7 @@ import type {
     ProductBriefApi,
     ProductBriefApiSectionsItem,
     ProductBriefListApi,
+    ProposedExperimentApi,
 } from './generated/api.schemas'
 import { OpportunityStatusEnumApi, ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
@@ -107,6 +109,21 @@ export const CITATION_TYPES: Record<
 export type PulseTab = 'briefs' | 'opportunities'
 
 export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
+
+/** What a row can have in flight: a plain lifecycle transition, or the create-experiment flow
+ * (an acted transition followed by a navigation) — distinct so only its own button spinners. */
+export type OpportunityRowAction = OpportunityTransition | 'create_experiment'
+
+/** The clipboard payload for the new-experiment form. The experiments creation URL prefills
+ * nothing usable today (name is gated behind a metric param; hypothesis and flag key have no
+ * params at all — a prefill hook is the recorded ask), so the proposal travels via clipboard. */
+export function formatProposedExperiment(proposal: ProposedExperimentApi): string {
+    return [
+        `Hypothesis: ${proposal.hypothesis}`,
+        `Feature flag key: ${proposal.flag_key_suggestion}`,
+        `Variants: ${proposal.variant_sketch}`,
+    ].join('\n')
+}
 
 /** The lifecycle transitions in one table so endpoint, allowed source status, and button label can't drift. */
 export const OPPORTUNITY_TRANSITIONS: Record<
@@ -250,7 +267,8 @@ export const pulseLogic = kea<pulseLogicType>([
             opportunityId,
             transition,
         }),
-        opportunityTransitionStarted: (opportunityId: string, transition: OpportunityTransition) => ({
+        createExperimentFromOpportunity: (opportunityId: string) => ({ opportunityId }),
+        opportunityTransitionStarted: (opportunityId: string, transition: OpportunityRowAction) => ({
             opportunityId,
             transition,
         }),
@@ -395,7 +413,7 @@ export const pulseLogic = kea<pulseLogicType>([
         ],
         // Keyed by opportunity id so each row's buttons can spinner/disable independently.
         transitionsInFlight: [
-            {} as Record<string, OpportunityTransition>,
+            {} as Record<string, OpportunityRowAction>,
             {
                 opportunityTransitionStarted: (state, { opportunityId, transition }) => ({
                     ...state,
@@ -684,6 +702,32 @@ export const pulseLogic = kea<pulseLogicType>([
                     error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
                 )
             }
+        },
+        createExperimentFromOpportunity: async ({ opportunityId }) => {
+            if (opportunityId in values.transitionsInFlight) {
+                return // state-level double-submission guard; the row's buttons are also disabled
+            }
+            const proposal = values.opportunities.find((o) => o.id === opportunityId)?.proposed_experiment
+            if (!proposal) {
+                return // the button only renders with a proposal; a stale click is a no-op
+            }
+            actions.opportunityTransitionStarted(opportunityId, 'create_experiment')
+            try {
+                // The acted transition lands FIRST so accountability re-scores this opportunity
+                // even if the user abandons the experiment form after navigation.
+                const updated = await pulseOpportunitiesActedCreate(currentProjectId(), opportunityId)
+                actions.opportunityTransitionSucceeded(updated)
+            } catch (error) {
+                actions.opportunityTransitionFailed(opportunityId)
+                lemonToast.error(
+                    error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
+                )
+                return // don't leave the scene when the opportunity was not actually acted on
+            }
+            // No URL prefill exists on the new-experiment form (recorded ask) — hand the proposal
+            // over via clipboard so it can be pasted into the blank form.
+            await copyToClipboard(formatProposedExperiment(proposal), 'experiment proposal')
+            router.actions.push(urls.experiment('new'))
         },
         setActiveTab: ({ tab }) => {
             // Lazy first load — briefs are the default landing surface, so the opportunities
