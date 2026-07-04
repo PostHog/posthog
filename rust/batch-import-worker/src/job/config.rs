@@ -201,7 +201,11 @@ impl SourceConfig {
     ) -> Result<Box<dyn DataSource>, Error> {
         let staging_dir = context.config.staging_dir();
         let staging_max_bytes = context.config.staging_dir_max_bytes;
-        let staged_plaintext_max_bytes = context.config.staged_plaintext_max_bytes;
+        // The effective ceiling is always non-zero in temp-bucket mode: it caps the
+        // decompressed part size just below the S3 multipart wall so an oversized
+        // part pauses with the actionable message instead of an opaque S3 error.
+        // Irrelevant in local mode (no RemoteStaging is constructed).
+        let staged_plaintext_max_bytes = context.config.effective_plaintext_ceiling();
         // Fail fast on invalid staging config (e.g. temp_bucket without a bucket name)
         // before any source work starts. Only the compressed sources stage plaintext,
         // so only they receive the backend.

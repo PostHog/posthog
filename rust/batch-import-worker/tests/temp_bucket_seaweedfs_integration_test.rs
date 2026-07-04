@@ -46,14 +46,21 @@ fn gzip(data: &[u8]) -> Vec<u8> {
 }
 
 /// Probe SeaweedFS: a head on a missing key returns NotFound when reachable, and a
-/// transport error when the dev stack isn't running (in which case we skip).
+/// transport error when the dev stack isn't running. Unreachable is a silent skip
+/// locally (developer convenience) but a hard failure in CI, where the dev compose
+/// stack (including SeaweedFS) is always booted — a down store must produce a red
+/// build, never a silently-skipped green one.
 async fn seaweedfs_reachable(store: &Arc<dyn ObjectStore>) -> bool {
     let probe = object_store::path::Path::from("__reachability_probe__");
     let result = tokio::time::timeout(std::time::Duration::from_secs(3), store.head(&probe)).await;
-    matches!(
+    let reachable = matches!(
         result,
         Ok(Ok(_)) | Ok(Err(object_store::Error::NotFound { .. }))
-    )
+    );
+    if !reachable && std::env::var("CI").is_ok() {
+        panic!("SeaweedFS unreachable at {SEAWEEDFS_ENDPOINT} in CI — the dev stack must be up");
+    }
+    reachable
 }
 
 #[tokio::test]

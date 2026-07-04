@@ -1806,6 +1806,49 @@ mod remote_staging_tests {
     }
 
     #[tokio::test]
+    async fn flip_back_to_local_mid_part_resumes_byte_identical_from_offset() {
+        // The rollback direction of the flip guarantee: a part half-read under
+        // temp-bucket staging resumes at the same persisted byte offset under local
+        // streaming mode (STAGING_BACKEND flipped back), because both modes decode
+        // the identical plaintext stream.
+        let server = MockServer::start();
+        let _mock = mock_export(&server, BODY);
+
+        // Read a prefix under temp-bucket mode.
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let remote_src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(store, 0),
+        );
+        remote_src.prepare_for_job().await.unwrap();
+        let key = &remote_src.keys().await.unwrap()[0];
+        remote_src.prepare_key(key).await.unwrap();
+        let offset = 17u64; // deliberately mid-record
+        let prefix = remote_src.get_chunk(key, 0, offset).await.unwrap();
+        assert_eq!(prefix.len() as u64, offset);
+
+        // Flip back: a fresh local-mode source resumes from the persisted offset.
+        let local_staging = TempDir::new().unwrap();
+        let local_src = build_source(server.url("/export"), local_staging.path(), 1, None);
+        local_src.prepare_for_job().await.unwrap();
+        local_src.prepare_key(key).await.unwrap();
+        let suffix = local_src
+            .get_chunk(key, offset, BODY.len() as u64)
+            .await
+            .unwrap();
+
+        let mut reassembled = prefix;
+        reassembled.extend_from_slice(&suffix);
+        assert_eq!(
+            reassembled, BODY,
+            "no gap or overlap across the rollback flip"
+        );
+    }
+
+    #[tokio::test]
     async fn remote_empty_part_stages_empty_object_and_skips_redownload() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
