@@ -77,8 +77,6 @@ class TestResolver(BaseTest):
         )
 
     def test_resolve_deeply_nested_raises_query_error(self):
-        # A query nested deeper than Python's stack can handle must surface a clean QueryError,
-        # not an uncaught RecursionError that error tracking records as an engine failure.
         expr: ast.Expr = ast.Constant(value=1)
         for _ in range(2000):
             expr = ast.ArithmeticOperation(left=expr, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
