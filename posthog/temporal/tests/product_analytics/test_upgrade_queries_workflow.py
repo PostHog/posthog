@@ -214,6 +214,38 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         assert result.last_id == i8.id
 
     @pytest.mark.django_db
+    def test_get_insights_to_migrate_triggers_discovery_on_fresh_worker(self, activity_environment, team):
+        # Simulate a fresh worker process: LATEST_VERSIONS empty, discovery not yet run.
+        # Without the activity calling _discover_migrations() the query collapses to
+        # `WHERE ()` and Postgres raises a ProgrammingError.
+        setup_insights(team)
+        LATEST_VERSIONS.clear()
+        MIGRATIONS.clear()
+        schema_migrations_module._migrations_discovered = False
+
+        activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs())
+
+        assert schema_migrations_module._migrations_discovered
+        assert LATEST_VERSIONS  # discovery populated the real on-disk migrations
+
+    @pytest.mark.django_db
+    def test_get_insights_to_migrate_returns_empty_when_no_migrations(self, activity_environment, team, monkeypatch):
+        # Belt-and-suspenders guard: if discovery yields no versions, return empty
+        # rather than emitting `WHERE ()`.
+        setup_insights(team)
+        LATEST_VERSIONS.clear()
+        MIGRATIONS.clear()
+        monkeypatch.setattr(
+            "posthog.temporal.product_analytics.upgrade_queries_activities._discover_migrations",
+            lambda: None,
+        )
+
+        result = activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs())
+
+        assert result.insight_ids == []
+        assert result.last_id is None
+
+    @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):
         i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
         inputs = MigrateInsightsBatchActivityInputs(
