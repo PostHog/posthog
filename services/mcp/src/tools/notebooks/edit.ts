@@ -39,13 +39,17 @@ export const NotebookEditSchema = z
                 'one place in the notebook unless `replace_all` is true; if it appears in more ' +
                 'than one place, include more surrounding structure (e.g. pass the parent ' +
                 'paragraph instead of just the text node) to make it unique. To append to the ' +
-                'end of a notebook, pass the last paragraph with content — trailing empty ' +
-                'paragraphs are often identical and will cause an ambiguity error.'
+                'end of a notebook, pass the last paragraph with content (as `old_value`) and an ' +
+                'array `[thatParagraph, ...newNodes]` as `new_value` — trailing empty paragraphs ' +
+                'are often identical and will cause an ambiguity error.'
         ),
         new_value: Subtree.describe(
             'What to put in place of `old_value`. Pass a JSON value of the same shape — the whole ' +
                 'matched piece is replaced, so include every key you want preserved. Must be a JSON ' +
-                'object or array, not a primitive. Must differ from `old_value`.'
+                'object or array, not a primitive. Must differ from `old_value`. When `old_value` is ' +
+                'a single node inside a `content` array, an array `new_value` replaces that one node ' +
+                'with several sibling nodes (splice), which is how you insert or append blocks — e.g. ' +
+                '`old_value` = the last paragraph, `new_value` = `[thatParagraph, newParagraph]`.'
         ),
         replace_all: z
             .boolean()
@@ -84,19 +88,42 @@ function countMatches(tree: unknown, target: unknown): number {
 /**
  * Walks `tree` and replaces every subtree that deep-equals `target`.
  * When `replaceAll` is false, only the first match is replaced.
+ *
+ * When a matched node is an element of an array (e.g. a block inside a `content`
+ * array) and `replacement` is itself an array, the replacement is spliced in
+ * (flattened one level) rather than nested as a single element. This is what
+ * makes appending work: replace the last paragraph with `[lastParagraph, ...new]`
+ * to insert extra sibling nodes. Nesting the array instead would produce a child
+ * whose `.type` is undefined, which `Node.fromJSON` rejects.
  */
 function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceAll: boolean): T {
     let replaced = 0
+    const takeReplacement = (): unknown => {
+        replaced++
+        return structuredClone(replacement)
+    }
     const walk = (node: unknown): unknown => {
         if (isDeepStrictEqual(node, target)) {
             if (!replaceAll && replaced > 0) {
                 return node
             }
-            replaced++
-            return structuredClone(replacement)
+            return takeReplacement()
         }
         if (Array.isArray(node)) {
-            return node.map(walk)
+            const out: unknown[] = []
+            for (const child of node) {
+                if (isDeepStrictEqual(child, target) && (replaceAll || replaced === 0)) {
+                    const value = takeReplacement()
+                    if (Array.isArray(replacement)) {
+                        out.push(...(value as unknown[]))
+                    } else {
+                        out.push(value)
+                    }
+                } else {
+                    out.push(walk(child))
+                }
+            }
+            return out
         }
         if (node !== null && typeof node === 'object') {
             return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, walk(v)]))

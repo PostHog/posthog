@@ -273,6 +273,42 @@ describe('editHandler', () => {
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).not.toContain('"text":"duplicate"')
     })
 
+    it('appends sibling blocks when new_value is an array (splice, not nest)', async () => {
+        // Regression: replacing a single content-array node with an array `new_value`
+        // used to nest the array inside the content array, so `Node.fromJSON` saw a
+        // child with `.type === undefined` and threw "Unknown node type: undefined".
+        // The array must be spliced in, producing flat sibling blocks — this is the
+        // documented append path.
+        const updated = { short_id: 'aBcD1234', content: sampleDoc, version: 8, title: 'Original' }
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [{ ok: true, body: updated }],
+        }
+        const context = createMockContext(state)
+
+        await editHandler(context, {
+            short_id: 'aBcD1234',
+            old_value: { type: 'paragraph', content: [{ type: 'text', text: 'Second paragraph.' }] },
+            new_value: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Second paragraph.' }] },
+                { type: 'paragraph', content: [{ type: 'text', text: 'Appended paragraph.' }] },
+            ],
+        })
+
+        // Save succeeded (no parse error) and both the original and the new sibling survive.
+        expect(state.saveCalls).toHaveLength(1)
+        const savedContent = state.saveCalls[0]!.body.content as { content: Array<{ type: string }> }
+        expect(savedContent.content).toHaveLength(sampleDoc.content.length + 1)
+        const serialized = JSON.stringify(savedContent)
+        expect(serialized).toContain('Second paragraph.')
+        expect(serialized).toContain('Appended paragraph.')
+        // No nested array leaked into the content list.
+        expect(savedContent.content.every((node) => !Array.isArray(node))).toBe(true)
+    })
+
     it('lets server errors (e.g. 409 conflict) propagate verbatim for handleToolError to format', async () => {
         // The Django collab/save handler returns a 409 body that already
         // contains the latest version + the rebased steps the agent needs to
