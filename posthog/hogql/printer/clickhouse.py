@@ -38,7 +38,6 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_PRESENT_PATHS, PERSON_PROPERTIES_JSON_PRESENT_PATHS
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -522,18 +521,14 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        present_paths_expr = (
-            EVENTS_PROPERTIES_JSON_PRESENT_PATHS(field_sql)
-            if resolved_field.name == "properties"
-            else PERSON_PROPERTIES_JSON_PRESENT_PATHS(field_sql)
-        )
-        top_level_paths_expr = f"arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], {present_paths_expr}))"
+        # toJSONString on a JSON column emits `"path": null` for every declared-but-absent typed path.
+        # Real JSON nulls cannot exist in the column (dropped on ingest) and no typed path name contains
+        # a dot, so dropping top-level null values from a single serialization reproduces the original
+        # document — at a fraction of the cost of re-extracting each present path.
         return (
             "concat('{', arrayStringConcat("
-            "arrayMap(path -> concat(toJSONString(path), ':', JSONExtractRaw(toJSONString("
-            f"{field_sql}"
-            "), path)), "
-            f"{top_level_paths_expr}"
+            "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
+            f"arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))"
             "), ','), '}')"
         )
 

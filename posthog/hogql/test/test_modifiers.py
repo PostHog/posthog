@@ -39,7 +39,7 @@ class TestModifiers(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             # Whole-blob person_properties reads are reconstructed from the JSON column; assert the
             # reconstruction reads the on-events column rather than pinning the full expression.
-            return "JSONAllPaths(events.person_properties)"
+            return "JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))"
         return "events.person_properties AS properties"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)

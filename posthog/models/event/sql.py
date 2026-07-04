@@ -160,29 +160,6 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_typ
 )
 
 
-def _json_present_paths(properties_expr: str, subcolumns: dict[str, str]) -> str:
-    explicit_paths = ", ".join(_quote_clickhouse_string_literal(path) for path in subcolumns)
-    present_typed_paths = []
-    for path, column_type in subcolumns.items():
-        subcolumn = f"{properties_expr}.{_escape_clickhouse_identifier(path)}"
-        literal = _quote_clickhouse_string_literal(path)
-        if column_type.startswith("Nullable("):
-            present_typed_paths.append(f"if(isNotNull({subcolumn}), {literal}, '')")
-        else:
-            present_typed_paths.append(f"if(notEmpty({subcolumn}), {literal}, '')")
-
-    return (
-        "arrayConcat("
-        f"arrayFilter(path -> not(has([{explicit_paths}], path)), JSONAllPaths({properties_expr})), "
-        f"arrayFilter(path -> notEmpty(path), [{', '.join(present_typed_paths)}])"
-        ")"
-    )
-
-
-def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
-    return _json_present_paths(properties_expr, EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
-
-
 PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$app_version": "String",
     "$browser": "String",
@@ -211,10 +188,6 @@ PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
 PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = _nullable_json_subcolumn_types(
     PERSON_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES
 )
-
-
-def PERSON_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
-    return _json_present_paths(properties_expr, PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:

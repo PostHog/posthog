@@ -345,20 +345,16 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def property_paths_to_allow_list(property_paths: Optional[list[str]]) -> Optional[set[str]]:
-    if property_paths is None:
-        return None
-    return {path.split(".", 1)[0] for path in property_paths}
-
-
 def parse_properties(properties: str, allow_list: Optional[set[str]] = None) -> dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
+    if allow_list is None:
+        allow_list = set()
     props = json.loads(properties or "{}", parse_constant=lambda x: None)
     return {
         key: value.strip('"') if isinstance(value, str) else value
         for key, value in props.items()
-        if allow_list is None or key in allow_list
+        if not allow_list or key in allow_list
     }
 
 

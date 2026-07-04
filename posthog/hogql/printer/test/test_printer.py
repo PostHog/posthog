@@ -59,12 +59,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
-from posthog.models.event.sql import (
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_PROPERTIES_JSON_PRESENT_PATHS,
-    PERSON_PROPERTIES_JSON_PRESENT_PATHS,
-)
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -127,15 +124,9 @@ class TestPrinter(BaseTest):
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
     def _json_reconstructed_blob(self, root: str) -> str:
-        present_paths = (
-            PERSON_PROPERTIES_JSON_PRESENT_PATHS(root)
-            if root.endswith("person_properties")
-            else EVENTS_PROPERTIES_JSON_PRESENT_PATHS(root)
-        )
-        top_level_paths = f"arrayDistinct(arrayMap(path -> splitByChar('.', path)[1], {present_paths}))"
         return (
-            "concat('{', arrayStringConcat(arrayMap(path -> concat(toJSONString(path), ':', "
-            + f"JSONExtractRaw(toJSONString({root}), path)), {top_level_paths}), ','), "
+            "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
+            + f"arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString({root})))), ','), "
             + "'}')"
         )
 
@@ -168,12 +159,6 @@ class TestPrinter(BaseTest):
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             return expected_sql
         return expected_sql.replace("FROM events", f"FROM {self._events_table_ref()}")
-
-    def _schema_snapshot(self):
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
-        return self.snapshot
 
     def _assert_expr_error(
         self,
@@ -1256,7 +1241,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
             printed = self._expr(expression, context)
             self.assertEqual(printed, expected)
-            self.assertNotIn("JSONAllPaths", printed)
+            self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         with pytest.raises(QueryError, match="constant string property keys"):
@@ -1271,17 +1256,21 @@ class TestPrinter(BaseTest):
             "JSONExtractRaw(properties, 'custom_key')",
         ):
             printed = self._expr(expression, HogQLContext(team_id=self.team.pk, enable_select_queries=True))
-            self.assertNotIn("JSONAllPaths", printed, expression)
+            self.assertNotIn("JSONExtractKeysAndValuesRaw", printed, expression)
             self.assertIn("events.properties.^", printed, expression)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_to_json_string_filters_present_paths(self) -> None:
+    def test_new_events_schema_to_json_string_scrubs_absent_typed_paths(self) -> None:
         printed = self._expr("toJSONString(properties)")
 
-        self.assertIn("JSONAllPaths(events.properties)", printed)
-        self.assertIn("arrayMap(path -> splitByChar('.', path)[1]", printed)
-        self.assertIn("JSONExtractRaw(toJSONString(events.properties), path)", printed)
-        self.assertNotIn("toString(events.properties)", printed)
+        self.assertEqual(printed, self._json_reconstructed_blob("events.properties"))
+
+    def test_instance_setting_enables_new_events_schema(self) -> None:
+        # The production rollout lever is the instance setting, not the env var — a fresh context
+        # must pick up a runtime flip.
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", True):
+            sql = self._select("SELECT event FROM events")
+        self.assertIn("FROM events_json", sql)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
@@ -3613,7 +3602,7 @@ class TestPrinter(BaseTest):
             LIMIT {MAX_SELECT_RETURNED_ROWS}
         """
         )
-        assert printed == self._schema_snapshot()
+        assert printed == self.snapshot
 
     def test_print_hidden_aliases_timestamp(self):
         printed = self._print(
@@ -4365,7 +4354,7 @@ class TestPrinter(BaseTest):
             else:
                 assert "GLOBAL JOIN" not in printed
 
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self._schema_snapshot()
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4398,7 +4387,7 @@ class TestPrinter(BaseTest):
             else:
                 assert "GLOBAL JOIN" not in printed
 
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self._schema_snapshot()
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4430,7 +4419,7 @@ class TestPrinter(BaseTest):
                 assert "GLOBAL JOIN" not in printed  # Join #1
                 assert "GLOBAL LEFT JOIN" not in printed  # Join #2
 
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self._schema_snapshot()
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4461,7 +4450,7 @@ class TestPrinter(BaseTest):
             else:
                 assert "globalIn" not in printed
 
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self._schema_snapshot()
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand(
         [
@@ -4564,7 +4553,7 @@ class TestPrinter(BaseTest):
             else:
                 assert "GLOBAL INNER JOIN" not in printed
 
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self._schema_snapshot()
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4574,7 +4563,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         result = self._select("SELECT event FROM (SELECT * FROM events) AS sub", context)
 
-        assert clean_varying_query_parts(result, replace_all_numbers=False) == self._schema_snapshot()
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4592,7 +4581,7 @@ class TestPrinter(BaseTest):
             context,
         )
 
-        assert clean_varying_query_parts(result, replace_all_numbers=False) == self._schema_snapshot()
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4609,7 +4598,7 @@ class TestPrinter(BaseTest):
             context,
         )
 
-        assert clean_varying_query_parts(result, replace_all_numbers=False) == self._schema_snapshot()
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4626,7 +4615,7 @@ class TestPrinter(BaseTest):
             context,
         )
 
-        assert clean_varying_query_parts(result, replace_all_numbers=False) == self._schema_snapshot()
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot
 
     @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -4636,7 +4625,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
-        assert clean_varying_query_parts(result, replace_all_numbers=False) == self._schema_snapshot()
+        assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot
 
     def test_cte_with_alias_in_join_clickhouse(self):
         """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
@@ -5002,7 +4991,6 @@ class TestNewEventsSchemaDefaults(BaseTest):
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
-    allow_dual_schema_snapshots = True
 
     def setUp(self) -> None:
         super().setUp()

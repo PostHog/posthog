@@ -1,7 +1,5 @@
 from typing import cast
 
-from django.conf import settings
-
 from posthog.schema import (
     CachedSessionsTimelineQueryResponse,
     EventType,
@@ -17,8 +15,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_PRESENT_PATHS
-from posthog.models.event.util import parse_properties, property_paths_to_allow_list
+from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.util import parse_properties
 from posthog.utils import relative_date_parse
 
 
@@ -47,7 +45,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
-            event_field_prefix = ["event_source"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else []
+            event_field_prefix = ["event_source"] if use_new_events_schema() else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
@@ -68,7 +66,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if use_new_events_schema():
                 select_query = parse_select(
                     """
                     SELECT
@@ -77,7 +75,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         event_source.timestamp AS timestamp,
                         event_source.event,
                         toJSONString(event_source.properties) AS properties,
-                        {property_paths_expr} AS property_paths,
                         event_source.distinct_id,
                         event_source.elements_chain,
                         event_source.$session_id AS session_id,
@@ -87,9 +84,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     FROM events AS event_source
                     WHERE {event_conditions}
                     ORDER BY event_source.timestamp DESC
-                    LIMIT {event_limit_with_more}""".replace(
-                        "{property_paths_expr}", EVENTS_PROPERTIES_JSON_PRESENT_PATHS("event_source.properties")
-                    ),
+                    LIMIT {event_limit_with_more}""",
                     placeholders={
                         "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
                         "event_conditions": ast.And(exprs=event_conditions),
@@ -104,7 +99,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         timestamp AS timestamp,
                         event,
                         properties,
-                        NULL AS property_paths,
                         distinct_id,
                         elements_chain,
                         $session_id AS session_id,
@@ -131,7 +125,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     e.timestamp,
                     e.event,
                     e.properties,
-                    e.property_paths,
                     e.distinct_id,
                     e.elements_chain,
                     e.session_id AS formal_session_id,
@@ -179,7 +172,6 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             timestamp_parsed,
             event,
             properties_raw,
-            property_paths,
             distinct_id,
             elements_chain,
             formal_session_id,
@@ -197,9 +189,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     distinct_id=distinct_id,
                     event=event,
                     timestamp=timestamp_parsed.isoformat(),
-                    properties=parse_properties(
-                        properties_raw, allow_list=property_paths_to_allow_list(property_paths)
-                    ),
+                    properties=parse_properties(properties_raw),
                     elements_chain=elements_chain or None,
                     elements=ElementSerializer(chain_to_elements(elements_chain), many=True).data,
                 )
