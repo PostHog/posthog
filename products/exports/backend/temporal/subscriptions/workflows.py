@@ -33,6 +33,11 @@ from products.exports.backend.temporal.subscriptions.activities import (
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
+    mark_pulse_brief_generation_skipped,
+    prepare_pulse_brief_subscription,
+    render_pulse_brief_for_delivery,
+)
 from products.exports.backend.temporal.subscriptions.retry_policy import (
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
     SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
@@ -41,6 +46,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    PULSE_BRIEF_RESOURCE_TYPE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -48,8 +54,11 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    MarkPulseBriefSkippedInputs,
+    PreparePulseBriefInputs,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
+    RenderPulseBriefInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SnapshotInsightsInputs,
     SubscriptionInfo,
@@ -57,6 +66,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
+from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -140,12 +150,15 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     distinct_id=sub.distinct_id,
                 ),
             )
-            # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
-            # overlapping-duplicate guarantee per type.
+            # AI-prompt and pulse-brief subs run dedicated workflows; distinct child-ID
+            # prefixes keep the overlapping-duplicate guarantee per type.
             workflow: Callable[..., Coroutine[Any, Any, None]]
             if sub.resource_type == AI_PROMPT_RESOURCE_TYPE:
                 workflow = ProcessAISubscriptionWorkflow.run
                 child_id = f"process-ai-subscription-{sub.subscription_id}"
+            elif sub.resource_type == PULSE_BRIEF_RESOURCE_TYPE:
+                workflow = ProcessPulseSubscriptionWorkflow.run
+                child_id = f"process-pulse-subscription-{sub.subscription_id}"
             else:
                 workflow = ProcessSubscriptionWorkflow.run
                 child_id = f"process-subscription-{sub.subscription_id}"
@@ -591,6 +604,207 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             raise caught_error
 
 
+@temporalio.workflow.defn(name="process-pulse-subscription")
+class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
+    """Scheduled delivery for Pulse brief subs: create-record -> validate -> prepare (brief
+    row) -> generate (child pulse-generate-brief workflow) -> render -> deliver.
+
+    The lifecycle scaffolding mirrors ProcessAISubscriptionWorkflow (only the middle phases
+    differ); keep the two in sync. Not a shared base — Temporal workflow classes can't
+    share run-method control flow without sandbox-determinism risk.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> TrackedSubscriptionInputs:
+        loaded = json.loads(inputs[0])
+        return TrackedSubscriptionInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        delivery_id: uuid.UUID | None = None
+        final_status = DeliveryStatus.SKIPPED
+        delivery_recipient_results: list[dict] = []
+        delivery_error: dict | None = None
+        caught_error: BaseException | None = None
+
+        try:
+            delivery_id = await temporalio.workflow.execute_activity(
+                create_delivery_record,
+                CreateDeliveryRecordInputs(
+                    subscription_id=inputs.subscription_id,
+                    team_id=inputs.team_id,
+                    trigger_type=inputs.trigger_type,
+                    scheduled_at=inputs.scheduled_at,
+                    temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                    idempotency_key=str(temporalio.workflow.uuid4()),
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+
+            # Up-front validation: already-disabled (idempotency redispatch) or a permanently
+            # broken target (e.g. unsupported target_type) auto-disables and short-circuits.
+            abort_info = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                inputs.subscription_id,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=SUBSCRIPTION_VALIDATE_RETRY_POLICY,
+            )
+            if abort_info is not None:
+                # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient)
+                # → SKIPPED default. Matches ProcessAISubscriptionWorkflow.
+                if abort_info.failed_recipient is not None:
+                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    final_status = DeliveryStatus.FAILED
+                return
+
+            # Phase 1: re-check terminal gates (consent, config, creator) and create the
+            # ProductBrief row. Aborts have already auto-disabled the subscription.
+            prepare_result = await temporalio.workflow.execute_activity(
+                prepare_pulse_brief_subscription,
+                PreparePulseBriefInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+            if prepare_result.aborted:
+                delivery_recipient_results = _to_recipient_dicts(prepare_result.recipient_results)
+                final_status = DeliveryStatus.FAILED
+                return
+
+            # Phase 2: generate by executing the existing pulse workflow as a child, on its
+            # single-flight id (per team+config). A colliding run — e.g. an on-demand
+            # generation started from the Pulse page — surfaces as WorkflowAlreadyStartedError:
+            # skip this delivery rather than wait an unbounded time on someone else's run.
+            # ABANDON: if this parent dies mid-generate, the brief still completes in-app.
+            try:
+                await temporalio.workflow.execute_child_workflow(
+                    GENERATE_BRIEF_WORKFLOW_NAME,
+                    GenerateBriefWorkflowInputs(
+                        team_id=prepare_result.team_id,
+                        brief_id=prepare_result.brief_id,
+                        brief_config_id=prepare_result.config_id,
+                        period_days=prepare_result.period_days,
+                    ),
+                    id=f"pulse-brief-{prepare_result.team_id}-{prepare_result.config_id}",
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=1),
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.info(
+                    "process_pulse_subscription.generation_already_running",
+                    extra={"subscription_id": inputs.subscription_id, "brief_id": prepare_result.brief_id},
+                )
+                # Our brief row will never be filled — mark it FAILED so it doesn't strand
+                # in GENERATING (visible in-app with an honest error).
+                await temporalio.workflow.execute_activity(
+                    mark_pulse_brief_generation_skipped,
+                    MarkPulseBriefSkippedInputs(team_id=prepare_result.team_id, brief_id=prepare_result.brief_id),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
+                final_status = DeliveryStatus.SKIPPED
+                return
+            # A failing child (generation error) propagates to the except below: the child has
+            # already marked the brief FAILED, and a FAILED brief is never delivered (spec §7).
+
+            # Phase 3: render READY sections (or the one-line QUIET note) onto the delivery row.
+            render_result = await temporalio.workflow.execute_activity(
+                render_pulse_brief_for_delivery,
+                RenderPulseBriefInputs(
+                    subscription_id=inputs.subscription_id,
+                    team_id=prepare_result.team_id,
+                    brief_id=prepare_result.brief_id,
+                    delivery_id=delivery_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+            if not render_result.deliverable:
+                # Defensive: the child returned normally but the brief isn't READY/QUIET.
+                final_status = DeliveryStatus.FAILED
+                delivery_error = {
+                    "message": f"Brief was not deliverable (status: {render_result.brief_status})",
+                    "type": "BriefNotDeliverable",
+                }
+                return
+
+            # Phase 4: ship the persisted markdown. is_new only for target-change triggers.
+            is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
+            deliver_result = await temporalio.workflow.execute_activity(
+                deliver_subscription,
+                DeliverSubscriptionInputs(
+                    subscription_id=inputs.subscription_id,
+                    exported_asset_ids=[],
+                    total_insight_count=0,
+                    is_new_subscription_target=is_new,
+                    previous_value=inputs.previous_value,
+                    invite_message=inputs.invite_message,
+                    delivery_id=delivery_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
+            )
+            delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
+            final_status = DeliveryStatus.COMPLETED
+
+        except Exception as e:
+            # Preserve recipient outcomes carried in non-retryable delivery errors so the
+            # delivery history isn't empty on failure (matches ProcessAISubscriptionWorkflow).
+            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
+                details = e.cause.details
+                if details and isinstance(details[0], dict):
+                    recipient_results = details[0].get("recipient_results")
+                    if isinstance(recipient_results, list):
+                        delivery_recipient_results = recipient_results
+            caught_error = e
+            final_status = DeliveryStatus.FAILED
+
+        finally:
+            if delivery_id is not None:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        update_delivery_record,
+                        UpdateDeliveryRecordInputs(
+                            delivery_id=delivery_id,
+                            status=final_status,
+                            recipient_results=delivery_recipient_results or None,
+                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                            if caught_error
+                            else delivery_error,
+                            finished=True,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        raise
+
+            # Advance schedule for scheduled deliveries even on failure — the activity
+            # no-ops when the subscription is disabled.
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+                await temporalio.workflow.execute_activity(
+                    advance_next_delivery_date,
+                    inputs.subscription_id,
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
+
+            # Auto-disable aborts return normally (delivery FAILED, SLO SUCCESS — a
+            # user-config terminal state is not a platform failure); genuine errors re-raise
+            # below and SloInterceptor maps them to FAILURE. Matches the AI workflow.
+            if inputs.slo:
+                inputs.slo.completion_properties.setdefault("resource_type", PULSE_BRIEF_RESOURCE_TYPE)
+
+        # Re-raise after cleanup completes — Temporal blocks activity scheduling in the
+        # finally block while an exception is propagating.
+        if caught_error:
+            raise caught_error
+
+
 @temporalio.workflow.defn(name="handle-subscription-value-change")
 class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
     @staticmethod
@@ -616,12 +830,15 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 distinct_id=inputs.distinct_id,
             ),
         )
-        # Route AI-prompt subs (test delivery / target change) to the AI workflow, same
-        # as the scheduler fan-out.
+        # Route AI-prompt and pulse-brief subs (test delivery / target change) to their
+        # dedicated workflows, same as the scheduler fan-out.
         child_workflow: Callable[..., Coroutine[Any, Any, None]]
         if inputs.resource_type == AI_PROMPT_RESOURCE_TYPE:
             child_workflow = ProcessAISubscriptionWorkflow.run
             child_id = f"process-ai-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
+        elif inputs.resource_type == PULSE_BRIEF_RESOURCE_TYPE:
+            child_workflow = ProcessPulseSubscriptionWorkflow.run
+            child_id = f"process-pulse-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
         else:
             child_workflow = ProcessSubscriptionWorkflow.run
             child_id = f"process-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
