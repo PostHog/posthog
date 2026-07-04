@@ -1224,6 +1224,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
 
+            // A success ends the failure episode: the next failure for the same query is a
+            // new episode and should capture again, not be deduped against the previous one.
+            cache.lastFetchFailedDedupeKey = null
+
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
             const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
             // Only fire on the tab the user is actually looking at — every list runs the same
@@ -1251,13 +1255,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
             // Failures land on the same empty state as genuine no-matches, so without this
             // capture the "event exists but the backend blipped" case is invisible in prod.
-            // Gated on the active tab for the same reason as `taxonomic filter empty result`:
-            // every list runs the search in parallel, and background-tab failures the user
-            // never sees would inflate the metric.
-            if (!values.isActiveTab) {
+            // Only count failures the user can actually see: the current query (a stale
+            // out-of-order failure is rejected by `remoteResultsAreFresh` and never renders),
+            // a real typed search (mount loads with an empty query are a different signal),
+            // and the active tab — every list runs the search in parallel, and background-tab
+            // failures the user never sees would inflate the metric.
+            const trimmedQuery = searchQuery.trim()
+            if (!values.isActiveTab || searchQuery !== values.searchQuery || trimmedQuery.length === 0) {
                 return
             }
-            const dedupeKey = `${props.listGroupType}::${searchQuery.trim()}`
+            const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
             if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
                 cache.lastFetchFailedDedupeKey = dedupeKey
                 posthog.capture('taxonomic filter fetch failed', {
@@ -1265,7 +1272,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
                     ),
                     groupType: props.listGroupType,
-                    searchQuery: searchQuery.trim(),
+                    searchQuery: trimmedQuery,
                 })
             }
         },
