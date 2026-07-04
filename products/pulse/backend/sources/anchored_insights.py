@@ -43,6 +43,17 @@ def calculate_insight_results(insight: Insight, team: Team) -> list[Any]:
     return calculation.result if isinstance(calculation.result, list) else []
 
 
+def series_daily_values(series_result: Any, period_days: int) -> list[float] | None:
+    """Shape-check one calculation series and return its trailing 2×period_days daily values.
+
+    None means a non-trends result shape. Slices before float conversion so an insight with a
+    long history doesn't pay for converting the whole series.
+    """
+    if not isinstance(series_result, dict) or "data" not in series_result:
+        return None
+    return [float(v) for v in series_result["data"][-2 * period_days :]]
+
+
 def split_score_windows(values: list[float], period_days: int) -> tuple[list[float], list[float]] | None:
     """Trim a daily series to the last 2×period_days and split it into (baseline, current) halves.
 
@@ -108,9 +119,10 @@ class AnchoredInsightsSource:
         items: list[SourceItem] = []
         label = insight.name or insight.derived_name or ""
         for series_index, series_result in enumerate(calculate_insight_results(insight, team)):
-            if not isinstance(series_result, dict) or "data" not in series_result:
+            values = series_daily_values(series_result, period_days)
+            if values is None:
                 continue  # non-trends result shape — skip
-            windows = split_score_windows([float(v) for v in series_result["data"]], period_days)
+            windows = split_score_windows(values, period_days)
             if windows is None:
                 continue
             movement = score_movement(baseline=windows[0], current=windows[1])
