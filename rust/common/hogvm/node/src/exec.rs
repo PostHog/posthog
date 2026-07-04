@@ -59,7 +59,11 @@ fn run_chunk(tokens: &[Value], chunk: &[Value], max_steps: Option<usize>) -> Vec
         }
     };
 
-    let mut ctx = ExecutionContext::with_defaults(program).with_ext_fns(transformation_ext_fns());
+    // Coercing comparisons are the TS reference's semantics (unifyComparisonTypes): ordering
+    // coerces across number/string/boolean/null instead of erroring.
+    let mut ctx = ExecutionContext::with_defaults(program)
+        .with_ext_fns(transformation_ext_fns())
+        .with_coercing_comparisons();
     ctx.max_heap_size = MAX_HEAP_SIZE_BYTES;
     if let Some(max_steps) = max_steps {
         ctx.max_steps = max_steps;
@@ -183,6 +187,37 @@ mod tests {
     fn empty_program_errors_every_event() {
         let results = run_batch(&[], &[json!({})], false, None);
         assert!(results[0].error.is_some());
+    }
+
+    #[test]
+    fn comparisons_coerce_booleans_and_nulls_like_the_reference() {
+        // rev > 0 where rev is boolean (or-chains yield booleans): true coerces to 1.
+        let gt_true_zero = vec![
+            json!("_H"),
+            json!(1),
+            json!(33),
+            json!(0),
+            json!(29),
+            json!(13),
+            json!(38),
+        ];
+        let results = run_batch(&gt_true_zero, &[json!({})], false, None);
+        assert_eq!(results[0].error, None);
+        assert_eq!(results[0].result, Some(json!(true)));
+
+        // octet < 0 where octet is null: null coerces to 0.
+        let lt_zero_null = vec![
+            json!("_H"),
+            json!(1),
+            json!(33),
+            json!(0),
+            json!(31),
+            json!(15),
+            json!(38),
+        ];
+        let results = run_batch(&lt_zero_null, &[json!({})], false, None);
+        assert_eq!(results[0].error, None);
+        assert_eq!(results[0].result, Some(json!(false)));
     }
 
     #[test]
