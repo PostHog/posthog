@@ -62,11 +62,6 @@ impl PlaintextStream {
 /// key must not be observable via `size`/`read`.
 #[async_trait]
 pub trait StagingBackend: Send + Sync {
-    /// Prepare any per-job resources (e.g. create the staging directory). No-op by default.
-    async fn prepare_job(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
     /// Reclaim all staging for the job. Best-effort: failures are logged, not fatal.
     async fn cleanup_job(&self) -> Result<(), Error> {
         Ok(())
@@ -129,11 +124,10 @@ async fn stage_to_file(
 /// seek + `read_exact`.
 ///
 /// This is the byte-identity reference/oracle the temp-bucket backend is validated against
-/// — it is NOT the production `local_disk` path. With `STAGING_BACKEND=local_disk`
-/// (default) sources use the streaming `.raw` machinery (disk bounded by compressed size);
-/// routing through this materializing backend would regress disk usage to decompressed
-/// size. Kept as a full implementation so tests can compare backends and as a rollback
-/// option of last resort.
+/// — it is exercised only by tests and is NOT reachable from any `STAGING_BACKEND` value.
+/// With `STAGING_BACKEND=local_disk` (default) sources use the streaming `.raw` machinery
+/// (disk bounded by compressed size); routing through this materializing backend would
+/// regress disk usage to decompressed size.
 pub struct LocalDiskBackend {
     job_dir: PathBuf,
     // Sizes recorded at stage time, mirroring the sources' in-memory prepared-key map.
@@ -158,12 +152,6 @@ impl LocalDiskBackend {
 
 #[async_trait]
 impl StagingBackend for LocalDiskBackend {
-    async fn prepare_job(&self) -> Result<(), Error> {
-        tokio::fs::create_dir_all(&self.job_dir)
-            .await
-            .with_context(|| format!("Failed to create staging dir: {}", self.job_dir.display()))
-    }
-
     async fn cleanup_job(&self) -> Result<(), Error> {
         if let Err(e) = tokio::fs::remove_dir_all(&self.job_dir).await {
             if e.kind() != std::io::ErrorKind::NotFound {
