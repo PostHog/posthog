@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconBolt, IconClock, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
 import {
@@ -134,8 +134,10 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext } = useValues(mcpSessionsLogic)
+    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting, selectSession } =
+        useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId } =
+        useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
@@ -209,7 +211,11 @@ function SessionsListPanel(): JSX.Element {
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
                             {sessions.map((session) => (
                                 <li key={session.session_id}>
-                                    <MCPSessionPreview session={session} />
+                                    <MCPSessionPreview
+                                        session={session}
+                                        isActive={session.session_id === selectedSessionId}
+                                        onSelect={selectSession}
+                                    />
                                 </li>
                             ))}
                         </ul>
@@ -233,11 +239,15 @@ function SessionsListPanel(): JSX.Element {
     )
 }
 
-function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element {
-    const { selectSession } = useActions(mcpSessionsLogic)
-    const { selectedSessionId } = useValues(mcpSessionsLogic)
-    const isActive = session.session_id === selectedSessionId
-
+const MCPSessionPreview = memo(function MCPSessionPreview({
+    session,
+    isActive,
+    onSelect,
+}: {
+    session: MCPSessionApi
+    isActive: boolean
+    onSelect: (sessionId: string) => void
+}): JSX.Element {
     const personLabel = session.person_name || session.person_email
     const durationMs = sessionDurationMs(session.session_start, session.session_end)
 
@@ -246,7 +256,7 @@ function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element
             type="button"
             data-attr="mcp-session-preview"
             aria-pressed={isActive}
-            onClick={() => selectSession(session.session_id)}
+            onClick={() => onSelect(session.session_id)}
             className={cn(
                 'w-full text-left cursor-pointer border-l-2 px-2 py-1.5 text-xs flex flex-col gap-1',
                 isActive
@@ -284,4 +294,4 @@ function MCPSessionPreview({ session }: { session: MCPSessionApi }): JSX.Element
             </div>
         </button>
     )
-}
+})
