@@ -69,11 +69,6 @@ from posthog.models.utils import UUIDT
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
 
-# The resolver is a recursive visitor, so query nesting is bounded by Python's stack. Cap it well
-# below the point where a deep query would overflow the interpreter, so we can reject it with a
-# clean error instead of an uncaught RecursionError.
-MAX_QUERY_DEPTH = 100
-
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EMPTY_SCOPE = ast.SelectQueryType()
@@ -207,9 +202,7 @@ def resolve_types(
     try:
         return resolver.visit(node)
     except RecursionError:
-        # Backstop: the explicit MAX_QUERY_DEPTH guard normally fires first, but a very deep ambient
-        # stack can hit the interpreter limit before it. Still surface a clean query error.
-        raise QueryError(f"Query depth is too large, maximum AST depth is {MAX_QUERY_DEPTH}") from None
+        raise QueryError("Query is too deeply nested to process. Please simplify it.") from None
 
 
 def _select_type_columns(
@@ -287,7 +280,6 @@ class Resolver(CloningVisitor):
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
-        self._depth = 0
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -300,13 +292,7 @@ class Resolver(CloningVisitor):
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
-        if self._depth >= MAX_QUERY_DEPTH:
-            raise QueryError(f"Query depth is too large, maximum AST depth is {MAX_QUERY_DEPTH}")
-        self._depth += 1
-        try:
-            return super().visit(node)
-        finally:
-            self._depth -= 1
+        return super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes

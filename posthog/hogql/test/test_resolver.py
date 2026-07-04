@@ -32,7 +32,7 @@ from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
-from posthog.hogql.resolver import MAX_QUERY_DEPTH, ResolutionError, resolve_types
+from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
@@ -78,14 +78,14 @@ class TestResolver(BaseTest):
 
     def test_resolve_deeply_nested_raises_query_error(self):
         expr: ast.Expr = ast.Constant(value=1)
-        for _ in range(MAX_QUERY_DEPTH + 50):
+        for _ in range(2000):
             expr = ast.ArithmeticOperation(left=expr, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(
             str(context.exception),
-            f"Query depth is too large, maximum AST depth is {MAX_QUERY_DEPTH}",
+            "Query is too deeply nested to process. Please simplify it.",
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
