@@ -70,7 +70,14 @@ function ClickmapBoxInfo({
         <div className="deprecated-space-y-1 max-w-100">
             {box.label ? <div className="font-semibold">{box.label}</div> : null}
             <div className="font-mono text-xs text-muted-alt">{box.selector}</div>
-            <ElementClickStats count={box.count} totalCount={totalCount} rank={rank} />
+            <ElementClickStats
+                count={box.count}
+                totalCount={totalCount}
+                rank={rank}
+                clickCount={box.clickCount}
+                rageclickCount={box.rageclickCount}
+                deadclickCount={box.deadclickCount}
+            />
         </div>
     )
 }

@@ -1,15 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import {
-    IconCursorClick,
-    IconGear,
-    IconLaptop,
-    IconPhone,
-    IconTabletLandscape,
-    IconTabletPortrait,
-} from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -128,16 +121,13 @@ export function ViewportChooser(): JSX.Element {
 export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
-    clickmapEnabled,
-    onClickmapEnabledChange,
+    clickmapSettings,
 }: {
     captureMethod?: HeatmapType
     onCaptureMethodChange?: (type: HeatmapType) => void
-    clickmapEnabled?: boolean
-    onClickmapEnabledChange?: (enabled: boolean) => void
+    clickmapSettings?: JSX.Element
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-    const [isClickmapSettingsOpen, setIsClickmapSettingsOpen] = useState(false)
     const {
         heatmapFilters,
         heatmapColorPalette,
@@ -251,41 +241,7 @@ export function FilterPanel({
                             </LemonButton>
                         </Popover>
                     </div>
-                    {clickmapEnabled !== undefined && onClickmapEnabledChange && (
-                        <div className="mt-2 md:mt-0">
-                            <Popover
-                                overlay={
-                                    <div className="p-2 w-80 deprecated-space-y-2">
-                                        <LemonSwitch
-                                            checked={clickmapEnabled}
-                                            onChange={onClickmapEnabledChange}
-                                            label="Show clickmap"
-                                            size="small"
-                                        />
-                                        <div className="text-xs text-muted">
-                                            Overlay click counts on the elements users actually clicked.
-                                        </div>
-                                    </div>
-                                }
-                                visible={isClickmapSettingsOpen}
-                                onClickOutside={() => {
-                                    setIsClickmapSettingsOpen(false)
-                                }}
-                                placement="bottom"
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setIsClickmapSettingsOpen(!isClickmapSettingsOpen)}
-                                    icon={<IconCursorClick />}
-                                    tooltip="Clickmap settings"
-                                    data-attr="clickmap-settings"
-                                >
-                                    Clickmap settings
-                                </LemonButton>
-                            </Popover>
-                        </div>
-                    )}
+                    {clickmapSettings ? <div className="mt-2 md:mt-0">{clickmapSettings}</div> : null}
                     <div className="mt-2 md:mt-0">
                         <TestAccountFilter
                             size="small"
