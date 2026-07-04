@@ -12,6 +12,8 @@ interface CreateXAxisTickCallbackArgs {
 
 type TickMode =
     | { type: 'month' }
+    | { type: 'quarter' }
+    | { type: 'year' }
     | { type: 'day' }
     | { type: 'monthly'; visibleBoundaries: Set<number> }
     | { type: 'hourly' }
@@ -57,7 +59,13 @@ function pickMode(interval: TimeInterval, parsedDates: Dayjs[], first: Dayjs, la
     const spanMonths = (last.year() - first.year()) * 12 + last.month() - first.month()
     const spanDays = last.diff(first, 'day')
 
-    if (interval === 'month' || interval === 'quarter' || interval === 'year') {
+    if (interval === 'quarter') {
+        return { type: 'quarter' }
+    }
+    if (interval === 'year') {
+        return { type: 'year' }
+    }
+    if (interval === 'month') {
         return { type: 'month' }
     }
     if ((interval === 'day' || interval === 'week') && spanMonths >= 3) {
@@ -94,6 +102,10 @@ function formatTick(mode: TickMode, date: Dayjs, index: number): string {
         case 'month':
         case 'monthly':
             return formatMonthLabel(date)
+        case 'quarter':
+            return formatQuarterLabel(date)
+        case 'year':
+            return String(date.year())
         case 'day':
             return date.date() === 1 ? formatMonthLabel(date) : date.format('MMM D')
         case 'hourly-multi-day':
@@ -110,6 +122,14 @@ function formatMonthLabel(date: Dayjs): string {
     return date.format('MMMM')
 }
 
+// Mirrors formatMonthLabel's convention: the year marks the year boundary, "Q2".."Q4" otherwise.
+function formatQuarterLabel(date: Dayjs): string {
+    if (date.month() === 0) {
+        return String(date.year())
+    }
+    return `Q${Math.floor(date.month() / 3) + 1}`
+}
+
 function inferInterval(parsedDates: Dayjs[]): TimeInterval {
     if (parsedDates.length < 2) {
         return 'day'
@@ -122,6 +142,12 @@ function inferInterval(parsedDates: Dayjs[]): TimeInterval {
         return 'hour'
     }
     const diffDays = parsedDates[1].diff(parsedDates[0], 'day')
+    if (diffDays >= 300) {
+        return 'year'
+    }
+    if (diffDays >= 80) {
+        return 'quarter'
+    }
     if (diffDays >= 25) {
         return 'month'
     }
