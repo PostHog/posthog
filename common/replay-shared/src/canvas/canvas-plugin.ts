@@ -59,10 +59,37 @@ export type CanvasPluginErrorHandler = (error: unknown) => void
 
 const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
 
+type CanvasMutationCommand = { property: unknown; args?: unknown }
+
+function isCanvasMutationCommand(value: unknown): value is CanvasMutationCommand {
+    return typeof value === 'object' && value !== null && !(value instanceof Error) && 'property' in value
+}
+
+// rrweb's `canvasMutation` reports a failed command by handing the raw command
+// object (`{ property, args }`) to the error handler rather than a real `Error`.
+// Passing that straight to `captureException` makes the SDK synthesize an opaque,
+// unfingerprintable "Object captured as exception with keys: args, property" issue,
+// so coerce it into an `Error` keyed on the failing command for a stable message.
+function asCanvasReplayError(value: unknown): Error {
+    if (value instanceof Error) {
+        return value
+    }
+    if (isCanvasMutationCommand(value)) {
+        const property = typeof value.property === 'string' ? value.property : 'unknown'
+        const error = new Error(`Canvas replay failed to apply command: ${property}`)
+        error.name = 'CanvasReplayCommandError'
+        ;(error as Error & { cause?: unknown }).cause = value
+        return error
+    }
+    return new Error(typeof value === 'string' ? value : 'Canvas replay failed')
+}
+
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
     onError: CanvasPluginErrorHandler = noOpErrorHandler
 ): ReplayPlugin & { destroy: () => void } => {
+    const reportError = (error: unknown): void => onError(asCanvasReplayError(error))
+
     const canvases = new Map<number, HTMLCanvasElement>([])
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
@@ -86,7 +113,7 @@ export const CanvasReplayerPlugin = (
                     await processMutation(e, replayer)
                     handleQueue.delete(id)
                 } catch (e) {
-                    onError(e)
+                    reportError(e)
                 }
             })()
         })
@@ -228,7 +255,7 @@ export const CanvasReplayerPlugin = (
             imageMap,
             canvasEventMap,
             errorHandler: (error: unknown) => {
-                onError(error)
+                reportError(error)
             },
         })
 
@@ -390,7 +417,7 @@ export const CanvasReplayerPlugin = (
                 }
                 pruneBuffer(e)
             } else if (isCanvas) {
-                void processMutation(e, replayer).catch(onError)
+                void processMutation(e, replayer).catch(reportError)
             }
         },
 

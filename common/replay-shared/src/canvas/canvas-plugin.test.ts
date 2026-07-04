@@ -361,6 +361,48 @@ describe('CanvasReplayerPlugin', () => {
         })
     })
 
+    describe('error reporting', () => {
+        it('wraps a failed rrweb canvas command in a proper Error keyed on the command', async () => {
+            const onError = jest.fn()
+
+            // rrweb hands the raw failed command object to errorHandler, not an Error
+            ;(canvasMutation as jest.Mock).mockImplementationOnce(async ({ errorHandler }: any) => {
+                errorHandler({ property: 'drawImage', args: [{}, 0, 0] })
+            })
+
+            const canvas = document.createElement('canvas')
+            canvas.width = 300
+            canvas.height = 150
+            Object.defineProperty(canvas, 'clientWidth', { value: 0, configurable: true })
+            Object.defineProperty(canvas, 'clientHeight', { value: 0, configurable: true })
+
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 7,
+                    type: 0,
+                    commands: [{ property: 'drawImage', args: [{}, 0, 0] }],
+                },
+                timestamp: 1000,
+            }
+
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }) }
+
+            plugin.onBuild?.(canvas, { id: 7, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            const reported = onError.mock.calls[0][0]
+            expect(reported).toBeInstanceOf(Error)
+            expect(reported.name).toBe('CanvasReplayCommandError')
+            expect(reported.message).toBe('Canvas replay failed to apply command: drawImage')
+            expect(reported.cause).toEqual({ property: 'drawImage', args: [{}, 0, 0] })
+        })
+    })
+
     describe('target canvas sizing from snapshot mutations', () => {
         const makeCanvasEvent = (
             id: number,
