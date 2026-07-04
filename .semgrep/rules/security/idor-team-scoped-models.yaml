@@ -246,6 +246,8 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskThreadMessage
+                              |Channel
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -515,6 +517,8 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskThreadMessage
+                        |Channel
                         |EmailChannel
                         |EvaluationReport
                         |Text

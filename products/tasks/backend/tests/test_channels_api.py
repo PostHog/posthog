@@ -88,6 +88,33 @@ class ChannelsAPITestCase(TestCase):
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
 
+    def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        created = self.client.post(
+            self._tasks_url(),
+            {"title": "Ship it", "description": "d", "channel": channel_id},
+        )
+        task_id = created.json()["id"]
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        # Channel visibility grants reads: detail and the runs list.
+        self.assertEqual(other_client.get(f"{self._tasks_url()}{task_id}/").status_code, status.HTTP_200_OK)
+        self.assertEqual(other_client.get(f"{self._tasks_url()}{task_id}/runs/").status_code, status.HTTP_200_OK)
+        # But never control: edits, deletes, and run creation stay author-only.
+        self.assertEqual(
+            other_client.patch(f"{self._tasks_url()}{task_id}/", {"title": "hijack"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            other_client.delete(f"{self._tasks_url()}{task_id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            other_client.post(f"{self._tasks_url()}{task_id}/runs/", {}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
     def test_task_in_personal_channel_stays_private(self):
         self.client.get(self._channels_url())
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)

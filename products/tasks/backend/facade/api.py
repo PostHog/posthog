@@ -51,7 +51,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
 )
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
-from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
+from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
 
@@ -1258,17 +1258,24 @@ def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> T
 
 
 def task_accessible_for_run_view(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
 ) -> bool:
     """Whether the parent task exists and (unless bypassed) is visible to the user.
 
     Mirrors the parent-task gate in ``TaskRunViewSet.safely_get_queryset``: runs are always scoped
     to a task, and access to that task is gated by ``task_visibility_q`` except for internal-debug
-    read actions, which the caller signals via ``bypass_visibility``.
+    read actions, which the caller signals via ``bypass_visibility``. Run-mutating actions pass
+    ``for_control`` to use the narrower ``task_control_q`` — public-channel visibility lets
+    teammates watch a run, not drive it.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id)
     if not bypass_visibility:
-        task_filter = task_filter.filter(task_visibility_q(user_id))
+        task_filter = task_filter.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
     return task_filter.exists()
 
 
@@ -2555,10 +2562,12 @@ def _task_detail_queryset():
     ).prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False):
+def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+    """Team-scoped live tasks, gated by read visibility — or by the narrower
+    control predicate when ``for_control`` (mutations, runs, agent commands)."""
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(task_visibility_q(user_id))
+        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
     return qs
 
 
@@ -2606,14 +2615,15 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
 
 
-def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
     Mirrors the existence gate ``TaskViewSet.get_object()`` applied (team + ``deleted=False`` +
     ``task_visibility_q``). Used by the ``run`` action to 404 before the usage gate, preserving
-    the original ordering.
+    the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
+    the task.
     """
-    return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
 async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
@@ -2918,8 +2928,8 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 def update_task(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskDetailDTO | None:
-    """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/visible."""
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -2944,8 +2954,8 @@ def update_task(
 
 
 def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
-    """Soft-delete a task. Returns whether a task was found/visible and deleted."""
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    """Soft-delete a task. Returns whether a task was found/controllable and deleted."""
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return False
     logger.info("Soft deleting task %s", task.id)
@@ -2975,7 +2985,8 @@ def prepare_task_staged_artifacts(
         get_safe_artifact_name,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    # Staged artifacts feed the task's next run, so this is control, not viewing.
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -3036,7 +3047,7 @@ def finalize_task_staged_artifacts(
         get_task_run_artifact_max_size_bytes,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -3301,7 +3312,7 @@ def run_task(
         parse_run_state,
     )
 
-    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
 
@@ -4115,30 +4126,37 @@ def forward_thread_message(
     ``already_forwarded`` / ``no_run`` / ``signal_failed``.
     """
     task = _visible_task(task_id, team_id, user_id)
-    message = (
-        TaskThreadMessage.objects.select_related("author", "forwarded_by")
-        .filter(id=message_id, task_id=task_id, team_id=team_id)
-        .first()
-    )
-    if task is None or message is None:
+    if task is None:
         return "not_found", None
     if task.created_by_id != user_id:
         return "forbidden", None
-    if message.forwarded_to_agent_at is not None:
-        return "already_forwarded", _thread_message_to_dto(message)
-    run = task.latest_run
-    if run is None or run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
-        return "no_run", None
 
-    author = message.author
-    author_name = (author.get_full_name() or author.email) if author else "A teammate"
-    content = f"[Thread comment from {author_name}] {message.content}"
-    signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
-    if not signal_result:
-        return "signal_failed", None
+    # Lock the message row so concurrent forwards of the same message can't
+    # both pass the forwarded_to_agent_at check and double-signal the agent.
+    with transaction.atomic():
+        message = (
+            TaskThreadMessage.objects.select_for_update()
+            .select_related("author", "forwarded_by")
+            .filter(id=message_id, task_id=task_id, team_id=team_id)
+            .first()
+        )
+        if message is None:
+            return "not_found", None
+        if message.forwarded_to_agent_at is not None:
+            return "already_forwarded", _thread_message_to_dto(message)
+        run = task.latest_run
+        if run is None or run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
+            return "no_run", None
 
-    message.forwarded_to_agent_at = django_timezone.now()
-    message.forwarded_by_id = user_id
-    message.forwarded_run = run
-    message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
+        author = message.author
+        author_name = (author.get_full_name() or author.email) if author else "A teammate"
+        content = f"[Thread comment from {author_name}] {message.content}"
+        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        if not signal_result:
+            return "signal_failed", None
+
+        message.forwarded_to_agent_at = django_timezone.now()
+        message.forwarded_by_id = user_id
+        message.forwarded_run = run
+        message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
