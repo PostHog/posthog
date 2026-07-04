@@ -83,6 +83,7 @@ def handle_sandbox_message(
 
         if task_run.is_terminal:
             resume_snapshot_state = tasks_facade.get_resume_snapshot_carry_state(task_run.state)
+            # Empty state means there is no snapshot that can safely recreate the sandbox layout.
             if not resume_snapshot_state:
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
 
