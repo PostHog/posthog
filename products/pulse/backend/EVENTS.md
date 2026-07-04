@@ -1,7 +1,8 @@
 # Pulse event contract
 
 Every product-analytics event Pulse emits, with its properties and the dashboard panel(s) that consume it.
-This is the contract the Pulse dashboard (and the future feedback-driven tuning loop) builds against — treat property renames as breaking changes and update this file in the same PR.
+This is the contract the Pulse health dashboard (and the future feedback-driven tuning loop) builds against — treat property renames as breaking changes and update this file in the same PR.
+The dashboard is defined as code in `terraform/us/project-2/team-analytics-platform/pulse-health/`; its README carries the panel ↔ event table this file's "Dashboard panels" lines mirror.
 
 All events are captured against the acting user's distinct id.
 Backend request-context events go through `report_user_action` (which merges request analytics properties); the generation event goes through `ph_scoped_capture` because it fires from a Temporal worker.
@@ -26,7 +27,8 @@ Skipped when the brief has no creating user (no distinct id to attribute to).
 | `investigation_failed_count` | int        | Investigation steps that failed.                                                                                                                                                  |
 | `emit_failed_count`          | int        | Opportunity→signals emits that failed in this run. Carried here (instead of a dedicated event) because the failures are already counted in the emit loop and only matter per run. |
 
-Dashboard panels: generation volume/status mix, scheduled-vs-on-demand split, goal adoption, opportunity yield, investigation health, signals-emit failure rate.
+Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Investigation step survival + distribution (`investigation_step_count`, `investigation_failed_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
+Future tuning loop — not yet charted: goal adoption (`has_goal`), period mix (`period_days`), `has_config` split.
 
 ## Attention
 
@@ -42,7 +44,8 @@ Emitted from `pulseLogic.ts` (frontend) the first time a terminal brief is shown
 | `period_days` | int        | Days the brief covers.                          |
 | `has_config`  | bool       | Whether the brief belongs to a saved config.    |
 
-Dashboard panels: brief attention (views per generated brief), scheduled-brief readership.
+Dashboard panels: Attention retention (person-level uniques only).
+Future tuning loop — not yet charted: scheduled-brief readership (`trigger`).
 
 ## Opportunity lifecycle
 
@@ -57,7 +60,8 @@ Emitted from `api/opportunity.py` on each successful lifecycle transition.
 | `status`         | str        | The status after the transition.                                   |
 | `goal_relevant`  | bool       | Whether the opportunity was marked as advancing the config's goal. |
 
-Dashboard panels: act/dismiss rates by kind, goal-relevant vs not, reopen churn.
+Dashboard panels: Opportunity action rate (7d) — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; no properties consumed.
+Future tuning loop — not yet charted: by-kind act/dismiss rates (`kind`), goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
 
 ## Helpfulness feedback
 
@@ -90,7 +94,11 @@ Emitted from `api/opportunity.py` on every feedback POST — votes, revotes, and
 | `goal_relevant`           | bool         | Whether the opportunity was marked as advancing the config's goal.             |
 | `has_proposed_experiment` | bool         | Whether goal-conditioned synthesis attached an experiment proposal.            |
 
-Dashboard panels: helpfulness rate by brief shape (goal vs not, section mix) and by opportunity kind; feedback volume as an engagement proxy.
+Dashboard panels: Brief helpfulness (`helpful`, `has_goal`), Opportunity helpfulness (`helpful`, `kind`).
+Future tuning loop — not yet charted: section-mix helpfulness (`section_kinds`), investigation split (`has_investigation`), proposed-experiment split (`has_proposed_experiment`), status splits.
+
+Rate math: rate panels must exclude `helpful = null` (clears are engagement, not sentiment).
+Event-based ratios measure vote actions, not current stance — revotes emit again; for point-in-time stance use latest-event-per-user-per-target.
 
 ## Non-events (deliberate)
 

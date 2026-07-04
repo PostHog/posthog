@@ -174,11 +174,11 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
         vote_serializer.is_valid(raise_exception=True)
         helpful = vote_serializer.validated_data["helpful"]
+        # Capture props come from the pre-vote instance — they don't depend on the vote.
         opportunity = self.get_object()
         user = cast(User, request.user)
-        opportunity = record_vote(Opportunity, self.team_id, opportunity.pk, user.id, helpful)
-        # The context props ARE the tuning signal — they let the feedback stream answer "which
-        # opportunity shapes are helpful" without joining back to the rows.
+        updated = record_vote(Opportunity, self.team_id, opportunity.pk, user.id, helpful)
+        # The context props are the tuning signal — see EVENTS.md.
         report_user_action(
             user,
             "opportunity_feedback",
@@ -193,7 +193,7 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             team=self.team,
             request=request,
         )
-        return Response(self.get_serializer(opportunity).data)
+        return Response(self.get_serializer(updated).data)
 
     def _transition(self, expected: Opportunity.Status, target: Opportunity.Status, event: str) -> Response:
         # Known v1 limitation: transitions don't sync the emitted SignalReport (and inbox triage

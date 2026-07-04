@@ -25,25 +25,23 @@ def _votes(feedback: dict) -> dict:
     return votes if isinstance(votes, dict) else {}
 
 
-def apply_vote(feedback: dict, user_id: int, helpful: bool | None) -> dict:
-    """Return the feedback JSON with the caller's vote overwritten, or removed for a null vote."""
-    votes = dict(_votes(feedback))
-    key = str(user_id)
-    if helpful is None:
-        votes.pop(key, None)
-    else:
-        votes[key] = {"helpful": helpful, "at": timezone.now().isoformat()}
-    return {**(feedback if isinstance(feedback, dict) else {}), "votes": votes}
-
-
 def record_vote(
     model: type[TFeedbackModel], team_id: int, pk: uuid.UUID, user_id: int, helpful: bool | None
 ) -> TFeedbackModel:
-    """Apply one user's vote under a row lock, so concurrent voters can't clobber each other's
-    read-modify-write of the shared votes dict."""
+    """Overwrite (or remove, for null) the caller's vote under a row lock, so concurrent voters
+    can't clobber each other's read-modify-write of the shared votes dict.
+
+    Votes live in the feedback JSONField, one key per user — bounded by team size; migrating to a
+    votes table is a straight backfill if the shape ever needs to grow.
+    """
     with transaction.atomic():
         instance = model.objects.for_team(team_id).select_for_update().get(pk=pk)
-        instance.feedback = apply_vote(instance.feedback, user_id, helpful)
+        votes = dict(_votes(instance.feedback))
+        if helpful is None:
+            votes.pop(str(user_id), None)
+        else:
+            votes[str(user_id)] = {"helpful": helpful, "at": timezone.now().isoformat()}
+        instance.feedback = {**instance.feedback, "votes": votes}
         # auto_now only persists when updated_at is listed explicitly alongside the change.
         instance.save(update_fields=["feedback", "updated_at"])
     return instance
@@ -69,8 +67,7 @@ class FeedbackFieldsSerializerMixin(serializers.Serializer):
         if user_id is None:
             return None
         vote = _votes(obj.feedback).get(str(user_id))
-        helpful = vote.get("helpful") if isinstance(vote, dict) else None
-        return helpful if isinstance(helpful, bool) else None
+        return vote.get("helpful") if isinstance(vote, dict) else None
 
     def get_helpful_count(self, obj: FeedbackModel) -> int:
         return self._count_votes(obj, helpful=True)

@@ -246,14 +246,8 @@ function BriefHistoryList({ briefs }: { briefs: ProductBriefListApi[] }): JSX.El
 }
 
 function BriefDetail(): JSX.Element | null {
-    const {
-        briefDetail,
-        briefDetailLoading,
-        briefDetailSections,
-        briefDetailGoal,
-        selectedBriefId,
-        feedbackVotesInFlight,
-    } = useValues(pulseLogic)
+    const { briefDetail, briefDetailLoading, briefDetailSections, briefDetailGoal, selectedBriefId } =
+        useValues(pulseLogic)
     const { voteOnBrief } = useActions(pulseLogic)
 
     if (!briefDetail || briefDetail.id !== selectedBriefId) {
@@ -281,22 +275,19 @@ function BriefDetail(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex items-start justify-between gap-4">
-                {briefDetailGoal !== null ? (
+            <div className="flex items-start gap-4">
+                {briefDetailGoal !== null && (
                     <div className="text-muted text-sm">
                         <span className="font-semibold">Goal:</span> {briefDetailGoal}
                     </div>
-                ) : (
-                    <span />
                 )}
-                <HelpfulnessVote
-                    label="Was this helpful?"
-                    myVote={briefDetail.my_vote}
-                    helpfulCount={briefDetail.helpful_count}
-                    notHelpfulCount={briefDetail.not_helpful_count}
-                    inFlight={briefDetail.id in feedbackVotesInFlight}
-                    onVote={(helpful) => voteOnBrief(briefDetail.id, helpful)}
-                />
+                <div className="ml-auto">
+                    <HelpfulnessVote
+                        label="Was this helpful?"
+                        item={briefDetail}
+                        onVote={(helpful) => voteOnBrief(briefDetail.id, helpful)}
+                    />
+                </div>
             </div>
             {briefDetailSections.map((section, index) => (
                 <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
