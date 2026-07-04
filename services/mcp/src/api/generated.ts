@@ -8444,6 +8444,49 @@ export namespace Schemas {
       interactivity_url: string | null;
     }
 
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type AgentRevisionSummaryCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    /**
+     * Lightweight revision row for the list endpoint — navigation metadata
+     * only, no `spec` and no `skill_refs`.
+     *
+     * A revision's `spec` grows unbounded with the agent's tool and skill count
+     * (every native tool's approval_policy, every client tool's args_schema and
+     * description, every skill's description), so echoing the full spec for every
+     * revision would blow the payload as revision history accumulates. The list's
+     * job is to find the current live revision or pick one to clone; that needs
+     * only the metadata below. Fetch a single revision's `spec` via
+     * `agent-applications-revisions-retrieve`. Mirrors the sessions list/detail
+     * split (see `sessions_list`).
+     */
+    export interface AgentRevisionSummary {
+      readonly id: string;
+      readonly application: string;
+      /** @nullable */
+      readonly parent_revision: string | null;
+      readonly state: AgentRevisionStateEnum;
+      readonly bundle_uri: string;
+      /** @nullable */
+      readonly bundle_sha256: string | null;
+      /** @nullable */
+      readonly created_by_id: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by: AgentRevisionSummaryCreatedBy;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface AgentRevisionSystemPromptResponse {
       /** UUID of the revision the prompt was rendered for. */
       revision_id: string;
@@ -31324,13 +31367,13 @@ export namespace Schemas {
       results: AgentApplication[];
     }
 
-    export interface PaginatedAgentRevisionList {
+    export interface PaginatedAgentRevisionSummaryList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: AgentRevision[];
+      results: AgentRevisionSummary[];
     }
 
     export interface PaginatedAlertList {

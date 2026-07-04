@@ -473,13 +473,13 @@ const AgentApplicationsRevisionsListSchema = AgentApplicationsRevisionsListParam
 
 const agentApplicationsRevisionsList = (): ToolBase<
     typeof AgentApplicationsRevisionsListSchema,
-    Schemas.PaginatedAgentRevisionList
+    Schemas.PaginatedAgentRevisionSummaryList
 > => ({
     name: 'agent-applications-revisions-list',
     schema: AgentApplicationsRevisionsListSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedAgentRevisionList>({
+        const result = await context.api.request<Schemas.PaginatedAgentRevisionSummaryList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/`,
             query: {

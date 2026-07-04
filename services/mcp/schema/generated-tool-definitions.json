@@ -547,7 +547,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-list": {
-        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
+        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit. Returns navigation metadata only (id, state, parent revision, bundle_sha256, timestamps) — the full `spec` is omitted per row; fetch it for a single revision via `agent-applications-revisions-retrieve`. Playbook: read the `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List revisions of an application",
