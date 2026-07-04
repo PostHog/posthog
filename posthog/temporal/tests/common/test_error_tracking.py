@@ -8,13 +8,16 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_server_initiated_connection_termination
 
 
 @dataclass
@@ -82,6 +85,34 @@ async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInput
 @activity.defn
 async def cancelled_activity(inputs: OptionallyFailingInputs) -> None:
     raise CancelledError()
+
+
+class _FakePsycopgError(Exception):
+    """Mimics a psycopg driver error carrying a SQLSTATE, wrapped by Django's OperationalError."""
+
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__("terminating connection due to administrator command")
+        self.sqlstate = sqlstate
+        self.pgcode = sqlstate
+
+
+@activity.defn
+async def admin_shutdown_activity(inputs: OptionallyFailingInputs) -> None:
+    # Mirrors psycopg raising AdminShutdown (57P01) re-wrapped by Django when the server kills the connection.
+    raise OperationalError("terminating connection due to administrator command") from _FakePsycopgError("57P01")
+
+
+@workflow.defn
+class AdminShutdownActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            admin_shutdown_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
 
 @workflow.defn
@@ -204,6 +235,54 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_server_initiated_connection_termination_is_not_captured(temporal_client: Client):
+    """A Postgres connection killed by the server (deploy/failover) is a transient infra blip the
+    retry policy recovers from, so the interceptor must re-raise it without reporting to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[AdminShutdownActivityWorkflow],
+            activities=[admin_shutdown_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "AdminShutdownActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("admin_shutdown", "57P01", True),
+        ("crash_shutdown", "57P02", True),
+        ("cannot_connect_now", "57P03", True),
+        ("query_canceled_is_reported", "57014", False),
+        ("syntax_error_is_reported", "42601", False),
+    ]
+)
+def test_is_server_initiated_connection_termination(name: str, sqlstate: str, expected: bool):
+    # Django wraps the driver error on __cause__, so the check must walk the chain, not just the top exception.
+    wrapped = OperationalError("boom")
+    wrapped.__cause__ = _FakePsycopgError(sqlstate)
+    assert _is_server_initiated_connection_termination(wrapped) is expected
+
+
+def test_is_server_initiated_connection_termination_ignores_plain_exceptions():
+    assert _is_server_initiated_connection_termination(ValueError("not a db error")) is False
 
 
 @pytest.mark.asyncio

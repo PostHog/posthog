@@ -20,6 +20,35 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+# Postgres SQLSTATE codes (class 57, operator_intervention) raised when the server itself
+# terminates a connection — an admin command (deploy/failover), a peer backend crash, or the
+# server still starting up. These are transient infra events, not application defects: the
+# activity's retry policy recovers on the next attempt, so reporting them just creates noise.
+_SERVER_INITIATED_TERMINATION_SQLSTATES = frozenset(
+    {
+        "57P01",  # admin_shutdown — "terminating connection due to administrator command"
+        "57P02",  # crash_shutdown
+        "57P03",  # cannot_connect_now — server is starting up
+    }
+)
+
+
+def _is_server_initiated_connection_termination(exc: BaseException) -> bool:
+    """True when the exception chain carries a Postgres server-initiated connection termination
+    (e.g. a killed connection during a deploy/failover). psycopg2 exposes the SQLSTATE as
+    ``pgcode`` and psycopg3 as ``sqlstate``; Django re-raises its own OperationalError with the
+    driver error preserved on ``__cause__``, so we walk the chain to find it."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        sqlstate = getattr(current, "sqlstate", None) or getattr(current, "pgcode", None)
+        if sqlstate in _SERVER_INITIATED_TERMINATION_SQLSTATES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -69,6 +98,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # control flow, not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
+            # A Postgres connection killed by the server (deploy/failover) is a transient infra
+            # blip the retry policy recovers from, not a defect — re-raise without reporting.
+            if _is_server_initiated_connection_termination(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -103,6 +136,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if _is_server_initiated_connection_termination(e):
+                raise  # Transient Postgres termination (deploy/failover), recovered by retry
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
