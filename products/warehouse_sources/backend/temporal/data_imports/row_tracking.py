@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.db.models import F, Q, Sum
 
+import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
@@ -23,6 +24,12 @@ from products.warehouse_sources.backend.models.external_data_job import External
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
+logger = structlog.get_logger(__name__)
+
+# Guards the "Redis unavailable" warning so an unconfigured worker logs it once per process
+# instead of on every row-tracking call.
+_redis_unavailable_logged = False
+
 
 def _get_hash_key(team_id: int) -> str:
     return f"posthog:data_warehouse_row_tracking:{team_id}"
@@ -30,20 +37,36 @@ def _get_hash_key(team_id: int) -> str:
 
 @asynccontextmanager
 async def _get_redis():
-    """Returns an async Redis client for row tracking operations."""
+    """Returns an async Redis client for row tracking, or None when Redis is unavailable.
+
+    Row tracking is best-effort: when Redis can't be reached the callers no-op. A worker
+    without DATA_WAREHOUSE_REDIS_HOST configured falls back to localhost and fails to connect
+    on every call, so we log this once as a warning rather than reporting it to error tracking
+    (which previously flooded it with millions of expected, degraded-mode failures).
+    """
     redis = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
+            _log_redis_unavailable("DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT not configured")
+            yield None
+            return
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
     except Exception as e:
-        capture_exception(e)
+        # Degrade gracefully: drop the client so callers no-op instead of hitting a broken one.
+        redis = None
+        _log_redis_unavailable(str(e))
 
     yield redis
+
+
+def _log_redis_unavailable(reason: str) -> None:
+    global _redis_unavailable_logged
+    if _redis_unavailable_logged:
+        return
+    _redis_unavailable_logged = True
+    logger.warning("data_warehouse_row_tracking_redis_unavailable", reason=reason)
 
 
 async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:

@@ -12,6 +12,7 @@ from unittest import mock
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
@@ -21,6 +22,7 @@ from posthog.tasks.usage_report import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     finish_row_tracking,
+    get_all_rows_for_team,
     increment_rows,
     setup_row_tracking,
     will_hit_billing_limit,
@@ -89,6 +91,31 @@ class TestRowTracking(BaseTest):
     def _create_source(self) -> ExternalDataSource:
         with freeze_time(datetime(2023, 12, 1)):
             return ExternalDataSource.objects.create(team=self.team)
+
+    @parameterized.expand(
+        [
+            ("host_not_configured", None, "6379"),
+            ("connection_refused", "localhost", "1"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_row_tracking_no_ops_and_does_not_report_when_redis_unavailable(
+        self, _name: str, host: Optional[str], port: str
+    ):
+        # A misconfigured worker must degrade quietly: callers no-op and the failure is not
+        # reported to error tracking (which previously flooded it on every call).
+        with (
+            override_settings(DATA_WAREHOUSE_REDIS_HOST=host, DATA_WAREHOUSE_REDIS_PORT=port),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture,
+        ):
+            schema_id = str(uuid.uuid4())
+            await setup_row_tracking(self.team.pk, schema_id)
+            await increment_rows(self.team.pk, schema_id, 10)
+
+            assert await get_all_rows_for_team(self.team.pk) == 0
+            mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_row_tracking(self):
