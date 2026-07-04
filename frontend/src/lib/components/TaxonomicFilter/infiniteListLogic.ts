@@ -19,6 +19,7 @@ import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomic
 import {
     ExcludedOperators,
     InfiniteListLogicProps,
+    META_GROUP_TYPES,
     QuickFilterItem,
     SkeletonItem,
     isQuickFilterItem,
@@ -35,6 +36,11 @@ import {
     COLLAPSED_TO_CONTAINS_ROW,
     partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import {
+    floatRecentAndPinnedToTop,
+    pinnedSourceKey,
+    recentSourceKey,
+} from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -85,20 +91,6 @@ function recentItemMatchesSearch(
         }
     }
     return false
-}
-
-// The two key builders must stay format-aligned: recent and pinned rows dedupe
-// against each other only because both produce `sourceGroupType::value`.
-function recentSourceKey(item: TaxonomicDefinitionTypes): string | null {
-    return hasRecentContext(item) && item._recentContext.sourceValue != null
-        ? `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`
-        : null
-}
-
-function pinnedSourceKey(item: TaxonomicDefinitionTypes): string | null {
-    return hasPinnedContext(item) && item._pinnedContext.value != null
-        ? `${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`
-        : null
 }
 
 function withoutPinnedDuplicatesOfRecents(
@@ -531,6 +523,39 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return pinnedFilterItems.filter(
                     (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
                 )
+            },
+        ],
+        // This list is the filter's only substantive (non-meta) group. There are no separate
+        // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
+        // the top of its own results instead (see `items`).
+        isSoleSubstantiveGroup: [
+            (s) => [s.listGroupType, s.taxonomicGroupTypes],
+            (listGroupType, taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean => {
+                const substantive = taxonomicGroupTypes.filter((t) => !META_GROUP_TYPES.has(t))
+                return substantive.length === 1 && substantive[0] === listGroupType
+            },
+        ],
+        // Keys a group result the same way recent/pinned entries are keyed
+        // (`sourceGroupType::value`), so `floatRecentAndPinnedToTop` can line the tiers up.
+        // Null unless this is the sole substantive group — kept off `items` as a small input.
+        soleGroupValueKeyer: [
+            (s) => [s.isSoleSubstantiveGroup, s.listGroupType, s.taxonomicGroups],
+            (
+                isSoleSubstantiveGroup,
+                listGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): ((item: TaxonomicDefinitionTypes) => string | null) | null => {
+                if (!isSoleSubstantiveGroup) {
+                    return null
+                }
+                const getValue = taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
+                if (!getValue) {
+                    return null
+                }
+                return (item: TaxonomicDefinitionTypes): string | null => {
+                    const value = getValue(item)
+                    return value == null ? null : `${listGroupType}::${value}`
+                }
             },
         ],
         allowNonCapturedEvents: [
@@ -979,6 +1004,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                s.soleGroupValueKeyer,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -992,6 +1018,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
                 keywordShortcutItems,
+                soleGroupValueKeyer,
                 collapseUrlsToContainsRow
             ) => {
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
@@ -1043,7 +1070,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 ]
                 const orderedBase = searchQuery
                     ? promoteMatchingProperties(combinedResults, searchQuery)
-                    : combinedResults
+                    : soleGroupValueKeyer
+                      ? floatRecentAndPinnedToTop(
+                            combinedResults,
+                            soleGroupValueKeyer,
+                            contextFilteredRecentItems || [],
+                            contextFilteredPinnedItems || []
+                        )
+                      : combinedResults
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.

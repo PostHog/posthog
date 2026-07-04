@@ -164,7 +164,12 @@ describe('useTaxonomicFilter', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                    // Two substantive groups so "All" is retained — a single substantive group drops it
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                    ],
                 }),
             { wrapper }
         )
