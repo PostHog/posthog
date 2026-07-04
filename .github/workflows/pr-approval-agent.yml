@@ -141,7 +141,6 @@ jobs:
                       COMMENT_ID=$(jq -r '.id' <<<"$EXISTING")
                       EXISTING_BODY=$(jq -r '.body' <<<"$EXISTING")
                       PREV_COUNT=$(jq -r '.body | (match("stamphog-review-count:([0-9]+)").captures[0].string // "0")' <<<"$EXISTING")
-                      PREV_COUNT=${PREV_COUNT:-0}
                     fi
 
                     # The append path requires an actual verdict in the prior body —
