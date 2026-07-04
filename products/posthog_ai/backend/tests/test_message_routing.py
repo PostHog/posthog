@@ -253,7 +253,12 @@ class TestOpenSandboxMessage(APIBaseTest):
     def test_terminal_followup_creates_new_run_with_resume(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
-        run.state = {**(run.state or {}), "snapshot_external_id": "snap-9"}
+        run.state = {
+            **(run.state or {}),
+            "snapshot_external_id": "snap-9",
+            "snapshot_kind": "directory",
+            "snapshot_mount_path": "/tmp/workspace",
+        }
         run.save(update_fields=["status", "state"])
         self._attach_task(task)
 
@@ -273,6 +278,8 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert str(new_run.id) != str(run.id)
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
+        assert new_run.state["snapshot_kind"] == "directory"
+        assert new_run.state["snapshot_mount_path"] == "/tmp/workspace"
         assert new_run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert new_run.state["systemPrompt"] == SYS_PROMPT
         assert new_run.state["initial_permission_mode"] == "auto"

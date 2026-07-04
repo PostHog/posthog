@@ -82,15 +82,15 @@ def handle_sandbox_message(
             raise exceptions.ValidationError("Sandbox session no longer exists.")
 
         if task_run.is_terminal:
-            snapshot_ext_id = (task_run.state or {}).get("snapshot_external_id")
-            if not snapshot_ext_id:
+            resume_snapshot_state = tasks_facade.get_resume_snapshot_carry_state(task_run.state)
+            if not resume_snapshot_state:
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
 
             new_run = tasks_facade.create_run(
                 task_run.task_id,
                 mode="interactive",
                 extra_state={
-                    "snapshot_external_id": snapshot_ext_id,
+                    **resume_snapshot_state,
                     "resume_from_run_id": str(task_run.id),
                     "pending_user_message": content,
                 },

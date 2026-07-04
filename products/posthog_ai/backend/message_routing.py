@@ -463,9 +463,7 @@ class SandboxSession(BaseSandboxService):
                 "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
             # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
-            snapshot_external_id = (run.state or {}).get("snapshot_external_id")
-            if snapshot_external_id:
-                extra_state["snapshot_external_id"] = snapshot_external_id
+            extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
             new_run = task.create_run(mode="interactive", extra_state=extra_state)
 
