@@ -622,6 +622,54 @@ describe('pulseLogic', () => {
         expect(router.values.location.pathname.endsWith(urls.experiment('new'))).toBe(true)
     })
 
+    it('omits the target-metric line from the clipboard for a dropped (null) target metric', async () => {
+        const proposal = { ...proposedExperiment, target_metric: null }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/acted/': () => [
+                    200,
+                    { ...openOpportunity, proposed_experiment: proposal, status: 'acted' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([{ ...openOpportunity, proposed_experiment: proposal }])
+
+        await expectLogic(logic, () => {
+            logic.actions.createExperimentFromOpportunity('opp-1')
+        }).toFinishAllListeners()
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            'Hypothesis: Moving the entry point above the fold lifts subscription creation\n' +
+                'Feature flag key: subscription-entry-point\n' +
+                'Variants: Control keeps the sidebar entry; test adds a button above the insights list.',
+            'experiment proposal'
+        )
+    })
+
+    it('warns but still navigates when the proposal copy fails', async () => {
+        const warningSpy = jest.spyOn(lemonToast, 'warning')
+        copyToClipboard.mockResolvedValueOnce(false)
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/acted/': () => [
+                    200,
+                    { ...openOpportunity, proposed_experiment: proposedExperiment, status: 'acted' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([{ ...openOpportunity, proposed_experiment: proposedExperiment }])
+
+        await expectLogic(logic, () => {
+            logic.actions.createExperimentFromOpportunity('opp-1')
+        }).toFinishAllListeners()
+
+        expect(warningSpy).toHaveBeenCalledWith('Could not copy the proposal — find it on the opportunity row')
+        // The proposal survives on the row, so a failed copy must not block the experiment flow.
+        expect(router.values.location.pathname.endsWith(urls.experiment('new'))).toBe(true)
+    })
+
     it('stays on the scene and keeps the row open when the acted transition fails', async () => {
         const errorSpy = jest.spyOn(lemonToast, 'error')
         const pathBefore = router.values.location.pathname

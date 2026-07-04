@@ -2,6 +2,8 @@ from django.db import transaction
 
 import structlog
 
+from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.generation.accountability import MAX_STATUS_LINES
 from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.anchored_insights import (
@@ -27,27 +29,44 @@ def _fallback_evidence(evidence_refs: list[str]) -> list[EvidenceRef]:
     return [parse_evidence_ref(ref) for ref in evidence_refs]
 
 
-def _proposed_experiment_json(opp: OpportunityOut, evidence: list[EvidenceRef]) -> dict | None:
-    # Deterministic guard, mirroring synthesize's goalless zeroing: the prompt allows a proposed
-    # experiment only on goal-relevant opportunities, but the model may not comply — persist is
-    # where non-compliance is dropped instead of stored.
+def _validated_proposal(
+    brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None, evidence: list[EvidenceRef]
+) -> tuple[dict | None, Insight | None]:
+    """The stored proposal JSON plus, on the fallback path, the already-resolved target insight
+    (so promotion doesn't resolve it twice).
+
+    Deterministic guard, mirroring synthesize's goalless zeroing: the prompt allows a proposed
+    experiment only on goal-relevant opportunities, but the model may not comply — persist is
+    where non-compliance is dropped instead of stored.
+    """
     if not opp.goal_relevant or opp.proposed_experiment is None:
-        return None
-    # The prompt's never-invent rule, code-enforced: a target metric not among the opportunity's
-    # cited insight refs is dropped, not stored (the rest of the proposal survives).
-    cited_insight_refs = {entry["ref"] for entry in evidence if entry["type"] == "insight"}
+        return None, None
     short_id = opp.proposed_experiment.target_metric_insight_short_id
+    target_insight: Insight | None = None
+    if item is not None:
+        # The prompt's never-invent rule, code-enforced: the target must be among the resolved
+        # item's (server-gathered) insight refs.
+        valid = short_id in {entry["ref"] for entry in evidence if entry["type"] == "insight"}
+    else:
+        # No item resolved, so the evidence refs are LLM-authored — validating against them
+        # would be circular. Resolving the insight (team-scoped, deleted excluded) is the
+        # server-authoritative check instead.
+        target_insight = resolve_metric_insight(brief.team, short_id)
+        valid = target_insight is not None
     return {
         "hypothesis": opp.proposed_experiment.hypothesis,
         "flag_key_suggestion": opp.proposed_experiment.flag_key_suggestion,
         # Nested to match the Opportunity.metric_ref convention for insight refs.
-        "target_metric": {"insight_short_id": short_id} if short_id in cited_insight_refs else None,
+        "target_metric": {"insight_short_id": short_id} if valid else None,
         "variant_sketch": opp.proposed_experiment.variant_sketch,
-    }
+    }, target_insight
 
 
 def _promoted_metric(
-    brief: ProductBrief, proposed_experiment: dict | None, results_cache: InsightResultsCache
+    brief: ProductBrief,
+    proposed_experiment: dict | None,
+    results_cache: InsightResultsCache,
+    target_insight: Insight | None,
 ) -> tuple[dict, dict] | None:
     """Close the suggest→act→measure loop for a proposal-carrying opportunity that resolved no
     metric of its own: promote the proposal's (already membership-validated) target metric into
@@ -57,8 +76,10 @@ def _promoted_metric(
     target = (proposed_experiment or {}).get("target_metric")
     if not target:
         return None
+    if results_cache.attempts >= MAX_STATUS_LINES:
+        return None  # the shared per-run execution budget is spent — mirror accountability's gate
     short_id = target["insight_short_id"]
-    insight = resolve_metric_insight(brief.team, short_id)
+    insight = target_insight or resolve_metric_insight(brief.team, short_id)
     if insight is None:
         return None
     try:
@@ -101,9 +122,9 @@ def _build_opportunity(
         evidence = _fallback_evidence(opp.evidence_refs)
         baseline = None
         metric_ref = None
-    proposed_experiment = _proposed_experiment_json(opp, evidence)
+    proposed_experiment, target_insight = _validated_proposal(brief, opp, item, evidence)
     if proposed_experiment is not None and metric_ref is None:
-        promoted = _promoted_metric(brief, proposed_experiment, results_cache)
+        promoted = _promoted_metric(brief, proposed_experiment, results_cache, target_insight)
         if promoted is not None:
             metric_ref, baseline = promoted
     return Opportunity(
