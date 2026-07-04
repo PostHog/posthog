@@ -1596,7 +1596,9 @@ class Resolver(CloningVisitor):
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "getSurveyResponse":
-                return self.visit(get_survey_response(node=node, args=node.args))
+                return self.visit(
+                    get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
+                )
             if node.name == "uniqueSurveySubmissionsFilter":
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)

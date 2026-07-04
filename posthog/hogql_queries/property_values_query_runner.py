@@ -252,7 +252,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if use_new_events_schema():
+            if use_new_events_schema(self.team.pk):
                 values.append(_parse_jsonish_property_value(raw))
             elif isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
@@ -274,7 +274,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if use_new_events_schema():
+            if use_new_events_schema(self.team.pk):
                 values.append(_parse_jsonish_property_value(raw))
             else:
                 try:

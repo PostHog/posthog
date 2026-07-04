@@ -38,6 +38,11 @@ CONSTANCE_CONFIG = {
         "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
         bool,
     ),
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
+        get_from_env("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ""),
+        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        str,
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
@@ -320,6 +325,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

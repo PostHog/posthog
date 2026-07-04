@@ -1272,6 +1272,17 @@ class TestPrinter(BaseTest):
             sql = self._select("SELECT event FROM events")
         self.assertIn("FROM events_json", sql)
 
+    def test_instance_setting_team_allowlist_enables_new_events_schema(self) -> None:
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", f" 999999, {self.team.pk} "):
+            sql = self._select("SELECT event FROM events")
+        self.assertIn("FROM events_json", sql)
+
+        # A list naming only other teams must not flip this team.
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "999999"):
+            sql = self._select("SELECT event FROM events")
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("FROM events_json", sql)
+
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

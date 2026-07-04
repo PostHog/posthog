@@ -62,7 +62,7 @@ _NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
 )
 
 
-def parse_ai_property_value(value: Any) -> Any:
+def parse_ai_property_value(value: Any, team_id: int | None = None) -> Any:
     if value is None or value == "":
         return None
 
@@ -79,21 +79,21 @@ def parse_ai_property_value(value: Any) -> Any:
 
     # Reconstructed new-schema blobs can double-encode list elements as JSON strings; legacy
     # blobs must keep list elements exactly as stored.
-    if isinstance(parsed, list) and use_new_events_schema():
-        return [parse_ai_property_value(item) for item in parsed]
+    if isinstance(parsed, list) and use_new_events_schema(team_id):
+        return [parse_ai_property_value(item, team_id) for item in parsed]
 
     return parsed
 
 
-def parse_ai_properties(properties: Any) -> dict[str, Any]:
-    parsed = parse_ai_property_value(properties)
+def parse_ai_properties(properties: Any, team_id: int | None = None) -> dict[str, Any]:
+    parsed = parse_ai_property_value(properties, team_id)
     if not isinstance(parsed, dict):
         return {}
 
     # New-schema blob reconstruction materializes subcolumn keys even when absent from the
     # original event; drop the resulting ""/None placeholders. Legacy blobs only contain keys
     # that were actually ingested, so an empty value there is real data.
-    if use_new_events_schema():
+    if use_new_events_schema(team_id):
         for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
             if parsed.get(prop_key) in ("", None):
                 parsed.pop(prop_key, None)
@@ -101,7 +101,7 @@ def parse_ai_properties(properties: Any) -> dict[str, Any]:
     for prop_key in _NUMERIC_AI_PROPERTIES:
         value = parsed.get(prop_key)
         if isinstance(value, str):
-            parsed_value = parse_ai_property_value(value)
+            parsed_value = parse_ai_property_value(value, team_id)
             if type(parsed_value) in (int, float):
                 parsed[prop_key] = parsed_value
 

@@ -45,7 +45,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
-            event_field_prefix = ["event_source"] if use_new_events_schema() else []
+            event_field_prefix = ["event_source"] if use_new_events_schema(self.team.pk) else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
@@ -66,7 +66,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            if use_new_events_schema():
+            if use_new_events_schema(self.team.pk):
                 select_query = parse_select(
                     """
                     SELECT

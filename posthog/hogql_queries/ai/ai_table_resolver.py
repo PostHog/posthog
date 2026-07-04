@@ -123,8 +123,8 @@ def query_ai_events(
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
-        events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+        events_query = rewrite_query_for_events_table(query, team.pk)
+        events_placeholders = {k: rewrite_expr_for_events_table(v, team.pk) for k, v in placeholders.items()}
 
         if fall_back_to_events:
             tag_queries(ai_query_source="shared_table_fallback")

@@ -76,9 +76,10 @@ class AiColumnToPropertyRewriter(CloningVisitor):
     like placeholders that will be substituted into ai_events-scoped queries).
     """
 
-    def __init__(self, force_rewrite: bool = False):
+    def __init__(self, force_rewrite: bool = False, team_id: int | None = None):
         super().__init__()
         self._in_ai_events_scope = force_rewrite
+        self._team_id = team_id
         self._table_qualifier: str = "ai_events"
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
@@ -100,7 +101,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
                 ast.Alias(alias=name, expr=item) if name and not isinstance(item, ast.Alias) else item
                 for name, item in zip(natural_names, result.select)
             ]
-            if use_new_events_schema():
+            if use_new_events_schema(self._team_id):
                 result.select = [_rename_events_result_alias(item) for item in result.select]
         self._in_ai_events_scope = was_in_scope
         self._table_qualifier = old_qualifier
@@ -118,7 +119,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain: list[str | int] = ["events", "properties", prop_name, *chain[2:]]
-                return _wrap_for_events_type(col_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain, self._team_id)
             # Native column (timestamp, event, distinct_id, etc.) — just swap table prefix
             return ast.Field(chain=["events", *chain[1:]])
 
@@ -128,7 +129,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
                 new_chain = ["properties", prop_name, *chain[1:]]
-                return _wrap_for_events_type(col_name, new_chain)
+                return _wrap_for_events_type(col_name, new_chain, self._team_id)
 
         return super().visit_field(node)
 
@@ -199,7 +200,7 @@ def _has_ai_events_from(query: ast.SelectQuery) -> bool:
     )
 
 
-def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
+def _wrap_for_events_type(col_name: str, chain: list[str | int], team_id: int | None = None) -> ast.Expr:
     """Wrap a rewritten property reference to preserve the ai_events column type.
 
     On the events table, properties are strings (JSON extraction). Aggregate functions
@@ -220,16 +221,18 @@ def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
-    if col_name in _RAW_JSON_COLUMNS and use_new_events_schema():
+    if col_name in _RAW_JSON_COLUMNS and use_new_events_schema(team_id):
         return ast.Call(name="toJSONString", args=[ast.Field(chain=chain)])
     return ast.Field(chain=chain)
 
 
-def rewrite_query_for_events_table(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+def rewrite_query_for_events_table(
+    query: ast.SelectQuery | ast.SelectSetQuery, team_id: int | None = None
+) -> ast.SelectQuery | ast.SelectSetQuery:
     """Rewrite a query written against `ai_events` to target the `events` table."""
-    return AiColumnToPropertyRewriter(force_rewrite=False).visit(query)
+    return AiColumnToPropertyRewriter(force_rewrite=False, team_id=team_id).visit(query)
 
 
-def rewrite_expr_for_events_table(expr: ast.Expr) -> ast.Expr:
+def rewrite_expr_for_events_table(expr: ast.Expr, team_id: int | None = None) -> ast.Expr:
     """Rewrite a standalone expression (e.g. a placeholder value) for the events table."""
-    return AiColumnToPropertyRewriter(force_rewrite=True).visit(expr)
+    return AiColumnToPropertyRewriter(force_rewrite=True, team_id=team_id).visit(expr)

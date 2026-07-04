@@ -462,7 +462,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key)
             if raw is not None:
-                trace_dict[parsed_key] = parse_ai_property_value(raw)
+                trace_dict[parsed_key] = parse_ai_property_value(raw, self.team.pk)
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
@@ -478,7 +478,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         sentiment_lookup: SentimentEvaluationLookup,
     ) -> LLMTraceEvent:
         event_id = str(event_uuid)
-        properties = parse_ai_properties(event_properties)
+        properties = parse_ai_properties(event_properties, self.team.pk)
         generation: dict[str, Any] = {
             "id": event_id,
             "event": event_name,

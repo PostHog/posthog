@@ -277,7 +277,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"))
+        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"), self.team.pk)
         sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
         if sentiment is not None:
             trace_dict["sentiment"] = sentiment
@@ -288,7 +288,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             raw = trace_dict.get(raw_key) or trace_properties.get(prop_key) or None
             trace_dict[raw_key] = raw
             if raw is not None:
-                trace_dict[parsed_key] = parse_ai_property_value(raw)
+                trace_dict[parsed_key] = parse_ai_property_value(raw, self.team.pk)
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
         )

@@ -612,7 +612,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             # for every non-string value (numbers, bools, objects), and those properties should still
             # show up in correlation results.
             properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
-            if use_new_events_schema():
+            if use_new_events_schema(self.team.pk):
                 properties_pairs = f"arrayFilter(prop -> prop.2 != '', {properties_pairs})"
             event_property_array_query = f"""
                 if(
