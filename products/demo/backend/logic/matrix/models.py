@@ -225,7 +225,7 @@ class SimServerClient(SimClient):
         span_name: str = "SpikeChain",
         trace_id: Optional[str] = None,
     ) -> Generator[tuple[str, Callable]]:
-        """Capture an AI generation event."""
+        """Capture an AI trace event."""
         trace_id = trace_id or str(uuid4())
         output_state = None
 
