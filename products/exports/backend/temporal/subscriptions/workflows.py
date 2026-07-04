@@ -34,7 +34,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
-    mark_pulse_brief_generation_skipped,
+    cleanup_skipped_pulse_brief,
     prepare_pulse_brief_subscription,
     render_pulse_brief_for_delivery,
 )
@@ -47,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.snapshot_activities import 
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
     PULSE_BRIEF_RESOURCE_TYPE,
+    CleanupSkippedPulseBriefInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -54,7 +55,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
-    MarkPulseBriefSkippedInputs,
     PreparePulseBriefInputs,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
@@ -624,7 +624,6 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
         delivery_id: uuid.UUID | None = None
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
-        delivery_error: dict | None = None
         caught_error: BaseException | None = None
 
         try:
@@ -680,12 +679,12 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
                 await temporalio.workflow.execute_child_workflow(
                     GENERATE_BRIEF_WORKFLOW_NAME,
                     GenerateBriefWorkflowInputs(
-                        team_id=prepare_result.team_id,
+                        team_id=inputs.team_id,
                         brief_id=prepare_result.brief_id,
                         brief_config_id=prepare_result.config_id,
                         period_days=prepare_result.period_days,
                     ),
-                    id=f"pulse-brief-{prepare_result.team_id}-{prepare_result.config_id}",
+                    id=f"pulse-brief-{inputs.team_id}-{prepare_result.config_id}",
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=1),
                 )
@@ -694,11 +693,12 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
                     "process_pulse_subscription.generation_already_running",
                     extra={"subscription_id": inputs.subscription_id, "brief_id": prepare_result.brief_id},
                 )
-                # Our brief row will never be filled — mark it FAILED so it doesn't strand
-                # in GENERATING (visible in-app with an honest error).
+                # Collision policy (shared with the on-demand API path in
+                # products/pulse/backend/api/brief.py): delete the stranded GENERATING row;
+                # the SKIPPED delivery record is the audit trail for this run.
                 await temporalio.workflow.execute_activity(
-                    mark_pulse_brief_generation_skipped,
-                    MarkPulseBriefSkippedInputs(team_id=prepare_result.team_id, brief_id=prepare_result.brief_id),
+                    cleanup_skipped_pulse_brief,
+                    CleanupSkippedPulseBriefInputs(team_id=inputs.team_id, brief_id=prepare_result.brief_id),
                     start_to_close_timeout=dt.timedelta(minutes=1),
                     retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                 )
@@ -708,25 +708,19 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
             # already marked the brief FAILED, and a FAILED brief is never delivered (spec §7).
 
             # Phase 3: render READY sections (or the one-line QUIET note) onto the delivery row.
-            render_result = await temporalio.workflow.execute_activity(
+            # A brief in any other state after a successful child run is an invariant break —
+            # the activity raises non-retryable and the failure path below records it.
+            await temporalio.workflow.execute_activity(
                 render_pulse_brief_for_delivery,
                 RenderPulseBriefInputs(
                     subscription_id=inputs.subscription_id,
-                    team_id=prepare_result.team_id,
+                    team_id=inputs.team_id,
                     brief_id=prepare_result.brief_id,
                     delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
             )
-            if not render_result.deliverable:
-                # Defensive: the child returned normally but the brief isn't READY/QUIET.
-                final_status = DeliveryStatus.FAILED
-                delivery_error = {
-                    "message": f"Brief was not deliverable (status: {render_result.brief_status})",
-                    "type": "BriefNotDeliverable",
-                }
-                return
 
             # Phase 4: ship the persisted markdown. is_new only for target-change triggers.
             is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
@@ -770,7 +764,7 @@ class ProcessPulseSubscriptionWorkflow(PostHogWorkflow):
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
-                            else delivery_error,
+                            else None,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),

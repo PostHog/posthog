@@ -5,17 +5,21 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import {
+    AI_PROMPT_MAX_LENGTH,
+    getDefaultSubscriptionStartDate,
+    SubscriptionBaseProps,
+    urlForSubscription,
+    validateEmailTargetValue,
+} from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -49,7 +53,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
     interval: 1,
-    start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
+    start_date: getDefaultSubscriptionStartDate(),
     target_type: 'email',
     byweekday: ['monday'],
     bysetpos: 1,
@@ -145,11 +149,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
-                      ? !target_value
-                          ? 'At least one email is required'
-                          : !target_value.split(',').every((email) => isEmail(email))
-                            ? 'All emails must be valid'
-                            : undefined
+                      ? validateEmailTargetValue(target_value)
                       : target_type == 'slack'
                         ? !target_value
                             ? 'A channel is required'

@@ -3,14 +3,29 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
+import { isEmail } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+/** Validation for a comma-separated email `target_value` — shared by every email subscription form. */
+export function validateEmailTargetValue(target_value: string): string | undefined {
+    if (!target_value) {
+        return 'At least one email is required'
+    }
+    return target_value.split(',').every((email) => isEmail(email)) ? undefined : 'All emails must be valid'
+}
+
+/** Default `start_date` for a new subscription: today at 9:00 (the rrule derives the first future delivery from it). */
+export function getDefaultSubscriptionStartDate(): string {
+    return dayjs().hour(9).minute(0).second(0).toISOString()
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number

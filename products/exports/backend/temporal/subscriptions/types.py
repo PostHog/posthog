@@ -192,7 +192,6 @@ class PreparePulseBriefResult:
 
     brief_id: str = ""
     config_id: str = ""
-    team_id: int = 0
     period_days: int = 7
     aborted: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
@@ -209,14 +208,7 @@ class RenderPulseBriefInputs:
 
 
 @dataclasses.dataclass
-class RenderPulseBriefResult:
-    # False for FAILED (or still-generating) briefs — spec: a failed brief is never delivered.
-    deliverable: bool = False
-    brief_status: str = ""
-
-
-@dataclasses.dataclass
-class MarkPulseBriefSkippedInputs:
+class CleanupSkippedPulseBriefInputs:
     team_id: int
     brief_id: str
 

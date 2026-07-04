@@ -343,12 +343,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError(
                 {"pulse_brief_config_id": ["This brief config is disabled. Enable it before subscribing."]}
             )
-        target_type = attrs.get("target_type") or (existing.target_type if existing else None)
-        if target_type and target_type not in (
-            Subscription.SubscriptionTarget.EMAIL,
-            Subscription.SubscriptionTarget.SLACK,
-        ):
-            raise ValidationError({"target_type": ["Pulse brief subscriptions only support email or slack delivery."]})
 
     def validate(self, attrs):
         request = self.context.get("request")

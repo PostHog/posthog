@@ -16,7 +16,7 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
@@ -26,7 +26,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
 )
-from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import _deliver_pulse_subscription
+from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import deliver_pulse_subscription
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -331,10 +331,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
     )
 
     if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
-        return await _deliver_ai_subscription(subscription, inputs, recipient_results)
+        return await deliver_ai_subscription(subscription, inputs, recipient_results)
 
     if subscription.resource_type == Subscription.ResourceType.PULSE_BRIEF:
-        return await _deliver_pulse_subscription(subscription, inputs, recipient_results)
+        return await deliver_pulse_subscription(subscription, inputs, recipient_results)
 
     return await _deliver_insight_dashboard_subscription(subscription, inputs, recipient_results)
 
