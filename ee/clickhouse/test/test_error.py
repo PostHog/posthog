@@ -132,6 +132,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
         ),
         (
             ServerException(
+                "Code: 50. DB::Exception: Unknown data type family: $exception_values.",
+                code=50,
+            ),
+            "CHQueryErrorUnknownType",
+            "Unknown data type family: $exception_values.",
+            50,
+            "CHQueryErrorUnknownType",
+        ),
+        (
+            ServerException(
                 "Code: 184. DB::Exception: Aggregate function sum(count()) is found inside another aggregate function.",
                 code=184,
             ),
