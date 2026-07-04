@@ -207,6 +207,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
+    HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-modeling
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
