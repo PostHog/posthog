@@ -298,6 +298,16 @@ class TestSQLV2RunPage(APIBaseTest):
         response = self._get(str(run.id))
         self.assertEqual(response.status_code, 503)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_empty_code_run_is_rejected_before_reaching_the_kernel(self, _mock_enabled, mock_fetch):
+        # Pre-migration runs stored code="" — paging must fail clearly, not round-trip to an opaque error.
+        run = self._create_run(code="")
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("re-run", response.json()["detail"])
+        mock_fetch.assert_not_called()
+
     @parameterized.expand(
         [
             ("running_run", NotebookNodeRun.Status.RUNNING, 400),
@@ -354,7 +364,12 @@ class TestSQLV2PageDispatch(APIBaseTest):
     @parameterized.expand(
         [
             ("outdated_kernel_404", 404, None, SQLV2KernelNotRunning),
+            # Token expiry / kernel redeploy — a re-run reissues the token, so it's "re-run" (503), not a query error.
+            ("stale_token_401", 401, None, SQLV2KernelNotRunning),
+            ("forbidden_403", 403, None, SQLV2KernelNotRunning),
             ("query_error_400", 400, {"error": "no such column"}, SQLV2PageError),
+            # Any other non-200 is infrastructure, not a bad query.
+            ("kernel_error_500", 500, None, SQLV2KernelNotRunning),
         ]
     )
     @patch("products.notebooks.backend.sql_v2.requests.post")

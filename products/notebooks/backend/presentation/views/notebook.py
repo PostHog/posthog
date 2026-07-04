@@ -979,6 +979,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if is_stale:
             return Response({"detail": "stale"}, status=409)
 
+        # Runs recorded before the code column existed (default "") have no query to page.
+        # Send that to the kernel and it round-trips into an opaque "page fetch failed"; catch
+        # it here with guidance instead.
+        if not run.code.strip():
+            return Response(
+                {"detail": "This result predates page support — re-run the query to page through it."},
+                status=400,
+            )
+
         try:
             page = fetch_sql_v2_page(
                 notebook,

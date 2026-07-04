@@ -300,13 +300,16 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
     except requests.RequestException as exc:
         raise SQLV2KernelNotRunning() from exc
 
-    if response.status_code == 404:
-        # A kernel-server from before the /page route; the next run redeploys it.
+    if response.status_code in (404, 401, 403):
+        # 404 → kernel-server predates the /page route; 401/403 → the command token expired or
+        # the kernel was redeployed with a new secret. All are session-level, not query errors —
+        # a re-run redeploys/reissues, so surface them as "re-run" (503), not a page failure.
         raise SQLV2KernelNotRunning()
     if response.status_code == 400:
         raise SQLV2PageError(_kernel_error_detail(response))
     if response.status_code != 200:
-        raise SQLV2PageError("Page fetch failed in the sandbox.")
+        # Any other non-200 (e.g. a kernel 500) is an infrastructure problem, not a bad query.
+        raise SQLV2KernelNotRunning()
     return response.json()
 
 
