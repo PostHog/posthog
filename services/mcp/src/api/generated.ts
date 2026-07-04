@@ -34395,6 +34395,7 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt
+     * * `pulse_brief` - Pulse brief
      */
     export type ResourceTypeEnum = typeof ResourceTypeEnum[keyof typeof ResourceTypeEnum];
 
@@ -34403,6 +34404,7 @@ export namespace Schemas {
       Insight: 'insight',
       Dashboard: 'dashboard',
       AiPrompt: 'ai_prompt',
+      PulseBrief: 'pulse_brief',
     } as const;
 
     /**
@@ -34444,11 +34446,12 @@ export namespace Schemas {
      */
     export interface Subscription {
       readonly id: number;
-      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'pulse_brief' (scheduled Pulse product brief). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt, pulse_brief_config_id → pulse_brief).
        *
        * * `insight` - Insight
        * * `dashboard` - Dashboard
-       * * `ai_prompt` - AI prompt */
+       * * `ai_prompt` - AI prompt
+       * * `pulse_brief` - Pulse brief */
       readonly resource_type: ResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -34471,6 +34474,11 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
+      /**
+         * ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team.
+         * @nullable
+         */
+      pulse_brief_config_id?: string | null;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -41563,11 +41571,12 @@ export namespace Schemas {
      */
     export interface PatchedSubscription {
       readonly id?: number;
-      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'pulse_brief' (scheduled Pulse product brief). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt, pulse_brief_config_id → pulse_brief).
        *
        * * `insight` - Insight
        * * `dashboard` - Dashboard
-       * * `ai_prompt` - AI prompt */
+       * * `ai_prompt` - AI prompt
+       * * `pulse_brief` - Pulse brief */
       readonly resource_type?: ResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -41590,6 +41599,11 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
+      /**
+         * ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team.
+         * @nullable
+         */
+      pulse_brief_config_id?: string | null;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -60736,7 +60750,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
+     * Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.
      */
     resource_type?: EnvironmentsSubscriptionsListResourceType;
     /**
@@ -60756,6 +60770,7 @@ export namespace Schemas {
       AiPrompt: 'ai_prompt',
       Dashboard: 'dashboard',
       Insight: 'insight',
+      PulseBrief: 'pulse_brief',
     } as const;
 
     export type EnvironmentsSubscriptionsListTargetType = typeof EnvironmentsSubscriptionsListTargetType[keyof typeof EnvironmentsSubscriptionsListTargetType];
@@ -68245,7 +68260,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
+     * Filter by subscription resource: insight, dashboard export, AI report, or Pulse brief.
      */
     resource_type?: SubscriptionsListResourceType;
     /**
@@ -68265,6 +68280,7 @@ export namespace Schemas {
       AiPrompt: 'ai_prompt',
       Dashboard: 'dashboard',
       Insight: 'insight',
+      PulseBrief: 'pulse_brief',
     } as const;
 
     export type SubscriptionsListTargetType = typeof SubscriptionsListTargetType[keyof typeof SubscriptionsListTargetType];

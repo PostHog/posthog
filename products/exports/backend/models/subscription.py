@@ -1,4 +1,5 @@
 import sys
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -125,6 +126,7 @@ class Subscription(ModelActivityMixin, models.Model):
         INSIGHT = "insight"
         DASHBOARD = "dashboard"
         AI_PROMPT = "ai_prompt", "AI prompt"
+        PULSE_BRIEF = "pulse_brief", "Pulse brief"
 
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
@@ -163,6 +165,11 @@ class Subscription(ModelActivityMixin, models.Model):
     )
 
     prompt = models.TextField(null=True, blank=True)
+
+    # Plain UUID (not an FK) referencing products.pulse.BriefConfig — keeps exports free of a
+    # cross-product model dependency; existence/ownership is enforced in the API serializer and
+    # re-checked at delivery time.
+    pulse_brief_config_id = models.UUIDField(null=True, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -223,7 +230,13 @@ class Subscription(ModelActivityMixin, models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
+    def derive_resource_type(
+        cls,
+        insight_id: int | None,
+        dashboard_id: int | None,
+        prompt: str | None,
+        pulse_brief_config_id: "uuid.UUID | str | None" = None,
+    ) -> str:
         # Shared by the `resource_type` property and the scheduler's `.values()` fan-out
         # (which has field dicts, not model instances) so the derivation stays single-source.
         if insight_id:
@@ -232,16 +245,20 @@ class Subscription(ModelActivityMixin, models.Model):
             return cls.ResourceType.DASHBOARD
         if prompt:
             return cls.ResourceType.AI_PROMPT
-        raise ValueError("Subscription has no insight, dashboard, or prompt to derive a resource type from")
+        if pulse_brief_config_id:
+            return cls.ResourceType.PULSE_BRIEF
+        raise ValueError(
+            "Subscription has no insight, dashboard, prompt, or brief config to derive a resource type from"
+        )
 
     @property
     def resource_type(self) -> str:
-        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt)
+        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt, self.pulse_brief_config_id)
 
     @property
     def _has_resource(self) -> bool:
         # Guards url/resource_info from resource_type's raise on a relationless sub.
-        return bool(self.insight_id or self.dashboard_id or self.prompt)
+        return bool(self.insight_id or self.dashboard_id or self.prompt or self.pulse_brief_config_id)
 
     @staticmethod
     def _build_rrule(
@@ -330,6 +347,8 @@ class Subscription(ModelActivityMixin, models.Model):
                 return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
             case self.ResourceType.AI_PROMPT:
                 return absolute_uri(f"/project/{self.team_id}/subscriptions/{self.id}")
+            case self.ResourceType.PULSE_BRIEF:
+                return absolute_uri(f"/project/{self.team_id}/pulse")
         return None
 
     @property
@@ -348,6 +367,8 @@ class Subscription(ModelActivityMixin, models.Model):
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
                 return SubscriptionResourceInfo("AI", ai_name, self.url or "")
+            case self.ResourceType.PULSE_BRIEF:
+                return SubscriptionResourceInfo("Pulse", self.title or "Pulse brief", self.url or "")
         return None
 
     @property
