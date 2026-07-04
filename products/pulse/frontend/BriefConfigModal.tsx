@@ -30,7 +30,7 @@ function SchedulingSection(): JSX.Element {
             <div className="flex items-center justify-between gap-2">
                 <div>
                     <div>
-                        Delivered to <strong>{editingConfigSubscription.target_value}</strong>
+                        Delivered to <strong>{editingConfigSubscription.target_value.split(',').join(', ')}</strong>
                     </div>
                     <div className="text-muted">{editingConfigSubscription.summary}</div>
                 </div>

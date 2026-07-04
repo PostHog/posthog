@@ -92,6 +92,17 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
+def _pulse_brief_create_gate_reason(organization) -> Optional[str]:
+    # Brief generation runs LLMs over project data — same cloud + consent constraints as AI
+    # subscriptions. No per-user flag gate: creating a BriefConfig is already gated on the
+    # pulse feature flag, and a pulse_brief subscription requires a team-owned config.
+    if not settings.DEBUG and not is_cloud():
+        return "Pulse brief subscriptions are only available in PostHog Cloud."
+    if not organization.is_ai_data_processing_approved:
+        return "Your organization must approve AI data processing before scheduling Pulse briefs."
+    return None
+
+
 def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
@@ -334,15 +345,26 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError(
                 {"pulse_brief_config_id": ["A brief config is required for Pulse brief subscriptions."]}
             )
-        config = BriefConfig.objects.for_team(self.context["team_id"]).filter(id=config_id).first()
-        if config is None:
-            raise ValidationError(
-                {"pulse_brief_config_id": ["This brief config does not exist or does not belong to your team."]}
-            )
-        if not config.enabled:
-            raise ValidationError(
-                {"pulse_brief_config_id": ["This brief config is disabled. Enable it before subscribing."]}
-            )
+        # Existence/enabled is only re-checked when the config reference is being set or
+        # changed — deactivation PATCHes (deleted/enabled toggles) must always pass, or a
+        # subscription whose config was deleted first becomes impossible to soft-delete
+        # (hard DELETE is 405 via ForbidDestroyModel). Delivery re-checks and auto-disables.
+        if "pulse_brief_config_id" in attrs:
+            config = BriefConfig.objects.for_team(self.context["team_id"]).filter(id=config_id).first()
+            if config is None:
+                raise ValidationError(
+                    {"pulse_brief_config_id": ["This brief config does not exist or does not belong to your team."]}
+                )
+            if not config.enabled:
+                raise ValidationError(
+                    {"pulse_brief_config_id": ["This brief config is disabled. Enable it before subscribing."]}
+                )
+        # Gates fire on create only, mirroring the AI-prompt kind: a consent-less org gets
+        # a clear 400 here instead of a silent auto-disable on the first scheduled run.
+        if existing is None:
+            gate_reason = _pulse_brief_create_gate_reason(self.context["get_organization"]())
+            if gate_reason is not None:
+                raise ValidationError(gate_reason)
 
     def validate(self, attrs):
         request = self.context.get("request")

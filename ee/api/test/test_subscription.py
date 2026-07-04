@@ -2723,9 +2723,12 @@ class TestAISubscriptionAPI(APILicensedTest):
 
 
 @patch("ee.api.subscription.sync_connect")
+@patch("ee.api.subscription.is_cloud", return_value=True)
 class TestPulseBriefSubscriptionAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.config = self._create_config(self.team, "Growth focus")
 
     @staticmethod
@@ -2752,7 +2755,7 @@ class TestPulseBriefSubscriptionAPI(APILicensedTest):
         mock_sync.return_value = mock_client
         return mock_client
 
-    def test_can_create_pulse_brief_subscription(self, mock_sync):
+    def test_can_create_pulse_brief_subscription(self, mock_is_cloud, mock_sync):
         mock_client = self._mock_temporal(mock_sync)
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -2785,7 +2788,7 @@ class TestPulseBriefSubscriptionAPI(APILicensedTest):
             ),
         ]
     )
-    def test_invalid_config_is_rejected(self, mock_sync, _name, make_config_id, expected_error_fragment):
+    def test_invalid_config_is_rejected(self, mock_is_cloud, mock_sync, _name, make_config_id, expected_error_fragment):
         mock_client = self._mock_temporal(mock_sync)
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
@@ -2797,26 +2800,27 @@ class TestPulseBriefSubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            # insight wins kind derivation, so the insight validator must reject the extra config.
+            # insight/dashboard win kind derivation, so their validators must reject the extra
+            # config; prompt wins over config, so the AI validator must reject it.
             ("config_plus_insight", "insight"),
-            # prompt wins over config, so the AI validator must reject the extra config.
+            ("config_plus_dashboard", "dashboard"),
             ("config_plus_prompt", "prompt"),
         ]
     )
-    def test_cannot_combine_config_with_other_content(self, mock_sync, _name, extra_field):
+    def test_cannot_combine_config_with_other_content(self, mock_is_cloud, mock_sync, _name, extra_field):
         mock_client = self._mock_temporal(mock_sync)
         if extra_field == "insight":
             extra: dict = {"insight": Insight.objects.create(team=self.team).id}
+        elif extra_field == "dashboard":
+            extra = {"dashboard": Dashboard.objects.create(team=self.team).id}
         else:
-            self.organization.is_ai_data_processing_approved = True
-            self.organization.save(update_fields=["is_ai_data_processing_approved"])
             extra = {"prompt": "Summarize signups"}
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload(**extra))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "brief config" in str(response.json())
         mock_client.start_workflow.assert_not_called()
 
-    def test_list_filter_by_pulse_brief_resource_type(self, mock_sync):
+    def test_list_filter_by_pulse_brief_resource_type(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
         assert created.status_code == status.HTTP_201_CREATED, created.json()
@@ -2837,3 +2841,31 @@ class TestPulseBriefSubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert [r["id"] for r in results] == [created.json()["id"]]
+
+    def test_create_requires_ai_consent(self, mock_is_cloud, mock_sync):
+        mock_client = self._mock_temporal(mock_sync)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "approve AI data processing" in str(response.json())
+        mock_client.start_workflow.assert_not_called()
+
+    @parameterized.expand([("config_disabled", False), ("config_deleted", True)])
+    def test_can_soft_delete_subscription_after_config_removed(self, mock_is_cloud, mock_sync, _name, hard_delete):
+        # Hard DELETE is 405 (ForbidDestroyModel), so a config-existence re-check on every
+        # PATCH would make such a subscription permanently stuck.
+        self._mock_temporal(mock_sync)
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        if hard_delete:
+            self.config.delete()
+        else:
+            self.config.enabled = False
+            self.config.save(update_fields=["enabled"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}", {"deleted": True}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted"] is True

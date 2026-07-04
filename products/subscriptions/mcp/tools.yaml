@@ -34,6 +34,12 @@ tools:
             is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
 
+            (4) set `pulse_brief_config_id` (the UUID of an enabled Pulse brief config in this project, with no insight,
+            dashboard, or prompt) — schedule recurring generation and delivery of a Pulse product brief
+            (`resource_type: "pulse_brief"`). The config decides what the brief covers; this subscription decides when
+            and where it goes. Available on PostHog Cloud once the organization has approved AI data processing;
+            otherwise create is rejected with a 400.
+
             Delivery is set by `target_type` — `email` or `slack`.
 
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
