@@ -27,7 +27,7 @@ interface MockHandles {
 interface QueryResult {
     query: unknown
     results: unknown
-    insight: { url: string }
+    insight: Record<string, unknown> & { url: string }
     _posthogUrl: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
@@ -175,6 +175,45 @@ describe('queryHandler — link reflects overrides', () => {
             JSON.stringify(variablesOverrideObject)
         )}&filters_override=${encodeURIComponent(JSON.stringify(filtersOverrideObject))}`
         expect(result._posthogUrl).toBe(expected)
+    })
+})
+
+describe('queryHandler — lean insight metadata', () => {
+    it('strips the duplicated result set and heavy fields from the insight summary', async () => {
+        const { context } = createContext({
+            getData: {
+                id: 42,
+                short_id: 'abc12345',
+                name: 'Signups',
+                description: 'daily signups',
+                query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } },
+                // Fields the retrieve endpoint returns that either duplicate the top-level
+                // query/results or are UI/debug data the model never needs.
+                result: [{ data: [1, 2], labels: ['a', 'b'] }],
+                hogql: 'SELECT count() FROM events',
+                created_by: { id: 1, hedgehog_config: {} },
+                last_modified_by: { id: 1, hedgehog_config: {} },
+                filters: { insight: 'TRENDS' },
+            },
+            queryData: { results: [{ data: [1, 2], labels: ['a', 'b'] }] },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        // Lean identifying metadata is retained.
+        expect(result.insight).toMatchObject({
+            id: 42,
+            short_id: 'abc12345',
+            name: 'Signups',
+            description: 'daily signups',
+        })
+        // The result set lives once at the top level, not echoed back under insight.
+        expect(result.insight).not.toHaveProperty('result')
+        expect(result.insight).not.toHaveProperty('query')
+        expect(result.insight).not.toHaveProperty('hogql')
+        expect(result.insight).not.toHaveProperty('created_by')
+        expect(result.insight).not.toHaveProperty('last_modified_by')
+        expect(result.insight).not.toHaveProperty('filters')
     })
 })
 

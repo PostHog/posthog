@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
@@ -12,12 +13,44 @@ const schema = InsightQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
+// Lean identifying metadata surfaced alongside the results. The saved-insight payload the
+// retrieve endpoint returns also carries a full copy of the result set (`result`), the query
+// (`query`), the generated ClickHouse SQL (`hogql`), and full user serializers — all of which
+// either duplicate the top-level `query`/`results` on this response or are UI/debug data the
+// model never needs. Surfacing the whole thing made the payload ~50% redundant and pushed wide
+// multi-series insights toward the token cap, so we pick only these context fields.
+const INSIGHT_METADATA_KEYS = [
+    'id',
+    'short_id',
+    'name',
+    'derived_name',
+    'description',
+    'favorited',
+    'tags',
+    'created_at',
+    'updated_at',
+    'last_modified_at',
+] as const
+
+type InsightSummary = Pick<Insight, (typeof INSIGHT_METADATA_KEYS)[number]> & { url: string }
+
 type Result = WithPostHogUrl<{
     query: unknown
-    insight: Insight & { url: string }
+    insight: InsightSummary
     results: unknown
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }>
+
+function toInsightSummary(insight: Schemas.Insight, url: string): InsightSummary {
+    const summary: Record<string, unknown> = { url }
+    for (const key of INSIGHT_METADATA_KEYS) {
+        const value = (insight as unknown as Record<string, unknown>)[key]
+        if (value !== undefined) {
+            summary[key] = value
+        }
+    }
+    return summary as InsightSummary
+}
 
 // Accept either a pre-encoded JSON string or a plain object for the override
 // params. LLM agents reading the insight-get response see `variables` as an
@@ -106,10 +139,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         context,
         {
             query: queryInfo.innerQuery || insightResult.data.query,
-            insight: {
-                url: fullUrl,
-                ...insightResult.data,
-            },
+            insight: toInsightSummary(insightResult.data, fullUrl),
             results,
             ...(surfaceFormatted
                 ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
