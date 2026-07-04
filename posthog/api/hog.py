@@ -21,10 +21,10 @@ class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     def create(self, request, *args, **kwargs) -> Response:
         hog = request.data.get("hog")
-        program = parse_program(hog)
         in_repl = request.data.get("in_repl", "false") in ("true", "True", True)
         locals = request.data.get("locals", []) or []
         try:
+            program = parse_program(hog)
             compiled = create_bytecode(
                 program,
                 supported_functions={"sleep", "fetch", "postHogCapture", "run"},
