@@ -6,7 +6,7 @@ from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
 
-def _out(fingerprint_hint: str = "abc:0") -> BriefOut:
+def _out(fingerprint_hint: str = "abc:0", goal_relevant: bool = False) -> BriefOut:
     return BriefOut(
         sections=[
             BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["insight:abc"], confidence=0.9)
@@ -20,7 +20,7 @@ def _out(fingerprint_hint: str = "abc:0") -> BriefOut:
                 evidence_refs=["insight:abc"],
                 fingerprint_hint=fingerprint_hint,
                 confidence=0.9,
-                goal_relevant=False,
+                goal_relevant=goal_relevant,
             )
         ],
     )
@@ -49,7 +49,7 @@ class TestPersistBriefOutput(BaseTest):
 
     def test_persists_sections_and_resolved_opportunity_context(self) -> None:
         brief = self._brief()
-        created = persist_brief_output(brief=brief, out=_out(), items=[_item()])
+        created = persist_brief_output(brief=brief, out=_out(goal_relevant=True), items=[_item()])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         assert brief.sources_used == ["anchored_insights"]
@@ -58,6 +58,7 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.evidence == [{"type": "insight", "ref": "abc", "label": "Pageviews"}]
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
+        assert opportunity.goal_relevant is True
 
     def test_unresolvable_ref_falls_back_to_parsed_evidence(self) -> None:
         persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()])

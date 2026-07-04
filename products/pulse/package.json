@@ -12,6 +12,8 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
