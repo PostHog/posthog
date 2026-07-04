@@ -51,3 +51,41 @@ def from_columns_and_rows(
 
 def from_error(message: str) -> dict[str, Any]:
     return {"status": "error", "error": message}
+
+
+def from_python_execution(
+    *,
+    status: str,
+    stdout: str = "",
+    stderr: str = "",
+    error: str | None = None,
+    columns: list[str] | None = None,
+    types: list[list[str]] | None = None,
+    rows: list[tuple[Any, ...]] | None = None,
+    row_count: int = 0,
+    has_more: bool = False,
+    media: list[dict[str, str]] | None = None,
+    result_id: str | None = None,
+) -> dict[str, Any]:
+    """Envelope for a Python node run.
+
+    Carries the captured stdout/stderr and any matplotlib images alongside the bounded
+    table preview. `row_count` is the produced frame's full size (not len(rows), which is
+    only the previewed page); `result_id` keys the on-disk frame for later paging.
+    """
+    envelope: dict[str, Any] = {
+        "status": status,
+        "stdout": stdout,
+        "stderr": stderr,
+        "columns": columns or [],
+        "types": types or [],
+        "row_count": row_count,
+        "first_page": json_safe_rows(rows or []),
+        "has_more": has_more,
+        "media": media or [],
+    }
+    if error is not None:
+        envelope["error"] = error
+    if result_id is not None:
+        envelope["result_id"] = result_id
+    return envelope
