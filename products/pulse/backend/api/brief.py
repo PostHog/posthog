@@ -325,11 +325,12 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
         vote_serializer.is_valid(raise_exception=True)
         helpful = vote_serializer.validated_data["helpful"]
+        # Capture props come from the pre-vote instance (they don't depend on the vote), which
+        # already has config select_related — no third SELECT.
         brief = self.get_object()
         user = cast(User, request.user)
-        brief = record_vote(ProductBrief, self.team_id, brief.pk, user.id, helpful)
-        # The context props ARE the tuning signal — they let the feedback stream answer "which
-        # brief shapes are helpful" (e.g. goal-conditioned vs plain) without joining to the rows.
+        updated = record_vote(ProductBrief, self.team_id, brief.pk, user.id, helpful)
+        # The context props are the tuning signal — see EVENTS.md.
         report_user_action(
             user,
             "product_brief_feedback",
@@ -339,10 +340,16 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 "status": brief.status,
                 "trigger": brief.trigger,
                 "has_goal": brief.has_goal,
-                "section_kinds": brief.section_kinds,
+                "section_kinds": sorted(
+                    {
+                        str(section.get("kind"))
+                        for section in brief.sections
+                        if isinstance(section, dict) and section.get("kind")
+                    }
+                ),
                 "has_investigation": bool(brief.investigation),
             },
             team=self.team,
             request=request,
         )
-        return Response(self.get_serializer(brief).data)
+        return Response(self.get_serializer(updated).data)

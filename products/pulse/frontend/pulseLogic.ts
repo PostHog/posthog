@@ -267,6 +267,7 @@ export const pulseLogic = kea<pulseLogicType>([
         voteOnBrief: (briefId: string, helpful: boolean | null) => ({ briefId, helpful }),
         voteOnOpportunity: (opportunityId: string, helpful: boolean | null) => ({ opportunityId, helpful }),
         feedbackVoteStarted: (targetId: string) => ({ targetId }),
+        feedbackVoteSucceeded: (targetId: string) => ({ targetId }),
         feedbackVoteFailed: (targetId: string) => ({ targetId }),
         briefFeedbackUpdated: (brief: ProductBriefApi) => ({ brief }),
         opportunityFeedbackUpdated: (opportunity: OpportunityApi) => ({ opportunity }),
@@ -431,16 +432,12 @@ export const pulseLogic = kea<pulseLogicType>([
             {} as Record<string, true>,
             {
                 feedbackVoteStarted: (state, { targetId }) => ({ ...state, [targetId]: true as const }),
-                feedbackVoteFailed: (state, { targetId }) => {
+                feedbackVoteSucceeded: (state, { targetId }) => {
                     const { [targetId]: _, ...rest } = state
                     return rest
                 },
-                briefFeedbackUpdated: (state, { brief }) => {
-                    const { [brief.id]: _, ...rest } = state
-                    return rest
-                },
-                opportunityFeedbackUpdated: (state, { opportunity }) => {
-                    const { [opportunity.id]: _, ...rest } = state
+                feedbackVoteFailed: (state, { targetId }) => {
+                    const { [targetId]: _, ...rest } = state
                     return rest
                 },
             },
@@ -611,6 +608,28 @@ export const pulseLogic = kea<pulseLogicType>([
                 return null
             }
         }
+        /** One vote round-trip, mirroring runTransition: in-flight guard, server call,
+         * server-confirmed swap via onSuccess, toast on failure. */
+        const runVote = async <T>(
+            targetId: string,
+            call: () => Promise<T>,
+            onSuccess: (updated: T) => void
+        ): Promise<void> => {
+            if (targetId in values.feedbackVotesInFlight) {
+                return // state-level double-submission guard; the buttons are also disabled
+            }
+            actions.feedbackVoteStarted(targetId)
+            try {
+                const updated = await call()
+                actions.feedbackVoteSucceeded(targetId)
+                onSuccess(updated)
+            } catch (error) {
+                actions.feedbackVoteFailed(targetId)
+                lemonToast.error(
+                    error instanceof ApiError && error.detail ? error.detail : 'Saving your feedback failed'
+                )
+            }
+        }
         return {
             loadBriefsSuccess: ({ briefs }) => {
                 if (values.selectedBriefId === null && values.visibleBriefs.length > 0) {
@@ -736,36 +755,18 @@ export const pulseLogic = kea<pulseLogicType>([
                 await runTransition(opportunityId, transition, OPPORTUNITY_TRANSITIONS[transition].call)
             },
             voteOnBrief: async ({ briefId, helpful }) => {
-                if (briefId in values.feedbackVotesInFlight) {
-                    return // state-level double-submission guard; the buttons are also disabled
-                }
-                actions.feedbackVoteStarted(briefId)
-                try {
-                    const updated = await pulseBriefsFeedbackCreate(currentProjectId(), briefId, { helpful })
-                    actions.briefFeedbackUpdated(updated)
-                } catch (error) {
-                    actions.feedbackVoteFailed(briefId)
-                    lemonToast.error(
-                        error instanceof ApiError && error.detail ? error.detail : 'Saving your feedback failed'
-                    )
-                }
+                await runVote(
+                    briefId,
+                    () => pulseBriefsFeedbackCreate(currentProjectId(), briefId, { helpful }),
+                    actions.briefFeedbackUpdated
+                )
             },
             voteOnOpportunity: async ({ opportunityId, helpful }) => {
-                if (opportunityId in values.feedbackVotesInFlight) {
-                    return // state-level double-submission guard; the buttons are also disabled
-                }
-                actions.feedbackVoteStarted(opportunityId)
-                try {
-                    const updated = await pulseOpportunitiesFeedbackCreate(currentProjectId(), opportunityId, {
-                        helpful,
-                    })
-                    actions.opportunityFeedbackUpdated(updated)
-                } catch (error) {
-                    actions.feedbackVoteFailed(opportunityId)
-                    lemonToast.error(
-                        error instanceof ApiError && error.detail ? error.detail : 'Saving your feedback failed'
-                    )
-                }
+                await runVote(
+                    opportunityId,
+                    () => pulseOpportunitiesFeedbackCreate(currentProjectId(), opportunityId, { helpful }),
+                    actions.opportunityFeedbackUpdated
+                )
             },
             createExperimentFromOpportunity: async ({ opportunityId }) => {
                 const proposal = values.opportunities.find((o) => o.id === opportunityId)?.proposed_experiment

@@ -32,6 +32,7 @@ const KIND_TAG_TYPES: Record<OpportunityKindEnumApi, LemonTagType> = {
 
 export function OpportunitiesPanel(): JSX.Element {
     const { opportunities, opportunitiesLoading } = useValues(pulseLogic)
+    const { voteOnOpportunity } = useActions(pulseLogic)
 
     const columns: LemonTableColumns<OpportunityApi> = [
         {
@@ -87,7 +88,10 @@ export function OpportunitiesPanel(): JSX.Element {
             render: (_, opportunity) => (
                 <div className="flex items-center gap-2 justify-end">
                     <OpportunityRowActions opportunity={opportunity} />
-                    <OpportunityVote opportunity={opportunity} />
+                    <HelpfulnessVote
+                        item={opportunity}
+                        onVote={(helpful) => voteOnOpportunity(opportunity.id, helpful)}
+                    />
                 </div>
             ),
         },
@@ -100,21 +104,6 @@ export function OpportunitiesPanel(): JSX.Element {
             loading={opportunitiesLoading}
             rowKey="id"
             emptyState="No opportunities yet — run a brief to surface some"
-        />
-    )
-}
-
-function OpportunityVote({ opportunity }: { opportunity: OpportunityApi }): JSX.Element {
-    const { feedbackVotesInFlight } = useValues(pulseLogic)
-    const { voteOnOpportunity } = useActions(pulseLogic)
-
-    return (
-        <HelpfulnessVote
-            myVote={opportunity.my_vote}
-            helpfulCount={opportunity.helpful_count}
-            notHelpfulCount={opportunity.not_helpful_count}
-            inFlight={opportunity.id in feedbackVotesInFlight}
-            onVote={(helpful) => voteOnOpportunity(opportunity.id, helpful)}
         />
     )
 }

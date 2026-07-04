@@ -1,40 +1,45 @@
+import { useValues } from 'kea'
+
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { pulseLogic } from './pulseLogic'
+
+/** The vote-relevant surface briefs and opportunities share. */
+export interface HelpfulnessVoteItem {
+    id: string
+    my_vote: boolean | null
+    helpful_count: number
+    not_helpful_count: number
+}
+
 export interface HelpfulnessVoteProps {
-    myVote: boolean | null
-    helpfulCount: number
-    notHelpfulCount: number
-    inFlight: boolean
+    item: HelpfulnessVoteItem
     /** Called with the next vote: clicking the current vote clears it (null). */
     onVote: (helpful: boolean | null) => void
     /** Optional leading label, e.g. "Was this helpful?" on the brief detail. */
     label?: string
 }
 
-export function HelpfulnessVote({
-    myVote,
-    helpfulCount,
-    notHelpfulCount,
-    inFlight,
-    onVote,
-    label,
-}: HelpfulnessVoteProps): JSX.Element {
+export function HelpfulnessVote({ item, onVote, label }: HelpfulnessVoteProps): JSX.Element {
+    const { feedbackVotesInFlight } = useValues(pulseLogic)
+    const inFlight = item.id in feedbackVotesInFlight
+
     return (
         <div className="flex items-center gap-1">
             {label && <span className="text-muted text-sm mr-1">{label}</span>}
             <VoteButton
                 helpful={true}
-                active={myVote === true}
-                count={helpfulCount}
+                active={item.my_vote === true}
+                count={item.helpful_count}
                 inFlight={inFlight}
                 onVote={onVote}
             />
             <VoteButton
                 helpful={false}
-                active={myVote === false}
-                count={notHelpfulCount}
+                active={item.my_vote === false}
+                count={item.not_helpful_count}
                 inFlight={inFlight}
                 onVote={onVote}
             />
