@@ -2193,7 +2193,7 @@ mod tests {
 
         /// A zip archive with no `.json.gz` members - the Amplitude-shaped
         /// equivalent of an empty export (decompresses to zero bytes).
-        fn zip_without_json_members() -> Vec<u8> {
+        pub(super) fn zip_without_json_members() -> Vec<u8> {
             let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
             zip.start_file("readme.txt", SimpleFileOptions::default())
                 .unwrap();
@@ -2400,6 +2400,218 @@ mod tests {
                     "case '{name}' expected the no-data error, got: {err:#}"
                 );
             }
+        }
+    }
+
+    /// Remote (temp-bucket) staging must satisfy the same read-loop contracts the
+    /// local streaming path is pinned to above and in `empty_part_completion_tests`:
+    /// empty exports complete, trailing blank lines complete, and parts already done
+    /// (including offsets overshot by a past worker bug) are skipped without ever
+    /// touching the origin or the backend. All drive the real
+    /// `select_and_fetch_next_chunk` loop over a temp-bucket-staged source.
+    mod remote_read_loop_parity_tests {
+        use super::empty_part_completion_tests::zip_without_json_members;
+        use super::staging_cleanup_invariant_tests::{
+            build_source_with, drive_loop_to_completion, dummy_model, gzip_bytes, job_state,
+            newline_consumed_transform,
+        };
+        use super::*;
+        use crate::extractor::ExtractorType;
+        use crate::source::RemoteStaging;
+        use crate::staging::{StagingBackend, TempBucketBackend};
+        use object_store::memory::InMemory;
+        use tempfile::TempDir;
+
+        fn remote_staging(store: Arc<InMemory>) -> (RemoteStaging, Arc<TempBucketBackend>) {
+            let backend = Arc::new(TempBucketBackend::new(store, "staging/", "job-PARITY"));
+            let backend_dyn: Arc<dyn StagingBackend> = backend.clone();
+            (
+                RemoteStaging {
+                    backend: backend_dyn,
+                    extractor_type: ExtractorType::PlainGzip,
+                    max_plaintext_bytes: 0,
+                },
+                backend,
+            )
+        }
+
+        /// Remote counterpart of `test_empty_export_completes_part`: every empty
+        /// export shape stages an empty object and completes the part.
+        #[tokio::test]
+        async fn test_remote_empty_export_completes_part() {
+            let cases: [(&str, Vec<u8>, ExtractorType); 3] = [
+                ("empty 200 body", Vec::new(), ExtractorType::PlainGzip),
+                (
+                    "gzip of empty content",
+                    gzip_bytes(b""),
+                    ExtractorType::PlainGzip,
+                ),
+                (
+                    "zip with no json members",
+                    zip_without_json_members(),
+                    ExtractorType::ZipGzipJson,
+                ),
+            ];
+
+            for (name, body, extractor) in cases {
+                let server = MockServer::start();
+                let _mock = server.mock(|when, then| {
+                    when.method(Method::GET).path("/export");
+                    then.status(200).body(body);
+                });
+
+                let staging = TempDir::new().unwrap();
+                let (mut remote, backend) = remote_staging(Arc::new(InMemory::new()));
+                remote.extractor_type = extractor.clone();
+                let source = build_source_with(
+                    server.url("/export"),
+                    staging.path(),
+                    1,
+                    extractor,
+                    Some(remote),
+                );
+                source.prepare_for_job().await.unwrap();
+                let keys = source.keys().await.unwrap();
+
+                let state = Mutex::new(job_state(&keys));
+                let model = Mutex::new(dummy_model(job_state(&keys)));
+                let transform = newline_consumed_transform();
+
+                let completed =
+                    drive_loop_to_completion(&state, &model, &source, &transform, 1024, 10)
+                        .await
+                        .unwrap_or_else(|e| panic!("case '{name}' errored: {e:#}"));
+
+                assert!(completed, "case '{name}' did not complete the empty part");
+                let state = state.lock().await;
+                assert_eq!(state.parts[0].current_offset, 0, "case '{name}'");
+                assert_eq!(state.parts[0].total_size, Some(0), "case '{name}'");
+                // The empty object is durably staged: a resume attaches to it
+                // instead of re-downloading from the origin.
+                assert_eq!(
+                    backend.size(&keys[0]).await.unwrap(),
+                    Some(0),
+                    "case '{name}' must stage an empty object"
+                );
+            }
+        }
+
+        /// Remote counterpart of `test_part_with_trailing_blank_lines_completes`:
+        /// blank trailing content in the staged bytes is consumed over ranged
+        /// backend reads exactly as over the local stream.
+        #[tokio::test]
+        async fn test_remote_part_with_trailing_blank_lines_completes() {
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            body.push('\n');
+            let total_size = body.len() as u64;
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let (remote, _backend) = remote_staging(Arc::new(InMemory::new()));
+            let source = build_source_with(
+                server.url("/export"),
+                staging.path(),
+                1,
+                ExtractorType::PlainGzip,
+                Some(remote),
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let completed = drive_loop_to_completion(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                (total_size as usize / 1024) + 10,
+            )
+            .await
+            .unwrap();
+
+            assert!(completed, "trailing blank lines must not stall the part");
+            assert_eq!(state.lock().await.parts[0].current_offset, total_size);
+        }
+
+        /// Remote counterpart of `test_poisoned_part_with_overshot_offset_self_heals`:
+        /// a part whose stored offset overshot its total (a past worker bug) is
+        /// skipped as done without being staged or re-downloaded - `is_done` is
+        /// checked before any prepare work, so the poisoned part costs nothing.
+        #[tokio::test]
+        async fn test_remote_poisoned_part_skipped_without_staging() {
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let (remote, backend) = remote_staging(Arc::new(InMemory::new()));
+            let source = build_source_with(
+                server.url("/export"),
+                staging.path(),
+                2,
+                ExtractorType::PlainGzip,
+                Some(remote),
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 2);
+
+            let poisoned = JobState {
+                parts: vec![
+                    PartState {
+                        key: keys[0].clone(),
+                        current_offset: 25_328_072,
+                        total_size: Some(24_441_157),
+                    },
+                    PartState {
+                        key: keys[1].clone(),
+                        current_offset: 0,
+                        total_size: None,
+                    },
+                ],
+            };
+            let state = Mutex::new(poisoned.clone());
+            let model = Mutex::new(dummy_model(poisoned));
+            let transform = newline_consumed_transform();
+
+            let completed = drive_loop_to_completion(&state, &model, &source, &transform, 1024, 20)
+                .await
+                .unwrap();
+
+            assert!(completed, "job with an overshot part must finish the rest");
+            let state = state.lock().await;
+            assert_eq!(
+                state.parts[0].current_offset, 25_328_072,
+                "poisoned part must be skipped untouched"
+            );
+            assert_eq!(state.parts[1].total_size, Some(body.len() as u64));
+            assert_eq!(
+                backend.size(&keys[0]).await.unwrap(),
+                None,
+                "poisoned part must never be staged"
+            );
+            assert_eq!(
+                mock.hits(),
+                1,
+                "only the healthy part may hit the origin (one download)"
+            );
         }
     }
 }
