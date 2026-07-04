@@ -693,6 +693,13 @@ class PostHogTestCase(SimpleTestCase):
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
+        # Warm the new-events-schema gate settings so their cold reads don't land inside
+        # assertNumQueries blocks: production workers serve requests with this cache warm
+        # (60s TTL), and counting the cold reads would make every exact-count test depend
+        # on which events-schema mode CI is running.
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
+        get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
+
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 

@@ -4989,7 +4989,14 @@ class TestPrinter(BaseTest):
 class TestNewEventsSchemaDefaults(BaseTest):
     @parameterized.expand([("json", True), ("legacy", False)])
     def test_hogql_events_table_uses_configured_schema(self, _name: str, use_new_events_schema: bool) -> None:
-        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        # The instance setting's constance default is seeded from the same env var, so in
+        # json-mode CI override_settings alone still resolves to json via the fallback —
+        # pin the instance settings too.
+        with (
+            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", use_new_events_schema),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ""),
+        ):
             printed, _ = prepare_and_print_ast(
                 parse_select("SELECT properties.schema_test_property FROM events"),
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
