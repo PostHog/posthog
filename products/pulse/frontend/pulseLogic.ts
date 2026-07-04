@@ -1,12 +1,16 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import {
     pulseBriefsGenerateCreate,
@@ -16,14 +20,20 @@ import {
     pulseBriefConfigsDestroy,
     pulseBriefConfigsList,
     pulseBriefConfigsPartialUpdate,
+    pulseOpportunitiesActedCreate,
+    pulseOpportunitiesDismissCreate,
+    pulseOpportunitiesList,
+    pulseOpportunitiesReopenCreate,
 } from './generated/api'
 import type {
     BriefConfigApi,
+    OpportunityApi,
+    OpportunityApiEvidenceItem,
     ProductBriefApi,
     ProductBriefApiSectionsItem,
     ProductBriefListApi,
 } from './generated/api.schemas'
-import { ProductBriefStatusEnumApi } from './generated/api.schemas'
+import { OpportunityStatusEnumApi, ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
 
 /** A `"type:ref"` evidence citation split into its parts, e.g. `insight:abc123`. */
@@ -47,6 +57,60 @@ function parseCitation(citation: string): BriefCitation {
         return { type: '', ref: citation }
     }
     return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
+}
+
+/** A hallucinated ref must fall back to a plain tag, not a dead link. `Number('')` and `Number('0')`
+ * are finite, so guard on `id > 0` — all resource ids are positive — to reject empty/zero refs too. */
+function numericSceneUrl(ref: string, buildUrl: (id: number) => string): string | undefined {
+    const id = Number(ref)
+    return Number.isFinite(id) && id > 0 ? buildUrl(id) : undefined
+}
+
+/**
+ * Citation types that link out, in one table so the tag label and its URL can't drift.
+ * Unknown types render as plain tags. Flags and experiments are cited by numeric id
+ * (the scene route param).
+ */
+export const CITATION_TYPES: Record<
+    string,
+    { label: string; url: (ref: string) => string | undefined; hideRef?: boolean }
+> = {
+    insight: { label: 'Insight', url: (ref) => urls.insightView(ref as InsightShortId) },
+    dashboard: { label: 'Dashboard', url: (ref) => urls.dashboard(ref) },
+    flag: { label: 'Feature flag', url: (ref) => numericSceneUrl(ref, urls.featureFlag) },
+    experiment: { label: 'Experiment', url: (ref) => numericSceneUrl(ref, (id) => urls.experiment(id)) },
+    annotation: { label: 'Annotation', url: (ref) => numericSceneUrl(ref, urls.annotation) },
+    // Accountability citations link to the scene's opportunities tab. Per-row anchors/highlights
+    // were judged disproportionate for v1 — the panel is small enough to scan. hideRef: the
+    // ref is an internal UUID, meaningless in a tag label.
+    opportunity: { label: 'Opportunity', url: () => `${urls.pulse()}?tab=opportunities`, hideRef: true },
+}
+
+export type PulseTab = 'briefs' | 'opportunities'
+
+export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
+
+/** The three lifecycle transitions in one table so the endpoint and its optimistic status can't drift. */
+export const OPPORTUNITY_TRANSITIONS: Record<
+    OpportunityTransition,
+    {
+        call: (projectId: string, id: string) => Promise<OpportunityApi>
+        optimisticStatus: OpportunityStatusEnumApi
+    }
+> = {
+    dismiss: { call: pulseOpportunitiesDismissCreate, optimisticStatus: OpportunityStatusEnumApi.Dismissed },
+    acted: { call: pulseOpportunitiesActedCreate, optimisticStatus: OpportunityStatusEnumApi.Acted },
+    reopen: { call: pulseOpportunitiesReopenCreate, optimisticStatus: OpportunityStatusEnumApi.Open },
+}
+
+/** Evidence entries ship as untyped dicts — narrow them to citations, dropping malformed entries. */
+export function parseOpportunityEvidence(evidence: readonly OpportunityApiEvidenceItem[]): BriefCitation[] {
+    return evidence
+        .map((entry) => ({
+            type: typeof entry.type === 'string' ? entry.type : '',
+            ref: typeof entry.ref === 'string' ? entry.ref : '',
+        }))
+        .filter((citation) => citation.ref !== '')
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
@@ -101,8 +165,23 @@ export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
     connect(() => ({ values: [featureFlagLogic, ['featureFlags']] })),
     actions({
+        setActiveTab: (tab: PulseTab) => ({ tab }),
         selectConfig: (configId: string | null) => ({ configId }),
         selectBrief: (briefId: string | null) => ({ briefId }),
+        transitionOpportunity: (opportunityId: string, transition: OpportunityTransition) => ({
+            opportunityId,
+            transition,
+        }),
+        opportunityTransitionStarted: (
+            opportunityId: string,
+            transition: OpportunityTransition,
+            optimisticStatus: OpportunityStatusEnumApi
+        ) => ({ opportunityId, transition, optimisticStatus }),
+        opportunityTransitionSucceeded: (opportunity: OpportunityApi) => ({ opportunity }),
+        opportunityTransitionFailed: (opportunityId: string, previousStatus: OpportunityStatusEnumApi) => ({
+            opportunityId,
+            previousStatus,
+        }),
         setAiConsentRequired: (aiConsentRequired: boolean) => ({ aiConsentRequired }),
         startPolling: true,
         stopPolling: true,
@@ -178,8 +257,41 @@ export const pulseLogic = kea<pulseLogicType>([
                 },
             },
         ],
+        opportunities: [
+            [] as OpportunityApi[],
+            {
+                loadOpportunities: async (): Promise<OpportunityApi[]> => {
+                    const response = await pulseOpportunitiesList(currentProjectId(), { limit: LIST_PAGE_SIZE })
+                    return response.results
+                },
+            },
+        ],
     })),
     reducers({
+        activeTab: [
+            'briefs' as PulseTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        // Keyed by opportunity id so each row's buttons can spinner/disable independently.
+        transitionsInFlight: [
+            {} as Record<string, OpportunityTransition>,
+            {
+                opportunityTransitionStarted: (state, { opportunityId, transition }) => ({
+                    ...state,
+                    [opportunityId]: transition,
+                }),
+                opportunityTransitionSucceeded: (state, { opportunity }) => {
+                    const { [opportunity.id]: _, ...rest } = state
+                    return rest
+                },
+                opportunityTransitionFailed: (state, { opportunityId }) => {
+                    const { [opportunityId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         selectedConfigId: [
             null as string | null,
             {
@@ -250,6 +362,19 @@ export const pulseLogic = kea<pulseLogicType>([
                 const updated = briefs.find((brief) => brief.id === state?.id)
                 return updated && updated.status !== state?.status ? updated : state
             },
+        },
+        opportunities: {
+            // Optimistic flip; the failure branch restores the pre-transition status.
+            opportunityTransitionStarted: (state, { opportunityId, optimisticStatus }) =>
+                state.map((opportunity) =>
+                    opportunity.id === opportunityId ? { ...opportunity, status: optimisticStatus } : opportunity
+                ),
+            opportunityTransitionSucceeded: (state, { opportunity }) =>
+                state.map((existing) => (existing.id === opportunity.id ? opportunity : existing)),
+            opportunityTransitionFailed: (state, { opportunityId, previousStatus }) =>
+                state.map((opportunity) =>
+                    opportunity.id === opportunityId ? { ...opportunity, status: previousStatus } : opportunity
+                ),
         },
     }),
     selectors({
@@ -367,6 +492,27 @@ export const pulseLogic = kea<pulseLogicType>([
                 lemonToast.error(error.detail || 'Saving the brief config failed')
             }
         },
+        transitionOpportunity: async ({ opportunityId, transition }) => {
+            if (opportunityId in values.transitionsInFlight) {
+                return // state-level double-submission guard; the row's buttons are also disabled
+            }
+            // Captured before the optimistic flip so a failure can restore it.
+            const previous = values.opportunities.find((opportunity) => opportunity.id === opportunityId)
+            if (!previous) {
+                return
+            }
+            const { call, optimisticStatus } = OPPORTUNITY_TRANSITIONS[transition]
+            actions.opportunityTransitionStarted(opportunityId, transition, optimisticStatus)
+            try {
+                const updated = await call(currentProjectId(), opportunityId)
+                actions.opportunityTransitionSucceeded(updated)
+            } catch (error) {
+                actions.opportunityTransitionFailed(opportunityId, previous.status)
+                lemonToast.error(
+                    error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
+                )
+            }
+        },
         deleteConfig: async ({ configId }) => {
             try {
                 await pulseBriefConfigsDestroy(currentProjectId(), configId)
@@ -382,6 +528,20 @@ export const pulseLogic = kea<pulseLogicType>([
             lemonToast.success('Brief config deleted')
         },
     })),
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => [
+            router.values.location.pathname,
+            { ...router.values.searchParams, tab: values.activeTab === 'briefs' ? undefined : values.activeTab },
+        ],
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.pulse()]: (_, searchParams) => {
+            const tab: PulseTab = searchParams.tab === 'opportunities' ? 'opportunities' : 'briefs'
+            if (tab !== values.activeTab) {
+                actions.setActiveTab(tab)
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         // The scene renders NotFound without the flag — don't fire the pulse API calls either.
         if (!values.featureFlags[FEATURE_FLAGS.PULSE]) {
@@ -389,5 +549,6 @@ export const pulseLogic = kea<pulseLogicType>([
         }
         actions.loadBriefConfigs()
         actions.loadBriefs()
+        actions.loadOpportunities()
     }),
 ])
