@@ -20,11 +20,36 @@ from posthog.tasks.usage_report import ExternalDataJob
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
+    _get_redis,
     finish_row_tracking,
     increment_rows,
     setup_row_tracking,
     will_hit_billing_limit,
 )
+
+
+@pytest.mark.asyncio
+async def test_get_redis_yields_none_when_ping_fails():
+    # A broken client whose ping() raises must not be yielded, otherwise callers'
+    # `if not redis` guards pass on a truthy-but-dead client and the next command
+    # throws an uncaught ConnectionError.
+    broken_client = mock.MagicMock()
+    broken_client.ping = mock.AsyncMock(side_effect=ConnectionError("Redis unreachable"))
+
+    with (
+        override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+            return_value=broken_client,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+        ) as mock_capture,
+    ):
+        async with _get_redis() as redis:
+            assert redis is None
+
+        mock_capture.assert_called_once()
 
 
 @pytest.mark.timeout(600)
