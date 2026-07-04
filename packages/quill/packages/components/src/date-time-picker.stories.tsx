@@ -1,11 +1,21 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { format, subDays } from 'date-fns'
+import {
+    endOfMonth,
+    endOfQuarter,
+    format,
+    startOfMonth,
+    startOfQuarter,
+    startOfYear,
+    subDays,
+    subMonths,
+    subQuarters,
+} from 'date-fns'
 import { Clock } from 'lucide-react'
 import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
-import { CUSTOM_RANGE } from './date-time-ranges'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
@@ -147,6 +157,26 @@ export const WithSettingsLink: Story = {
                 onDateTimeSettings={() => alert('Open date & time settings')}
             />
         )
+    },
+}
+
+const calendarRanges: DateTimeRange[] = [
+    { id: 1, name: 'This month', rangeSetter: (d) => startOfMonth(d) },
+    { id: 2, name: 'Last month', rangeSetter: (d) => startOfMonth(subMonths(d, 1)), endSetter: (d) => endOfMonth(subMonths(d, 1)) },
+    { id: 3, name: 'This quarter', rangeSetter: (d) => startOfQuarter(d) },
+    { id: 4, name: 'Last quarter', rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)), endSetter: (d) => endOfQuarter(subQuarters(d, 1)) },
+    { id: 5, name: 'Year to date', rangeSetter: (d) => startOfYear(d) },
+]
+
+export const CustomRanges: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: startOfMonth(new Date()),
+            end: new Date(),
+            range: calendarRanges[0],
+        })
+        return <DateTimePicker value={value} onApply={setValue} ranges={calendarRanges} />
     },
 }
 

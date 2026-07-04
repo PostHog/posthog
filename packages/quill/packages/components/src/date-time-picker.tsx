@@ -49,6 +49,8 @@ export interface DateTimePickerProps {
     weekStartsOn?: Day
     onDateTimeSettings?: () => void
     compact?: boolean
+    /** Quick-range presets to offer. Defaults to `quickRanges`; `CUSTOM_RANGE` entries are filtered out. */
+    ranges?: DateTimeRange[]
     className?: string
 }
 
@@ -63,8 +65,10 @@ export function DateTimePicker({
     weekStartsOn,
     onDateTimeSettings,
     compact = false,
+    ranges = quickRanges,
     className,
 }: DateTimePickerProps): React.ReactElement {
+    const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
     // The second calendar only renders at `lg`; below it (and in compact) there's
@@ -166,12 +170,13 @@ export function DateTimePicker({
     const handleQuickRange = (next: DateTimeRange): void => {
         const now = new Date()
         const nextStart = next.rangeSetter(now)
+        const nextEnd = next.endSetter?.(now) ?? now
         setStart(nextStart)
-        setEnd(now)
+        setEnd(nextEnd)
         setRange(next)
         setLastSet(null)
-        setRightViewing(now)
-        setLeftViewing(subMonths(now, 1))
+        setRightViewing(nextEnd)
+        setLeftViewing(subMonths(nextEnd, 1))
     }
 
     const dateTimeFormat = DATE_TIME_FORMATS[dateFormat]
@@ -289,7 +294,7 @@ export function DateTimePicker({
                             ? 'flex flex-row p-2 gap-px max-h-[320px]'
                             : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
                         }>
-                            {quickRanges.slice(1).map((quick) => (
+                            {presetRanges.map((quick) => (
                                 <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
                                     <Button
                                         variant="default"
@@ -319,7 +324,7 @@ export function DateTimePicker({
             {/* Actions */}
             <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
+                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
                     <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
