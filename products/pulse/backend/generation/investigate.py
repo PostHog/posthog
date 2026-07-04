@@ -1,15 +1,41 @@
+"""The goal-directed investigate stage: plan goal-grounded HogQL questions, execute them
+deterministically, and hand structured findings to the existing synthesize call.
+
+Stage LLM budget, enforced structurally: `plan_investigation` is the stage's only unconditional
+LLM call site (synthesis stays the pipeline's other one), a failed step gets at most one repair
+call (the ai_subscription fix loop, halved), and result summaries are deterministic renderings of
+the executor's output — no LLM ever narrates findings, so more steps cost query execution, not a
+third synthesis-shaped call.
+"""
+
+import time
+import asyncio
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
 import structlog
 from pydantic import BaseModel, Field
 
+from posthog.schema import AssistantHogQLQuery
+
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.goal import GoalStatus
-from products.pulse.backend.generation.prompts import INVESTIGATION_PLAN_PROMPT, sanitize_for_prompt
+from products.pulse.backend.generation.prompts import (
+    INVESTIGATION_PLAN_PROMPT,
+    INVESTIGATION_REPAIR_PROMPT,
+    sanitize_for_prompt,
+)
 from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.sources.base import SourceItem
 
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +44,22 @@ logger = structlog.get_logger(__name__)
 MAX_INVESTIGATION_STEPS = 10
 INVESTIGATION_MODEL = "gpt-4.1"
 _PLANNER_TIMEOUT_SECONDS = 60
+_REPAIR_TIMEOUT_SECONDS = 30
+_STEP_TIMEOUT_SECONDS = 30
+# The stage's slice of the synthesize activity budget (same attempt-budget idea as
+# accountability's cap): past the deadline no new step starts; completed findings are kept.
+_STAGE_DEADLINE_SECONDS = 180
+_RESULT_MAX_CHARS = 1500
+
+# Errors signalling "the query itself is wrong" — a rewrite may help. Everything else (timeouts,
+# infra failures) fails the step without a repair call, since a different SELECT won't fix them.
+_REPAIRABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
+    MaxToolRetryableError,
+    ExposedHogQLError,
+    InternalHogQLError,
+)
+
+QUERY_FAILED_PREFIX = "Query failed to run"
 
 
 class PlannedStep(BaseModel):
@@ -33,6 +75,28 @@ class InvestigationPlan(BaseModel):
     # No schema-level cap: the cap is enforced in code so a non-compliant model output degrades
     # to a truncated plan instead of a failed structured-output parse.
     steps: list[PlannedStep] = Field(description=f"At most {MAX_INVESTIGATION_STEPS} justified investigation steps.")
+
+
+class HogQLRepair(BaseModel):
+    fixed_hogql: str = Field(
+        description="One read-only HogQL SELECT (flat, or with a single FROM-subquery) answering the original question."
+    )
+
+
+@dataclass(frozen=True)
+class InvestigationFinding:
+    """One executed investigation step. `result_summary` is a deterministic rendering of the
+    executor's formatted output (truncated in code — the LLM never re-computes numbers); a failed
+    step (post-repair) keeps `succeeded=False` with a one-line error note, so the planner's
+    question stays visible as a gap. `error_type` and `elapsed_seconds` are the per-step
+    diagnostics persisted with the brief for the eval loop."""
+
+    question: str
+    hogql: str
+    result_summary: str
+    succeeded: bool
+    error_type: str | None = None
+    elapsed_seconds: float = 0.0
 
 
 def plan_investigation(
@@ -113,6 +177,118 @@ def _metric_query_summary(team: Team, goal_status: GoalStatus) -> str:
     if not isinstance(event, str) or not event:
         return ""
     return f" (a trends insight over '{sanitize_for_prompt(event)}' events)"
+
+
+async def execute_investigation(*, team: Team, user: User, steps: list[PlannedStep]) -> list[InvestigationFinding]:
+    """Run the planned steps deterministically, sequentially, inside the stage deadline.
+
+    Sequential on purpose: the deadline check before each step is what lets the stage stop
+    starting work while keeping every completed finding — the accountability attempt-budget
+    pattern applied to wall-clock time.
+    """
+    if not steps:
+        return []
+    executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
+    stage_started = time.monotonic()
+    findings: list[InvestigationFinding] = []
+    for index, step in enumerate(steps):
+        if time.monotonic() - stage_started >= _STAGE_DEADLINE_SECONDS:
+            logger.warning(
+                "pulse_investigation_deadline_reached",
+                team_id=team.id,
+                executed=len(findings),
+                skipped=len(steps) - index,
+            )
+            break
+        findings.append(await _run_step(executor, team, user, step))
+    return findings
+
+
+async def _run_step(
+    executor: AssistantQueryExecutor, team: Team, user: User, step: PlannedStep
+) -> InvestigationFinding:
+    step_started = time.monotonic()
+    hogql = step.hogql
+    exc: BaseException
+    try:
+        summary = await _run_hogql(executor, hogql)
+        return _finding(step, hogql, summary, step_started, succeeded=True)
+    except Exception as first_exc:
+        exc = first_exc
+    if isinstance(exc, _REPAIRABLE_QUERY_ERRORS):
+        repaired = await _request_hogql_repair(team=team, user=user, step=step, exc=exc)
+        if repaired and repaired.strip() != hogql.strip():
+            hogql = repaired
+            try:
+                summary = await _run_hogql(executor, hogql)
+                return _finding(step, hogql, summary, step_started, succeeded=True)
+            except Exception as second_exc:
+                exc = second_exc
+    error_type = type(exc).__name__
+    logger.warning("pulse_investigation_step_failed", team_id=team.id, error_type=error_type, exc_info=exc)
+    # Type only — ClickHouse errors can echo team-scoped identifiers. An explicit failure note,
+    # distinct from an empty result, so synthesis can report the gap instead of "no data".
+    return _finding(
+        step, hogql, f"{QUERY_FAILED_PREFIX} ({error_type}).", step_started, succeeded=False, error_type=error_type
+    )
+
+
+def _finding(
+    step: PlannedStep,
+    hogql: str,
+    result_summary: str,
+    step_started: float,
+    *,
+    succeeded: bool,
+    error_type: str | None = None,
+) -> InvestigationFinding:
+    return InvestigationFinding(
+        question=step.question,
+        hogql=hogql,
+        result_summary=result_summary,
+        succeeded=succeeded,
+        error_type=error_type,
+        elapsed_seconds=round(time.monotonic() - step_started, 2),
+    )
+
+
+async def _run_hogql(executor: AssistantQueryExecutor, hogql: str) -> str:
+    formatted, _ = await asyncio.wait_for(
+        executor.arun_and_format_query(AssistantHogQLQuery(query=hogql)),
+        timeout=_STEP_TIMEOUT_SECONDS,
+    )
+    # The deterministic result summary: the executor's own formatting, truncated in code.
+    return formatted[:_RESULT_MAX_CHARS]
+
+
+async def _request_hogql_repair(*, team: Team, user: User, step: PlannedStep, exc: BaseException) -> str | None:
+    # Forward the message for exposed errors and ResolutionError (they describe the query the
+    # planner wrote — what the fixer needs); other internal errors stay type-only, mirroring the
+    # ai_subscription leak-risk analysis.
+    error_message = str(exc) if isinstance(exc, ExposedHogQLError | ResolutionError) else type(exc).__name__
+    llm = MaxChatOpenAI(
+        model=INVESTIGATION_MODEL,
+        timeout=_REPAIR_TIMEOUT_SECONDS,
+        max_retries=1,
+        user=user,
+        team=team,
+        billable=True,
+        posthog_properties={"ai_product": "pulse", "ai_feature": "goal_investigation_repair"},
+    ).with_structured_output(HogQLRepair, method="json_schema", include_raw=False)
+    rendered = INVESTIGATION_REPAIR_PROMPT.format(
+        question=sanitize_for_prompt(step.question),
+        error=sanitize_for_prompt(error_message),
+        hogql=step.hogql,
+    )
+    try:
+        # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+    except Exception:
+        logger.warning("pulse_investigation_repair_failed", team_id=team.id, exc_info=True)
+        return None
+    if not isinstance(result, HogQLRepair):
+        return None
+    return result.fixed_hogql.strip() or None
 
 
 def _render_items_for_planner(items: list[SourceItem]) -> str:

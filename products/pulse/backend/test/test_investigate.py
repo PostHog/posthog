@@ -1,17 +1,27 @@
+import asyncio
+import itertools
+
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.investigate import (
+    _RESULT_MAX_CHARS,
     MAX_INVESTIGATION_STEPS,
+    QUERY_FAILED_PREFIX,
+    HogQLRepair,
     InvestigationPlan,
     PlannedStep,
+    execute_investigation,
     plan_investigation,
 )
 from products.pulse.backend.sources.base import SourceItem
 
 _LLM_PATH = "products.pulse.backend.generation.investigate.MaxChatOpenAI"
+_EXECUTOR_PATH = "products.pulse.backend.generation.investigate.AssistantQueryExecutor"
 
 
 def _goal_status(**overrides: object) -> GoalStatus:
@@ -91,6 +101,90 @@ class TestPlanInvestigation:
         # The planner block is leaner than synthesis on purpose — no citation machinery.
         assert "fingerprint_hint" not in rendered
         assert "evidence_refs" not in rendered
+
+
+class TestExecuteInvestigation:
+    def _team(self) -> MagicMock:
+        return MagicMock(id=1)
+
+    @patch(_LLM_PATH)
+    @patch(_EXECUTOR_PATH)
+    async def test_repair_recovers_a_failed_step(self, mock_executor: MagicMock, mock_llm: MagicMock) -> None:
+        run = AsyncMock(side_effect=[ExposedHogQLError("Unable to resolve field 'operaton'"), ("42 rows", False)])
+        mock_executor.return_value.arun_and_format_query = run
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = HogQLRepair(
+            fixed_hogql="SELECT operation FROM events LIMIT 50"
+        )
+
+        findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
+
+        assert len(findings) == 1
+        assert findings[0].succeeded is True
+        assert findings[0].hogql == "SELECT operation FROM events LIMIT 50"
+        assert findings[0].result_summary == "42 rows"
+        assert run.call_count == 2
+
+    @patch(_LLM_PATH)
+    @patch(_EXECUTOR_PATH)
+    async def test_non_repairable_failure_skips_the_repair_llm(
+        self, mock_executor: MagicMock, mock_llm: MagicMock
+    ) -> None:
+        mock_executor.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("clickhouse down"))
+
+        findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
+
+        assert findings[0].succeeded is False
+        assert findings[0].error_type == "RuntimeError"
+        assert findings[0].result_summary == f"{QUERY_FAILED_PREFIX} (RuntimeError)."
+        assert findings[0].question == "q0"
+        mock_llm.assert_not_called()
+
+    @patch(_LLM_PATH)
+    @patch(_EXECUTOR_PATH)
+    async def test_failed_repair_yields_failed_finding(self, mock_executor: MagicMock, mock_llm: MagicMock) -> None:
+        mock_executor.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad field"))
+        mock_llm.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("llm down")
+
+        findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
+
+        assert findings[0].succeeded is False
+        assert findings[0].error_type == "ExposedHogQLError"
+        assert findings[0].result_summary.startswith(QUERY_FAILED_PREFIX)
+
+    @patch(_EXECUTOR_PATH)
+    async def test_hung_query_fails_the_step_via_timeout(self, mock_executor: MagicMock) -> None:
+        async def _hang(_query: object) -> tuple[str, bool]:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        mock_executor.return_value.arun_and_format_query = _hang
+        with patch("products.pulse.backend.generation.investigate._STEP_TIMEOUT_SECONDS", 0.01):
+            findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
+
+        assert findings[0].succeeded is False
+        assert findings[0].error_type == "TimeoutError"
+
+    @patch(_EXECUTOR_PATH)
+    async def test_stage_deadline_stops_remaining_steps_but_keeps_findings(self, mock_executor: MagicMock) -> None:
+        mock_executor.return_value.arun_and_format_query = AsyncMock(return_value=("ok", False))
+        # stage start, first deadline check (passes), step start, step end, second check (past deadline)
+        fake_clock = itertools.chain([0.0, 0.0, 1.0, 2.0], itertools.repeat(1000.0))
+        with patch("products.pulse.backend.generation.investigate.time") as mock_time:
+            mock_time.monotonic.side_effect = lambda: next(fake_clock)
+            findings = await execute_investigation(
+                team=self._team(), user=MagicMock(), steps=[_step(n) for n in range(3)]
+            )
+
+        assert [finding.question for finding in findings] == ["q0"]
+        assert findings[0].succeeded is True
+
+    @patch(_EXECUTOR_PATH)
+    async def test_result_summary_is_truncated(self, mock_executor: MagicMock) -> None:
+        mock_executor.return_value.arun_and_format_query = AsyncMock(return_value=("x" * 5000, False))
+
+        findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
+
+        assert len(findings[0].result_summary) == _RESULT_MAX_CHARS
 
 
 _TRENDS_QUERY = {

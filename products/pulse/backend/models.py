@@ -57,6 +57,10 @@ class ProductBrief(PulseModel):
     period_days = models.IntegerField(default=7)
     # list[{"kind": str, "title": str, "markdown": str, "citations": list, "confidence": float}]
     sections = models.JSONField(default=list)
+    # Goal-investigation findings, in citation order (`query:<n>` refs are 1-based indexes into
+    # this list): list[{"question": str, "hogql": str, "result_summary": str, "succeeded": bool,
+    # "error_type": str|None, "elapsed_seconds": float}]. Empty for goal-less briefs.
+    investigation = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
     feedback = models.JSONField(default=dict)

@@ -81,6 +81,23 @@ Observations from the team's product analytics (last {period_days} days):
 
 {items_block}"""
 
+# One repair attempt per failed investigation step (the ai_subscription fix-prompt shape,
+# condensed): the error message is forwarded only for exposed/resolution errors, the question is
+# rendered pre-sanitized, and the constraints mirror INVESTIGATION_PLAN_PROMPT so a repair can't
+# reintroduce a pattern the planner was told to avoid.
+INVESTIGATION_REPAIR_PROMPT = """The HogQL query below failed to parse or execute. Rewrite it as one read-only SELECT statement (flat, or with a single FROM-subquery) that still answers the same question.
+
+Constraints: no nested `WITH … AS (…)` CTEs, no window functions, no JOINs of any kind — use conditional aggregation (`countIf`, `uniqIf`, `sumIf`) instead. Date math like `now() - INTERVAL 7 DAY`. Single-quoted string literals. Keep it cheap: LIMIT 50.
+
+Return ONLY the `fixed_hogql` field — no explanations, comments, or backticks. If the query is unfixable, return a simpler query that answers the question as best you can.
+
+Question: {question}
+
+Error: {error}
+
+Original query:
+{hogql}"""
+
 # Interpolated into SYNTHESIZE_PROMPT only when there are qualifying past opportunities — an
 # empty accountability list must leave no dangling section instruction in the prompt.
 ACCOUNTABILITY_BLOCK = """
