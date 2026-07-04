@@ -1,1 +1,1 @@
-0003_alter_subscription_target_type
+0004_subscription_pulse_brief_config_id
