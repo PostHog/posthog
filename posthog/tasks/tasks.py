@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import ProgrammingError, connection
+from django.db import OperationalError, ProgrammingError, connection
 from django.utils import timezone
 
 import requests
@@ -752,6 +752,11 @@ def capture_task_run_state_metrics() -> None:
         # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
         # not an error worth reporting every minute.
         logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
+    except OperationalError as err:
+        # A transient DB connectivity blip (e.g. "connection timeout expired") when the lazy
+        # queryset forces a connect. This gauge-collection task runs every minute; a single
+        # failed connect is not actionable and shouldn't create an error-tracking issue.
+        logger.warning("capture_task_run_state_metrics_connection_error", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)
