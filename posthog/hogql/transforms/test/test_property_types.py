@@ -126,12 +126,6 @@ class TestPropertyTypes(BaseTest):
             defaults={"property_type": "Boolean", "group_type_index": 0},
         )
 
-    def _events_schema_snapshot(self):
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
-        return self.snapshot
-
     def _plan_where_comparison(
         self,
         select: str,
@@ -374,7 +368,7 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select(
             "select properties.$screen_width * properties.$screen_height, properties.bool from events"
         )
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
@@ -394,19 +388,19 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_combined(self):
         printed = self._print_select("select properties.$screen_width * person.properties.tickets from events")
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_event_person_poe_off(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_resolve_property_types_event_person_poe_on(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
 
     def test_resolve_property_types_from_qualified_posthog_events(self):
         # Selecting from the qualified `posthog.events` form must produce the same property-type
@@ -422,7 +416,7 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_group_property_types(self):
         printed = self._print_select("select organization.properties.inty from events")
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -434,7 +428,7 @@ class TestPropertyTypes(BaseTest):
             organization.properties.group_boolean is null
             from events"""
         )
-        assert printed == self._events_schema_snapshot()
+        assert printed == self.snapshot
         assert (
             "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)

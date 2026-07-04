@@ -355,7 +355,6 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
     """End-to-end: real events, materialized columns, and a real ip_trie dictionary on the test ClickHouse."""
 
     maxDiff = None
-    allow_dual_schema_snapshots = True
     SOURCE_TABLE = f"{CLICKHOUSE_DATABASE}.geoip_dict_fallback_test_source"
 
     def setUp(self) -> None:

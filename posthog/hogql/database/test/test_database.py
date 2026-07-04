@@ -9,7 +9,6 @@ from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_po
 from unittest import TestCase
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -171,15 +170,9 @@ class TestBuildDatabaseRootNode(TestCase):
 
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
-    allow_dual_schema_snapshots = True
 
     def assertPrintedSqlMatchesSnapshot(self, printed: str) -> None:
-        normalized_sql = pretty_print_in_tests(printed, self.team.pk)
-        use_new_events_schema_snapshot = (
-            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in normalized_sql.lower()
-        )
-
-        assert normalized_sql == self._schema_snapshot(use_new_events_schema_snapshot)
+        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
     def test_create_hogql_database_team_id_and_team_must_be_the_same(self):
         with self.assertRaises(ValueError, msg="team_id and team must be the same"):

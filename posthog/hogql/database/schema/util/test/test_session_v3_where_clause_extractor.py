@@ -4,8 +4,6 @@ from typing import Any, Optional, Union
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from django.conf import settings
-
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -465,8 +463,6 @@ SELECT
 
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
-    allow_dual_schema_snapshots = True
-
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
@@ -485,10 +481,6 @@ class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     def assert_printed_matches_snapshot(self, actual: str) -> None:
         generalized_sql = self.generalize_sql(actual)
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
-            assert generalized_sql == self.snapshot(name="new_events_schema")
-            return
         assert generalized_sql == self.snapshot
 
     def test_select_with_timestamp(self):

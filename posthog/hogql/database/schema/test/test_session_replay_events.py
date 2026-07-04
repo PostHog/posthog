@@ -138,8 +138,6 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
-    allow_dual_schema_snapshots = True
-
     def setUp(self):
         super().setUp()
 
@@ -261,8 +259,6 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
-    allow_dual_schema_snapshots = True
-
     def setUp(self):
         super().setUp()
 

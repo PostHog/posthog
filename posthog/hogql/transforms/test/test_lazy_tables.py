@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
-from django.conf import settings
 from django.test import override_settings
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -20,14 +19,8 @@ class TestLazyJoins(BaseTest):
     snapshot: Any
     maxDiff = None
 
-    def _schema_snapshot(self, printed: str):
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
-            return self.snapshot(name="new_events_schema")
-        return self.snapshot
-
     def _assert_matches_snapshot(self, printed: str) -> None:
-        assert printed == self._schema_snapshot(printed)
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_tables(self):

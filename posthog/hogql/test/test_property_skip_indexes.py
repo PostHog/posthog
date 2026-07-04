@@ -126,8 +126,6 @@ def _run_explain_and_get_skip_indexes(query: str, values: dict[str, Any]) -> set
 class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
     """Shared scaffolding. Subclasses fix a (scope, materialization, index) combination."""
 
-    allow_dual_schema_snapshots = True
-
     SCOPE: Literal["event", "person_on_events", "person"]
     PROPERTY_TO_EXPR_SCOPE: Literal["event", "person"]
     FILTER_TYPE: Literal["event", "person"]

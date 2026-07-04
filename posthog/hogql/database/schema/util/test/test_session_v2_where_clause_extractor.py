@@ -4,8 +4,6 @@ from typing import Any, Optional, Union
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import SessionTableVersion
@@ -431,8 +429,6 @@ SELECT
 
 
 class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
-    allow_dual_schema_snapshots = True
-
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
@@ -451,10 +447,6 @@ class TestSessionsV2QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
 
     def assert_printed_matches_snapshot(self, actual: str) -> None:
         generalized_sql = self.generalize_sql(actual)
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
-            assert generalized_sql == self.snapshot(name="new_events_schema")
-            return
         assert generalized_sql == self.snapshot
 
     def test_select_with_timestamp(self):
@@ -584,7 +576,6 @@ class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
     # Tests for the sessionIdPushdown modifier — see
     # https://github.com/PostHog/query-performance-analysis/blob/main/analysis/2026-04-17-experiment-sessions-oom.md
 
-    allow_dual_schema_snapshots = True
     snapshot: Any
 
     def print_query(self, query: str, pushdown: bool) -> str:
@@ -605,10 +596,6 @@ class TestSessionIdPushdownV2(ClickhouseTestMixin, APIBaseTest):
 
     def assert_printed_matches_snapshot(self, actual: str) -> None:
         generalized_sql = self.generalize_sql(actual)
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
-            assert generalized_sql == self.snapshot(name="new_events_schema")
-            return
         assert generalized_sql == self.snapshot
 
     @parameterized.expand([("with_pushdown", True), ("without_pushdown", False)])

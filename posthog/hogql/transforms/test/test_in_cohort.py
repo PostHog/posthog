@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
 
-from django.conf import settings
 from django.test import override_settings
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation
@@ -28,18 +27,8 @@ class EventsSchemaSnapshotMixin:
     snapshot: Any
     team: Any
 
-    def _events_schema_snapshot(self, printed: str):
-        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
-            snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
-            self._new_events_schema_snapshot_index = snapshot_index + 1
-            snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-            return self.snapshot(name=snapshot_name)
-        return self.snapshot
-
     def _assert_response_matches_snapshot(self, response) -> None:
-        printed = pretty_print_response_in_tests(response, self.team.pk)
-        assert printed == self._events_schema_snapshot(printed)
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
 
 class TestInCohort(EventsSchemaSnapshotMixin, BaseTest):
