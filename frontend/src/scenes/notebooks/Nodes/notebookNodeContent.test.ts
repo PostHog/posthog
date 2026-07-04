@@ -17,4 +17,21 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
         expect(graph.upstreamSourcesByNode['b'].df1.nodeId).toEqual('a')
     })
+
+    it('disambiguates two nodes that share a return variable so a reference links to only the first', () => {
+        // Without the uniquification pass both nodes would export `sql_df` and `from sql_df`
+        // would ambiguously attribute to both; the second node's export becomes `sql_df_2`.
+        const content = {
+            type: 'doc',
+            content: [
+                sqlV2Node('a', 'sql_df', 'select id from events'),
+                sqlV2Node('b', 'sql_df', 'select id from persons'),
+                sqlV2Node('c', 'joined', 'select * from sql_df'),
+            ],
+        }
+        const graph = buildNotebookDependencyGraph(content)
+        expect(graph.nodesById['b'].exports).toEqual(['sql_df_2'])
+        expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['c'])
+        expect(graph.upstreamSourcesByNode['c'].sql_df.nodeId).toEqual('a')
+    })
 })
