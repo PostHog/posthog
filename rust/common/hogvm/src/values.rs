@@ -133,10 +133,13 @@ impl HogValue {
                 // The reference VM keys objects with whatever scalar the program used (a JS Map),
                 // and integer keys are common (`{96: 'x'}`). We store string keys, so coerce
                 // numbers to their string form for lookup, matching the construction-time coercion.
+                // Any other key type (null included — `props[inputs.x]` with an unset input) is a
+                // plain miss for the reference (Map.get), never an error.
                 let key_lit = chain[0].deref(heap)?;
                 let found = match key_lit {
+                    HogLiteral::String(key) => map.get(key),
                     HogLiteral::Number(n) => map.get(&num_key_string(n)),
-                    _ => map.get(key_lit.try_as::<str>()?),
+                    _ => None,
                 };
                 let Some(found) = found else {
                     return Ok(None);

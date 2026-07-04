@@ -66,6 +66,25 @@ fn null_behaves_as_zero_in_arithmetic() {
     assert_eq!(run(bc), json!(0));
 }
 
+#[test]
+fn null_property_key_is_a_miss_not_an_error() {
+    // props[inputs.x] with an unset input: the reference's Map.get(null) misses.
+    let bc = vec![
+        json!("_H"),
+        json!(1),
+        json!(OP_INTEGER),
+        json!(96),
+        json!(OP_STRING),
+        json!("x"),
+        json!(OP_DICT),
+        json!(1),
+        json!(OP_NULL),
+        json!(OP_GET_PROPERTY),
+        json!(OP_RETURN),
+    ];
+    assert_eq!(run(bc), Value::Null);
+}
+
 fn to_unix_timestamp_of(value: Value) -> Vec<Value> {
     vec![
         json!("_H"),
