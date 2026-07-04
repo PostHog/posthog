@@ -99,6 +99,19 @@ class InvestigationFinding:
     elapsed_seconds: float = 0.0
 
 
+async def run_investigation(
+    *, team: Team, user: User, goal_status: GoalStatus, items: list[SourceItem], period_days: int
+) -> list[InvestigationFinding]:
+    """The whole stage: plan, then execute. An empty plan (including every planner failure)
+    means no investigation — the caller ships the brief without one."""
+    steps = await database_sync_to_async(plan_investigation, thread_sensitive=False)(
+        team=team, user=user, goal_status=goal_status, items=items, period_days=period_days
+    )
+    if not steps:
+        return []
+    return await execute_investigation(team=team, user=user, steps=steps)
+
+
 def plan_investigation(
     *, team: Team, user: User, goal_status: GoalStatus, items: list[SourceItem], period_days: int
 ) -> list[PlannedStep]:

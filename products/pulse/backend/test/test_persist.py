@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from products.pulse.backend.generation.investigate import InvestigationFinding
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
@@ -49,7 +50,7 @@ class TestPersistBriefOutput(BaseTest):
 
     def test_persists_sections_and_resolved_opportunity_context(self) -> None:
         brief = self._brief()
-        created = persist_brief_output(brief=brief, out=_out(goal_relevant=True), items=[_item()])
+        created = persist_brief_output(brief=brief, out=_out(goal_relevant=True), items=[_item()], findings=[])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         assert brief.sources_used == ["anchored_insights"]
@@ -61,33 +62,72 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.goal_relevant is True
 
     def test_unresolvable_ref_falls_back_to_parsed_evidence(self) -> None:
-        persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()])
+        persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()], findings=[])
         opportunity = self._opportunities().get()
         assert opportunity.evidence == [{"type": "insight", "ref": "abc", "label": ""}]
         assert opportunity.baseline is None
         assert opportunity.metric_ref is None
 
     def test_same_fingerprint_does_not_duplicate(self) -> None:
-        first = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
-        second = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        first = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], findings=[])
+        second = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], findings=[])
         assert self._opportunities().count() == 1
         assert len(first) == 1
         assert second == []
 
     def test_dismissed_fingerprint_is_suppressed(self) -> None:
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], findings=[])
         self._opportunities().update(status=Opportunity.Status.DISMISSED)
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()], findings=[])
         assert self._opportunities().count() == 1
+
+    def test_persists_investigation_findings_in_citation_order(self) -> None:
+        brief = self._brief()
+        findings = [
+            InvestigationFinding(
+                question="What is the CTR?",
+                hogql="SELECT 1",
+                result_summary="0.42",
+                succeeded=True,
+                elapsed_seconds=1.2,
+            ),
+            InvestigationFinding(
+                question="Which pages?",
+                hogql="SELECT 2",
+                result_summary="Query failed to run (ExposedHogQLError).",
+                succeeded=False,
+                error_type="ExposedHogQLError",
+            ),
+        ]
+        persist_brief_output(brief=brief, out=_out(), items=[_item()], findings=findings)
+        reloaded = ProductBrief.objects.for_team(self.team.pk).get(id=brief.id)
+        assert reloaded.investigation == [
+            {
+                "question": "What is the CTR?",
+                "hogql": "SELECT 1",
+                "result_summary": "0.42",
+                "succeeded": True,
+                "error_type": None,
+                "elapsed_seconds": 1.2,
+            },
+            {
+                "question": "Which pages?",
+                "hogql": "SELECT 2",
+                "result_summary": "Query failed to run (ExposedHogQLError).",
+                "succeeded": False,
+                "error_type": "ExposedHogQLError",
+                "elapsed_seconds": 0.0,
+            },
+        ]
 
     def test_empty_output_marks_quiet(self) -> None:
         brief = self._brief()
-        persist_brief_output(brief=brief, out=BriefOut(sections=[], opportunities=[]), items=[])
+        persist_brief_output(brief=brief, out=BriefOut(sections=[], opportunities=[]), items=[], findings=[])
         assert brief.status == ProductBrief.Status.QUIET
         assert brief.sources_used == []
 
     def test_opportunity_only_output_marks_ready(self) -> None:
         out = BriefOut(sections=[], opportunities=_out().opportunities)
         brief = self._brief()
-        persist_brief_output(brief=brief, out=out, items=[_item()])
+        persist_brief_output(brief=brief, out=out, items=[_item()], findings=[])
         assert brief.status == ProductBrief.Status.READY

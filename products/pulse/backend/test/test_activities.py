@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.explain import CausalCandidate
 from products.pulse.backend.generation.goal import GoalStatus
+from products.pulse.backend.generation.investigate import InvestigationFinding
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
@@ -346,6 +347,83 @@ async def test_synthesize_activity_collects_goal_status_for_configured_briefs(te
     shared_cache = collect_mock.call_args.kwargs["results_cache"]
     assert shared_cache is not None
     assert accountability_mock.call_args.kwargs["results_cache"] is shared_cache
+
+
+_FINDING = InvestigationFinding(
+    question="What is the CTR?", hogql="SELECT 1", result_summary="0.42", succeeded=True, elapsed_seconds=1.2
+)
+
+
+async def test_synthesize_activity_runs_investigation_for_goal_briefs_and_persists_findings(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.collect_goal_status", return_value=_GOAL_STATUS),
+        patch(
+            "products.pulse.backend.temporal.activities.run_investigation",
+            new_callable=AsyncMock,
+            return_value=[_FINDING],
+        ) as investigate_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert investigate_mock.await_args.kwargs["goal_status"] == _GOAL_STATUS
+    assert synth_mock.call_args.kwargs["findings"] == [_FINDING]
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.investigation == [dataclasses.asdict(_FINDING)]
+
+
+async def test_synthesize_activity_skips_investigation_without_a_goal(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.run_investigation") as investigate_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    investigate_mock.assert_not_called()
+    assert synth_mock.call_args.kwargs["findings"] == []
+
+
+async def test_synthesize_activity_survives_investigation_failure(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.collect_goal_status", return_value=_GOAL_STATUS),
+        patch(
+            "products.pulse.backend.temporal.activities.run_investigation",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("stage exploded"),
+        ),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert synth_mock.call_args.kwargs["findings"] == []
 
 
 async def test_synthesize_activity_skips_goal_status_without_a_config(team, user) -> None:

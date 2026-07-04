@@ -12,6 +12,7 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.explain import CausalCandidate, collect_causal_candidates
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
+from products.pulse.backend.generation.investigate import InvestigationFinding, run_investigation
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
@@ -127,6 +128,22 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
             )
         except Exception:
             logger.exception("pulse_goal_status_failed", team_id=brief.team_id, brief_id=str(brief.id))
+    findings: list[InvestigationFinding] = []
+    # The investigate stage is goal-gated: a GoalStatus existing IS the non-empty-goal signal
+    # (collect_goal_status returns None for blank goals), and the items gate is inherited from
+    # the collectors above. Best-effort: any stage failure — the stage already degrades planner
+    # and step failures internally — ships the brief without an investigation, never fails it.
+    if goal_status is not None:
+        try:
+            findings = await run_investigation(
+                team=brief.team,
+                user=brief.created_by,
+                goal_status=goal_status,
+                items=items,
+                period_days=brief.period_days,
+            )
+        except Exception:
+            logger.exception("pulse_investigation_failed", team_id=brief.team_id, brief_id=str(brief.id))
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,
@@ -136,21 +153,24 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         candidates=candidates,
         status_lines=status_lines,
         goal_status=goal_status,
+        findings=findings,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items
+        brief=brief, out=out, items=items, findings=findings
     )
     await _emit_opportunity_signals(brief, out, created)
     try:
         # ph_scoped_capture (not posthoganalytics.capture): outside request context the global
         # client's flush may never run before the worker moves on, silently losing the event.
-        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created))
+        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created), findings)
     except Exception:
         logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
     return brief.status
 
 
-def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> None:
+def _report_brief_generated(
+    brief: ProductBrief, new_opportunity_count: int, findings: list[InvestigationFinding]
+) -> None:
     if brief.created_by is None:
         return
     with ph_scoped_capture() as capture:
@@ -164,6 +184,10 @@ def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> 
                 "period_days": brief.period_days,
                 "has_config": brief.config_id is not None,
                 "new_opportunity_count": new_opportunity_count,
+                # Stage diagnostics for the investigation eval loop (per-step detail persists on
+                # the brief's investigation field).
+                "investigation_step_count": len(findings),
+                "investigation_failed_count": sum(1 for finding in findings if not finding.succeeded),
             },
         )
 

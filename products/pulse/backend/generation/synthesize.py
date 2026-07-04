@@ -7,9 +7,11 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.explain import CausalCandidate
 from products.pulse.backend.generation.goal import GoalStatus
+from products.pulse.backend.generation.investigate import InvestigationFinding
 from products.pulse.backend.generation.prompts import (
     ACCOUNTABILITY_BLOCK,
     GOAL_BLOCK,
+    INVESTIGATION_BLOCK,
     SYNTHESIZE_PROMPT,
     sanitize_for_prompt,
 )
@@ -101,6 +103,21 @@ def _render_goal_block(goal_status: GoalStatus | None, period_days: int) -> str:
     return GOAL_BLOCK.format(goal_text=sanitize_for_prompt(goal_status.goal), metric_line=metric_line)
 
 
+def _render_investigation_block(findings: list[InvestigationFinding]) -> str:
+    # Questions come from the planner LLM and result summaries carry real query output over
+    # user-authored event data — both untrusted at this boundary, same render-boundary
+    # sanitization as items. `query:<n>` refs are code-generated (1-based finding order) and the
+    # LLM must copy them verbatim for citation linking; the scene maps them back by index.
+    if not findings:
+        return ""
+    rendered_findings = "\n".join(
+        f"- query:{index} [{'ok' if finding.succeeded else 'FAILED'}] {sanitize_for_prompt(finding.question)}\n"
+        f"  result: {sanitize_for_prompt(finding.result_summary)}"
+        for index, finding in enumerate(findings, start=1)
+    )
+    return INVESTIGATION_BLOCK.format(findings_block=rendered_findings)
+
+
 def _render_accountability_block(status_lines: list[OpportunityStatusLine]) -> str:
     # Titles carry untrusted free text (LLM-authored on an earlier run) — same render-boundary
     # sanitization as items. Summaries and deltas are code-generated and stated verbatim; the
@@ -127,6 +144,7 @@ async def synthesize_brief(
     candidates: list[CausalCandidate],
     status_lines: list[OpportunityStatusLine],
     goal_status: GoalStatus | None,
+    findings: list[InvestigationFinding],
 ) -> BriefOut:
     # Quiet periods must cost ~nothing: no items, no LLM call. Candidates and status lines
     # alone are not a brief — they explain and follow up on movements, so they can't rescue
@@ -140,6 +158,7 @@ async def synthesize_brief(
         max_opportunities=MAX_OPPORTUNITIES,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
         goal_block=_render_goal_block(goal_status, period_days),
+        investigation_block=_render_investigation_block(findings),
         candidates_block=_render_candidates(candidates),
         accountability_block=_render_accountability_block(status_lines),
         items_block=_render_items(items),
