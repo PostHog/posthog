@@ -1845,10 +1845,20 @@ mod remote_staging_tests {
         let key = &src.keys().await.unwrap()[0];
 
         let err = src.prepare_key(key).await.unwrap_err();
+        // Public message is actionable with no internal config names; the env-var
+        // detail lives in the internal chain for status_message/logs.
         let user_msg = crate::error::get_user_message(&err);
         assert!(
-            user_msg.contains("STAGED_PLAINTEXT_MAX_BYTES=16"),
+            user_msg.contains("Split the import"),
             "unexpected message: {user_msg}"
+        );
+        assert!(
+            !user_msg.contains("STAGED_PLAINTEXT_MAX_BYTES"),
+            "public message must not leak env var names: {user_msg}"
+        );
+        assert!(
+            format!("{err:#}").contains("STAGED_PLAINTEXT_MAX_BYTES=16"),
+            "internal chain must carry the limit detail: {err:#}"
         );
         // Failed-stage atomicity: no readable object was published.
         assert_eq!(src.size(key).await.unwrap(), None);
