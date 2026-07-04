@@ -26,18 +26,22 @@ class BriefSectionOut(BaseModel):
 
 class ProposedExperimentOut(BaseModel):
     hypothesis: str = Field(
-        description="The testable hypothesis, grounded in the opportunity's cited evidence — never in new numbers."
+        max_length=500,
+        description="The testable hypothesis, grounded in the opportunity's cited evidence — never in new numbers.",
     )
     flag_key_suggestion: str = Field(
-        description="A suggested feature flag key for the experiment, kebab-case, e.g. 'sidebar-entry-point'."
+        max_length=200,
+        description="A suggested feature flag key for the experiment, kebab-case, e.g. 'sidebar-entry-point'.",
     )
     target_metric_insight_short_id: str = Field(
+        max_length=100,
         description=(
             "The short ID of the insight the experiment should move, copied verbatim from a cited insight evidence ref."
         ),
     )
     variant_sketch: str = Field(
-        description="One or two sentences sketching the control and test variants a team would ship."
+        max_length=500,
+        description="One or two sentences sketching the control and test variants a team would ship.",
     )
 
 

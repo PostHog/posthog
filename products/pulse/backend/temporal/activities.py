@@ -131,7 +131,7 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         goal_status=goal_status,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items
+        brief=brief, out=out, items=items, results_cache=results_cache
     )
     await _emit_opportunity_signals(brief, out, created)
     try:
