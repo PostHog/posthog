@@ -661,6 +661,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not both", str(response.content))
 
+    def test_bulk_delete_validation_rejects_non_string_ids(self):
+        # Non-coercible IDs used to 500 deep in the personhog client; the serializer now rejects them with a 400
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [["nested"], {"a": "b"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_bulk_delete_no_matching_persons(self):
         response = self.client.post(
             f"/api/person/bulk_delete/",
