@@ -54,6 +54,12 @@ def series_daily_values(series_result: Any, period_days: int) -> list[float] | N
     return [float(v) for v in series_result["data"][-2 * period_days :]]
 
 
+def rate_summary(rate: float) -> str:
+    """Per-day rate phrasing shared by the accountability and goal collectors, so then-vs-now
+    figures read the same everywhere in the prompt."""
+    return f"{rate:.1f}/day avg"
+
+
 def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
     """Split a pre-trimmed daily series into (baseline, current) halves.
 
