@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -11,8 +12,13 @@ import {
     eventStreamsList,
     eventStreamsPartialUpdate,
     eventStreamsRemoveAccountCreate,
+    eventStreamsSendTestMessageCreate,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { EventStreamApi, PatchedEventStreamApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    EventStreamApi,
+    EventStreamTestMessageApi,
+    PatchedEventStreamApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
 import type { eventStreamLogicType } from './eventStreamLogicType'
@@ -24,12 +30,33 @@ export interface EventStreamDeliveryGaps {
     needsAccounts: boolean
 }
 
+/** Locally staged edits to the stream config, applied on Save. */
+export interface EventStreamDraft {
+    enabled: boolean
+    event_names: string[]
+    slack_integration: number | null
+    slack_channel_id: string
+    slack_channel_name: string
+}
+
+function draftFromStream(stream: EventStreamApi | null): EventStreamDraft {
+    return {
+        enabled: stream?.enabled ?? false,
+        event_names: stream?.event_names ?? [],
+        slack_integration: stream?.slack_integration ?? null,
+        slack_channel_id: stream?.slack_channel_id ?? '',
+        slack_channel_name: stream?.slack_channel_name ?? '',
+    }
+}
+
 export const eventStreamLogic = kea<eventStreamLogicType>([
     path(['products', 'customerAnalytics', 'eventStream', 'eventStreamLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
+        setDraft: (draft: Partial<EventStreamDraft>) => ({ draft }),
+        resetDraft: true,
         setAccountMembership: (accountId: string, included: boolean) => ({ accountId, included }),
         membershipUpdateStarted: (accountId: string) => ({ accountId }),
         membershipUpdateFinished: (accountId: string) => ({ accountId }),
@@ -43,17 +70,38 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
                     return response.results[0] ?? null
                 },
                 // Creates the team's stream on first save, updates it afterwards.
-                saveEventStream: async (patch: PatchedEventStreamApi): Promise<EventStreamApi | null> => {
+                saveEventStream: async (): Promise<EventStreamApi | null> => {
                     const projectId = String(values.currentTeamId)
                     const current = values.eventStream
+                    const patch: PatchedEventStreamApi = { ...values.draft }
                     return current
                         ? await eventStreamsPartialUpdate(projectId, current.id, patch)
                         : await eventStreamsCreate(projectId, patch as EventStreamApi)
                 },
             },
         ],
+        testMessage: [
+            null as EventStreamTestMessageApi | null,
+            {
+                sendTestMessage: async (): Promise<EventStreamTestMessageApi | null> => {
+                    const stream = values.eventStream
+                    if (!stream?.id) {
+                        return null
+                    }
+                    return await eventStreamsSendTestMessageCreate(String(values.currentTeamId), stream.id)
+                },
+            },
+        ],
     })),
     reducers({
+        draft: [
+            draftFromStream(null),
+            {
+                setDraft: (state, { draft }) => ({ ...state, ...draft }),
+                loadEventStreamSuccess: (_, { eventStream }) => draftFromStream(eventStream),
+                saveEventStreamSuccess: (_, { eventStream }) => draftFromStream(eventStream),
+            },
+        ],
         membershipUpdatingIds: [
             [] as string[],
             {
@@ -63,6 +111,11 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
         ],
     }),
     selectors({
+        hasChanges: [
+            (s) => [s.draft, s.eventStream],
+            (draft: EventStreamDraft, eventStream: EventStreamApi | null): boolean =>
+                !objectsEqual(draft, draftFromStream(eventStream)),
+        ],
         isAccountInStream: [
             (s) => [s.eventStream],
             (eventStream: EventStreamApi | null) =>
@@ -85,12 +138,29 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        resetDraft: () => {
+            actions.setDraft(draftFromStream(values.eventStream))
+        },
+        saveEventStreamSuccess: () => {
+            lemonToast.success('Event stream configuration saved')
+        },
         saveEventStreamFailure: ({ error, errorObject }) => {
             posthog.captureException(errorObject ?? new Error(error), { scope: 'eventStreamLogic.saveEventStream' })
             lemonToast.error('Failed to save the event stream configuration')
         },
         loadEventStreamFailure: ({ error, errorObject }) => {
             posthog.captureException(errorObject ?? new Error(error), { scope: 'eventStreamLogic.loadEventStream' })
+        },
+        sendTestMessageSuccess: ({ testMessage }) => {
+            if (testMessage) {
+                const channel = values.eventStream?.slack_channel_name || testMessage.channel_id
+                lemonToast.success(`Test message sent to ${channel}`)
+            }
+        },
+        sendTestMessageFailure: ({ error, errorObject }) => {
+            posthog.captureException(errorObject ?? new Error(error), { scope: 'eventStreamLogic.sendTestMessage' })
+            const detail = (errorObject as { detail?: string } | undefined)?.detail
+            lemonToast.error(detail || 'Failed to send the test message')
         },
         setAccountMembership: async ({ accountId, included }) => {
             const stream = values.eventStream

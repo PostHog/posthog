@@ -23,8 +23,8 @@ function ConnectSlackPrompt(): JSX.Element {
 
 export function CustomerAnalyticsEventStream(): JSX.Element {
     useMountedLogic(integrationsLogic)
-    const { eventStream, eventStreamLoading } = useValues(eventStreamLogic)
-    const { saveEventStream } = useActions(eventStreamLogic)
+    const { eventStream, eventStreamLoading, draft, hasChanges, testMessageLoading } = useValues(eventStreamLogic)
+    const { setDraft, resetDraft, saveEventStream, sendTestMessage } = useActions(eventStreamLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
     if ((integrationsLoading && slackIntegrations === undefined) || (eventStreamLoading && eventStream === null)) {
@@ -33,10 +33,10 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
 
     const integrations: IntegrationType[] = slackIntegrations ?? []
     const selectedIntegration =
-        integrations.find((integration) => integration.id === eventStream?.slack_integration) ??
+        integrations.find((integration) => integration.id === draft.slack_integration) ??
         (integrations.length === 1 ? integrations[0] : null)
-    const channelValue = eventStream?.slack_channel_id
-        ? `${eventStream.slack_channel_id}|${eventStream.slack_channel_name || ''}`
+    const channelValue = draft.slack_channel_id
+        ? `${draft.slack_channel_id}|${draft.slack_channel_name || ''}`
         : undefined
     const memberCount = eventStream?.account_ids?.length ?? 0
 
@@ -45,12 +45,20 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
             return
         }
         const [channelId, ...nameParts] = (value ?? '').split('|')
-        saveEventStream({
+        setDraft({
             slack_integration: selectedIntegration.id,
             slack_channel_id: channelId,
             slack_channel_name: nameParts.join('|'),
         })
     }
+
+    const testMessageDisabledReason = !eventStream?.slack_integration
+        ? 'Save a Slack workspace and channel first'
+        : !eventStream?.slack_channel_id
+          ? 'Save a Slack channel first'
+          : hasChanges
+            ? 'Save your changes first — the test uses the saved configuration'
+            : undefined
 
     return (
         <div className="flex flex-col gap-4">
@@ -62,10 +70,10 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <h4 className="secondary uppercase text-secondary mb-0">Events to stream</h4>
                 <EventSelect
-                    onChange={(names) => saveEventStream({ event_names: names })}
-                    selectedEvents={eventStream?.event_names ?? []}
+                    onChange={(names) => setDraft({ event_names: names })}
+                    selectedEvents={draft.event_names}
                     addElement={
-                        <LemonButton size="small" type="secondary" icon={<IconPlus />} disabled={eventStreamLoading}>
+                        <LemonButton size="small" type="secondary" icon={<IconPlus />}>
                             Add event
                         </LemonButton>
                     }
@@ -88,13 +96,12 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
                                 }))}
                                 onChange={(integrationId) =>
                                     // Switching workspaces clears the channel — it won't exist in the new workspace.
-                                    saveEventStream({
+                                    setDraft({
                                         slack_integration: integrationId,
                                         slack_channel_id: '',
                                         slack_channel_name: '',
                                     })
                                 }
-                                disabled={eventStreamLoading}
                             />
                         )}
                         {selectedIntegration && (
@@ -102,9 +109,20 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
                                 integration={selectedIntegration}
                                 value={channelValue}
                                 onChange={onChannelChange}
-                                disabled={eventStreamLoading}
                             />
                         )}
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={sendTestMessage}
+                                loading={testMessageLoading}
+                                disabledReason={testMessageDisabledReason}
+                                data-attr="event-stream-send-test-message"
+                            >
+                                Send test message
+                            </LemonButton>
+                        </div>
                     </div>
                 )}
             </div>
@@ -121,9 +139,8 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
             </div>
 
             <LemonSwitch
-                checked={eventStream?.enabled ?? false}
-                onChange={(enabled) => saveEventStream({ enabled })}
-                disabledReason={eventStreamLoading ? 'Saving…' : undefined}
+                checked={draft.enabled}
+                onChange={(enabled) => setDraft({ enabled })}
                 label="Enable event stream"
                 bordered
             />
@@ -136,6 +153,25 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
                         {memberCount === 0 ? ' at least one customer,' : ''} before events start flowing.
                     </LemonBanner>
                 )}
+
+            <div className="flex flex-row gap-2 pt-2">
+                <LemonButton
+                    type="secondary"
+                    onClick={resetDraft}
+                    disabledReason={hasChanges ? undefined : 'No changes'}
+                >
+                    Clear changes
+                </LemonButton>
+                <LemonButton
+                    data-attr="save-customer-analytics-event-stream"
+                    type="primary"
+                    onClick={saveEventStream}
+                    loading={eventStreamLoading}
+                    disabledReason={hasChanges ? undefined : 'No changes'}
+                >
+                    Save
+                </LemonButton>
+            </div>
         </div>
     )
 }

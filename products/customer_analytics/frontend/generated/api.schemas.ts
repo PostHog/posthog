@@ -871,6 +871,14 @@ export interface EventStreamMemberWriteApi {
 }
 
 /**
+ * Result of posting an event-stream test message to Slack.
+ */
+export interface EventStreamTestMessageApi {
+    /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+    readonly channel_id: string
+}
+
+/**
  * * `numeric` - numeric
  * * `currency` - currency
  */

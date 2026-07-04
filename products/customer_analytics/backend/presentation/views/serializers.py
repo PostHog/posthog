@@ -675,3 +675,11 @@ class EventStreamMemberWriteSerializer(serializers.Serializer):
     """Request body for adding or removing an event-stream member account."""
 
     account_id = serializers.UUIDField(help_text="UUID of the account to add to or remove from the stream.")
+
+
+class EventStreamTestMessageSerializer(serializers.Serializer):
+    """Result of posting an event-stream test message to Slack."""
+
+    channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel ID the test message was posted to (e.g. C0123ABC)."
+    )

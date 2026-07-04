@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
+from slack_sdk.errors import SlackApiError
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -41,6 +43,33 @@ class TestEventStreamViewSet(APIBaseTest):
 
     def _group_filter(self, function: HogFunction) -> dict:
         return (function.filters or {})["properties"][0]
+
+    def test_create_without_slack_defers_destination_until_channel_is_set(self):
+        stream = self._create_stream({"event_names": ["$pageview"]})
+
+        self.assertIsNone(EventStream.objects.unscoped().get(id=stream["id"]).hog_function_id)
+
+        response = self.client.patch(
+            f"{self.base_url}{stream['id']}/",
+            {"slack_integration": self.integration.id, "slack_channel_id": "C0123ABC"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        function = self._destination(stream)
+        self.assertEqual(function.inputs["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(function.inputs["channel"]["value"], "C0123ABC")
+
+    def test_clearing_channel_keeps_existing_destination_inputs(self):
+        stream = self._create_stream()
+
+        response = self.client.patch(f"{self.base_url}{stream['id']}/", {"slack_channel_id": ""}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        function = self._destination(stream)
+        self.assertFalse(function.enabled)
+        self.assertEqual(function.inputs["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(function.inputs["channel"]["value"], "C0123ABC")
 
     def test_create_provisions_disabled_destination_until_members_exist(self):
         stream = self._create_stream()
@@ -166,6 +195,37 @@ class TestEventStreamViewSet(APIBaseTest):
         function.refresh_from_db()
         self.assertTrue(function.deleted)
         self.assertFalse(function.enabled)
+
+    @patch("products.customer_analytics.backend.logic.event_stream_destination.SlackIntegration")
+    def test_send_test_message_posts_to_configured_channel(self, mock_slack):
+        stream = self._create_stream()
+
+        response = self.client.post(f"{self.base_url}{stream['id']}/send_test_message/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), {"channel_id": "C0123ABC"})
+        self.assertEqual(mock_slack.return_value.client.chat_postMessage.call_args.kwargs["channel"], "C0123ABC")
+
+    @patch("products.customer_analytics.backend.logic.event_stream_destination.SlackIntegration")
+    def test_send_test_message_requires_saved_slack_config(self, mock_slack):
+        stream = self._create_stream({"event_names": ["$pageview"]})
+
+        response = self.client.post(f"{self.base_url}{stream['id']}/send_test_message/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @patch("products.customer_analytics.backend.logic.event_stream_destination.SlackIntegration")
+    def test_send_test_message_surfaces_slack_rejection(self, mock_slack):
+        mock_slack.return_value.client.chat_postMessage.side_effect = SlackApiError(
+            "error", {"error": "not_in_channel"}
+        )
+        stream = self._create_stream()
+
+        response = self.client.post(f"{self.base_url}{stream['id']}/send_test_message/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not_in_channel", response.json()["detail"])
 
     def test_list_is_team_scoped(self):
         stream = self._create_stream()

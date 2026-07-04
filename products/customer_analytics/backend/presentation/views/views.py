@@ -54,6 +54,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyValueWriteSerializer,
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
+    EventStreamTestMessageSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -1296,6 +1297,23 @@ class EventStreamViewSet(
     @action(methods=["POST"], detail=True)
     def remove_account(self, request: Request, *args, **kwargs) -> Response:
         return self._set_member(request, included=False)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=None,
+        responses={200: EventStreamTestMessageSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def send_test_message(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            channel_id = event_stream_destination.send_test_slack_message(
+                team_id=self.team_id, stream_id=self.kwargs["pk"]
+            )
+        except event_stream_destination.EventStreamTestMessageError as e:
+            raise ValidationError(str(e))
+        if channel_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EventStreamTestMessageSerializer(instance={"channel_id": channel_id}).data)
 
     def _set_member(self, request: Request, *, included: bool) -> Response:
         write = EventStreamMemberWriteSerializer(data=request.data)

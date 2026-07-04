@@ -22303,6 +22303,14 @@ export namespace Schemas {
       account_id: string;
     }
 
+    /**
+     * Result of posting an event-stream test message to Slack.
+     */
+    export interface EventStreamTestMessage {
+      /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+      readonly channel_id: string;
+    }
+
     export interface EventSuggestionsResponse {
       /** Ranked candidate events for conversion goals */
       candidates: CandidateEvent[];

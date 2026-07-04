@@ -11,6 +11,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from slack_sdk.errors import SlackApiError
+
+from posthog.models.integration import Integration, SlackIntegration
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -20,6 +23,11 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 logger = structlog.get_logger(__name__)
+
+
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
 
 _SLACK_TEMPLATE = "template-slack"
 _DESTINATION_TYPE = "destination"
@@ -128,6 +136,15 @@ def sync_event_stream_destination(stream: EventStream, *, team: "Team", user: "U
     config = _destination_config(stream, group_type_index, group_keys)
 
     instance = _managed_hog_function(stream)
+    has_slack_config = bool(stream.slack_integration_id and stream.slack_channel_id)
+    if not has_slack_config:
+        if instance is None:
+            # Nothing to provision yet — the template's Slack inputs are required, so the
+            # function can only be created once a workspace and channel are configured.
+            return
+        # Keep the existing (disabled) function's inputs instead of writing null Slack values,
+        # which the template's input validation rejects.
+        config.pop("inputs")
     context = {
         # HogFunctionSerializer.create() reads context["request"].user for created_by.
         "request": SimpleNamespace(user=user),
@@ -153,6 +170,35 @@ def sync_event_stream_destination_by_id(*, team: "Team", stream_id: str, user: "
     stream = EventStream.objects.for_team(team.id).filter(id=stream_id).first()
     if stream is not None:
         sync_event_stream_destination(stream, team=team, user=user)
+
+
+def send_test_slack_message(*, team_id: int, stream_id: str) -> str | None:
+    """Post a test message to the stream's configured Slack channel, mirroring how the
+    managed destination delivers. Returns the channel id on success, ``None`` when the
+    stream doesn't exist; raises :class:`EventStreamTestMessageError` when the stream has
+    no Slack config or Slack rejects the message."""
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    if stream is None:
+        return None
+    if not (stream.slack_integration_id and stream.slack_channel_id):
+        raise EventStreamTestMessageError("Save a Slack workspace and channel before sending a test message.")
+    integration = Integration.objects.filter(team_id=team_id, id=stream.slack_integration_id, kind="slack").first()
+    if integration is None:
+        raise EventStreamTestMessageError("The stream's Slack workspace is no longer connected.")
+
+    try:
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=stream.slack_channel_id,
+            text=(
+                ":wave: This is a test message from PostHog Customer analytics — "
+                "your event stream will post matching events to this channel."
+            ),
+        )
+    except SlackApiError as e:
+        error = e.response.get("error", "unknown_error") if e.response else "unknown_error"
+        hint = " Invite the PostHog bot to the channel and try again." if error == "not_in_channel" else ""
+        raise EventStreamTestMessageError(f"Slack rejected the test message: {error}.{hint}")
+    return stream.slack_channel_id
 
 
 def archive_event_stream_destination_by_id(*, team_id: int, stream_id: str) -> None:
