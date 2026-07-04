@@ -722,7 +722,7 @@ export const pulseLogic = kea<pulseLogicType>([
                 // The experiments creation URL prefills nothing usable today (name is gated behind a
                 // metric param; hypothesis and flag key have no params — a prefill hook is the
                 // recorded ask), so the proposal travels via clipboard for the blank form.
-                await copyToClipboard(
+                const copied = await copyToClipboard(
                     [
                         `Hypothesis: ${proposal.hypothesis}`,
                         `Feature flag key: ${proposal.flag_key_suggestion}`,
@@ -733,6 +733,10 @@ export const pulseLogic = kea<pulseLogicType>([
                     ].join('\n'),
                     'experiment proposal'
                 )
+                if (!copied) {
+                    // Still navigate — the proposal stays visible on the opportunity row.
+                    lemonToast.warning('Could not copy the proposal — find it on the opportunity row')
+                }
                 router.actions.push(urls.experiment('new'))
             },
             setActiveTab: ({ tab }) => {

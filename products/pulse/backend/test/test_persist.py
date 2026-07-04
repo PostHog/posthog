@@ -4,10 +4,12 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.generation.accountability import MAX_STATUS_LINES
 from products.pulse.backend.generation.investigate import InvestigationFinding
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut, ProposedExperimentOut
 from products.pulse.backend.models import Opportunity, ProductBrief
+from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem
 
 _TRENDS_QUERY = {
@@ -120,16 +122,99 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.proposed_experiment["target_metric"] == {"insight_short_id": insight.short_id}
 
     @patch(_CALCULATE_PATH)
-    def test_uncited_target_metric_is_dropped_and_never_promoted(self, mock_calculate: MagicMock) -> None:
+    def test_invented_target_metric_on_fallback_path_is_dropped_and_never_promoted(
+        self, mock_calculate: MagicMock
+    ) -> None:
+        # No item resolved, so the LLM-authored evidence refs cite the invented id too — only
+        # the server-side insight resolution can reject it.
         out = _out(
             fingerprint_hint="unknown:9",
             goal_relevant=True,
             proposed_experiment=_proposed_experiment("zzz9"),
-            evidence_refs=["insight:abc"],
+            evidence_refs=["insight:zzz9"],
         )
         persist_brief_output(brief=self._brief(), out=out, items=[], findings=[])
         opportunity = self._opportunities().get()
         assert opportunity.proposed_experiment["target_metric"] is None
+        assert opportunity.metric_ref is None
+        assert opportunity.baseline is None
+        mock_calculate.assert_not_called()
+
+    @patch(_CALCULATE_PATH)
+    def test_uncited_target_metric_on_item_path_is_dropped(self, mock_calculate: MagicMock) -> None:
+        out = _out(goal_relevant=True, proposed_experiment=_proposed_experiment("other1"))
+        persist_brief_output(brief=self._brief(), out=out, items=[_item()], findings=[])
+        opportunity = self._opportunities().get()
+        assert opportunity.proposed_experiment["target_metric"] is None
+        assert opportunity.metric_ref == {"insight_short_id": "abc"}  # the item's own metric is untouched
+        mock_calculate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("execution_raises", RuntimeError("clickhouse down")),
+            ("non_trends_shape", [{"no": "data"}]),
+            ("too_little_data", [{"data": [1.0]}]),
+        ]
+    )
+    @patch(_CALCULATE_PATH)
+    def test_promotion_degrades_all_or_nothing(
+        self, _name: str, calculation: Exception | list, mock_calculate: MagicMock
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
+        if isinstance(calculation, Exception):
+            mock_calculate.side_effect = calculation
+        else:
+            mock_calculate.return_value = MagicMock(result=calculation)
+        out = _out(
+            fingerprint_hint="unknown:9",
+            goal_relevant=True,
+            proposed_experiment=_proposed_experiment(insight.short_id),
+            evidence_refs=[f"insight:{insight.short_id}"],
+        )
+        persist_brief_output(brief=self._brief(), out=out, items=[], findings=[])
+        opportunity = self._opportunities().get()
+        # All-or-nothing: an unreadable snapshot must set NEITHER field, and never raise.
+        assert opportunity.metric_ref is None
+        assert opportunity.baseline is None
+        assert opportunity.proposed_experiment["target_metric"] == {"insight_short_id": insight.short_id}
+
+    @patch(_CALCULATE_PATH)
+    def test_promotion_skips_an_insight_deleted_after_gather(self, mock_calculate: MagicMock) -> None:
+        # Item path: membership passes via the gathered evidence, but the insight row is gone by
+        # persist time — the promotion's own resolution is what catches it.
+        item = SourceItem(
+            source="anchored_insights",
+            kind="movement",
+            title="t",
+            description="d",
+            numbers={"pct_change": -30.0},
+            evidence=[
+                {"type": "dashboard", "ref": "7", "label": "Home"},
+                {"type": "insight", "ref": "abc", "label": ""},
+            ],
+            fingerprint_hint="abc:0",
+        )
+        out = _out(goal_relevant=True, proposed_experiment=_proposed_experiment("abc"))
+        persist_brief_output(brief=self._brief(), out=out, items=[item], findings=[])
+        opportunity = self._opportunities().get()
+        assert opportunity.metric_ref is None
+        assert opportunity.baseline == item.numbers
+        assert opportunity.proposed_experiment["target_metric"] == {"insight_short_id": "abc"}
+        mock_calculate.assert_not_called()
+
+    @patch(_CALCULATE_PATH)
+    def test_promotion_respects_the_shared_execution_budget(self, mock_calculate: MagicMock) -> None:
+        insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
+        spent_cache = InsightResultsCache(self.team)
+        spent_cache.attempts = MAX_STATUS_LINES
+        out = _out(
+            fingerprint_hint="unknown:9",
+            goal_relevant=True,
+            proposed_experiment=_proposed_experiment(insight.short_id),
+            evidence_refs=[f"insight:{insight.short_id}"],
+        )
+        persist_brief_output(brief=self._brief(), out=out, items=[], findings=[], results_cache=spent_cache)
+        opportunity = self._opportunities().get()
         assert opportunity.metric_ref is None
         assert opportunity.baseline is None
         mock_calculate.assert_not_called()
