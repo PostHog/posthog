@@ -31,7 +31,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.pulse.backend.models import BriefConfig, ProductBrief
 
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, PULSE_BRIEF_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import PULSE_BRIEF_INVALID_DISABLE_REASON, PULSE_CONSENT_REVOKED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 
 LOGGER = get_logger(__name__)
@@ -60,7 +60,7 @@ async def prepare_pulse_brief_subscription(inputs: PreparePulseBriefInputs) -> P
     # The generate workflow re-checks too; checking here auto-disables so it stops re-firing.
     if not subscription.team.organization.is_ai_data_processing_approved:
         LOGGER.warning("prepare_pulse_brief.consent_revoked", subscription_id=subscription.id)
-        aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
+        aborted = await auto_disable_and_return(subscription, PULSE_CONSENT_REVOKED_DISABLE_REASON, [])
         return PreparePulseBriefResult(aborted=True, recipient_results=aborted.recipient_results)
 
     config = await database_sync_to_async(

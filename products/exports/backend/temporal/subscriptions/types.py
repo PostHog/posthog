@@ -25,6 +25,8 @@ class DeliveryStatus:
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 # Mirrors Subscription.ResourceType.PULSE_BRIEF, same reasoning as above.
 PULSE_BRIEF_RESOURCE_TYPE = "pulse_brief"
+# Mirrors Subscription.DEFAULT_REPORT_WINDOW_DAYS, same reasoning as above.
+DEFAULT_REPORT_WINDOW_DAYS = 7
 
 
 class SubscriptionTriggerType:
@@ -192,7 +194,7 @@ class PreparePulseBriefResult:
 
     brief_id: str = ""
     config_id: str = ""
-    period_days: int = 7
+    period_days: int = DEFAULT_REPORT_WINDOW_DAYS
     aborted: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
 

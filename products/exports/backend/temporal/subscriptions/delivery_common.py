@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 import nh3
 import temporalio.activity
@@ -121,7 +120,11 @@ async def read_delivery_snapshot_value(delivery_id: uuid.UUID, key: str) -> str 
     return await _read()
 
 
-async def write_delivery_snapshot_values(delivery_id: uuid.UUID, values: dict[str, Any]) -> None:
+# What content_snapshot values look like: markdown/id strings, or the AI diagnostics list.
+SnapshotValue = str | list[dict[str, str | bool | None]]
+
+
+async def write_delivery_snapshot_values(delivery_id: uuid.UUID, values: dict[str, SnapshotValue]) -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
         # No DoesNotExist guard: create_delivery_record always writes this row first,

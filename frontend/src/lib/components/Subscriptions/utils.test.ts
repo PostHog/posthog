@@ -1,4 +1,9 @@
-import { getAiSubscriptionGate, getNextDeliveryDate } from './utils'
+import {
+    getAiSubscriptionGate,
+    getDefaultSubscriptionStartDate,
+    getNextDeliveryDate,
+    validateEmailTargetValue,
+} from './utils'
 
 describe('getNextDeliveryDate', () => {
     beforeEach(() => {
@@ -108,5 +113,37 @@ describe('getAiSubscriptionGate', () => {
         ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
+    })
+})
+
+describe('validateEmailTargetValue', () => {
+    it.each([
+        ['empty value', '', 'At least one email is required'],
+        ['single valid email', 'a@posthog.com', undefined],
+        ['multiple valid emails', 'a@posthog.com,b@posthog.com', undefined],
+        ['mixed valid and invalid', 'a@posthog.com,not-an-email', 'All emails must be valid'],
+        // Whitespace after commas is not trimmed — documents the shared forms' strictness.
+        ['whitespace-padded email', 'a@posthog.com, b@posthog.com', 'All emails must be valid'],
+    ] as const)('validates %s', (_label, targetValue, expected) => {
+        expect(validateEmailTargetValue(targetValue)).toEqual(expected)
+    })
+})
+
+describe('getDefaultSubscriptionStartDate', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2024-01-15T12:34:56Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it('returns today at 09:00 local time', () => {
+        const result = new Date(getDefaultSubscriptionStartDate())
+        expect(result.getHours()).toEqual(9)
+        expect(result.getMinutes()).toEqual(0)
+        expect(result.getSeconds()).toEqual(0)
+        expect(result.toDateString()).toEqual(new Date().toDateString())
     })
 })

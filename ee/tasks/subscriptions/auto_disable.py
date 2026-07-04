@@ -45,6 +45,11 @@ AI_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
     description="Organization has not approved AI data processing",
     user_message="Cannot re-enable AI subscription: your organization has not approved AI data processing. Approve it in your organization settings, then re-enable this subscription.",
 )
+PULSE_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
+    key="pulse_consent_revoked",
+    description="Organization has not approved AI data processing",
+    user_message="Cannot re-enable Pulse brief subscription: your organization has not approved AI data processing. Approve it in your organization settings, then re-enable this subscription.",
+)
 PULSE_BRIEF_INVALID_DISABLE_REASON = DisableReason(
     key="pulse_brief_invalid",
     description="Pulse brief config or creator is invalid",
