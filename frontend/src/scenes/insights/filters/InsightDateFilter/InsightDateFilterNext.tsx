@@ -4,6 +4,7 @@ import { type ChangeEvent, useMemo, useState } from 'react'
 import { IconCalendar } from '@posthog/icons'
 import {
     Button,
+    CUSTOM_RANGE,
     DateTimePicker,
     Day,
     Input,
@@ -35,10 +36,14 @@ import {
     getEffectiveDaysOfWeek,
 } from './daysOfWeekFilterUtils'
 import {
+    DEFAULT_DATE_FROM,
+    INSIGHT_DATE_PRESETS,
+    LISTED_PRESET_NAMES,
     dateRangeUpdateForPickerValue,
     insightDateLabel,
     insightDateRanges,
     pickerValueForDateRange,
+    presetForDateStrings,
 } from './insightDateFilterNextUtils'
 
 const ROLLING_UNITS: Record<string, string> = {
@@ -64,14 +69,21 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
     const { weekStartDay } = useValues(teamLogic)
 
     const [open, setOpen] = useState(false)
+    const [customOpen, setCustomOpen] = useState(false)
     const [rollingCount, setRollingCount] = useState<string>(DEFAULT_ROLLING_COUNT)
     const [rollingUnit, setRollingUnit] = useState<string>(DEFAULT_ROLLING_UNIT)
+
+    const activePreset = presetForDateStrings(dateRange?.date_from ?? DEFAULT_DATE_FROM, dateRange?.date_to)
+    const isAllTime = dateRange?.date_from === 'all'
+    const isRolling = !activePreset && !isAllTime && ROLLING_DATE_FROM.test(dateRange?.date_from ?? '')
+    const isCustom = !!dateRange?.date_from && !activePreset && !isAllTime && !isRolling
 
     const handleOpenChange = (nextOpen: boolean): void => {
         if (nextOpen) {
             const rollingMatch = ROLLING_DATE_FROM.exec(dateRange?.date_from ?? '')
             setRollingCount(rollingMatch?.[1] ?? DEFAULT_ROLLING_COUNT)
             setRollingUnit(rollingMatch?.[2] ?? DEFAULT_ROLLING_UNIT)
+            setCustomOpen(isCustom)
         }
         setOpen(nextOpen)
     }
@@ -81,6 +93,8 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         () => pickerValueForDateRange(dateRange?.date_from, dateRange?.date_to, ranges),
         [dateRange?.date_from, dateRange?.date_to, ranges]
     )
+    // The calendar always stages a custom range — presets are applied from the list, not the calendar.
+    const calendarValue: DateTimeValue = { start: pickerValue.start, end: pickerValue.end, range: CUSTOM_RANGE }
 
     const selectedDays = getEffectiveDaysOfWeek(dateRange, trendsFilter)
 
@@ -92,8 +106,15 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         labelParts.push('Excl. incomplete')
     }
 
-    const applyPicker = (next: DateTimeValue): void => {
-        updateDateRange(dateRangeUpdateForPickerValue(next), true)
+    const applyPreset = (name: string): void => {
+        const preset = INSIGHT_DATE_PRESETS.find((p) => p.name === name)
+        if (preset) {
+            updateDateRange({ date_from: preset.dateFrom, date_to: preset.dateTo }, true)
+        }
+        setOpen(false)
+    }
+    const applyAllTime = (): void => {
+        updateDateRange({ date_from: 'all', date_to: null }, true)
         setOpen(false)
     }
     const applyRolling = (): void => {
@@ -101,8 +122,8 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         updateDateRange({ date_from: `-${count}${rollingUnit}`, date_to: null }, true)
         setOpen(false)
     }
-    const applyAllTime = (): void => {
-        updateDateRange({ date_from: 'all', date_to: null }, true)
+    const applyCalendar = (next: DateTimeValue): void => {
+        updateDateRange(dateRangeUpdateForPickerValue(next), true)
         setOpen(false)
     }
     const setDays = (days: number[]): void => {
@@ -127,61 +148,100 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                 }
             />
             <PopoverContent align="start" className="w-auto p-0 overflow-hidden">
-                <DateTimePicker
-                    value={pickerValue}
-                    ranges={ranges}
-                    weekStartsOn={weekStartDay === 1 ? Day.MONDAY : Day.SUNDAY}
-                    onApply={applyPicker}
-                    onCancel={() => setOpen(false)}
-                    showHeader={false}
-                    showTime={false}
-                    className="shadow-none ring-0 rounded-b-none"
-                />
-                {/* Extra sections continue the picker footer's muted band so the popover reads as one surface */}
-                <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
-                    <span className="text-xs whitespace-nowrap text-muted-foreground">In the last</span>
-                    <Input
-                        type="number"
-                        min={1}
-                        value={rollingCount}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
-                        }
-                        className="w-14"
-                        aria-label="Rolling period count"
-                        data-attr="insight-date-filter-next-rolling-count"
-                    />
-                    <Select
-                        value={rollingUnit}
-                        onValueChange={(unit: string | null) => setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)}
-                        items={ROLLING_UNITS}
-                    >
-                        <SelectTrigger size="sm" aria-label="Rolling period unit">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {Object.entries(ROLLING_UNITS).map(([value, label]) => (
-                                <SelectItem key={value} value={value}>
-                                    {label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Button size="sm" onClick={applyRolling} data-attr="insight-date-filter-next-rolling-apply">
-                        Apply
-                    </Button>
-                    <Button
-                        variant="link"
-                        size="sm"
-                        className="ml-auto"
-                        onClick={applyAllTime}
-                        data-attr="insight-date-filter-next-all-time"
-                    >
-                        All time
-                    </Button>
+                <div className="flex items-stretch">
+                    {/* Preset rail */}
+                    <div className="flex w-60 flex-col gap-px p-2">
+                        {LISTED_PRESET_NAMES.map((name) => (
+                            <Button
+                                key={name}
+                                variant="default"
+                                size="sm"
+                                left
+                                className="w-full justify-start"
+                                aria-selected={!customOpen && activePreset?.name === name}
+                                onClick={() => applyPreset(name)}
+                                data-attr={`insight-date-preset-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                            >
+                                {name}
+                            </Button>
+                        ))}
+                        <Button
+                            variant="default"
+                            size="sm"
+                            left
+                            className="w-full justify-start"
+                            aria-selected={!customOpen && isAllTime}
+                            onClick={applyAllTime}
+                            data-attr="insight-date-filter-next-all-time"
+                        >
+                            All time
+                        </Button>
+                        <div className="flex items-center gap-1 px-2 py-1">
+                            <span className="text-xs whitespace-nowrap text-muted-foreground">Last</span>
+                            <Input
+                                type="number"
+                                min={1}
+                                value={rollingCount}
+                                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
+                                }
+                                className="w-12"
+                                aria-label="Rolling period count"
+                                data-attr="insight-date-filter-next-rolling-count"
+                            />
+                            <Select
+                                value={rollingUnit}
+                                onValueChange={(unit: string | null) => setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)}
+                                items={ROLLING_UNITS}
+                            >
+                                <SelectTrigger size="sm" aria-label="Rolling period unit">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {Object.entries(ROLLING_UNITS).map(([value, label]) => (
+                                        <SelectItem key={value} value={value}>
+                                            {label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button
+                                size="sm"
+                                onClick={applyRolling}
+                                aria-selected={isRolling}
+                                data-attr="insight-date-filter-next-rolling-apply"
+                            >
+                                Apply
+                            </Button>
+                        </div>
+                        <Button
+                            variant="default"
+                            size="sm"
+                            left
+                            className="w-full justify-start"
+                            aria-selected={customOpen || isCustom}
+                            onClick={() => setCustomOpen(!customOpen)}
+                            data-attr="insight-date-filter-next-custom-range"
+                        >
+                            Custom range…
+                        </Button>
+                    </div>
+                    {/* Calendar panel, only when asked for */}
+                    {customOpen && (
+                        <DateTimePicker
+                            value={calendarValue}
+                            ranges={[]}
+                            weekStartsOn={weekStartDay === 1 ? Day.MONDAY : Day.SUNDAY}
+                            onApply={applyCalendar}
+                            onCancel={() => setCustomOpen(false)}
+                            showHeader={false}
+                            showTime={false}
+                            className="shadow-none ring-0 rounded-none border-l border-border"
+                        />
+                    )}
                 </div>
                 {isTrends && (
-                    <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
+                    <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
                         <ToggleGroup
                             multiple
                             size="sm"
@@ -207,7 +267,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                         </Button>
                     </div>
                 )}
-                <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
+                <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
                     <Switch
                         id="insight-exclude-incomplete-period"
                         size="sm"
