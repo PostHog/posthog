@@ -32813,9 +32813,9 @@ export namespace Schemas {
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. In list responses the (invariant, per-scanner) `scanner_config.prompt` is omitted to keep pages small; fetch a single observation or the scanner itself for the full prompt. */
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
       readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. In list responses the `model_output.reasoning_segments` (a chip-annotated restatement of the flat `reasoning`) is omitted; fetch a single observation for the citation segments. */
+      /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
        *
