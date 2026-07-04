@@ -50,6 +50,25 @@ The metadata of the person associated with an event is similarly accessed like: 
 "Person" is a synonym of "user" – instead of a "users" table, we have a "persons" table.
 For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
 
+# Property typing (cast before comparing, arithmetic, or joins)
+Event and person properties accessed via dot or bracket notation (`properties.foo`, `properties['foo']`, `person.properties.bar`) are ALWAYS returned as String in ClickHouse, even when the property is registered as INTEGER, NUMERIC, or BOOLEAN in data management. The registered type describes the values, not the type ClickHouse hands you at query time. You MUST cast such properties before comparing, doing arithmetic, or joining on them, otherwise the query either errors or compares lexically (e.g. the string '9990' sorts above '24990').
+- Numeric: wrap with `toFloat(...)` or `toInt(...)`, e.g. `toFloat(properties.amount_usd) > 100`, NOT `properties.amount_usd > 100`. For a max/min, `max(toFloat(properties.amount_usd))`, NOT `max(properties.amount_usd)`.
+- Boolean: a boolean property comes back as the strings 'true'/'false', so compare against those strings, e.g. `properties.is_paying = 'true'`.
+- Joins: cast both sides of a join key to the same concrete type, e.g. `ON toInt(e.properties.order_id) = o.order_id`.
+- Prefer `IS NOT NULL` over empty-string checks for numeric-ish properties: use `properties.amount_usd IS NOT NULL`, NOT `properties.amount_usd != ''`.
+- Cast early, inside a pre-filter CTE or subquery, so the rest of the query works with correctly-typed columns:
+```sql
+SELECT max(amount_usd) AS largest_bill
+FROM (
+   SELECT toFloat(properties.amount_usd) AS amount_usd
+   FROM events
+   WHERE event = 'paid_bill'
+      AND properties.amount_usd IS NOT NULL
+      AND timestamp > now() - INTERVAL 90 DAY
+)
+```
+The `toFloat` cast returns the true numeric maximum; `max()` over the raw String property would wrongly rank '9990' above '24990'.
+
 # Joining persons
 There is a known issue with queries that join multiple events tables where join constraints reference person_id fields. The person_id fields are ExpressionFields that expand to expressions referencing override tables (e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py) BEFORE lazy table processing begins. This creates forward references to override tables that don't exist yet.
 

@@ -47,6 +47,28 @@ The metadata of the person associated with an event is similarly accessed like: 
 For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
 </persons>
 
+<property_typing>
+CRITICAL: Event and person properties accessed via dot or bracket notation (e.g. `properties.foo`, `properties['foo']`, `person.properties.bar`) are ALWAYS returned as String in ClickHouse, even when the property is registered as INTEGER, NUMERIC, or BOOLEAN in data management. The registered type is metadata about the values, not the type ClickHouse hands you at query time. You MUST cast such properties before comparing, doing arithmetic, or joining on them, otherwise the query either errors or compares lexically (e.g. the string '9990' sorts above '24990').
+- Numeric: wrap with `toFloat(...)` or `toInt(...)` before comparisons or math, e.g. `toFloat(properties.amount_usd) > 100`, NOT `properties.amount_usd > 100`. For a maximum/minimum, `max(toFloat(properties.amount_usd))`, NOT `max(properties.amount_usd)` (which would return the lexically-largest string).
+- Boolean: a boolean property comes back as the strings 'true'/'false', so compare against those strings or cast, e.g. `properties.is_paying = 'true'`.
+- Joins: cast both sides of a join key to the same concrete type, e.g. `ON toInt(e.properties.order_id) = o.order_id`.
+- Prefer `IS NOT NULL` over empty-string checks for numeric-ish properties: use `properties.amount_usd IS NOT NULL`, NOT `properties.amount_usd != ''`.
+- Cast early: do the casting inside a pre-filter CTE or subquery so the rest of the query works with correctly-typed columns.
+
+Example - largest value of a numeric property that is stored as String:
+```
+SELECT max(amount_usd) AS largest_bill
+FROM (
+   SELECT toFloat(properties.amount_usd) AS amount_usd
+   FROM events
+   WHERE event = 'paid_bill'
+      AND properties.amount_usd IS NOT NULL
+      AND timestamp > now() - INTERVAL 90 DAY
+)
+```
+The `toFloat` cast returns the true numeric maximum; taking `max()` over the raw String property would wrongly rank '9990' above '24990'.
+</property_typing>
+
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
@@ -229,6 +251,8 @@ Types (and names) for the accessible data can be found in the [database](https:/
 - `BOOLEAN`
 
 Types can be converted using functions like `toString`, `toDate`, `toFloat`, `JSONExtractString`, `JSONExtractInt`, and more.
+
+> **Important:** No matter which type a property is registered as above, values read via `properties.foo` / `person.properties.foo` (dot or bracket notation) come back as `STRING` at query time. Before comparing, doing arithmetic on, or joining a property that holds numeric or boolean data, cast it explicitly: `toInt(...)` / `toFloat(...)` for numbers, and compare booleans against the strings `'true'`/`'false'`. Do the cast early (in a pre-filter CTE or subquery), and prefer `properties.foo IS NOT NULL` over `properties.foo != ''` for numeric-ish properties. Without the cast, comparisons run lexically (so `'9990' > '24990'`) or raise a type error.
 
 ## Operators
 
