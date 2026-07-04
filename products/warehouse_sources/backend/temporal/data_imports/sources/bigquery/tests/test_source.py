@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
     _is_transient_job_not_found,
+    _query_result_with_job_retry,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
@@ -1122,6 +1123,15 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
         # The library default's own retryable reasons must still be honoured.
         BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
         BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
+        # A per-second rate quota (reason `quotaExceeded`, which the library's own predicates don't
+        # retry) is transient — the quota window resets each second — so it must be retried in place
+        # rather than crashing the sync. Volatile project/job ids redacted.
+        Forbidden(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: Quota exceeded: Your project:<redacted> "
+            "exceeded quota for tabledata.list bytes per second per project. For more information, "
+            "see https://cloud.google.com/bigquery/docs/troubleshoot-quotas"
+        ),
     ],
 )
 def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
@@ -1134,6 +1144,12 @@ def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
         # A genuinely malformed query is deterministic — retrying never helps, so it must surface.
         BadRequest("Syntax error: Unexpected keyword SELECT"),
         BadRequest("query failed", errors=[{"reason": "invalidQuery", "message": "bad SQL"}]),
+        # The administrator-set "Custom quota exceeded" daily cost cap resets only on Google's daily
+        # schedule — the per-second rate-quota retry must not catch it and hammer the endpoint.
+        Forbidden(
+            "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+            "which is set by your administrator.; reason: quotaExceeded"
+        ),
     ],
 )
 def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
@@ -1153,6 +1169,29 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     client.query.return_value.result.return_value = []
 
     _get_primary_keys_for_table(table, client)
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+def test_run_destination_query_passes_job_retry():
+    """The copy-into-temp-table query — where the production sync crashed on a transient per-second
+    rate quota — must run under the extended job retry so it waits the rate limit out in place
+    instead of aborting the import."""
+    client = mock.MagicMock()
+
+    _run_destination_query_with_job_retry(
+        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+    )
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+def test_query_result_passes_job_retry():
+    """The read/count query must likewise run under the extended job retry so a transient per-second
+    rate quota is retried in place rather than surfacing."""
+    client = mock.MagicMock()
+
+    _query_result_with_job_retry(client, "SELECT COUNT(*)", job_config=mock.MagicMock(), project="prj")
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
 
