@@ -12,6 +12,7 @@ import time
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 import structlog
 from pydantic import BaseModel, Field
@@ -54,17 +55,48 @@ _RESULT_MAX_CHARS = 1500
 _TRUNCATION_SENTINEL = "\n…(truncated)"
 # Mirrors the planner-side bound on PlannedStep.hogql so a repair can't silently outgrow it.
 _HOGQL_MAX_LENGTH = 5000
+_URL_PATTERN_MAX_LENGTH = 500
+_SELECTOR_HINT_MAX_LENGTH = 200
+# Row cap for the clicks tool's query — the summary is a top-elements digest, not a dump.
+_CLICKS_TOP_ROWS = 15
 
 QUERY_FAILED_PREFIX = "Query failed to run"
 
 
 class PlannedStep(BaseModel):
+    tool: Literal["hogql", "clicks"] = Field(
+        default="hogql",
+        description=(
+            "Which tool runs this step: 'hogql' executes the step's own hogql; 'clicks' summarizes "
+            "click density (top clicked elements) for pages matching url_pattern."
+        ),
+    )
     question: str = Field(max_length=500, description="The plain-English question this query answers for the team.")
     justification: str = Field(
         max_length=500,
         description="How the answer materially informs the stated goal. Required — steps without it are dropped.",
     )
-    hogql: str = Field(max_length=_HOGQL_MAX_LENGTH, description="One read-only HogQL SELECT over the events table.")
+    hogql: str = Field(
+        default="",
+        max_length=_HOGQL_MAX_LENGTH,
+        description="For 'hogql' steps: one read-only HogQL SELECT over the events table. Leave empty for 'clicks' steps.",
+    )
+    url_pattern: str = Field(
+        default="",
+        max_length=_URL_PATTERN_MAX_LENGTH,
+        description=(
+            "For 'clicks' steps: a regular expression matched against the page URL, "
+            "e.g. 'https://app.example.com/insights.*'. Leave empty for 'hogql' steps."
+        ),
+    )
+    selector_hint: str = Field(
+        default="",
+        max_length=_SELECTOR_HINT_MAX_LENGTH,
+        description=(
+            "Optional, 'clicks' steps only: count only clicks whose DOM element chain contains this "
+            "substring (e.g. a CSS class or tag name)."
+        ),
+    )
 
 
 class InvestigationPlan(BaseModel):
@@ -101,7 +133,7 @@ async def run_investigation(
     steps = await database_sync_to_async(plan_investigation, thread_sensitive=False)(
         team=team, user=user, goal_status=goal_status, items=items, period_days=period_days
     )
-    return await execute_investigation(team=team, user=user, steps=steps)
+    return await execute_investigation(team=team, user=user, steps=steps, period_days=period_days)
 
 
 def plan_investigation(
@@ -141,11 +173,20 @@ def plan_investigation(
     return _apply_plan_gates(team, result.steps)
 
 
+def _step_tool_input(step: PlannedStep) -> str:
+    # The one field the step's tool cannot run without — blank means the step is unexecutable.
+    return step.hogql if step.tool == "hogql" else step.url_pattern
+
+
 def _apply_plan_gates(team: Team, steps: list[PlannedStep]) -> list[PlannedStep]:
     # The hard cap is code-enforced regardless of model output. The blank-field check is only a
     # backstop — the justification gate proper is the prompt-side forcing function (a model that
     # pads justifications sails through here; the eval loop is what catches that).
-    kept = [step for step in steps if step.question.strip() and step.justification.strip() and step.hogql.strip()]
+    kept = [
+        step
+        for step in steps
+        if step.question.strip() and step.justification.strip() and _step_tool_input(step).strip()
+    ]
     if len(kept) < len(steps):
         logger.info("pulse_investigation_steps_dropped", team_id=team.id, dropped=len(steps) - len(kept))
     return kept[:MAX_INVESTIGATION_STEPS]
@@ -174,7 +215,9 @@ def _render_metric_line(goal_status: GoalStatus) -> str:
     )
 
 
-async def execute_investigation(*, team: Team, user: User, steps: list[PlannedStep]) -> list[InvestigationFinding]:
+async def execute_investigation(
+    *, team: Team, user: User, steps: list[PlannedStep], period_days: int
+) -> list[InvestigationFinding]:
     """Run the planned steps deterministically, sequentially, inside the stage deadline.
 
     Sequential on purpose: the deadline check before each step is what lets the stage stop
@@ -195,8 +238,67 @@ async def execute_investigation(*, team: Team, user: User, steps: list[PlannedSt
                 skipped=len(steps) - index,
             )
             break
-        findings.append(await _run_step(executor, team, user, step))
+        if step.tool == "clicks":
+            findings.append(await _run_clicks_step(executor, team, step, period_days))
+        else:
+            findings.append(await _run_step(executor, team, user, step))
     return findings
+
+
+def _hogql_string_literal(value: str) -> str:
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def build_clicks_query(url_pattern: str, selector_hint: str, period_days: int) -> str:
+    """The clicks tool's deterministic HogQL: top clicked elements ($autocapture) on pages whose
+    URL matches the planner's pattern.
+
+    An approximation by design: the heatmaps product's dedicated table stores pure coordinate
+    geometry (no element identity), and web_analytics exposes no public server-side entry for
+    element-level click summaries — so this mirrors its Max tool's $autocapture cross-reference
+    (AUTOCAPTURE_ELEMENTS_QUERY in products/web_analytics/backend/max_tools.py, url_pattern
+    semantics from its heatmaps API). A heatmaps facade capability is the recorded ask.
+    """
+    selector_filter = (
+        f"\n  AND elements_chain ILIKE {_hogql_string_literal('%' + selector_hint + '%')}" if selector_hint else ""
+    )
+    return (
+        "SELECT properties.$el_text AS element_text, count() AS clicks\n"
+        "FROM events\n"
+        "WHERE event = '$autocapture'\n"
+        f"  AND match(properties.$current_url, {_hogql_string_literal(url_pattern)})\n"
+        f"  AND timestamp >= now() - INTERVAL {period_days} DAY\n"
+        "  AND notEmpty(properties.$el_text)"
+        f"{selector_filter}\n"
+        "GROUP BY element_text\n"
+        "ORDER BY clicks DESC\n"
+        f"LIMIT {_CLICKS_TOP_ROWS}"
+    )
+
+
+async def _run_clicks_step(
+    executor: AssistantQueryExecutor, team: Team, step: PlannedStep, period_days: int
+) -> InvestigationFinding:
+    # No repair branch on purpose: the query is code-built, so there is no planner HogQL to fix —
+    # a failed clicks step is a gap, not a repair candidate.
+    hogql = build_clicks_query(step.url_pattern, step.selector_hint, period_days)
+    header = (
+        f"Top clicked elements on pages matching '{step.url_pattern}' (last {period_days} days, $autocapture clicks):"
+    )
+    try:
+        summary = await _run_hogql(executor, hogql)
+    except Exception as exc:
+        error_type = type(exc).__name__
+        logger.warning("pulse_investigation_clicks_step_failed", team_id=team.id, error_type=error_type, exc_info=exc)
+        return InvestigationFinding(
+            question=step.question,
+            hogql=hogql,
+            result_summary=f"{QUERY_FAILED_PREFIX} ({error_type}).",
+            succeeded=False,
+        )
+    return InvestigationFinding(
+        question=step.question, hogql=hogql, result_summary=f"{header}\n{summary}", succeeded=True
+    )
 
 
 async def _run_step(
