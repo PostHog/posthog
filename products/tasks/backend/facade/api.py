@@ -141,7 +141,7 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
-    "is_task_visible_to_user",
+    "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
@@ -455,13 +455,14 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
 
 
-def is_task_visible_to_user(task_id: str | UUID, user_id: int | None) -> bool:
-    """Whether the task is visible to the user under the task visibility rules.
+def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
+    """Whether the user may mutate the task under the task control rules.
 
     Tasks belong to their creator, plus team-wide signal-pipeline tasks and legacy unowned
-    tasks. Used by core's file-system flow to gate delete/restore on a filed task.
+    tasks. Used by core's file-system flow to gate delete/restore on a filed task; public-channel
+    read visibility deliberately does not qualify.
     """
-    return Task.objects.filter(task_visibility_q(user_id), pk=task_id).exists()
+    return Task.objects.filter(task_control_q(user_id), pk=task_id).exists()
 
 
 def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDTO | None:
@@ -1248,8 +1249,9 @@ def _task_run_queryset():
     )
 
 
-def _get_task_for_run_visibility(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
-    return Task.objects.filter(id=task_id, team_id=team_id).filter(task_visibility_q(user_id)).first()
+def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
+    """The task, only if the user may drive runs on it (``task_control_q``, not mere visibility)."""
+    return Task.objects.filter(id=task_id, team_id=team_id).filter(task_control_q(user_id)).first()
 
 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
@@ -2218,7 +2220,7 @@ def bootstrap_task_run(
         get_reasoning_effort_error,
     )
 
-    task = _get_task_for_run_visibility(task_id, team_id, user_id)
+    task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
 
@@ -4134,8 +4136,10 @@ def forward_thread_message(
     # Lock the message row so concurrent forwards of the same message can't
     # both pass the forwarded_to_agent_at check and double-signal the agent.
     with transaction.atomic():
+        # of=("self",) locks only the message row: FOR UPDATE cannot span the nullable
+        # outer joins that select_related on author/forwarded_by introduces.
         message = (
-            TaskThreadMessage.objects.select_for_update()
+            TaskThreadMessage.objects.select_for_update(of=("self",))
             .select_related("author", "forwarded_by")
             .filter(id=message_id, task_id=task_id, team_id=team_id)
             .first()
