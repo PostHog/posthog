@@ -109,6 +109,24 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert sorted(by_id[row["id"]] for row in response.json()["results"]) == sorted(expected)
 
+    def test_list_serializes_proposed_experiment_and_null_alike(self) -> None:
+        proposed = {
+            "hypothesis": "h",
+            "flag_key_suggestion": "entry-point",
+            "target_metric": {"insight_short_id": "abc"},
+            "variant_sketch": "v",
+        }
+        with_proposal = self._opportunity()
+        Opportunity.objects.for_team(self.team.pk).filter(pk=with_proposal.pk).update(proposed_experiment=proposed)
+        without_proposal = self._opportunity()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/")
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {row["id"]: row["proposed_experiment"] for row in response.json()["results"]}
+        assert by_id[str(with_proposal.id)] == proposed
+        assert by_id[str(without_proposal.id)] is None
+
     @parameterized.expand([("status", "bogus"), ("kind", "bogus")])
     def test_invalid_filter_value_returns_400(self, field: str, value: str) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/", {field: value})
