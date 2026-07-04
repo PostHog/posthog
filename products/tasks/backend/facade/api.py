@@ -15,8 +15,8 @@ config-only importer never drags docker/temporalio onto the ``django.setup()`` p
 Functions that bridge to those heavy surfaces import them lazily inside the function body.
 """
 
-import logging
 import re
+import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -2531,10 +2531,13 @@ def signal_report_queryset():
 def channel_queryset():
     """Live ``Channel`` queryset for the task write serializer's channel FK field.
 
-    Kept here so presentation never imports tasks models directly; team scoping comes from
-    the serializer's team-scoped field, ownership of personal channels from ``validate_channel``.
+    Kept here so presentation never imports tasks models directly. Deliberately
+    ``unscoped()``: the serializer is also instantiated without team context (e.g.
+    drf-spectacular schema generation), where the fail-closed manager would raise.
+    Team scoping comes from the serializer's team-scoped field, ownership of
+    personal channels from ``validate_channel``.
     """
-    return Channel.objects.filter(deleted=False)
+    return Channel.objects.unscoped().filter(deleted=False)
 
 
 def is_internal_debug_team(team_id: int | None) -> bool:

@@ -69,7 +69,9 @@ class ChannelsAPITestCase(TestCase):
 
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
         self.client.get(self._channels_url())
-        personal = Channel.objects.get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        # Direct ORM reads in tests bypass the DRF-set team context, so opt out
+        # of the fail-closed scoping explicitly (see test_presence.py).
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         rename = self.client.patch(f"{self._channels_url()}{personal.id}/", {"name": "not-me"})
         self.assertEqual(rename.status_code, status.HTTP_403_FORBIDDEN)
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
@@ -91,7 +93,7 @@ class ChannelsAPITestCase(TestCase):
 
     def test_task_in_personal_channel_stays_private(self):
         self.client.get(self._channels_url())
-        personal = Channel.objects.get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         created = self.client.post(
             self._tasks_url(),
             {"title": "Secret", "description": "mine", "channel": str(personal.id)},
@@ -105,7 +107,7 @@ class ChannelsAPITestCase(TestCase):
 
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self.client.get(self._channels_url())
-        personal = Channel.objects.get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
         response = other_client.post(
@@ -127,7 +129,10 @@ class ThreadMessagesAPITestCase(TestCase):
                 level=OrganizationMembership.Level.ADMIN
             )
 
-        self.channel = Channel.objects.create(team=self.team, name="growth", created_by=self.author)
+        # Direct instantiation sidesteps the fail-closed TeamScopedManager so
+        # setUp doesn't need a team_scope wrapper (see test_presence.py).
+        self.channel = Channel(team=self.team, name="growth", created_by=self.author)
+        self.channel.save()
         self.task = Task.objects.create(
             team=self.team,
             created_by=self.author,
@@ -184,7 +189,10 @@ class ThreadMessagesAPITestCase(TestCase):
         signal.assert_called_once()
         self.assertIn("Bob", signal.call_args.kwargs["content"])
         self.assertIn("try X", signal.call_args.kwargs["content"])
-        self.assertEqual(TaskThreadMessage.objects.get(id=message_id).forwarded_run_id, run.id)
+        self.assertEqual(
+            TaskThreadMessage.objects.unscoped().get(id=message_id).forwarded_run_id,
+            run.id,
+        )
 
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)

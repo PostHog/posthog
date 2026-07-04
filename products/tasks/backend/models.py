@@ -56,7 +56,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
-class Channel(models.Model):
+class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
@@ -713,7 +713,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         return task
 
 
-class TaskThreadMessage(models.Model):
+class TaskThreadMessage(TeamScopedRootMixin):
     """One human message in a task's thread — the side conversation channel members
     have around a task. Messages never reach the agent unless the task author
     forwards one (send_to_agent), which stamps the forwarded_* fields."""
