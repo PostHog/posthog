@@ -13,6 +13,7 @@ from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import Opportunity
 from products.pulse.backend.sources.anchored_insights import (
     calculate_insight_results,
+    rate_summary,
     series_daily_values,
     split_score_windows,
 )
@@ -140,7 +141,7 @@ def _status_line(
         # what was actually read, and compare per-day rates so the delta always agrees with
         # the two summaries beside it.
         current_rate = float(sum(window)) / len(window)
-        current_summary = _rate_summary(current_rate)
+        current_summary = rate_summary(current_rate)
         # Zero-baseline guard: a delta off nothing is meaningless, not infinite. Deliberately
         # different from score_movement's volume floor — this compares against a snapshot, it
         # is not a significance test.
@@ -151,7 +152,7 @@ def _status_line(
         status=opportunity.status,
         title=opportunity.title,
         age_days=(now - opportunity.created_at).days,
-        baseline_summary=_rate_summary(then_rate),
+        baseline_summary=rate_summary(then_rate),
         current_summary=current_summary,
         delta_pct=delta_pct,
     )
@@ -186,7 +187,3 @@ def _current_window(
     if windows is None:
         return None
     return windows[1]
-
-
-def _rate_summary(rate: float) -> str:
-    return f"{rate:.1f}/day avg"

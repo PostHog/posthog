@@ -16,8 +16,9 @@ from posthog.models.scoping import team_scope
 
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.explain import CausalCandidate
+from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
-from products.pulse.backend.models import Opportunity, ProductBrief
+from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
@@ -81,11 +82,17 @@ def _set_ai_consent(team, approved: bool) -> None:
 
 
 @sync_to_async
-def _create_brief(team, user) -> ProductBrief:
+def _create_brief(team, user, config: BriefConfig | None = None) -> ProductBrief:
     with team_scope(team.pk, canonical=True):
         return ProductBrief.objects.create(
-            team=team, created_by=user, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
+            team=team, created_by=user, config=config, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7
         )
+
+
+@sync_to_async
+def _create_config(team, goal: str) -> BriefConfig:
+    with team_scope(team.pk, canonical=True):
+        return BriefConfig.objects.create(team=team, name="Focus", goal=goal)
 
 
 @sync_to_async
@@ -296,6 +303,83 @@ async def test_synthesize_activity_collects_accountability_for_any_item_kind(tea
     assert status == ProductBrief.Status.READY
     assert synth_mock.call_args.kwargs["status_lines"] == [_STATUS_LINE]
     collect_mock.assert_called_once()
+
+
+_GOAL_STATUS = GoalStatus(
+    goal="Increase subscription usage",
+    metric_label="Subscriptions created",
+    current_rate="100.0/day avg",
+    previous_rate="70.0/day avg",
+    delta_pct=42.9,
+)
+
+
+@pytest.mark.parametrize("goal,expect_collected", [("Increase subscription usage", True), ("", False), ("   ", False)])
+async def test_synthesize_activity_collects_goal_status_only_for_configs_with_a_goal(
+    team, user, goal: str, expect_collected: bool
+) -> None:
+    config = await _create_config(team, goal=goal)
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_goal_status", return_value=_GOAL_STATUS
+        ) as collect_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert synth_mock.call_args.kwargs["goal_status"] == (_GOAL_STATUS if expect_collected else None)
+    assert collect_mock.called is expect_collected
+
+
+async def test_synthesize_activity_skips_goal_status_without_a_config(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.collect_goal_status") as collect_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert synth_mock.call_args.kwargs["goal_status"] is None
+    collect_mock.assert_not_called()
+
+
+async def test_synthesize_activity_survives_goal_status_collection_failure(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
+    brief = await _create_brief(team, user, config=config)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_goal_status",
+            side_effect=RuntimeError("goal read exploded"),
+        ),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert synth_mock.call_args.kwargs["goal_status"] is None
 
 
 async def test_synthesize_activity_survives_accountability_collection_failure(team, user) -> None:

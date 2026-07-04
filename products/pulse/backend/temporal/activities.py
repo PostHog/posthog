@@ -11,6 +11,7 @@ from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.explain import CausalCandidate, collect_causal_candidates
+from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
@@ -107,6 +108,17 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
             status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(brief.team)
         except Exception:
             logger.exception("pulse_accountability_failed", team_id=brief.team_id, brief_id=str(brief.id))
+    goal_status: GoalStatus | None = None
+    # Goal framing is config-scoped: only a config with a non-empty goal gets a goal block, and
+    # an empty gather skips it since synthesize short-circuits without items anyway. Best-effort:
+    # a broken metric read degrades inside the collector; this guard covers everything else.
+    if items and brief.config is not None and brief.config.goal.strip():
+        try:
+            goal_status = await database_sync_to_async(collect_goal_status, thread_sensitive=False)(
+                brief.team, brief.config, brief.period_days
+            )
+        except Exception:
+            logger.exception("pulse_goal_status_failed", team_id=brief.team_id, brief_id=str(brief.id))
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,
@@ -115,6 +127,7 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         period_days=brief.period_days,
         candidates=candidates,
         status_lines=status_lines,
+        goal_status=goal_status,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items
