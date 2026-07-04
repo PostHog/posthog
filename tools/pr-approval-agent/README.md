@@ -120,10 +120,12 @@ LLM Review
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
-Final verdict → GitHub review (approve or comment)
+Final verdict → GitHub review (approve) or sticky comment (everything else)
 ```
 
-The bot never posts request-changes — only approves or comments.
+The bot never posts request-changes.
+Approvals are posted as real PR reviews (they must count toward branch protection).
+Every other verdict (REFUSE, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter noting how many earlier stamphog reviews it replaces — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers
 
