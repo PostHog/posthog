@@ -24,7 +24,7 @@ import {
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
@@ -149,7 +149,23 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     updated_at: params.updated_at,
                 },
             })
-            return await withPostHogUrl(context, result, '/workflows')
+            const filtered = {
+                ...result,
+                results: (result.results ?? []).map((item: any) =>
+                    pickResponseFields(item, [
+                        'id',
+                        'name',
+                        'description',
+                        'status',
+                        'version',
+                        'trigger',
+                        'created_at',
+                        'updated_at',
+                        'created_by',
+                    ])
+                ),
+            } as typeof result
+            return await withPostHogUrl(context, filtered, '/workflows')
         },
     })
 

@@ -9284,7 +9284,7 @@
         }
     },
     "workflows-list": {
-        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
+        "description": "List all workflows in the project. Returns lightweight metadata only: name, description, status (draft/active/archived), version, trigger configuration, timestamps, and creator. The action/edge graph (which can carry large rendered email HTML and compiled bytecode) is omitted here; call workflows-get for a single workflow's full definition.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "List workflows",

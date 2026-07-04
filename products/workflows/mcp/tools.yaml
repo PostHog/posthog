@@ -180,8 +180,21 @@ tools:
         list: true
         title: List workflows
         description: >
-            List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps.
+            List all workflows in the project. Returns lightweight metadata only: name, description, status
+            (draft/active/archived), version, trigger configuration, timestamps, and creator. The action/edge graph
+            (which can carry large rendered email HTML and compiled bytecode) is omitted here; call workflows-get for a
+            single workflow's full definition.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - status
+                - version
+                - trigger
+                - created_at
+                - updated_at
+                - created_by
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
