@@ -98,12 +98,12 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
     const { transitionOpportunity, createExperimentFromOpportunity } = useActions(pulseLogic)
 
     const available = transitionsForStatus(opportunity.status)
-    // Creating an experiment rides the acted transition, so it is only offered while that
-    // transition is — i.e. on open rows.
-    const proposal = opportunity.status === OpportunityStatusEnumApi.Open ? opportunity.proposed_experiment : null
-    if (available.length === 0 && !proposal) {
+    if (available.length === 0) {
         return null
     }
+    // Creating an experiment rides the acted transition, so it is offered exactly when that
+    // transition is.
+    const proposal = available.some(({ transition }) => transition === 'acted') ? opportunity.proposed_experiment : null
     const inFlightTransition = transitionsInFlight[opportunity.id]
 
     return (
@@ -129,6 +129,11 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
                             <span>
                                 <strong>Flag key:</strong> {proposal.flag_key_suggestion}
                             </span>
+                            {proposal.target_metric && (
+                                <span>
+                                    <strong>Target metric:</strong> {proposal.target_metric.insight_short_id}
+                                </span>
+                            )}
                             <span className="text-muted">
                                 Marks the opportunity as acted, copies the proposal, and opens a new experiment.
                             </span>

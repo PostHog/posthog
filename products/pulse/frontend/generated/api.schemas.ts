@@ -302,8 +302,8 @@ export interface ProposedExperimentApi {
     hypothesis: string
     /** Suggested feature flag key for the experiment. */
     flag_key_suggestion: string
-    /** The goal metric the experiment should move, as an insight reference. */
-    target_metric: ProposedExperimentTargetMetricApi
+    /** The goal metric the experiment should move, as an insight reference. Null when the proposal's metric did not validate against the opportunity's cited insight refs. */
+    target_metric: ProposedExperimentTargetMetricApi | null
     /** Short sketch of the control and test variants. */
     variant_sketch: string
 }

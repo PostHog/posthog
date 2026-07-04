@@ -25,7 +25,11 @@ class ProposedExperimentSerializer(serializers.Serializer):
     hypothesis = serializers.CharField(help_text="The testable hypothesis grounded in the opportunity's evidence.")
     flag_key_suggestion = serializers.CharField(help_text="Suggested feature flag key for the experiment.")
     target_metric = ProposedExperimentTargetMetricSerializer(
-        help_text="The goal metric the experiment should move, as an insight reference."
+        allow_null=True,
+        help_text=(
+            "The goal metric the experiment should move, as an insight reference. Null when the proposal's "
+            "metric did not validate against the opportunity's cited insight refs."
+        ),
     )
     variant_sketch = serializers.CharField(help_text="Short sketch of the control and test variants.")
 
