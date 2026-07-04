@@ -25,6 +25,7 @@ import { BriefConfigModal } from './BriefConfigModal'
 import { CitationTag } from './CitationTag'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
+import { HelpfulnessVote } from './HelpfulnessVote'
 import { OpportunitiesPanel } from './OpportunitiesPanel'
 import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefSection, PulseTab, pulseLogic } from './pulseLogic'
 
@@ -245,8 +246,15 @@ function BriefHistoryList({ briefs }: { briefs: ProductBriefListApi[] }): JSX.El
 }
 
 function BriefDetail(): JSX.Element | null {
-    const { briefDetail, briefDetailLoading, briefDetailSections, briefDetailGoal, selectedBriefId } =
-        useValues(pulseLogic)
+    const {
+        briefDetail,
+        briefDetailLoading,
+        briefDetailSections,
+        briefDetailGoal,
+        selectedBriefId,
+        feedbackVotesInFlight,
+    } = useValues(pulseLogic)
+    const { voteOnBrief } = useActions(pulseLogic)
 
     if (!briefDetail || briefDetail.id !== selectedBriefId) {
         return briefDetailLoading ? <Spinner /> : null
@@ -273,11 +281,23 @@ function BriefDetail(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-6">
-            {briefDetailGoal !== null && (
-                <div className="text-muted text-sm">
-                    <span className="font-semibold">Goal:</span> {briefDetailGoal}
-                </div>
-            )}
+            <div className="flex items-start justify-between gap-4">
+                {briefDetailGoal !== null ? (
+                    <div className="text-muted text-sm">
+                        <span className="font-semibold">Goal:</span> {briefDetailGoal}
+                    </div>
+                ) : (
+                    <span />
+                )}
+                <HelpfulnessVote
+                    label="Was this helpful?"
+                    myVote={briefDetail.my_vote}
+                    helpfulCount={briefDetail.helpful_count}
+                    notHelpfulCount={briefDetail.not_helpful_count}
+                    inFlight={briefDetail.id in feedbackVotesInFlight}
+                    onVote={(helpful) => voteOnBrief(briefDetail.id, helpful)}
+                />
+            </div>
             {briefDetailSections.map((section, index) => (
                 <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
             ))}
