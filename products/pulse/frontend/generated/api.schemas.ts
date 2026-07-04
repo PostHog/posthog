@@ -307,6 +307,8 @@ export interface OpportunityApi {
     readonly suggested_action: string
     /** Evidence refs backing the opportunity: type, ref, and label per entry. */
     readonly evidence: readonly OpportunityApiEvidenceItem[]
+    /** Whether this opportunity plausibly advances the focus goal of the brief it surfaced in. */
+    readonly goal_relevant: boolean
     /**
      * The brief this opportunity first surfaced in, if any.
      * @nullable

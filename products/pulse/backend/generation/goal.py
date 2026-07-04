@@ -62,6 +62,9 @@ def collect_goal_status(
     unavailable = GoalStatus(goal=goal, metric_state="unavailable", insight_short_id=short_id)
     insight = resolve_metric_insight(team, short_id)
     if insight is None:
+        # Info logs on every unavailable branch: "the user's goal metric quietly broke" must be
+        # queryable, not just visible as a figure-less brief.
+        logger.info("pulse_goal_metric_insight_missing", team_id=team.id, insight_short_id=short_id)
         return unavailable
     cache = results_cache or InsightResultsCache(team)
     try:
@@ -72,6 +75,7 @@ def collect_goal_status(
         return unavailable
     windows = _goal_windows(results, period_days)
     if windows is None:
+        logger.info("pulse_goal_metric_unreadable", team_id=team.id, insight_short_id=short_id)
         return unavailable
     previous, current = windows
     previous_rate = per_day_rate(previous)

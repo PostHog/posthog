@@ -12,6 +12,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.schema import NodeKind
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
@@ -93,9 +95,25 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         # Same ownership check style as the config reference on pulse_brief subscriptions, via
         # the same resolver the collectors read the metric with: a metric must be a live insight
         # in the caller's team.
-        if resolve_metric_insight(self.context["get_team"](), value["insight_short_id"]) is None:
+        insight = resolve_metric_insight(self.context["get_team"](), value["insight_short_id"])
+        if insight is None:
             raise serializers.ValidationError("This insight does not exist or does not belong to your team.")
+        # Reject at write time what the collector can only silently degrade on later: the goal
+        # metric contract is trends-only, matching the field's help_text.
+        source_kind = ((insight.query or {}).get("source") or {}).get("kind")
+        if source_kind != NodeKind.TRENDS_QUERY:
+            raise serializers.ValidationError("The goal metric must be a trends insight.")
         return value
+
+    def validate(self, attrs: dict) -> dict:
+        # Explicit-key fallbacks so a PATCH sending only one of the pair validates the resulting
+        # row, not just the request payload.
+        goal = attrs.get("goal", self.instance.goal if self.instance else "")
+        goal_metric = attrs.get("goal_metric", self.instance.goal_metric if self.instance else None)
+        if goal_metric and not goal.strip():
+            # Without a goal the metric is never read — reject instead of silently no-oping.
+            raise serializers.ValidationError({"goal_metric": ["A goal metric requires a goal."]})
+        return attrs
 
 
 class ProductBriefSerializer(serializers.ModelSerializer):

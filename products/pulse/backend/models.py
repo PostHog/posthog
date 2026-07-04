@@ -86,6 +86,8 @@ class Opportunity(PulseModel):
     metric_ref = models.JSONField(null=True, blank=True)
     # snapshot of metric value(s) at creation, for the future impact loop
     baseline = models.JSONField(null=True, blank=True)
+    # Set by goal-conditioned synthesis: this opportunity plausibly advances the focus goal.
+    goal_relevant = models.BooleanField(default=False)
     fingerprint = models.CharField(max_length=512)
     feedback = models.JSONField(default=dict)
 
