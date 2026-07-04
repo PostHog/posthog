@@ -9,34 +9,36 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
 
-# The native-JSON events tables are always created so deletion/mutation mirroring can rely on
-# them existing. The Kafka consumer + dual-write MV are only created when
-# CLICKHOUSE_EVENTS_JSON_DUAL_WRITE is enabled: consuming the full events topic a second time
-# doubles events ingestion and storage, which upgrading (especially self-hosted) instances must
-# opt into. Enabling later without re-running this migration:
-# `manage.py manage_events_json_dual_write --start`.
-operations = [
-    run_sql_with_exceptions(
-        EVENTS_JSON_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-    run_sql_with_exceptions(
-        WRITABLE_EVENTS_JSON_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-    run_sql_with_exceptions(
-        DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-    ),
-    # The dual-write MV runs on the events ingestion layer (like the legacy events pipeline,
-    # see 0238/0160) and writes through this writable table, so it must exist there too.
-    run_sql_with_exceptions(
-        WRITABLE_EVENTS_JSON_TABLE_SQL(),
-        node_roles=[NodeRole.INGESTION_EVENTS],
-    ),
-]
+_IS_CLOUD = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
-if settings.CLICKHOUSE_EVENTS_JSON_DUAL_WRITE:
+# Cloud clusters get this schema rolled out separately. Keep this migration empty there so
+# merging the application code does not change production ClickHouse schema.
+operations = (
+    []
+    if _IS_CLOUD
+    else [
+        run_sql_with_exceptions(
+            EVENTS_JSON_TABLE_SQL(),
+            node_roles=[NodeRole.DATA],
+        ),
+        run_sql_with_exceptions(
+            WRITABLE_EVENTS_JSON_TABLE_SQL(),
+            node_roles=[NodeRole.DATA],
+        ),
+        run_sql_with_exceptions(
+            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
+            node_roles=[NodeRole.DATA],
+        ),
+        # The dual-write MV runs on the events ingestion layer (like the legacy events pipeline,
+        # see 0238/0160) and writes through this writable table, so it must exist there too.
+        run_sql_with_exceptions(
+            WRITABLE_EVENTS_JSON_TABLE_SQL(),
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
+    ]
+)
+
+if not _IS_CLOUD and settings.CLICKHOUSE_EVENTS_JSON_DUAL_WRITE:
     operations += [
         run_sql_with_exceptions(
             KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster=False),
