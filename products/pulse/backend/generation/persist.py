@@ -61,8 +61,8 @@ def persist_brief_output(
     items_by_hint = {item.fingerprint_hint: item for item in items}
     with transaction.atomic():
         brief.sections = [s.model_dump() for s in out.sections]
-        # Findings persist in citation order — query:<n> refs in section citations are 1-based
-        # indexes into this list — with their per-step diagnostics for the eval loop.
+        # Findings persist in citation order — query:<n> refs in section citations are
+        # 1-based indexes into this list.
         brief.investigation = [dataclasses.asdict(finding) for finding in findings]
         # A brief with only opportunities still has something to say — QUIET means nothing survived the gate.
         has_content = bool(out.sections or out.opportunities)

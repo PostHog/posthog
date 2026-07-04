@@ -349,9 +349,7 @@ async def test_synthesize_activity_collects_goal_status_for_configured_briefs(te
     assert accountability_mock.call_args.kwargs["results_cache"] is shared_cache
 
 
-_FINDING = InvestigationFinding(
-    question="What is the CTR?", hogql="SELECT 1", result_summary="0.42", succeeded=True, elapsed_seconds=1.2
-)
+_FINDING = InvestigationFinding(question="What is the CTR?", hogql="SELECT 1", result_summary="0.42", succeeded=True)
 
 
 async def test_synthesize_activity_runs_investigation_for_goal_briefs_and_persists_findings(team, user) -> None:

@@ -1,5 +1,7 @@
 from typing import Literal
 
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+
 
 class MaxToolError(Exception):
     """
@@ -111,3 +113,29 @@ class MaxToolAccessDeniedError(MaxToolFatalError):
 
         message = f"The user does not have {required_level} access to {action} {resource}s. Suggest the user to contact their project admin to request access."
         super().__init__(message)
+
+
+# --- HogQL query repair-loop helpers, shared by LLM pipelines that execute planner-written
+# HogQL (pulse goal investigations, ai_subscription reports) ---
+
+# Errors signalling "the query itself is wrong" — feeding the error back to an LLM for a rewrite
+# may help. Everything else (timeouts, infra failures, generic exceptions) should fail the step
+# without a repair attempt, since a different SELECT won't fix a ClickHouse outage.
+REPAIRABLE_HOGQL_QUERY_ERRORS: tuple[type[BaseException], ...] = (
+    MaxToolRetryableError,
+    ExposedHogQLError,
+    InternalHogQLError,
+)
+
+
+def safe_error_message_for_llm(exc: BaseException) -> str:
+    """The leak-safe rendering of a HogQL execution error for a repair prompt.
+
+    Forward the message for exposed errors and ResolutionError: ResolutionError messages describe
+    query structure — usually the field/property the planner itself referenced (e.g. "Unable to
+    resolve field 'operaton'"), which is what the fixer needs. A few raise sites wrap a nested
+    exception, but those describe query shape, not cluster topology, so the leak risk stays low.
+    Other internal errors (parsing/impossible-AST) stay type-only — ClickHouse errors can echo
+    team-scoped identifiers.
+    """
+    return str(exc) if isinstance(exc, ExposedHogQLError | ResolutionError) else type(exc).__name__

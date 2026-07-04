@@ -9,7 +9,7 @@ export function CitationTag({ citation }: { citation: BriefCitation }): JSX.Elem
 
     if (citationType) {
         const tag = <LemonTag>{citationType.hideRef ? citationType.label : `${citationType.label} ${ref}`}</LemonTag>
-        const url = citationType.url(ref)
+        const url = citationType.url?.(ref)
         // Known types without a URL (e.g. query findings shown on the same page) render the
         // labeled tag, unlinked.
         return url ? <Link to={url}>{tag}</Link> : tag

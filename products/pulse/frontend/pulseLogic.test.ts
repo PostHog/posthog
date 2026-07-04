@@ -489,7 +489,7 @@ describe('pulseLogic', () => {
         ['flag', '', undefined],
         ['experiment', '0', undefined],
     ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
-        expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
+        expect(CITATION_TYPES[type].url?.(ref)).toEqual(expected)
     })
 
     it('parses opportunity evidence entries, dropping malformed ones', () => {

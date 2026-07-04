@@ -48,6 +48,7 @@ class TestCollectGoalStatus(BaseTest):
             metric_state="ok",
             insight_short_id=self.insight.short_id,
             metric_label="Subscriptions created",
+            metric_event="$pageview",
             current_rate="100.0/day avg",
             previous_rate="70.0/day avg",
             delta_pct=42.9,

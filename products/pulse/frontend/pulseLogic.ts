@@ -87,7 +87,7 @@ function numericSceneUrl(ref: string, buildUrl: (id: number) => string): string 
  */
 export const CITATION_TYPES: Record<
     string,
-    { label: string; url: (ref: string) => string | undefined; hideRef?: boolean }
+    { label: string; url?: (ref: string) => string | undefined; hideRef?: boolean }
 > = {
     insight: { label: 'Insight', url: (ref) => urls.insightView(ref as InsightShortId) },
     dashboard: { label: 'Dashboard', url: (ref) => urls.dashboard(ref) },
@@ -101,7 +101,7 @@ export const CITATION_TYPES: Record<
     // Investigation citations render as plain labeled tags — the "Query <n>" ref matches the
     // numbering in the goal-investigation card on the same page (anchor links were judged
     // disproportionate for v1).
-    query: { label: 'Query', url: () => undefined },
+    query: { label: 'Query' },
 }
 
 export type PulseTab = 'briefs' | 'opportunities'

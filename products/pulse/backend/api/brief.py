@@ -128,8 +128,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text=(
             "Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into "
-            "this list): question, hogql, result_summary, succeeded, error_type, elapsed_seconds. "
-            "Empty for goal-less briefs."
+            "this list): question, hogql, result_summary, succeeded. Empty for goal-less briefs."
         ),
     )
     sources_used = serializers.ListField(
@@ -214,9 +213,13 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     queryset = ProductBrief.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
-        return (
+        briefs = (
             ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config").order_by("-created_at")
         )
+        if self.action == "list":
+            # The list serializer drops these fields — don't fetch the heavy JSON per row to discard it.
+            briefs = briefs.defer("sections", "investigation")
+        return briefs
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":

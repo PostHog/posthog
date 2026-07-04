@@ -42,12 +42,11 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             return await temporalio.workflow.execute_activity(
                 synthesize_brief_activity,
                 SynthesizeActivityInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, items=items),
-                # Sized to the activity's worst case: collectors (accountability's attempt
-                # budget) + the investigate stage (60s planner + 180s stage deadline + up to
-                # ~90s for the step in flight at the deadline) + synthesis (2 x 120s). An
-                # activity timeout here fails the brief (maximum_attempts=1), so the budget
-                # must cover the stage deadlines rather than race them.
-                start_to_close_timeout=dt.timedelta(minutes=10),
+                # Padded well past the sum of the internal budgets (collectors, planner, the
+                # investigation stage deadline, synthesis retries): an activity timeout here
+                # fails the brief (maximum_attempts=1), so the ceiling must exceed the worst
+                # cases rather than race them.
+                start_to_close_timeout=dt.timedelta(minutes=15),
                 # A failed synthesis is not retried: retrying double-spends LLM calls.
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
             )

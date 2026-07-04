@@ -9,8 +9,6 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
@@ -41,7 +39,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import REPAIRABLE_HOGQL_QUERY_ERRORS, safe_error_message_for_llm
 
 logger = structlog.get_logger(__name__)
 
@@ -77,15 +75,6 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
 # queue and run as slots free up — every step still executes.
 _MAX_CONCURRENT_STEPS = 5
-
-# Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
-# since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
-_RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
-    MaxToolRetryableError,
-    ExposedHogQLError,
-    InternalHogQLError,
-)
 
 
 class ReportStage(StrEnum):
@@ -295,7 +284,7 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
+                if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, REPAIRABLE_HOGQL_QUERY_ERRORS):
                     break
                 logger.info(
                     "ai_report.query_fix_attempt",
@@ -307,14 +296,7 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the message for exposed errors and ResolutionError. ResolutionError messages
-                    # describe query structure — usually the field/property the planner itself referenced
-                    # (e.g. "Unable to resolve field 'operaton'"), which is what the fixer needs. A few raise
-                    # sites wrap a nested exception, but those describe query shape, not cluster topology, so
-                    # the leak risk stays low. Other internal errors (parsing/impossible-AST) stay type-only.
-                    error_message=(
-                        str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
-                    ),
+                    error_message=safe_error_message_for_llm(exc),
                     step_description=safe_description,
                     team=team,
                     user=user,

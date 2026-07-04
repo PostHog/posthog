@@ -1,12 +1,10 @@
 import asyncio
 import itertools
 
-from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.hogql.errors import ExposedHogQLError
 
-from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.investigate import (
     _RESULT_MAX_CHARS,
@@ -134,7 +132,6 @@ class TestExecuteInvestigation:
         findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
 
         assert findings[0].succeeded is False
-        assert findings[0].error_type == "RuntimeError"
         assert findings[0].result_summary == f"{QUERY_FAILED_PREFIX} (RuntimeError)."
         assert findings[0].question == "q0"
         mock_llm.assert_not_called()
@@ -148,8 +145,7 @@ class TestExecuteInvestigation:
         findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
 
         assert findings[0].succeeded is False
-        assert findings[0].error_type == "ExposedHogQLError"
-        assert findings[0].result_summary.startswith(QUERY_FAILED_PREFIX)
+        assert findings[0].result_summary == f"{QUERY_FAILED_PREFIX} (ExposedHogQLError)."
 
     @patch(_EXECUTOR_PATH)
     async def test_hung_query_fails_the_step_via_timeout(self, mock_executor: MagicMock) -> None:
@@ -162,13 +158,13 @@ class TestExecuteInvestigation:
             findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
 
         assert findings[0].succeeded is False
-        assert findings[0].error_type == "TimeoutError"
+        assert findings[0].result_summary == f"{QUERY_FAILED_PREFIX} (TimeoutError)."
 
     @patch(_EXECUTOR_PATH)
     async def test_stage_deadline_stops_remaining_steps_but_keeps_findings(self, mock_executor: MagicMock) -> None:
         mock_executor.return_value.arun_and_format_query = AsyncMock(return_value=("ok", False))
-        # stage start, first deadline check (passes), step start, step end, second check (past deadline)
-        fake_clock = itertools.chain([0.0, 0.0, 1.0, 2.0], itertools.repeat(1000.0))
+        # stage start, first deadline check (passes), second check (past deadline)
+        fake_clock = itertools.chain([0.0, 0.0], itertools.repeat(1000.0))
         with patch("products.pulse.backend.generation.investigate.time") as mock_time:
             mock_time.monotonic.side_effect = lambda: next(fake_clock)
             findings = await execute_investigation(
@@ -187,48 +183,33 @@ class TestExecuteInvestigation:
         assert len(findings[0].result_summary) == _RESULT_MAX_CHARS
 
 
-_TRENDS_QUERY = {
-    "kind": "InsightVizNode",
-    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "subscription created"}]},
-}
-
-
-class TestPlannerMetricLine(BaseTest):
-    @patch(_LLM_PATH)
-    def test_prompt_states_what_the_goal_metric_measures(self, mock_llm: MagicMock) -> None:
-        insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
+class TestPlannerMetricLine:
+    def _rendered(self, mock_llm: MagicMock, goal_status: GoalStatus) -> str:
         invoke = mock_llm.return_value.with_structured_output.return_value.invoke
         invoke.return_value = InvestigationPlan(steps=[])
-        plan_investigation(
-            team=self.team,
-            user=MagicMock(),
-            goal_status=_goal_status(
+        plan_investigation(team=MagicMock(), user=MagicMock(), goal_status=goal_status, items=[_item()], period_days=7)
+        return invoke.call_args.args[0][0][1]
+
+    @patch(_LLM_PATH)
+    def test_prompt_states_what_the_goal_metric_measures(self, mock_llm: MagicMock) -> None:
+        rendered = self._rendered(
+            mock_llm,
+            _goal_status(
                 metric_state="ok",
-                insight_short_id=insight.short_id,
+                insight_short_id="abc123",
                 metric_label="Subscriptions created",
+                metric_event="subscription created",
                 current_rate="100.0/day avg",
                 previous_rate="70.0/day avg",
                 delta_pct=42.9,
             ),
-            items=[_item()],
-            period_days=7,
         )
-        rendered = invoke.call_args.args[0][0][1]
         assert (
             "Goal metric 'Subscriptions created' (a trends insight over 'subscription created' events): "
             "now 100.0/day avg, previously 70.0/day avg (+42.9% vs the prior period)." in rendered
         )
 
     @patch(_LLM_PATH)
-    def test_unavailable_metric_renders_honest_line_without_db_lookup(self, mock_llm: MagicMock) -> None:
-        invoke = mock_llm.return_value.with_structured_output.return_value.invoke
-        invoke.return_value = InvestigationPlan(steps=[])
-        plan_investigation(
-            team=self.team,
-            user=MagicMock(),
-            goal_status=_goal_status(metric_state="unavailable", insight_short_id="gone1234"),
-            items=[_item()],
-            period_days=7,
-        )
-        rendered = invoke.call_args.args[0][0][1]
+    def test_unavailable_metric_renders_honest_line(self, mock_llm: MagicMock) -> None:
+        rendered = self._rendered(mock_llm, _goal_status(metric_state="unavailable", insight_short_id="gone1234"))
         assert "could not be read this period" in rendered

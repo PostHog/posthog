@@ -131,8 +131,8 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     findings: list[InvestigationFinding] = []
     # The investigate stage is goal-gated: a GoalStatus existing IS the non-empty-goal signal
     # (collect_goal_status returns None for blank goals), and the items gate is inherited from
-    # the collectors above. Best-effort: any stage failure — the stage already degrades planner
-    # and step failures internally — ships the brief without an investigation, never fails it.
+    # the collectors above. The stage degrades planner and step failures internally, so this
+    # outer guard is the last resort — the brief ships without an investigation, never fails.
     if goal_status is not None:
         try:
             findings = await run_investigation(

@@ -166,8 +166,8 @@ async def synthesize_brief(
     llm = MaxChatOpenAI(
         model=SYNTHESIS_MODEL,
         timeout=_LLM_TIMEOUT_SECONDS,
-        # Worst case 2 attempts x 120s — one slice of the 10-minute synthesize activity budget
-        # (see the workflow's start_to_close accounting).
+        # Worst case 2 attempts x 120s — one slice of the synthesize activity budget (see the
+        # workflow's start_to_close rationale).
         max_retries=1,
         user=user,
         team=team,

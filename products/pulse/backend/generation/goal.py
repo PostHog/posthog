@@ -5,6 +5,7 @@ import structlog
 
 from posthog.models.team import Team
 
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_insights import (
     InsightResultsCache,
@@ -39,6 +40,9 @@ class GoalStatus:
     metric_state: MetricState = "none"
     insight_short_id: str | None = None
     metric_label: str | None = None
+    # The event the metric's first series counts — resolved here, where the insight is already
+    # in hand, so downstream consumers (the investigation planner) don't re-fetch it.
+    metric_event: str | None = None
     current_rate: str | None = None
     previous_rate: str | None = None
     delta_pct: float | None = None
@@ -85,10 +89,21 @@ def collect_goal_status(
         metric_state="ok",
         insight_short_id=short_id,
         metric_label=insight.name or insight.derived_name or insight.short_id,
+        metric_event=_first_series_event(insight),
         current_rate=rate_summary(current_rate),
         previous_rate=rate_summary(previous_rate),
         delta_pct=pct_delta(current_rate, previous_rate),
     )
+
+
+def _first_series_event(insight: Insight) -> str | None:
+    # First series per the same v1.5 contract as _goal_windows. Best-effort: a misshapen
+    # query simply yields no event name.
+    source = (insight.query or {}).get("source") or {}
+    series = source.get("series") or []
+    first = series[0] if series and isinstance(series[0], dict) else {}
+    event = first.get("event")
+    return event if isinstance(event, str) and event else None
 
 
 def _metric_short_id(config: BriefConfig) -> str | None:

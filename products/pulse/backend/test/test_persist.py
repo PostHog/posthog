@@ -84,39 +84,23 @@ class TestPersistBriefOutput(BaseTest):
     def test_persists_investigation_findings_in_citation_order(self) -> None:
         brief = self._brief()
         findings = [
-            InvestigationFinding(
-                question="What is the CTR?",
-                hogql="SELECT 1",
-                result_summary="0.42",
-                succeeded=True,
-                elapsed_seconds=1.2,
-            ),
+            InvestigationFinding(question="What is the CTR?", hogql="SELECT 1", result_summary="0.42", succeeded=True),
             InvestigationFinding(
                 question="Which pages?",
                 hogql="SELECT 2",
                 result_summary="Query failed to run (ExposedHogQLError).",
                 succeeded=False,
-                error_type="ExposedHogQLError",
             ),
         ]
         persist_brief_output(brief=brief, out=_out(), items=[_item()], findings=findings)
         reloaded = ProductBrief.objects.for_team(self.team.pk).get(id=brief.id)
         assert reloaded.investigation == [
-            {
-                "question": "What is the CTR?",
-                "hogql": "SELECT 1",
-                "result_summary": "0.42",
-                "succeeded": True,
-                "error_type": None,
-                "elapsed_seconds": 1.2,
-            },
+            {"question": "What is the CTR?", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True},
             {
                 "question": "Which pages?",
                 "hogql": "SELECT 2",
                 "result_summary": "Query failed to run (ExposedHogQLError).",
                 "succeeded": False,
-                "error_type": "ExposedHogQLError",
-                "elapsed_seconds": 0.0,
             },
         ]
 
