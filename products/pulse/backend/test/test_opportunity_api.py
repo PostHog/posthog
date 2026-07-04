@@ -10,6 +10,12 @@ from posthog.models.team import Team
 
 from products.pulse.backend.models import Opportunity
 
+_TRANSITION_EVENTS = {
+    "dismiss": "opportunity_dismissed",
+    "acted": "opportunity_acted",
+    "reopen": "opportunity_reopened",
+}
+
 
 class TestOpportunityAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -17,6 +23,9 @@ class TestOpportunityAPI(APIBaseTest):
         patcher = patch("posthoganalytics.feature_enabled", return_value=True)
         self.mock_flag = patcher.start()
         self.addCleanup(patcher.stop)
+        report_patcher = patch("products.pulse.backend.api.opportunity.report_user_action")
+        self.mock_report = report_patcher.start()
+        self.addCleanup(report_patcher.stop)
 
     def _opportunity(
         self,
@@ -68,9 +77,13 @@ class TestOpportunityAPI(APIBaseTest):
         if expected_status is not None:
             assert response.json()["status"] == expected_status
             assert opportunity.status == expected_status
+            self.mock_report.assert_called_once()
+            assert self.mock_report.call_args.args[1] == _TRANSITION_EVENTS[transition]
+            assert self.mock_report.call_args.args[2]["status"] == expected_status
         else:
             assert opportunity.status == initial_status
-            assert "Cannot change" in response.json()["detail"]
+            assert "This opportunity is" in response.json()["detail"]
+            self.mock_report.assert_not_called()
 
     @parameterized.expand(
         [

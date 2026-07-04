@@ -7,6 +7,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
@@ -112,7 +113,31 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         brief=brief, out=out, items=items
     )
     await _emit_opportunity_signals(brief, out, created)
+    try:
+        # ph_scoped_capture (not posthoganalytics.capture): outside request context the global
+        # client's flush may never run before the worker moves on, silently losing the event.
+        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created))
+    except Exception:
+        logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
     return brief.status
+
+
+def _report_brief_generated(brief: ProductBrief, new_opportunity_count: int) -> None:
+    if brief.created_by is None:
+        return
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=brief.created_by.distinct_id,
+            event="product_brief_generated",
+            properties={
+                "brief_id": str(brief.id),
+                "status": brief.status,
+                "trigger": brief.trigger,
+                "period_days": brief.period_days,
+                "has_config": brief.config_id is not None,
+                "new_opportunity_count": new_opportunity_count,
+            },
+        )
 
 
 async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> None:

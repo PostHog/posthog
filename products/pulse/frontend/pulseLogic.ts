@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -162,6 +163,25 @@ function isAiConsentError(error: unknown): boolean {
 
 function isGeneratingBrief(brief: ProductBriefListApi): boolean {
     return brief.status === ProductBriefStatusEnumApi.Generating
+}
+
+/** Once per brief per mount: the attention metric counts brief opens, not poll ticks or re-renders. */
+function reportBriefViewed(cache: Record<string, any>, brief: ProductBriefApi | null | undefined): void {
+    if (!brief || brief.status === ProductBriefStatusEnumApi.Generating) {
+        return
+    }
+    cache.viewedBriefIds = cache.viewedBriefIds ?? new Set<string>()
+    if (cache.viewedBriefIds.has(brief.id)) {
+        return
+    }
+    cache.viewedBriefIds.add(brief.id)
+    posthog.capture('product_brief_viewed', {
+        brief_id: brief.id,
+        status: brief.status,
+        trigger: brief.trigger,
+        period_days: brief.period_days,
+        has_config: brief.config !== null,
+    })
 }
 
 export interface BriefConfigForm {
@@ -508,11 +528,29 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         setActiveTab: ({ tab }) => {
             // Lazy first load — briefs are the default landing surface, so the opportunities
-            // request waits until the tab is actually opened.
-            if (tab === 'opportunities' && !cache.opportunitiesLoaded && values.featureFlags[FEATURE_FLAGS.PULSE]) {
-                cache.opportunitiesLoaded = true
+            // request waits until the tab is actually opened. The flag only latches on success,
+            // so a failed load retries on the next switch instead of masquerading as empty.
+            if (
+                tab === 'opportunities' &&
+                !cache.opportunitiesLoaded &&
+                !values.opportunitiesLoading &&
+                values.featureFlags[FEATURE_FLAGS.PULSE]
+            ) {
                 actions.loadOpportunities()
             }
+        },
+        loadOpportunitiesSuccess: () => {
+            cache.opportunitiesLoaded = true
+        },
+        loadOpportunitiesFailure: () => {
+            lemonToast.error('Loading opportunities failed — reopen the tab to retry')
+        },
+        loadBriefDetailSuccess: ({ briefDetail }) => {
+            reportBriefViewed(cache, briefDetail)
+        },
+        briefsRefreshed: () => {
+            // The poll path swaps a generating detail to terminal without a loadBriefDetail.
+            reportBriefViewed(cache, values.briefDetail)
         },
         deleteConfig: async ({ configId }) => {
             try {
