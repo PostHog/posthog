@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from django.conf import settings
@@ -8,18 +9,22 @@ from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ProductKey
+from posthog.schema import DateRange, ProductKey
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Element, Filter
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
-from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
-from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.util import PersonPropertiesMode, get_person_properties_mode
+from posthog.models.element.sql import GET_VALUES
 from posthog.utils import format_query_params_absolute_url
 
 tracer = trace.get_tracer(__name__)
@@ -126,13 +131,18 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             timer = ServerTimingsGathered()
 
             with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
+                # Filter parses the properties param (including property groups) and folds the
+                # team's test-account filters in when filter_test_accounts is set
                 filter = Filter(request=request, team=self.team)
-                date_params = {}
-                query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
-                date_from, date_from_params = query_date_range.date_from
-                date_to, date_to_params = query_date_range.date_to
-                date_params.update(date_from_params)
-                date_params.update(date_to_params)
+                date_range = QueryDateRange(
+                    date_range=DateRange(
+                        date_from=request.query_params.get("date_from", "-7d"),
+                        date_to=request.query_params.get("date_to"),
+                    ),
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
 
                 try:
                     limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
@@ -153,50 +163,56 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
 
-                # unless someone is using this as an API client, this is only for the toolbar,
-                # which only ever queries date range, event type, and URL
-                # person-property filters (e.g. filter_test_accounts) would otherwise render
-                # as a persons subquery, which exceeds query memory limits on large teams -
-                # only possible when person properties live on the events table
-                person_properties_mode = get_person_properties_mode(self.team)
-                if person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN:
-                    # the helper's fallback assumes a joined person_props column,
-                    # but GET_ELEMENTS has no person join
-                    person_properties_mode = PersonPropertiesMode.USING_SUBQUERY
-                prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-                    team_id=self.team.pk,
-                    property_group=filter.property_groups,
-                    hogql_context=filter.hogql_context,
-                    person_properties_mode=person_properties_mode,
+                # HogQL resolves property access per the team's modifiers (materialized
+                # columns, person-on-events mode), so no per-mode handling is needed here
+                select = parse_select(
+                    """
+                    SELECT
+                        elements_chain,
+                        count() / {sampling_factor} AS occurrences,
+                        event AS event_type,
+                        cityHash64(elements_chain) AS chain_hash
+                    FROM events
+                    WHERE event IN {event_types}
+                        AND elements_chain != ''
+                        AND timestamp >= {date_from}
+                        AND timestamp <= {date_to}
+                        AND {property_filters}
+                    GROUP BY elements_chain, event
+                    ORDER BY occurrences DESC
+                    LIMIT {limit} OFFSET {offset}
+                    """,
+                    placeholders={
+                        "sampling_factor": ast.Constant(value=sampling_factor),
+                        "event_types": ast.Constant(value=list(events_filter)),
+                        "date_from": ast.Constant(value=date_range.date_from()),
+                        "date_to": ast.Constant(value=date_range.date_to()),
+                        "property_filters": property_to_expr(filter.property_groups, team=self.team),
+                        "limit": ast.Constant(value=limit + 1),
+                        "offset": ast.Constant(value=offset),
+                    },
                 )
+                assert isinstance(select, ast.SelectQuery) and select.select_from is not None
+                if sampling_factor != 1:
+                    select.select_from.sample = ast.SampleExpr(
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=sampling_factor))
+                    )
 
             span.set_attribute("team_id", self.team.pk)
-            span.set_attribute("person_properties_mode", person_properties_mode.name)
             span.set_attribute("limit", limit)
             span.set_attribute("offset", offset)
             span.set_attribute("sampling_factor", sampling_factor)
             span.set_attribute("include_event_types", ",".join(sorted(events_filter)))
 
             with timer("execute_query"), tracer.start_as_current_span("elements_api_stats.execute_query"):
-                result = sync_execute(
-                    GET_ELEMENTS.format(
-                        date_from=date_from,
-                        date_to=date_to,
-                        query=prop_filters,
-                        sampling_factor=sampling_factor,
-                        limit=limit + 1,
-                        offset=offset,
-                    ),
-                    {
-                        "team_id": self.team.pk,
-                        "timezone": self.team.timezone,
-                        "sampling_factor": sampling_factor,
-                        **prop_filter_params,
-                        **date_params,
-                        "filter_event_types": events_filter,
-                        **filter.hogql_context.values,
-                    },
-                )
+                result = execute_hogql_query(
+                    query=select,
+                    team=self.team,
+                    query_type="elements_stats",
+                    # the toolbar paginates in pages of up to 50k, so limit + 1 must
+                    # survive above the default 50k query cap
+                    limit_context=LimitContext.HEATMAPS,
+                ).results
 
             with timer("serialize_elements"), tracer.start_as_current_span("elements_api_stats.serialize_elements"):
                 # parses chains straight to response dicts (shaped exactly like
