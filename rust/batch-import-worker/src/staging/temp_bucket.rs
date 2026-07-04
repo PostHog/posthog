@@ -18,6 +18,16 @@ use crate::metrics;
 use super::backend::{sanitize_key, PlaintextStream, StagingBackend};
 use super::s3_client::create_temp_bucket_store;
 
+/// Multipart part size for staging uploads. Each part is buffered in memory, and S3
+/// caps a multipart upload at 10,000 parts, so this bounds both the upload's RAM
+/// footprint (part_size x (concurrency + 1)) and the maximum staged object size
+/// (part_size x 10,000). 64 MiB => 640 GiB max part. Config-overridable.
+const DEFAULT_UPLOAD_PART_SIZE_BYTES: usize = 64 * 1024 * 1024;
+/// In-flight part uploads while staging. Staging throughput is producer-bound
+/// (origin download + gzip decode), so a small window keeps uploads fully
+/// overlapped without multiplying memory. Config-overridable.
+const DEFAULT_UPLOAD_CONCURRENCY: usize = 4;
+
 /// Stages part plaintext as an object in an internal S3 "temp bucket", reading it back
 /// with ranged GETs. Layout: `{prefix}{job_id}/{sanitized_key}.data`.
 ///
@@ -30,6 +40,8 @@ pub struct TempBucketBackend {
     // Normalized to end with '/'.
     prefix: String,
     job_id: String,
+    upload_part_size: usize,
+    upload_concurrency: usize,
     // Sizes recorded at stage time; on a cold process they are recovered via `head`.
     sizes: Mutex<HashMap<String, u64>>,
 }
@@ -49,14 +61,30 @@ impl TempBucketBackend {
             store,
             prefix,
             job_id: job_id.into(),
+            upload_part_size: DEFAULT_UPLOAD_PART_SIZE_BYTES,
+            upload_concurrency: DEFAULT_UPLOAD_CONCURRENCY,
             sizes: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Override the multipart upload geometry (part size bounds the max staged object
+    /// size at part_size x 10,000; concurrency bounds upload memory). Used by
+    /// `from_config` and by tests that force many small parts.
+    pub fn with_upload_tuning(mut self, part_size: usize, concurrency: usize) -> Self {
+        self.upload_part_size = part_size;
+        self.upload_concurrency = concurrency;
+        self
     }
 
     /// Construct from config, building the S3 client from the standard credential chain.
     pub async fn from_config(config: &Config, job_id: impl Into<String>) -> Result<Self, Error> {
         let store = create_temp_bucket_store(config).await?;
-        Ok(Self::new(store, config.temp_bucket_prefix.clone(), job_id))
+        Ok(
+            Self::new(store, config.temp_bucket_prefix.clone(), job_id).with_upload_tuning(
+                config.temp_bucket_upload_part_size_bytes as usize,
+                config.temp_bucket_upload_concurrency,
+            ),
+        )
     }
 
     fn object_path(&self, key: &str) -> ObjectPath {
@@ -94,7 +122,9 @@ impl StagingBackend for TempBucketBackend {
 
     async fn stage_part(&self, key: &str, mut plaintext: PlaintextStream) -> Result<u64, Error> {
         let path = self.object_path(key);
-        let mut writer = BufWriter::new(Arc::clone(&self.store), path);
+        let mut writer =
+            BufWriter::with_capacity(Arc::clone(&self.store), path, self.upload_part_size)
+                .with_max_concurrency(self.upload_concurrency);
         let started = Instant::now();
 
         let mut total: u64 = 0;
@@ -133,7 +163,14 @@ impl StagingBackend for TempBucketBackend {
             return Ok(Some(size));
         }
         match self.store.head(&self.object_path(key)).await {
-            Ok(meta) => Ok(Some(meta.size)),
+            Ok(meta) => {
+                // Cache the recovered size so a resumed job doesn't re-head the same
+                // object on every prepare_key/read iteration. Invalidated by
+                // cleanup_key/cleanup_job and by a NotFound read (object deleted
+                // out-of-band, e.g. bucket TTL on a long-paused job).
+                self.sizes.lock().await.insert(key.to_string(), meta.size);
+                Ok(Some(meta.size))
+            }
             Err(object_store::Error::NotFound { .. }) => Ok(None),
             Err(e) => {
                 Err(Error::from(e).context(format!("Failed to head staged object for key: {key}")))
@@ -153,13 +190,30 @@ impl StagingBackend for TempBucketBackend {
 
         let end_offset = std::cmp::min(offset + size, total_size);
         let started = Instant::now();
-        let bytes = self
+        match self
             .store
             .get_range(&self.object_path(key), offset..end_offset)
             .await
-            .with_context(|| format!("Failed to read staged object for key: {key}"))?;
-        metrics::temp_bucket_read(started.elapsed().as_secs_f64());
-        Ok(bytes.to_vec())
+        {
+            Ok(bytes) => {
+                metrics::temp_bucket_read(started.elapsed().as_secs_f64());
+                Ok(bytes.to_vec())
+            }
+            Err(object_store::Error::NotFound { .. }) => {
+                // The object was deleted out-of-band (e.g. bucket TTL) after its size
+                // was cached. Drop the stale entry so the next prepare_key sees the
+                // key as unstaged and re-ingests from origin instead of failing every
+                // read against a cached size.
+                self.sizes.lock().await.remove(key);
+                Err(Error::msg(format!(
+                    "Staged object for key {key} disappeared (deleted out-of-band); \
+                     it will be re-staged on the next attempt"
+                )))
+            }
+            Err(e) => {
+                Err(Error::from(e).context(format!("Failed to read staged object for key: {key}")))
+            }
+        }
     }
 
     async fn cleanup_key(&self, key: &str) -> Result<(), Error> {
@@ -362,5 +416,88 @@ mod tests {
         assert_eq!(other.size("c").await.unwrap(), Some(3));
         // Idempotent.
         be.cleanup_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn multi_part_upload_is_byte_identical_to_oracle() {
+        // Force a genuine multi-part upload (part size far below the body) and prove
+        // the assembled object is byte-identical to the LocalDiskBackend oracle —
+        // the guarantee that raising TEMP_BUCKET_UPLOAD_PART_SIZE_BYTES only moves
+        // the size wall, never the bytes.
+        let dir = TempDir::new().unwrap();
+        let raw = dir.path().join("part.raw");
+        let body: String = (0..2_000).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        {
+            let file = std::fs::File::create(&raw).unwrap();
+            let mut enc = GzEncoder::new(file, Compression::default());
+            enc.write_all(body.as_bytes()).unwrap();
+            enc.finish().unwrap();
+        }
+
+        let local = LocalDiskBackend::new(dir.path().join("job-X"));
+        // 1 KiB parts x concurrency 2: the ~22 KB body spans many parts.
+        let temp = TempBucketBackend::new(Arc::new(InMemory::new()), "p/", "job-MP")
+            .with_upload_tuning(1024, 2);
+
+        let local_size = local
+            .stage_part(
+                "k",
+                open_plaintext_stream(raw.clone(), ExtractorType::PlainGzip, 0),
+            )
+            .await
+            .unwrap();
+        let temp_size = temp
+            .stage_part("k", open_plaintext_stream(raw, ExtractorType::PlainGzip, 0))
+            .await
+            .unwrap();
+
+        assert_eq!(local_size, temp_size);
+        assert!(
+            temp_size > 10 * 1024,
+            "body must span many 1 KiB parts (got {temp_size} bytes)"
+        );
+        let local_bytes = local.read("k", 0, local_size).await.unwrap();
+        let temp_bytes = temp.read("k", 0, temp_size).await.unwrap();
+        assert_eq!(local_bytes, temp_bytes);
+        // Misaligned ranged reads over the multi-part object reconstruct exactly.
+        crate::staging::backend::assert_reads_reconstruct(
+            &temp,
+            "k2",
+            crate::staging::backend::TEST_RECORD_BODY,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn head_size_is_cached_and_invalidated_by_notfound_read() {
+        // Cold size() recovers via head and caches; an out-of-band deletion (bucket
+        // TTL, manual sweep) surfaces as a NotFound read that must invalidate the
+        // cache so the next prepare_key re-ingests instead of failing forever.
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let body = b"cached body\n";
+        {
+            let warm = TempBucketBackend::new(Arc::clone(&store), "p/", "job-C");
+            stage_bytes(&warm, "k", body).await;
+        }
+
+        let cold = TempBucketBackend::new(Arc::clone(&store), "p/", "job-C");
+        assert_eq!(cold.size("k").await.unwrap(), Some(body.len() as u64));
+
+        // Delete the object out-of-band. The cached size still answers (proves the
+        // head result was cached — no re-head per call)...
+        store
+            .delete(&ObjectPath::from("p/job-C/k.data"))
+            .await
+            .unwrap();
+        assert_eq!(cold.size("k").await.unwrap(), Some(body.len() as u64));
+
+        // ...but a read observes NotFound, invalidates the entry, and the next
+        // size() sees the key as unstaged (the re-ingest trigger).
+        let err = cold.read("k", 0, 10).await.unwrap_err();
+        assert!(
+            err.to_string().contains("disappeared"),
+            "unexpected error: {err:#}"
+        );
+        assert_eq!(cold.size("k").await.unwrap(), None);
     }
 }
