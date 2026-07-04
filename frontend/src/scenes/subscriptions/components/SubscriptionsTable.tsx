@@ -1,4 +1,4 @@
-import { IconAI, IconDashboard, IconGraph } from '@posthog/icons'
+import { IconActivity, IconAI, IconDashboard, IconGraph } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
@@ -46,6 +46,9 @@ export function subscriptionResourceViewUrl(sub: SubscriptionApi): string | null
     }
     if (sub.dashboard) {
         return urls.dashboard(sub.dashboard)
+    }
+    if (sub.resource_type === SubscriptionResourceTypes.PulseBrief) {
+        return urls.pulse()
     }
     return null
 }
@@ -121,6 +124,8 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 let typeTag: { icon: JSX.Element; label: string } | null = null
                 if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
                     typeTag = { icon: <IconAI />, label: 'Prompt' }
+                } else if (sub.resource_type === SubscriptionResourceTypes.PulseBrief) {
+                    typeTag = { icon: <IconActivity />, label: 'Pulse brief' }
                 } else if (sub.insight) {
                     typeTag = { icon: <IconGraph />, label: 'Insight' }
                 } else if (sub.dashboard) {

@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -73,6 +75,21 @@ const existingConfig: BriefConfigApi = {
     updated_at: null,
 }
 
+const pulseSubscription = {
+    id: 3,
+    resource_type: 'pulse_brief',
+    pulse_brief_config_id: 'cfg-1',
+    target_type: 'email',
+    target_value: 'team@posthog.com',
+    frequency: 'weekly',
+    interval: 1,
+    start_date: '2026-07-01T09:00:00Z',
+    summary: 'sent every week',
+    title: 'Flags team brief',
+    deleted: false,
+    enabled: true,
+} as unknown as SubscriptionApi
+
 describe('pulseLogic', () => {
     let logic: ReturnType<typeof pulseLogic.build>
 
@@ -83,6 +100,7 @@ describe('pulseLogic', () => {
                 '/api/projects/:team_id/pulse/briefs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/:id/': readyBrief,
                 '/api/projects/:team_id/pulse/opportunities/': { count: 0, results: [] },
+                '/api/projects/:team_id/subscriptions/': { count: 0, results: [] },
             },
             post: {
                 '/api/projects/:team_id/pulse/briefs/generate/': () => [201, generatingBrief],
@@ -240,6 +258,95 @@ describe('pulseLogic', () => {
             expect(captured[endpoint]!.anchors).toEqual(expectedAnchors)
         }
     )
+
+    it('schedules a brief for the config being edited', async () => {
+        let captured: Record<string, any> | null = null
+        useMocks({
+            post: {
+                '/api/projects/:team_id/subscriptions/': async (info) => {
+                    captured = (await info.request.json()) as Record<string, any>
+                    return [201, { ...pulseSubscription, target_value: captured.target_value }]
+                },
+            },
+        })
+
+        logic.actions.openConfigModal(existingConfig)
+        logic.actions.setScheduleFormValues({ frequency: 'daily', target_value: 'a@posthog.com,b@posthog.com' })
+        await expectLogic(logic, () => {
+            logic.actions.submitScheduleForm()
+        }).toDispatchActions(['briefScheduled'])
+
+        expect(captured!.pulse_brief_config_id).toEqual('cfg-1')
+        expect(captured!.frequency).toEqual('daily')
+        expect(captured!.target_value).toEqual('a@posthog.com,b@posthog.com')
+        expect(logic.values.editingConfigSubscription?.id).toEqual(pulseSubscription.id)
+    })
+
+    it.each<[string, string]>([
+        ['no emails', ''],
+        ['an invalid email', 'not-an-email'],
+    ])('blocks scheduling with %s before any request is made', async (_name, target_value) => {
+        let requested = false
+        useMocks({
+            post: {
+                '/api/projects/:team_id/subscriptions/': () => {
+                    requested = true
+                    return [201, pulseSubscription]
+                },
+            },
+        })
+
+        logic.actions.openConfigModal(existingConfig)
+        logic.actions.setScheduleFormValues({ target_value })
+        await expectLogic(logic, () => {
+            logic.actions.submitScheduleForm()
+        }).toDispatchActions(['submitScheduleFormFailure'])
+
+        expect(requested).toBe(false)
+        expect(logic.values.editingConfigSubscription).toBeNull()
+    })
+
+    it('removes the linked schedule via soft delete', async () => {
+        let captured: Record<string, any> | null = null
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/subscriptions/:id/': async (info) => {
+                    captured = (await info.request.json()) as Record<string, any>
+                    return [200, { ...pulseSubscription, deleted: true }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners() // let the mount-time loads settle before seeding
+        logic.actions.loadBriefSubscriptionsSuccess([pulseSubscription])
+        logic.actions.openConfigModal(existingConfig)
+
+        await expectLogic(logic, () => {
+            logic.actions.unscheduleBrief(pulseSubscription.id)
+        }).toDispatchActions(['briefUnscheduled'])
+
+        expect(captured).toEqual({ deleted: true })
+        expect(logic.values.briefSubscriptions).toHaveLength(0)
+        expect(logic.values.editingConfigSubscription).toBeNull()
+        expect(logic.values.subscriptionIdBeingUnscheduled).toBeNull()
+    })
+
+    it('keeps the schedule and clears the unscheduling state when removal fails', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            patch: { '/api/projects/:team_id/subscriptions/:id/': () => [500, {}] },
+        })
+        await expectLogic(logic).toFinishAllListeners() // let the mount-time loads settle before seeding
+        logic.actions.loadBriefSubscriptionsSuccess([pulseSubscription])
+
+        await expectLogic(logic, () => {
+            logic.actions.unscheduleBrief(pulseSubscription.id)
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ subscriptionIdBeingUnscheduled: null })
+
+        expect(logic.values.briefSubscriptions).toHaveLength(1)
+        expect(errorSpy).toHaveBeenCalled()
+    })
 
     it('keeps the config and clears the deleting state when delete fails', async () => {
         const errorSpy = jest.spyOn(lemonToast, 'error')
