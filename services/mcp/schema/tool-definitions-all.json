@@ -973,7 +973,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
