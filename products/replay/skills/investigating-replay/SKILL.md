@@ -82,8 +82,11 @@ SELECT
     timestamp,
     event,
     properties.$current_url AS url,
-    if(event = '$exception', properties.$exception_message, null) AS exception_message,
-    if(event = '$exception', properties.$exception_type, null) AS exception_type
+    -- Exception details live in the array-shaped $exception_values/$exception_types
+    -- (1-indexed in ClickHouse); fall back to the legacy singular fields, which are
+    -- unset on most $exception events.
+    if(event = '$exception', coalesce(JSONExtractString(properties.$exception_values, 1), properties.$exception_message), null) AS exception_message,
+    if(event = '$exception', coalesce(JSONExtractString(properties.$exception_types, 1), properties.$exception_type), null) AS exception_type
 FROM events
 WHERE $session_id = '<session_id>'
     AND event IN ('$pageview', '$pageleave', '$autocapture', '$exception', '$rageclick')
@@ -99,8 +102,10 @@ If the recording has console errors or exceptions, find related error tracking i
 posthog:execute-sql
 SELECT DISTINCT
     properties.$exception_fingerprint AS fingerprint,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
+    -- The legacy singular $exception_type/$exception_message are unset on most
+    -- $exception events; read the array-shaped fields first (1-indexed), then fall back.
+    coalesce(JSONExtractString(properties.$exception_types, 1), properties.$exception_type) AS type,
+    coalesce(JSONExtractString(properties.$exception_values, 1), properties.$exception_message) AS message,
     count() AS occurrences
 FROM events
 WHERE $session_id = '<session_id>'
