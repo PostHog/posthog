@@ -65,6 +65,7 @@ Rules:
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
+- Embedding in a host surface (e.g. inside a popover with the host's own sections): `showHeader={false}` drops the caps header band, `showTime={false}` switches to day-granular mode (no time segments, no "Now", date-only footer readout) — pair with a `className` that strips the card chrome (`shadow-none ring-0`).
 
 ## DatePicker
 
