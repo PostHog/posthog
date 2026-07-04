@@ -195,6 +195,17 @@ class TestSQLV2RunResult(APIBaseTest):
     def test_missing_or_malformed_run_returns_404(self, run_id, _mock_enabled):
         self.assertEqual(self.client.get(self._url(run_id)).status_code, 404)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_from_another_notebook_is_not_readable(self, _mock_enabled):
+        # IDOR guard: a run belonging to a different notebook in the same team must not be
+        # fetchable through this notebook's endpoint, even with a valid run_id.
+        other_notebook = Notebook.objects.create(team=self.team, short_id="nbres02")
+        with team_scope(self.team.id):
+            other_run = NotebookNodeRun.objects.create(
+                team=self.team, notebook=other_notebook, node_id="n1", status=NotebookNodeRun.Status.DONE
+            )
+        self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
+
 
 class TestSQLV2Activities(APIBaseTest):
     def setUp(self):

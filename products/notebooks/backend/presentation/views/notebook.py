@@ -915,8 +915,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if not (settings.DEBUG or is_sql_v2_enabled(user)):
             raise Http404()
 
+        # Scope to the notebook (via get_object → per-notebook access control), not just the
+        # team: a team-only lookup lets a user read a run from a notebook they can't access.
+        notebook = self._get_notebook_for_kernel()
         try:
-            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id).first()
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
             raise Http404()
         if run is None:
