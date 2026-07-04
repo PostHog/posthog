@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -369,7 +370,7 @@ describe('pulseLogic', () => {
                     {
                         type: 'validation_error',
                         code: 'invalid',
-                        detail: 'Cannot change a open opportunity to open; it must be dismissed.',
+                        detail: 'This opportunity is open; it must be dismissed to become open.',
                         attr: null,
                     },
                 ],
@@ -384,7 +385,7 @@ describe('pulseLogic', () => {
             .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionFailed'])
             .toMatchValues({ transitionsInFlight: {} })
         expect(logic.values.opportunities[0].status).toEqual('open')
-        expect(errorSpy).toHaveBeenCalledWith('Cannot change a open opportunity to open; it must be dismissed.')
+        expect(errorSpy).toHaveBeenCalledWith('This opportunity is open; it must be dismissed to become open.')
     })
 
     it('ignores a second transition for the same row while one is in flight', async () => {
@@ -432,6 +433,59 @@ describe('pulseLogic', () => {
             logic.actions.setActiveTab('opportunities')
         }).toFinishAllListeners()
         expect(requests).toEqual(1) // subsequent switches reuse the loaded list
+    })
+
+    it('retries the opportunities load on the next switch after a failure', async () => {
+        silenceKeaLoadersErrors()
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/pulse/opportunities/': () => {
+                    requests += 1
+                    return requests === 1 ? [500, {}] : [200, { count: 1, results: [openOpportunity] }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('opportunities')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1)
+        expect(errorSpy).toHaveBeenCalled()
+
+        // A failed load must not latch the loaded flag and masquerade as an empty panel.
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('briefs')
+            logic.actions.setActiveTab('opportunities')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(2)
+        expect(logic.values.opportunities).toHaveLength(1)
+        resumeKeaLoadersErrors()
+    })
+
+    it('reports product_brief_viewed once per brief', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBriefDetailSuccess(readyBrief as unknown as ProductBriefApi)
+            logic.actions.loadBriefDetailSuccess(readyBrief as unknown as ProductBriefApi)
+        }).toFinishAllListeners()
+
+        const viewedCalls = captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')
+        expect(viewedCalls).toHaveLength(1)
+        expect(viewedCalls[0][1]).toMatchObject({ brief_id: 'brief-1', status: 'ready' })
+    })
+
+    it('does not report product_brief_viewed for a generating brief', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBriefDetailSuccess(generatingBrief as unknown as ProductBriefApi)
+        }).toFinishAllListeners()
+
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')).toHaveLength(0)
     })
 
     it('has no citation table entry for unknown types, which render unlinked', () => {

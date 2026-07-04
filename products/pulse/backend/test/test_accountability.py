@@ -191,15 +191,44 @@ class TestCollectAccountability(BaseTest):
         assert len(lines) == 3
         mock_calculate.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("full_window_higher_rate", [100.0] * 14, "100.0/day avg", 42.9),
+            # Sparse 3-day windows: totals would contradict the per-day summaries beside them.
+            ("sparse_window_same_rate", [70.0] * 6, "70.0/day avg", 0.0),
+            ("sparse_window_doubled_rate", [140.0] * 6, "140.0/day avg", 100.0),
+        ]
+    )
     @patch(_CALCULATE_PATH)
-    def test_sparse_data_averages_over_the_actual_window(self, mock_calculate: MagicMock) -> None:
-        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 6}])
+    def test_delta_and_summaries_share_the_per_day_rate(
+        self,
+        _name: str,
+        data: list[float],
+        expected_summary: str,
+        expected_delta: float,
+        mock_calculate: MagicMock,
+    ) -> None:
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": data}])
         self._opportunity()
 
         lines = collect_accountability(self.team)
 
-        # 210 over the actual 3-day window — dividing by the recorded 7 would misreport 30/day.
-        assert lines[0].current_summary == "70.0/day avg"
+        assert lines[0].baseline_summary == "70.0/day avg"
+        assert lines[0].current_summary == expected_summary
+        assert lines[0].delta_pct == expected_delta
+
+    @patch(_CALCULATE_PATH)
+    def test_failing_rescores_stop_at_the_execution_budget(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.side_effect = RuntimeError("query exploded")
+        for i in range(MAX_STATUS_LINES * 2):
+            self._opportunity(created_days_ago=MIN_AGE_DAYS + i)
+
+        lines = collect_accountability(self.team)
+
+        assert lines == []
+        # Failed lines don't count toward the line cap — the attempt budget is what keeps
+        # a page of failing rows from doubling the blocking executions.
+        assert mock_calculate.call_count == MAX_STATUS_LINES
 
     @patch(_CALCULATE_PATH)
     def test_capped_newest_first(self, mock_calculate: MagicMock) -> None:

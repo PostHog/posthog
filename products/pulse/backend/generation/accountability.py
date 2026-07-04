@@ -44,6 +44,29 @@ class OpportunityStatusLine:
     delta_pct: float | None
 
 
+class _InsightResultsCache:
+    """Memoizes insight executions per short_id and counts every attempt (success or raise).
+
+    Memoization bounds the happy path at one cached-execution-mode run per distinct insight
+    (so parallelizing the calls is not worth the machinery); the attempt count lets the
+    collector budget the failure path too, keeping re-scoring latency bounded inside the
+    synthesize activity's shared 5-minute timeout.
+    """
+
+    def __init__(self, team: Team) -> None:
+        self._team = team
+        self._results: dict[str, list[Any]] = {}
+        self.attempts = 0
+
+    def results_for(self, insight: Insight) -> list[Any]:
+        if insight.short_id not in self._results:
+            # A raising execution is deliberately not cached: the per-line handler logs it,
+            # and a retry on a later line still counts against the attempt budget.
+            self.attempts += 1
+            self._results[insight.short_id] = calculate_insight_results(insight, self._team)
+        return self._results[insight.short_id]
+
+
 def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone.now) -> list[OpportunityStatusLine]:
     """Re-score past opportunities against their creation-time baselines.
 
@@ -61,15 +84,15 @@ def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone
     )
     usable = [row for row in rows if _has_usable_refs(row)]
     insights = _insights_by_short_id(team, usable)
-    # Memoized per short_id: per-brief re-scoring cost is bounded at one cached-execution-mode
-    # insight run per distinct insight, so parallelizing the calls is not worth the machinery.
-    results_cache: dict[str, list[Any]] = {}
+    results_cache = _InsightResultsCache(team)
     lines: list[OpportunityStatusLine] = []
     for opportunity in usable:
-        if len(lines) >= MAX_STATUS_LINES:
+        # The attempt budget also caps blocking insight executions when lines keep failing —
+        # failed lines don't count toward the line cap, but their executions still cost time.
+        if len(lines) >= MAX_STATUS_LINES or results_cache.attempts >= MAX_STATUS_LINES:
             break
         try:
-            lines.append(_status_line(opportunity, team, now, insights, results_cache))
+            lines.append(_status_line(opportunity, now, insights, results_cache))
         except Exception:
             # Symmetry with explain's per-collector isolation: one broken re-score must not
             # blank the rest of the accountability section.
@@ -100,35 +123,35 @@ def _insights_by_short_id(team: Team, opportunities: list[Opportunity]) -> dict[
 
 def _status_line(
     opportunity: Opportunity,
-    team: Team,
     now: datetime,
     insights: dict[str, Insight],
-    results_cache: dict[str, list[Any]],
+    results_cache: _InsightResultsCache,
 ) -> OpportunityStatusLine:
     baseline = opportunity.baseline
-    then_total = float(baseline["current_total"])
     period_days = int(baseline["period_days"])
-    window = _current_window(opportunity, team, period_days, insights, results_cache)
+    # period_days is the only denominator the snapshot recorded.
+    then_rate = float(baseline["current_total"]) / period_days
+    window = _current_window(opportunity, period_days, insights, results_cache)
     if window is None:
         current_summary = METRIC_UNAVAILABLE
         delta_pct = None
     else:
-        current_total = float(sum(window))
         # The live window can be shorter than period_days when data is sparse — average over
-        # what was actually read.
-        current_summary = _per_day_summary(current_total, len(window))
+        # what was actually read, and compare per-day rates so the delta always agrees with
+        # the two summaries beside it.
+        current_rate = float(sum(window)) / len(window)
+        current_summary = _rate_summary(current_rate)
         # Zero-baseline guard: a delta off nothing is meaningless, not infinite. Deliberately
         # different from score_movement's volume floor — this compares against a snapshot, it
         # is not a significance test.
-        delta_pct = round(((current_total - then_total) / then_total) * 100.0, 1) if then_total else None
+        delta_pct = round(((current_rate - then_rate) / then_rate) * 100.0, 1) if then_rate else None
     return OpportunityStatusLine(
         opportunity_id=str(opportunity.id),
         kind=opportunity.kind,
         status=opportunity.status,
         title=opportunity.title,
         age_days=(now - opportunity.created_at).days,
-        # period_days is the only denominator the snapshot recorded.
-        baseline_summary=_per_day_summary(then_total, period_days),
+        baseline_summary=_rate_summary(then_rate),
         current_summary=current_summary,
         delta_pct=delta_pct,
     )
@@ -136,10 +159,9 @@ def _status_line(
 
 def _current_window(
     opportunity: Opportunity,
-    team: Team,
     period_days: int,
     insights: dict[str, Insight],
-    results_cache: dict[str, list[Any]],
+    results_cache: _InsightResultsCache,
 ) -> list[float] | None:
     """Re-run the anchored-insights window math over the metric's current data.
 
@@ -150,15 +172,10 @@ def _current_window(
     A fixed-date-range insight returns the same series forever and re-scores to delta ≈ 0,
     which reads as "no change" — a known v1 limitation.
     """
-    short_id = opportunity.metric_ref["insight_short_id"]
-    insight = insights.get(short_id)
+    insight = insights.get(opportunity.metric_ref["insight_short_id"])
     if insight is None:
         return None
-    if short_id not in results_cache:
-        # A raising execution is deliberately not cached: the per-line handler logs it, and a
-        # later line on the same insight retries (bounded by the line cap).
-        results_cache[short_id] = calculate_insight_results(insight, team)
-    results = results_cache[short_id]
+    results = results_cache.results_for(insight)
     series_index = int(opportunity.metric_ref.get("series_index", 0))
     if not 0 <= series_index < len(results):
         return None
@@ -171,5 +188,5 @@ def _current_window(
     return windows[1]
 
 
-def _per_day_summary(total: float, days: int) -> str:
-    return f"{total / days:.1f}/day avg"
+def _rate_summary(rate: float) -> str:
+    return f"{rate:.1f}/day avg"

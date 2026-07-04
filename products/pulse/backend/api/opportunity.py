@@ -1,4 +1,5 @@
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
@@ -9,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
@@ -94,7 +96,7 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def dismiss(self, request: Request, **kwargs) -> Response:
-        return self._transition(Opportunity.Status.OPEN, Opportunity.Status.DISMISSED)
+        return self._transition(Opportunity.Status.OPEN, Opportunity.Status.DISMISSED, "opportunity_dismissed")
 
     @extend_schema(
         request=None,
@@ -105,7 +107,7 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def acted(self, request: Request, **kwargs) -> Response:
-        return self._transition(Opportunity.Status.OPEN, Opportunity.Status.ACTED)
+        return self._transition(Opportunity.Status.OPEN, Opportunity.Status.ACTED, "opportunity_acted")
 
     @extend_schema(
         request=None,
@@ -119,14 +121,30 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # Reopening only flips status back to OPEN. It does not resurrect suppressed briefs'
         # content: persist's dedup keys off the fingerprint's existence across ALL statuses,
         # so the row keeps suppressing re-creation whether open or dismissed.
-        return self._transition(Opportunity.Status.DISMISSED, Opportunity.Status.OPEN)
+        return self._transition(Opportunity.Status.DISMISSED, Opportunity.Status.OPEN, "opportunity_reopened")
 
-    def _transition(self, expected: Opportunity.Status, target: Opportunity.Status) -> Response:
+    def _transition(self, expected: Opportunity.Status, target: Opportunity.Status, event: str) -> Response:
+        # Known v1 limitation: transitions don't sync the emitted SignalReport (and inbox triage
+        # doesn't sync back) — the cross-product lifecycle is an open design question with the
+        # signals owners.
         opportunity = self.get_object()
-        if opportunity.status != expected:
+        # Conditional update so concurrent double-clicks are race-safe: the loser matches 0 rows
+        # and 400s. auto_now doesn't fire on .update(), so updated_at is set explicitly.
+        updated = (
+            Opportunity.objects.for_team(self.team_id)
+            .filter(pk=opportunity.pk, status=expected)
+            .update(status=target, updated_at=timezone.now())
+        )
+        opportunity.refresh_from_db()
+        if not updated:
             raise ValidationError(
-                f"Cannot change a {opportunity.status} opportunity to {target}; it must be {expected}."
+                f"This opportunity is {opportunity.status}; it must be {expected} to become {target}."
             )
-        opportunity.status = target
-        opportunity.save(update_fields=["status", "updated_at"])
+        report_user_action(
+            self.request.user,
+            event,
+            {"opportunity_id": str(opportunity.id), "kind": opportunity.kind, "status": opportunity.status},
+            team=self.team,
+            request=self.request,
+        )
         return Response(OpportunitySerializer(opportunity).data)
