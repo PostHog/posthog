@@ -2512,8 +2512,9 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
-                      # data with a partial run). No reruns anywhere now — Trunk quarantine gates known
-                      # flakes instead of masking them behind retries.
+                      # data with a partial run), and no --reruns (fail loud on the narrow subset).
+                      # The full run below keeps a reduced --reruns 1 as a cold-start net while Trunk's
+                      # quarantine list matures; drop it back to 0 once quarantine reliably catches flakes.
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -2544,6 +2545,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
+                        --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
                         $PYTEST_ARGS
@@ -2621,8 +2623,8 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
-                      # timing data with a partial run). See the core selected branch for the
-                      # rationale; reruns are gone, Trunk quarantine handles flakes.
+                      # timing data with a partial run), no --reruns. See the core selected branch;
+                      # the full run keeps a reduced --reruns 1 cold-start net until quarantine matures.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           -r fEsxX \
@@ -2641,6 +2643,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
+                          --reruns 1 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
