@@ -160,11 +160,14 @@ jobs:
                         echo "> ⚠️ A later review run failed before producing a verdict — check the [workflow run]($RUN_URL). The verdict above is from an earlier run."
                       } >> /tmp/stamphog-comment.md
                     else
-                      COUNT=$((PREV_COUNT + 1))
+                      # The counter tracks verdicts only — a crash rebuild keeps
+                      # the previous count so repeated failures don't inflate it.
                       if [ -n "$REASONING" ]; then
+                        COUNT=$((PREV_COUNT + 1))
                         HEADLINE="stamphog reviewed \`${REVIEWED_SHA:-unknown}\` — verdict: **${VERDICT:-unknown}**"
                         DETAIL="$REASONING"
                       else
+                        COUNT=$PREV_COUNT
                         HEADLINE="stamphog review failed before producing a verdict"
                         DETAIL="Check the [workflow run]($RUN_URL) and re-apply the label to retry."
                       fi
