@@ -26,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
 )
+from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import _deliver_pulse_subscription
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -99,17 +100,29 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 if sub["created_by__distinct_id"]
                 else str(sub["team_id"]),
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
-                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+                resource_type=Subscription.derive_resource_type(
+                    sub["insight_id"], sub["dashboard_id"], sub["prompt"], sub["pulse_brief_config_id"]
+                ),
             )
             for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
             # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
             .exclude(
-                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+                Q(insight_id__isnull=True)
+                & Q(dashboard_id__isnull=True)
+                & (Q(prompt__isnull=True) | Q(prompt=""))
+                & Q(pulse_brief_config_id__isnull=True)
             )
             .values(
-                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
+                "id",
+                "team_id",
+                "created_by__distinct_id",
+                "next_delivery_date",
+                "insight_id",
+                "dashboard_id",
+                "prompt",
+                "pulse_brief_config_id",
             )
         ]
 
@@ -319,6 +332,9 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
 
     if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
         return await _deliver_ai_subscription(subscription, inputs, recipient_results)
+
+    if subscription.resource_type == Subscription.ResourceType.PULSE_BRIEF:
+        return await _deliver_pulse_subscription(subscription, inputs, recipient_results)
 
     return await _deliver_insight_dashboard_subscription(subscription, inputs, recipient_results)
 
