@@ -201,12 +201,15 @@ function responseHasResults(response: ListResponse): boolean {
     return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
 }
 
-/** Reset the module-level API cache. Exported for use in tests only. */
-export function clearApiCacheForTesting(): void {
+/** Reset the module-level API cache. */
+export function clearApiCache(): void {
     Object.values(apiCacheTimers).forEach((timerId) => window.clearTimeout(timerId))
     apiCache = {}
     apiCacheTimers = {}
 }
+
+/** @deprecated Use clearApiCache instead. */
+export const clearApiCacheForTesting = clearApiCache
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
@@ -276,6 +279,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -300,6 +304,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         propertyAllowList,
                         minSearchQueryLength,
                     } = values
+
+                    // Record which query this run is fetching so a loadRemoteItemsFailure listener
+                    // can tie the failure to the right query (and not settle a newer in-flight one).
+                    cache.inflightFetchQuery = searchQuery
 
                     if (!remoteEndpoint) {
                         return createEmptyListStorage(searchQuery)
@@ -400,8 +408,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 },
                 updateRemoteItem: ({ item }) => {
                     // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
+                    clearApiCache()
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -450,12 +457,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
         hasMore: [false, { setHasMore: (_, { hasMore }) => hasMore }],
+        // Tracks the searchQuery whose fetch failed. Using the query (not a boolean) prevents
+        // a stale out-of-order failure from settling a newer in-flight request — only a failure
+        // for the _current_ query should count as settled.
         remoteFetchFailed: [
-            false,
+            null as string | null,
             {
-                loadRemoteItems: () => false,
-                loadRemoteItemsSuccess: () => false,
-                loadRemoteItemsFailure: () => true,
+                loadRemoteItems: () => null,
+                loadRemoteItemsSuccess: () => null,
+                remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
     })),
@@ -589,14 +599,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 hasRemoteDataSource: boolean,
                 remoteItems: ListStorage,
                 searchQuery: string,
-                remoteFetchFailed: boolean
+                remoteFetchFailed: string | null
             ): boolean => {
                 // Local-only groups resolve synchronously — always fresh.
                 const isLocalOnly = !hasRemoteDataSource
-                // A failed fetch counts as settled: remoteItems.searchQuery never catches up after a
-                // failure, and without this the loading state would spin forever.
+                // A failed fetch for *this* query counts as settled. We check the exact query
+                // rather than a bare boolean so that an out-of-order stale failure (run A failing
+                // after run B is already in flight) doesn't incorrectly settle run B's result.
+                const currentQueryFailed = remoteFetchFailed === searchQuery
                 const currentQuerySettled = (remoteItems.searchQuery ?? '') === searchQuery
-                return isLocalOnly || remoteFetchFailed || currentQuerySettled
+                return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
         showNonCapturedEventOption: [
@@ -1233,6 +1245,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     })
                 }
             }
+        },
+        loadRemoteItemsFailure: () => {
+            // Tie the failure to the query that was actually in flight. cache.inflightFetchQuery is
+            // recorded at the start of each loader run (after the debounce breakpoint), so it
+            // reflects the query run A was fetching — not the newer searchQuery run B is working on.
+            // This prevents a stale failure from settling run B's result prematurely.
+            actions.remoteItemsFetchFailedForQuery(cache.inflightFetchQuery ?? values.searchQuery)
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
