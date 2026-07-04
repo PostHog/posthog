@@ -14,7 +14,7 @@ on:
     workflow_dispatch:
         inputs:
             playwright_retries:
-                description: 'Override Playwright retries (leave empty for default of 3 on CI). Set to "0" to surface true per-test failure rate.'
+                description: 'Override Playwright retries (leave empty for default of 0 on CI). Set to a higher value to allow retries on flaky environments.'
                 required: false
                 type: string
                 default: ''
@@ -68,6 +68,7 @@ env:
     # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
     INTERNAL_API_SECRET: posthog123
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -583,7 +584,7 @@ jobs:
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
 
             - name: Verify changed Playwright tests are stable
               if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
@@ -685,12 +686,13 @@ jobs:
                   if-no-files-found: ignore
 
             # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (fail-safes to 0 if
-            # Trunk is unreachable). Runs the token only on internal PRs, master, and the merge
-            # queue — never on fork PRs, which have no secret. Also uploads results for
-            # classification, so it supersedes the old detection-only upload.
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no
+            # secret. Also uploads results for classification, so it supersedes the old
+            # detection-only upload.
             - name: Quarantine gate
-              if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: playwright/junit-results.xml
@@ -698,10 +700,10 @@ jobs:
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Fork PRs have no Trunk secret; fall back to the raw playwright outcome so they fail
-            # on a red test exactly as before.
-            - name: Fail on Playwright failure (fork PR)
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && steps.playwright-tests.outcome == 'failure' }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw playwright
+            # outcome so a genuine failure still goes red exactly as before.
+            - name: Fail on Playwright failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
               shell: bash
               run: exit 1
 

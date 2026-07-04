@@ -2672,14 +2672,14 @@ jobs:
 
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome == 'success' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome == 'success' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -2695,7 +2695,7 @@ jobs:
 
             - name: Upload snapshot patch
               # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome == 'success' && steps.run-temporal-tests.outcome != 'failure' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
@@ -2718,12 +2718,13 @@ jobs:
                   path: junit-*.xml
 
             # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (also fail-safes to
-            # 0 if Trunk is unreachable). Runs the token only on internal PRs, master, and the
-            # merge queue — never on fork PRs, which have no secret. This supersedes the old
-            # detection-only trunk-upload job (it also uploads results for classification).
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no
+            # secret. This supersedes the old detection-only trunk-upload job (it also uploads
+            # results for classification).
             - name: Quarantine gate (Core)
-              if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' }}
+              if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-core.xml
@@ -2732,7 +2733,7 @@ jobs:
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Quarantine gate (Temporal)
-              if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' }}
+              if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-temporal.xml
@@ -2740,10 +2741,10 @@ jobs:
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Fork PRs have no Trunk secret, so quarantining can't run there; fall back to the
-            # raw test outcome so forks fail on a red test exactly as before.
-            - name: Fail on test failure (fork PR)
-              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR != 'true' && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw test outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on test failure (no quarantine gate)
+              if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && (steps.run-core-tests.outcome == 'failure' || steps.run-temporal-tests.outcome == 'failure') && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
               shell: bash
               run: exit 1
 

@@ -21,6 +21,9 @@ permissions:
     pull-requests: write
     actions: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run frontend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -694,13 +697,13 @@ jobs:
                   retention-days: 1
 
             # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
-            # failure is an already-quarantined flake, non-zero otherwise (fail-safes to 0 if
-            # Trunk is unreachable). FOSS and EE run the same test files, so each segment
-            # uploads under its own variant to keep their histories distinct. Runs the token
-            # only on internal PRs, master, and the merge queue — never on fork PRs, which have
-            # no secret. Supersedes the old detection-only trunk-upload job.
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). FOSS and EE run the same test files,
+            # so each segment uploads under its own variant to keep their histories distinct.
+            # Runs the token only on internal PRs, master, and the merge queue — never on fork
+            # PRs or Dependabot, which have no secret. Supersedes the old detection-only job.
             - name: Quarantine gate
-              if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
@@ -709,10 +712,10 @@ jobs:
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
-            # Fork PRs have no Trunk secret; fall back to the raw jest outcome so they fail on a
-            # red test exactly as before.
-            - name: Fail on jest failure (fork PR)
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && steps.run-jest.outcome == 'failure' }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on jest failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
               shell: bash
               run: exit 1
 
