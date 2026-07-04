@@ -66,13 +66,14 @@ If you sample fewer than the full set, say so in the report and offer to walk th
 
 ### 4. Extract the deletion event from each response
 
-In each response, find the entry where `activity == "deleted"`. That entry's `created_at` is the actual deletion time, and `user.email` / `user.first_name` identify the deleter.
+In each response, find the entry where `activity == "deleted"`. That entry's `created_at` is the actual deletion time, and `user.email` / `user.first_name` identify the deleter. These primary fields are reliable on every delete path.
 
-The deletion event's `detail.changes` array typically contains:
+**Recovering the original key** is path-dependent, so don't rely on `detail.changes` for it:
 
-- `{field: "deleted", before: false, after: true}` — the actual delete
-- `{field: "key", before: "<original>", after: "<original>:deleted:<id>"}` — Django renames the key on delete to free up the unique constraint
-- `{field: "name", ...}` — the name sometimes gets reset
+- **UI / ORM deletes** rename the key to free up the unique constraint and log the full change set — `detail.changes` carries `{field: "key", before: "<original>", after: "<original>:deleted:<id>"}` alongside `deleted` and `version` entries. Here `detail.changes` does give you the original key.
+- **API / MCP / programmatic deletes** often log `changes: []`, or only `deleted` + `version` with **no `key` entry** — and may or may not rename the key. On this path `detail.changes` dead-ends.
+
+The robust recovery that works on every path: read the activity event's top-level `detail.name`, which holds the un-renamed key, **or** strip the `:deleted:<flag_id>` suffix from the SQL `key` you got in step 2. Treat `detail.changes` as a bonus when present, not the source of truth.
 
 For most flags there's exactly one delete event. If a flag has been deleted-and-restored multiple times, take the most recent `activity: deleted` event within the window.
 
@@ -88,7 +89,7 @@ State your methodology in the report (how many candidates you walked vs. how man
 
 - **Borderline cases**: if a deletion is within ~1 hour of the window cutoff, surface it as borderline rather than silently dropping it.
 - **Don't trust `created_at` as a proxy for deletion time**: a flag created in 2024 can still have been deleted last week. The activity log is the only authority.
-- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. The original key/name appears in the delete event's `detail.changes` array — surface that to the user, not the renamed form.
+- **Renamed keys are normal**: a flag with key `foo:deleted:12345` was the flag originally keyed `foo`. Recover the original by reading the activity event's top-level `detail.name`, or by stripping the `:deleted:<flag_id>` suffix from the SQL `key` — surface that to the user, not the renamed form. Don't rely on `detail.changes` for this: it holds the `key` change only on the UI / ORM delete path, and is frequently empty (or missing the `key` entry) on API / MCP / programmatic deletes.
 - **Walking all candidates is possible but slow**: ~100 parallel activity-log calls is doable. Offer it as a follow-up rather than the default for short windows.
 
 ## Example interaction
