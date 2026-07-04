@@ -224,6 +224,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
+        filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
         tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"

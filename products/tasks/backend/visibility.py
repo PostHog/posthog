@@ -7,7 +7,7 @@ tasks API surface — its module-scope imports reach jsonschema and the modal SD
 
 from django.db.models import Q
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Channel, Task
 
 # Origin products whose tasks are team-scoped rather than personal: every team member
 # can view them regardless of who created them.
@@ -36,9 +36,17 @@ def task_visibility_q(user_id: int | None) -> Q:
       team member — they cannot be executed in any case because oauth.py
       requires `task.created_by` to mint OAuth tokens), or
     - its `origin_product` is one of `TEAM_VISIBLE_ORIGIN_PRODUCTS`, i.e. a
-      team-scoped artifact (signals, onboarding) that any team member should see.
+      team-scoped artifact (signals, onboarding) that any team member should see, or
+    - it lives in a public channel: channel feeds are multiplayer, so every team
+      member sees every task filed there. Personal-channel ("#me") tasks stay
+      creator-only via the first rule.
     """
-    return Q(created_by_id=user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+    return (
+        Q(created_by_id=user_id)
+        | Q(created_by__isnull=True)
+        | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+        | Q(channel__channel_type=Channel.ChannelType.PUBLIC, channel__deleted=False)
+    )
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:
@@ -47,4 +55,5 @@ def task_run_visibility_q(user_id: int | None) -> Q:
         Q(task__created_by_id=user_id)
         | Q(task__created_by__isnull=True)
         | Q(task__origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
+        | Q(task__channel__channel_type=Channel.ChannelType.PUBLIC, task__channel__deleted=False)
     )
