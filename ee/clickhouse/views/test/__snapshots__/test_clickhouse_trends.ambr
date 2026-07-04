@@ -1036,7 +1036,7 @@
        (SELECT count(DISTINCT e.`$group_0`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(notEquals(e.properties.`$group_0`, ''), 1), notEquals(e.`$group_0`, ''))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(notEquals(nullIf(nullIf(e.properties.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
