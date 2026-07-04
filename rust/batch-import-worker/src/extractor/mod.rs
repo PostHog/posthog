@@ -489,18 +489,13 @@ mod tests {
 
         // Drive forward until the decode error surfaces (some reads succeed first).
         let mut offset = 0u64;
-        loop {
-            match reader.read_at(offset, 8192).await {
-                Ok(chunk) => {
-                    assert!(
-                        chunk.total.is_none(),
-                        "truncated stream must never report a total"
-                    );
-                    assert!(!chunk.bytes.is_empty(), "no progress and no error");
-                    offset += chunk.bytes.len() as u64;
-                }
-                Err(_) => break,
-            }
+        while let Ok(chunk) = reader.read_at(offset, 8192).await {
+            assert!(
+                chunk.total.is_none(),
+                "truncated stream must never report a total"
+            );
+            assert!(!chunk.bytes.is_empty(), "no progress and no error");
+            offset += chunk.bytes.len() as u64;
         }
 
         // The error must be sticky: re-reads (at the same or an earlier retained
