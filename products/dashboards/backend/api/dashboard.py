@@ -34,7 +34,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
-import pydantic_core
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -305,15 +304,29 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
     try:
         tile_data = DashboardTileSerializer(tile, many=False, context=tile_context).data
         return order, tile_data
-    except pydantic_core.ValidationError as e:
-        if not tile.insight:
-            raise
-        query = tile.insight.query
-        tile.insight.query = None
-        tile_data = DashboardTileSerializer(tile, context=tile_context).data
-        tile_data["insight"]["query"] = query
-        tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
-        return order, tile_data
+    except Exception as e:
+        # A single tile that fails to serialize (a bad insight query, a schema
+        # migration gap, an unexpected calculation error) must not 500 the whole
+        # dashboard response and block reads of an otherwise-valid dashboard.
+        # Degrade to a tile-level error and let the rest of the dashboard render.
+        capture_exception(e)
+        error = {"type": type(e).__name__, "message": str(e)}
+
+        # For insight tiles the failure is most often in the query, so retry with
+        # the query stripped to recover the rest of the tile, then re-attach it.
+        if tile.insight:
+            try:
+                query = tile.insight.query
+                tile.insight.query = None
+                tile_data = DashboardTileSerializer(tile, context=tile_context).data
+                tile.insight.query = query
+                tile_data["insight"]["query"] = query
+                tile_data["error"] = error
+                return order, tile_data
+            except Exception as retry_error:
+                capture_exception(retry_error)
+
+        return order, {"id": tile.id, "order": order, "error": error}
 
 
 class ReorderLayout(StrEnum):

@@ -38,6 +38,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.api.insight import InsightSerializer
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -1309,6 +1310,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert not DashboardTile.objects_including_soft_deleted.filter(id=unknown_tile_id).exists(), (
                 "unknown id must not have created a new row"
             )
+
+    @parameterized.expand(["get", "patch"])
+    def test_tile_serialization_error_does_not_500_the_dashboard(self, verb: str) -> None:
+        """
+        Regression: an unexpected (non-pydantic) error while serializing one tile's insight
+        (e.g. a failed query calculation) used to bubble up as a bare HTTP 500, crashing both
+        dashboard-get and dashboard-update responses even after the write had committed - which
+        blocked reads of an otherwise-valid dashboard. One failing tile must now degrade to a
+        tile-level `error` while the rest of the dashboard still returns 200.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "d"})
+        broken_insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "broken"})
+        healthy_insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "healthy"})
+        broken_tile_id = DashboardTile.objects.get(insight_id=broken_insight_id, dashboard_id=dashboard_id).id
+        healthy_tile_id = DashboardTile.objects.get(insight_id=healthy_insight_id, dashboard_id=dashboard_id).id
+
+        original_insight_result = InsightSerializer.insight_result
+
+        def fake_insight_result(serializer_self: InsightSerializer, insight: Insight):
+            if insight.id == broken_insight_id:
+                raise RuntimeError("boom while calculating insight result")
+            return original_insight_result(serializer_self, insight)
+
+        with patch.object(InsightSerializer, "insight_result", new=fake_insight_result):
+            if verb == "get":
+                response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
+            else:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+                    {"name": "renamed"},
+                    format="json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK, response.content[:500]
+        tiles_by_id = {tile["id"]: tile for tile in response.json()["tiles"]}
+
+        broken_tile = tiles_by_id[broken_tile_id]
+        assert broken_tile["error"]["type"] == "RuntimeError"
+        assert "boom while calculating insight result" in broken_tile["error"]["message"]
+
+        healthy_tile = tiles_by_id[healthy_tile_id]
+        assert "error" not in healthy_tile
+        assert healthy_tile["insight"]["id"] == healthy_insight_id
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
