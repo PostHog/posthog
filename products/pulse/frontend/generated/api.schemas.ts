@@ -14,6 +14,11 @@ export interface BriefAnchorsApi {
     insights?: string[]
 }
 
+export interface BriefGoalMetricApi {
+    /** Short ID of the team-owned trends insight tracking progress toward the goal. */
+    insight_short_id: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -83,6 +88,10 @@ export interface BriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+    goal?: string
+    /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+    goal_metric?: BriefGoalMetricApi | null
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
@@ -117,6 +126,10 @@ export interface PatchedBriefConfigApi {
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
+    /** Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it. */
+    goal?: string
+    /** Insight whose trend measures progress toward the goal. Null when the goal is qualitative. */
+    goal_metric?: BriefGoalMetricApi | null
     /** Whether this config generates briefs. */
     enabled?: boolean
     /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
