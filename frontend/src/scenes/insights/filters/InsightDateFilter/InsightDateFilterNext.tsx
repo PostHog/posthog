@@ -16,7 +16,6 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
-    Separator,
     Switch,
     ToggleGroup,
     ToggleGroupItem,
@@ -51,6 +50,8 @@ const ROLLING_UNITS: Record<string, string> = {
 }
 
 const ROLLING_DATE_FROM = /^-(\d+)([hdwmy])$/
+const DEFAULT_ROLLING_COUNT = '30'
+const DEFAULT_ROLLING_UNIT = 'd'
 
 type InsightDateFilterNextProps = {
     disabled: boolean
@@ -63,9 +64,17 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
     const { weekStartDay } = useValues(teamLogic)
 
     const [open, setOpen] = useState(false)
-    const rollingMatch = ROLLING_DATE_FROM.exec(dateRange?.date_from ?? '')
-    const [rollingCount, setRollingCount] = useState<number>(rollingMatch ? parseInt(rollingMatch[1]) : 30)
-    const [rollingUnit, setRollingUnit] = useState<string>(rollingMatch?.[2] ?? 'd')
+    const [rollingCount, setRollingCount] = useState<string>(DEFAULT_ROLLING_COUNT)
+    const [rollingUnit, setRollingUnit] = useState<string>(DEFAULT_ROLLING_UNIT)
+
+    const handleOpenChange = (nextOpen: boolean): void => {
+        if (nextOpen) {
+            const rollingMatch = ROLLING_DATE_FROM.exec(dateRange?.date_from ?? '')
+            setRollingCount(rollingMatch?.[1] ?? DEFAULT_ROLLING_COUNT)
+            setRollingUnit(rollingMatch?.[2] ?? DEFAULT_ROLLING_UNIT)
+        }
+        setOpen(nextOpen)
+    }
 
     const ranges = useMemo(() => insightDateRanges(weekStartDay), [weekStartDay])
     const pickerValue = useMemo(
@@ -88,7 +97,8 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         setOpen(false)
     }
     const applyRolling = (): void => {
-        updateDateRange({ date_from: `-${rollingCount}${rollingUnit}`, date_to: null }, true)
+        const count = Math.max(1, parseInt(rollingCount) || 1)
+        updateDateRange({ date_from: `-${count}${rollingUnit}`, date_to: null }, true)
         setOpen(false)
     }
     const applyAllTime = (): void => {
@@ -100,7 +110,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
     }
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger
                 render={
                     <Button
@@ -123,25 +133,27 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     weekStartsOn={weekStartDay === 1 ? Day.MONDAY : Day.SUNDAY}
                     onApply={applyPicker}
                     onCancel={() => setOpen(false)}
+                    showHeader={false}
+                    showTime={false}
                     className="shadow-none ring-0 rounded-b-none"
                 />
-                <Separator />
-                <div className="flex items-center gap-2 px-3 py-2">
-                    <span className="text-xs whitespace-nowrap">In the last</span>
+                {/* Extra sections continue the picker footer's muted band so the popover reads as one surface */}
+                <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
+                    <span className="text-xs whitespace-nowrap text-muted-foreground">In the last</span>
                     <Input
                         type="number"
                         min={1}
                         value={rollingCount}
                         onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            setRollingCount(Math.max(1, Number(e.target.value) || 1))
+                            setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
                         }
-                        className="w-16"
+                        className="w-14"
                         aria-label="Rolling period count"
                         data-attr="insight-date-filter-next-rolling-count"
                     />
                     <Select
                         value={rollingUnit}
-                        onValueChange={(unit: string | null) => setRollingUnit(unit ?? 'd')}
+                        onValueChange={(unit: string | null) => setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)}
                         items={ROLLING_UNITS}
                     >
                         <SelectTrigger size="sm" aria-label="Rolling period unit">
@@ -169,37 +181,33 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     </Button>
                 </div>
                 {isTrends && (
-                    <>
-                        <Separator />
-                        <div className="flex items-center gap-2 px-3 py-2">
-                            <ToggleGroup
-                                multiple
-                                size="sm"
-                                value={selectedDays.map(String)}
-                                onValueChange={(days) => setDays(days.map(Number))}
-                            >
-                                {ALL_DAY_NUMBERS.map((day) => (
-                                    <ToggleGroupItem
-                                        key={day}
-                                        value={String(day)}
-                                        aria-label={DAY_LABELS[day]}
-                                        data-attr={`insight-date-filter-next-day-${day}`}
-                                    >
-                                        {DAY_LABELS[day]}
-                                    </ToggleGroupItem>
-                                ))}
-                            </ToggleGroup>
-                            <Button variant="link" size="sm" onClick={() => setDays(WEEKDAYS)}>
-                                Weekdays
-                            </Button>
-                            <Button variant="link" size="sm" onClick={() => setDays([])}>
-                                All days
-                            </Button>
-                        </div>
-                    </>
+                    <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
+                        <ToggleGroup
+                            multiple
+                            size="sm"
+                            value={selectedDays.map(String)}
+                            onValueChange={(days) => setDays(days.map(Number))}
+                        >
+                            {ALL_DAY_NUMBERS.map((day) => (
+                                <ToggleGroupItem
+                                    key={day}
+                                    value={String(day)}
+                                    aria-label={DAY_LABELS[day]}
+                                    data-attr={`insight-date-filter-next-day-${day}`}
+                                >
+                                    {DAY_LABELS[day]}
+                                </ToggleGroupItem>
+                            ))}
+                        </ToggleGroup>
+                        <Button variant="link" size="sm" onClick={() => setDays(WEEKDAYS)}>
+                            Weekdays
+                        </Button>
+                        <Button variant="link" size="sm" onClick={() => setDays([])}>
+                            All days
+                        </Button>
+                    </div>
                 )}
-                <Separator />
-                <div className="flex items-center gap-2 px-3 py-2">
+                <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-3 py-1.5">
                     <Switch
                         id="insight-exclude-incomplete-period"
                         size="sm"

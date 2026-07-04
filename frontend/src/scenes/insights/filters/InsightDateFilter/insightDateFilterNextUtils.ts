@@ -1,9 +1,12 @@
 import { CUSTOM_RANGE, type DateTimeRange, type DateTimeValue } from '@posthog/quill'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateFilterToText } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
+import { dateFilterToText, startOfWeek } from 'lib/utils/dateFilters'
 
 import { DateRange } from '~/queries/schema/schema-general'
+
+export const DEFAULT_DATE_FROM = '-7d'
+const DEFAULT_DATE_LABEL = 'Last 7 days'
 
 export interface InsightDatePreset {
     name: string
@@ -11,11 +14,6 @@ export interface InsightDatePreset {
     dateTo: string | null
     rangeSetter: (now: Date, weekStartDay: number) => Date
     endSetter?: (now: Date, weekStartDay: number) => Date
-}
-
-function startOfWeek(date: Dayjs, weekStartDay: number): Dayjs {
-    const start = weekStartDay === 1 ? 1 : 0
-    return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
 
 /** Insight quick ranges: each maps to a PostHog relative date string (so queries stay
@@ -140,7 +138,7 @@ export function pickerValueForDateRange(
     ranges: DateTimeRange[],
     now: Date = new Date()
 ): DateTimeValue {
-    const preset = presetForDateStrings(dateFrom ?? '-7d', dateTo)
+    const preset = presetForDateStrings(dateFrom ?? DEFAULT_DATE_FROM, dateTo)
     if (preset) {
         const range = ranges.find((r) => r.name === preset.name)
         if (range) {
@@ -163,6 +161,8 @@ export function dateRangeUpdateForPickerValue(value: DateTimeValue): Pick<DateRa
             return { date_from: preset.dateFrom, date_to: preset.dateTo }
         }
     }
+    // Custom ranges commit day-granular browser-local dates; presets stay relative strings the
+    // backend resolves in project timezone, so the calendar is a local-time preview by design.
     return {
         date_from: dayjs(value.start).format('YYYY-MM-DD'),
         date_to: dayjs(value.end).format('YYYY-MM-DD'),
@@ -171,11 +171,11 @@ export function dateRangeUpdateForPickerValue(value: DateTimeValue): Pick<DateRa
 
 export function insightDateLabel(dateFrom: string | null | undefined, dateTo: string | null | undefined): string {
     if (!dateFrom) {
-        return 'Last 7 days'
+        return DEFAULT_DATE_LABEL
     }
     return (
         presetForDateStrings(dateFrom, dateTo)?.name ??
-        dateFilterToText(dateFrom, dateTo, 'Last 7 days') ??
-        'Last 7 days'
+        dateFilterToText(dateFrom, dateTo, DEFAULT_DATE_LABEL) ??
+        DEFAULT_DATE_LABEL
     )
 }

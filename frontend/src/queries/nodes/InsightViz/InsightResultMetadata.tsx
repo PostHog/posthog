@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
+    DAYS_IN_WEEK,
     daysOfWeekLabel,
     getEffectiveDaysOfWeek,
 } from 'scenes/insights/filters/InsightDateFilter/daysOfWeekFilterUtils'
@@ -23,12 +24,12 @@ export const InsightResultMetadata = ({
     const { insightProps } = useValues(insightLogic)
     const { samplingFactor, trendsFilter, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    // effectiveDays maps legacy hideWeekends→WEEKDAYS, unifying both paths.
     const effectiveDays = getEffectiveDaysOfWeek(dateRange, trendsFilter)
-    // Show the pill for active daysOfWeek, or when the legacy flag is on and hideWeekends is set.
+    const daysRestrict = effectiveDays.length > 0 && effectiveDays.length < DAYS_IN_WEEK
     const showDaysPill =
-        (dateRange?.daysOfWeek && dateRange.daysOfWeek.length > 0) ||
-        (trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS])
+        daysRestrict &&
+        ((dateRange?.daysOfWeek && dateRange.daysOfWeek.length > 0) ||
+            (trendsFilter?.hideWeekends && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]))
     return (
         <>
             {!disableLastComputation && <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />}

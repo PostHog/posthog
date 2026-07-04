@@ -61,6 +61,13 @@ describe('insightDateFilterNextUtils', () => {
         expect(dayjs(value.end).format('YYYY-MM-DD')).toBe('2026-03-20')
     })
 
+    it('falls back to now-7d..now for unparseable non-preset date strings', () => {
+        const value = pickerValueForDateRange('-3w', null, ranges, NOW)
+        expect(value.range).toBe(CUSTOM_RANGE)
+        expect(dayjs(value.start).format('YYYY-MM-DD')).toBe('2026-05-08')
+        expect(value.end).toBe(NOW)
+    })
+
     test.each([
         { dateFrom: 'qStart', dateTo: null, expected: 'This quarter' },
         { dateFrom: '-1qStart', dateTo: '-1qEnd', expected: 'Last quarter' },
