@@ -1,6 +1,5 @@
-from unittest.mock import patch
-
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
@@ -34,8 +33,7 @@ class TestSandboxExecutor(APIBaseTest):
 
         response = object()
         with (
-            patch("ee.hogai.sandbox.executor.get_sandbox_mapping")
-            as get_sandbox_mapping,
+            patch("ee.hogai.sandbox.executor.get_sandbox_mapping") as get_sandbox_mapping,
             patch("ee.hogai.sandbox.executor.set_sandbox_mapping"),
             patch("ee.hogai.sandbox.executor._get_latest_stream_id", return_value="0"),
             patch("ee.hogai.sandbox.executor._seed_sandbox_stream"),
