@@ -143,6 +143,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     interval=None,
                     now=datetime.now(),
                 )
+                # the stats UI only picks a day, never a time, so always query from
+                # the start of the chosen day (QueryDateRange leaves an absolute
+                # date_from untruncated, unlike the relative "-7d" default)
+                query_date_from = date_range.date_from().replace(hour=0, minute=0, second=0, microsecond=0)
 
                 try:
                     limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
@@ -185,7 +189,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     placeholders={
                         "sampling_factor": ast.Constant(value=sampling_factor),
                         "event_types": ast.Constant(value=list(events_filter)),
-                        "date_from": ast.Constant(value=date_range.date_from()),
+                        "date_from": ast.Constant(value=query_date_from),
                         "date_to": ast.Constant(value=date_range.date_to()),
                         "property_filters": property_to_expr(filter.property_groups, team=self.team),
                         "limit": ast.Constant(value=limit + 1),
