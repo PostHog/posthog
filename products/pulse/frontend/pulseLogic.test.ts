@@ -69,6 +69,8 @@ const existingConfig: BriefConfigApi = {
     name: 'Flags team',
     focus_prompt: 'flags',
     anchors: { dashboards: [1], insights: ['abc123'] },
+    goal: 'Increase subscription usage',
+    goal_metric: { insight_short_id: 'abc123' },
     enabled: true,
     created_at: '2026-07-01T00:00:00Z',
     created_by: null,
@@ -224,13 +226,46 @@ describe('pulseLogic', () => {
         resumeKeaLoadersErrors()
     })
 
-    it.each<[string, BriefConfigApi | null, 'post' | 'patch', Record<string, unknown>]>([
-        ['create', null, 'post', { dashboards: [2] }],
-        // Insight anchors set through the API must survive a save from this dashboards-only form.
-        ['edit', existingConfig, 'patch', { dashboards: [2], insights: ['abc123'] }],
+    it.each<
+        [
+            string,
+            BriefConfigApi | null,
+            'post' | 'patch',
+            Record<string, unknown>,
+            Record<string, unknown>,
+            { goal: string; goal_metric: Record<string, string> | null },
+        ]
+    >([
+        [
+            'create',
+            null,
+            'post',
+            { dashboards: [2] },
+            // Whitespace-only entry must clear to null, and a real entry must be trimmed.
+            { goal: 'Grow usage', goal_metric_short_id: '  NewMetric1 ' },
+            { goal: 'Grow usage', goal_metric: { insight_short_id: 'NewMetric1' } },
+        ],
+        // Insight anchors set through the API must survive a save from this dashboards-only form,
+        // and the goal fields seeded from the config must round-trip unchanged.
+        [
+            'edit',
+            existingConfig,
+            'patch',
+            { dashboards: [2], insights: ['abc123'] },
+            {},
+            { goal: 'Increase subscription usage', goal_metric: { insight_short_id: 'abc123' } },
+        ],
+        [
+            'edit clearing the goal metric',
+            existingConfig,
+            'patch',
+            { dashboards: [2], insights: ['abc123'] },
+            { goal_metric_short_id: '   ' },
+            { goal: 'Increase subscription usage', goal_metric: null },
+        ],
     ])(
         'saving a config in %s mode hits the %s endpoint with the form payload',
-        async (_mode, editing, endpoint, expectedAnchors) => {
+        async (_mode, editing, endpoint, expectedAnchors, extraFormValues, expectedGoalPayload) => {
             const captured: Record<'post' | 'patch', Record<string, any> | null> = { post: null, patch: null }
             useMocks({
                 post: {
@@ -248,7 +283,7 @@ describe('pulseLogic', () => {
             })
 
             logic.actions.openConfigModal(editing)
-            logic.actions.setConfigFormValues({ name: 'Updated name', dashboards: [2] })
+            logic.actions.setConfigFormValues({ name: 'Updated name', dashboards: [2], ...extraFormValues })
             await expectLogic(logic, () => {
                 logic.actions.submitConfigForm()
             }).toDispatchActions(['configSaved'])
@@ -256,8 +291,26 @@ describe('pulseLogic', () => {
             expect(captured[endpoint === 'post' ? 'patch' : 'post']).toBeNull()
             expect(captured[endpoint]!.name).toEqual('Updated name')
             expect(captured[endpoint]!.anchors).toEqual(expectedAnchors)
+            expect(captured[endpoint]!.goal).toEqual(expectedGoalPayload.goal)
+            expect(captured[endpoint]!.goal_metric).toEqual(expectedGoalPayload.goal_metric)
         }
     )
+
+    it('exposes the goal of the shown brief config for the detail header line', async () => {
+        await expectLogic(logic).toFinishAllListeners() // let the mount-time loads settle before seeding
+        logic.actions.loadBriefConfigsSuccess([existingConfig, { ...existingConfig, id: 'cfg-2', goal: '   ' }])
+
+        logic.actions.loadBriefDetailSuccess({ ...readyBrief, config: 'cfg-1' } as unknown as ProductBriefApi)
+        expect(logic.values.briefDetailGoal).toEqual('Increase subscription usage')
+
+        // A whitespace-only goal must not render an empty header line.
+        logic.actions.loadBriefDetailSuccess({ ...readyBrief, config: 'cfg-2' } as unknown as ProductBriefApi)
+        expect(logic.values.briefDetailGoal).toBeNull()
+
+        // Config-less briefs have no goal line.
+        logic.actions.loadBriefDetailSuccess(readyBrief as unknown as ProductBriefApi)
+        expect(logic.values.briefDetailGoal).toBeNull()
+    })
 
     it('schedules a brief for the config being edited', async () => {
         let captured: Record<string, any> | null = null
