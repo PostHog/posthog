@@ -242,8 +242,12 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     assert await _opportunity_count(team) == 1
 
 
-async def test_synthesize_activity_reports_brief_generated(team, user) -> None:
-    brief = await _create_brief(team, user)
+@pytest.mark.parametrize("goal,expected_has_goal", [(None, False), ("Increase subscription usage", True)])
+async def test_synthesize_activity_reports_brief_generated(
+    team, user, goal: str | None, expected_has_goal: bool
+) -> None:
+    config = await _create_config(team, goal) if goal is not None else None
+    brief = await _create_brief(team, user, config=config)
     env = ActivityEnvironment()
     scoped_capture = MagicMock()
     capture_mock = scoped_capture.return_value.__enter__.return_value
@@ -261,7 +265,9 @@ async def test_synthesize_activity_reports_brief_generated(team, user) -> None:
     assert kwargs["event"] == "product_brief_generated"
     assert kwargs["properties"]["status"] == ProductBrief.Status.READY
     assert kwargs["properties"]["new_opportunity_count"] == 1
-    assert kwargs["properties"]["has_config"] is False
+    assert kwargs["properties"]["has_config"] is (goal is not None)
+    assert kwargs["properties"]["has_goal"] is expected_has_goal
+    assert kwargs["properties"]["emit_failed_count"] == 0
 
 
 @pytest.mark.parametrize("kind", ["movement", "context"])
@@ -437,6 +443,8 @@ async def test_synthesize_activity_does_not_emit_for_deduped_opportunity(team, u
 async def test_synthesize_activity_survives_emit_failure(team, user) -> None:
     brief = await _create_brief(team, user)
     env = ActivityEnvironment()
+    scoped_capture = MagicMock()
+    capture_mock = scoped_capture.return_value.__enter__.return_value
     with (
         patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
         patch(
@@ -444,12 +452,15 @@ async def test_synthesize_activity_survives_emit_failure(team, user) -> None:
             new_callable=AsyncMock,
             side_effect=RuntimeError("signals down"),
         ),
+        patch("products.pulse.backend.temporal.activities.ph_scoped_capture", scoped_capture),
     ):
         status = await env.run(
             synthesize_brief_activity,
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
         )
     assert status == ProductBrief.Status.READY
+    # The failure must surface on the generated event, not just in a log line.
+    assert capture_mock.call_args.kwargs["properties"]["emit_failed_count"] == 1
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:
