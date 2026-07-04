@@ -24010,6 +24010,14 @@ export namespace Schemas {
       readonly modified_by: number | null;
     }
 
+    export interface FeedbackVoteRequest {
+      /**
+         * True marks the item helpful, false marks it not helpful, and null clears your vote.
+         * @nullable
+         */
+      helpful: boolean | null;
+    }
+
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -31028,6 +31036,12 @@ export namespace Schemas {
       variant_sketch: string;
     }
 
+    /**
+     * Derived, leak-free view of the feedback votes: team-wide counts plus the caller's own vote.
+     *
+     * The raw votes dict is keyed by user id and is never serialized — no identity beyond counts
+     * crosses the API boundary.
+     */
     export interface Opportunity {
       readonly id: string;
       /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
@@ -31060,6 +31074,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly first_seen_brief: string | null;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who created the opportunity. */
       readonly created_by: UserBasic | null;
@@ -32919,6 +32942,12 @@ export namespace Schemas {
       Scheduled: 'scheduled',
     } as const;
 
+    /**
+     * Derived, leak-free view of the feedback votes: team-wide counts plus the caller's own vote.
+     *
+     * The raw votes dict is keyed by user id and is never serialized — no identity beyond counts
+     * crosses the API boundary.
+     */
     export interface ProductBriefList {
       readonly id: string;
       /**
@@ -32947,6 +32976,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly error: string | null;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who requested the brief. */
       readonly created_by: UserBasic | null;
@@ -43781,6 +43819,12 @@ export namespace Schemas {
 
     export type ProductBriefSectionsItem = { [key: string]: unknown };
 
+    /**
+     * Derived, leak-free view of the feedback votes: team-wide counts plus the caller's own vote.
+     *
+     * The raw votes dict is keyed by user id and is never serialized — no identity beyond counts
+     * crosses the API boundary.
+     */
     export interface ProductBrief {
       readonly id: string;
       /**
@@ -43811,6 +43855,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly error: string | null;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who requested the brief. */
       readonly created_by: UserBasic | null;

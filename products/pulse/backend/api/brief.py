@@ -23,6 +23,11 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
+from products.pulse.backend.api.feedback import (
+    FeedbackFieldsSerializerMixin,
+    FeedbackVoteRequestSerializer,
+    record_vote,
+)
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import (
@@ -130,7 +135,7 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ProductBriefSerializer(serializers.ModelSerializer):
+class ProductBriefSerializer(FeedbackFieldsSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
     sections = serializers.ListField(
         child=serializers.DictField(),
@@ -154,6 +159,9 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "sections",
             "sources_used",
             "error",
+            "my_vote",
+            "helpful_count",
+            "not_helpful_count",
             "created_at",
             "created_by",
             "updated_at",
@@ -316,4 +324,34 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             {"config_id": str(config.id) if config else None, "period_days": period_days, "trigger": "on_demand"},
             team=self.team,
         )
-        return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)
+        return Response(self.get_serializer(brief).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=FeedbackVoteRequestSerializer,
+        responses={200: ProductBriefSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def feedback(self, request: Request, **kwargs) -> Response:
+        vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
+        vote_serializer.is_valid(raise_exception=True)
+        helpful = vote_serializer.validated_data["helpful"]
+        brief = self.get_object()
+        user = cast(User, request.user)
+        brief = record_vote(ProductBrief, self.team_id, brief.pk, user.id, helpful)
+        # The context props ARE the tuning signal — they let the feedback stream answer "which
+        # brief shapes are helpful" (e.g. goal-conditioned vs plain) without joining to the rows.
+        report_user_action(
+            user,
+            "product_brief_feedback",
+            {
+                "brief_id": str(brief.id),
+                "helpful": helpful,
+                "status": brief.status,
+                "trigger": brief.trigger,
+                "has_goal": brief.has_goal,
+                "section_kinds": brief.section_kinds,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(brief).data)
