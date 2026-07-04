@@ -205,6 +205,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zero_byte_raw_surfaces_decode_error() {
+        // A zero-byte .raw is not a valid gzip stream: the decoder rejects it
+        // ("unexpected end of file") and the pipeline must surface that honestly.
+        // Sources guarantee this input is unreachable - a zero-byte download is
+        // turned into an empty part before any decoder sees it (the 404 branch,
+        // s3_gzip's and date_range_export's zero-byte guards) - so an error here
+        // means a source-level bug, never a valid empty export.
+        let dir = TempDir::new().unwrap();
+        let raw = dir.path().join("a.raw");
+        std::fs::write(&raw, b"").unwrap();
+
+        let result = collect(open_plaintext_stream(raw, ExtractorType::PlainGzip, 0)).await;
+        assert!(
+            result.is_err(),
+            "zero-byte input must error, not stage empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn zip_with_no_json_gz_members_yields_no_bytes() {
+        // An archive with no data members decompresses to nothing: an empty part,
+        // not an error and not a stall.
+        let dir = TempDir::new().unwrap();
+        let raw = dir.path().join("a.zip");
+        let file = StdFile::create(&raw).unwrap();
+        let mut zip = ZipWriter::new(file);
+        zip.start_file("readme.txt", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"no data for this export").unwrap();
+        zip.finish().unwrap();
+
+        assert_pipeline_output(ExtractorType::ZipGzipJson, raw, Some(b"")).await;
+    }
+
+    #[tokio::test]
     async fn large_plain_gzip_matches_reader() {
         let dir = TempDir::new().unwrap();
         let raw = dir.path().join("a.raw");
