@@ -42,6 +42,7 @@ import type {
     OpportunityApi,
     OpportunityApiEvidenceItem,
     ProductBriefApi,
+    ProductBriefApiInvestigationItem,
     ProductBriefApiSectionsItem,
     ProductBriefListApi,
 } from './generated/api.schemas'
@@ -97,6 +98,10 @@ export const CITATION_TYPES: Record<
     // were judged disproportionate for v1 — the panel is small enough to scan. hideRef: the
     // ref is an internal UUID, meaningless in a tag label.
     opportunity: { label: 'Opportunity', url: () => `${urls.pulse()}?tab=opportunities`, hideRef: true },
+    // Investigation citations render as plain labeled tags — the "Query <n>" ref matches the
+    // numbering in the goal-investigation card on the same page (anchor links were judged
+    // disproportionate for v1).
+    query: { label: 'Query', url: () => undefined },
 }
 
 export type PulseTab = 'briefs' | 'opportunities'
@@ -135,6 +140,23 @@ export function parseOpportunityEvidence(evidence: readonly OpportunityApiEviden
             ref: typeof entry.ref === 'string' ? entry.ref : '',
         }))
         .filter((citation) => citation.ref !== '')
+}
+
+/** Narrowed shape of one goal-investigation finding — the API ships them as untyped dicts. */
+export interface InvestigationFinding {
+    question: string
+    hogql: string
+    result_summary: string
+    succeeded: boolean
+}
+
+function parseInvestigationFinding(finding: ProductBriefApiInvestigationItem): InvestigationFinding {
+    return {
+        question: typeof finding.question === 'string' ? finding.question : '',
+        hogql: typeof finding.hogql === 'string' ? finding.hogql : '',
+        result_summary: typeof finding.result_summary === 'string' ? finding.result_summary : '',
+        succeeded: finding.succeeded === true,
+    }
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
@@ -501,6 +523,12 @@ export const pulseLogic = kea<pulseLogicType>([
         briefDetailSections: [
             (s) => [s.briefDetail],
             (briefDetail): BriefSection[] => (briefDetail?.sections ?? []).map(parseSection),
+        ],
+        // Findings of the shown brief, in citation order — a `query:<n>` citation is the
+        // 1-based index into this list. Empty for goal-less briefs and list-shaped rows.
+        briefDetailInvestigation: [
+            (s) => [s.briefDetail],
+            (briefDetail): InvestigationFinding[] => (briefDetail?.investigation ?? []).map(parseInvestigationFinding),
         ],
         // The goal of the config the shown brief was generated for — the subtle header line above
         // the brief detail. Null when the brief is config-less or its config has no goal.

@@ -105,6 +105,20 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert str(other_brief.id) not in [row["id"] for row in response.json()["results"]]
 
+    def test_investigation_ships_on_retrieve_but_not_on_list(
+        self, _mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        finding = {"question": "q", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True}
+        with team_scope(self.team.pk, canonical=True):
+            brief = ProductBrief.objects.create(
+                team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7, investigation=[finding]
+            )
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/{brief.id}/").json()
+        assert retrieved["investigation"] == [finding]
+        listed = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/").json()["results"][0]
+        assert "investigation" not in listed
+        assert "sections" not in listed  # the list serializer stays slim
+
     def test_config_crud_roundtrip(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         goal_insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
         create_response = self.client.post(

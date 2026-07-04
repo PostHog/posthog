@@ -25,6 +25,7 @@ import { BriefConfigModal } from './BriefConfigModal'
 import { CitationTag } from './CitationTag'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
+import { InvestigationCard } from './InvestigationCard'
 import { OpportunitiesPanel } from './OpportunitiesPanel'
 import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefSection, PulseTab, pulseLogic } from './pulseLogic'
 
@@ -281,6 +282,7 @@ function BriefDetail(): JSX.Element | null {
             {briefDetailSections.map((section, index) => (
                 <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
             ))}
+            <InvestigationCard />
         </div>
     )
 }

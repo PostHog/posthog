@@ -203,6 +203,8 @@ export interface PaginatedProductBriefListListApi {
 
 export type ProductBriefApiSectionsItem = { [key: string]: unknown }
 
+export type ProductBriefApiInvestigationItem = { [key: string]: unknown }
+
 export interface ProductBriefApi {
     readonly id: string
     /**
@@ -226,6 +228,8 @@ export interface ProductBriefApi {
     readonly period_days: number
     /** Generated brief sections: kind, title, markdown, citations, confidence. */
     readonly sections: readonly ProductBriefApiSectionsItem[]
+    /** Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into this list): question, hogql, result_summary, succeeded, error_type, elapsed_seconds. Empty for goal-less briefs. */
+    readonly investigation: readonly ProductBriefApiInvestigationItem[]
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**

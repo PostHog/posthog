@@ -123,6 +123,15 @@ class ProductBriefSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Generated brief sections: kind, title, markdown, citations, confidence.",
     )
+    investigation = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text=(
+            "Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into "
+            "this list): question, hogql, result_summary, succeeded, error_type, elapsed_seconds. "
+            "Empty for goal-less briefs."
+        ),
+    )
     sources_used = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
@@ -138,6 +147,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "trigger",
             "period_days",
             "sections",
+            "investigation",
             "sources_used",
             "error",
             "created_at",
@@ -157,10 +167,11 @@ class ProductBriefSerializer(serializers.ModelSerializer):
 
 
 class ProductBriefListSerializer(ProductBriefSerializer):
-    # The list view stays light: full section markdown is only shipped on retrieve.
-    # Omitting "sections" from fields is sufficient — DRF drops declared fields not listed there.
+    # The list view stays light: full section markdown and investigation findings are only
+    # shipped on retrieve. Omitting them from fields is sufficient — DRF drops declared fields
+    # not listed there.
     class Meta(ProductBriefSerializer.Meta):
-        fields = [f for f in ProductBriefSerializer.Meta.fields if f != "sections"]
+        fields = [f for f in ProductBriefSerializer.Meta.fields if f not in ("sections", "investigation")]
         read_only_fields = fields
 
 

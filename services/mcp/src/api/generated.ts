@@ -43753,6 +43753,8 @@ export namespace Schemas {
 
     export type ProductBriefSectionsItem = { [key: string]: unknown };
 
+    export type ProductBriefInvestigationItem = { [key: string]: unknown };
+
     export interface ProductBrief {
       readonly id: string;
       /**
@@ -43776,6 +43778,8 @@ export namespace Schemas {
       readonly period_days: number;
       /** Generated brief sections: kind, title, markdown, citations, confidence. */
       readonly sections: readonly ProductBriefSectionsItem[];
+      /** Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into this list): question, hogql, result_summary, succeeded, error_type, elapsed_seconds. Empty for goal-less briefs. */
+      readonly investigation: readonly ProductBriefInvestigationItem[];
       /** Names of the brief sources that contributed items. */
       readonly sources_used: readonly string[];
       /**

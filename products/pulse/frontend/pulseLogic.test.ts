@@ -313,6 +313,21 @@ describe('pulseLogic', () => {
         expect(logic.values.briefDetailGoal).toBeNull()
     })
 
+    it('narrows malformed investigation entries instead of crashing the detail view', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefDetailSuccess({
+            ...readyBrief,
+            investigation: [
+                { question: 'What is the CTR?', hogql: 'SELECT 1', result_summary: '0.42', succeeded: true },
+                { question: 42, succeeded: 'yes' },
+            ],
+        } as unknown as ProductBriefApi)
+        expect(logic.values.briefDetailInvestigation).toEqual([
+            { question: 'What is the CTR?', hogql: 'SELECT 1', result_summary: '0.42', succeeded: true },
+            { question: '', hogql: '', result_summary: '', succeeded: false },
+        ])
+    })
+
     it('schedules a brief for the config being edited', async () => {
         let captured: Record<string, any> | null = null
         useMocks({
