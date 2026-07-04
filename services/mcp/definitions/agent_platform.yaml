@@ -340,8 +340,10 @@ tools:
         title: List revisions of an application
         description: >
             List every revision (draft, ready, live, archived) for one application, newest first. Use to find the
-            current live revision id or pick a known-good revision to clone for an edit. Playbook: read the
-            `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+            current live revision id or pick a known-good revision to clone for an edit. Returns navigation metadata
+            only (id, state, parent revision, bundle_sha256, timestamps) — the full `spec` is omitted per row; fetch it
+            for a single revision via `agent-applications-revisions-retrieve`. Playbook: read the `reading-an-agent`
+            playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
     agent-applications-revisions-manifest-retrieve:
         operation: agent_applications_revisions_manifest_retrieve
         enabled: true

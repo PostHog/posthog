@@ -83,6 +83,7 @@ from .serializers import (
     MAX_SKILL_REFS,
     AgentApplicationSerializer,
     AgentRevisionSerializer,
+    AgentRevisionSummarySerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
@@ -1760,6 +1761,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     serializer_class = AgentRevisionSerializer
     queryset = AgentRevision.all_teams.all()
+
+    def get_serializer_class(self) -> type[drf_serializers.BaseSerializer]:
+        # `list` returns navigation metadata only — a revision's `spec` grows
+        # unbounded with the agent's tool/skill count, so echoing it per
+        # revision would blow the payload as history accumulates. Fetch one
+        # revision's spec via `retrieve`. Mirrors the sessions list/detail split.
+        if self.action == "list":
+            return AgentRevisionSummarySerializer
+        return AgentRevisionSerializer
 
     def get_application(self) -> AgentApplication:
         # drf-extensions nested routing passes the parent URL kwarg as

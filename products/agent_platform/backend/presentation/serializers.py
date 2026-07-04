@@ -404,6 +404,46 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         }
 
 
+class AgentRevisionSummarySerializer(serializers.ModelSerializer):
+    """Lightweight revision row for the list endpoint — navigation metadata
+    only, no `spec` and no `skill_refs`.
+
+    A revision's `spec` grows unbounded with the agent's tool and skill count
+    (every native tool's approval_policy, every client tool's args_schema and
+    description, every skill's description), so echoing the full spec for every
+    revision would blow the payload as revision history accumulates. The list's
+    job is to find the current live revision or pick one to clone; that needs
+    only the metadata below. Fetch a single revision's `spec` via
+    `agent-applications-revisions-retrieve`. Mirrors the sessions list/detail
+    split (see `sessions_list`)."""
+
+    created_by = serializers.SerializerMethodField(
+        help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
+    )
+
+    @extend_schema_field(_CREATED_BY_SCHEMA)
+    def get_created_by(self, obj: AgentRevision) -> dict[str, Any] | None:
+        return _resolve_created_by(self.context, obj.created_by_id)
+
+    class Meta:
+        model = AgentRevision
+        fields = [
+            "id",
+            "application",
+            "parent_revision",
+            "state",
+            "bundle_uri",
+            "bundle_sha256",
+            "created_by_id",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        # List is read-only navigation metadata; the full spec is written and
+        # read through the detail endpoint.
+        read_only_fields = fields
+
+
 class SetEnvRequestSerializer(serializers.Serializer):
     """Body shape for AgentApplicationViewSet.set_env.
 
