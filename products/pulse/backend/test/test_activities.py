@@ -2,7 +2,7 @@ import uuid
 import dataclasses
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -251,6 +251,28 @@ async def test_synthesize_activity_collects_candidates_only_for_movements(
     assert kwargs["items"] == [item]
     assert kwargs["candidates"] == expected_candidates
     assert collect_mock.called == bool(expected_candidates)
+
+
+async def test_synthesize_activity_reports_brief_generated(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    scoped_capture = MagicMock()
+    capture_mock = scoped_capture.return_value.__enter__.return_value
+    with (
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+        patch("products.pulse.backend.temporal.activities.ph_scoped_capture", scoped_capture),
+    ):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    capture_mock.assert_called_once()
+    kwargs = capture_mock.call_args.kwargs
+    assert kwargs["event"] == "product_brief_generated"
+    assert kwargs["properties"]["status"] == ProductBrief.Status.READY
+    assert kwargs["properties"]["new_opportunity_count"] == 1
+    assert kwargs["properties"]["has_config"] is False
 
 
 @pytest.mark.parametrize("kind", ["movement", "context"])
