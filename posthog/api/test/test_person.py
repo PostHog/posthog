@@ -1008,6 +1008,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"main_distinct_id": "not_on_this_person"},
         )
         self.assertEqual(response.status_code, 400)
+        # exceptions-hog flattens the field error into detail/attr, which is what the frontend toast
+        # reads (ApiError.detail); assert it so the surfaced message can't silently regress.
+        body = response.json()
+        self.assertEqual(body["attr"], "main_distinct_id")
+        self.assertIn("not on this person", body["detail"])
 
         original = get_person_by_id(self.team.id, person1.pk)
         assert original is not None
