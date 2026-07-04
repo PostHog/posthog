@@ -153,6 +153,26 @@ class TestFetchSessionDataActivity:
             result = await fetch_session_data_activity(input_data)
             assert result is False
 
+    @pytest.mark.asyncio
+    async def test_fetch_session_data_activity_no_metadata_returns_false(
+        self,
+        mock_single_session_summary_inputs: Callable,
+        mock_session_id: str,
+        ateam: Team,
+        auser: User,
+    ):
+        """Test that fetch_session_data_activity returns False (instead of raising) when the replay
+        metadata is missing, e.g. for expired or deleted recordings picked up by bulk sweeps."""
+        input_data = mock_single_session_summary_inputs(
+            mock_session_id, ateam.id, auser.id, "test-no-metadata-key-base"
+        )
+        with (
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
+            patch.object(SessionReplayEvents, "get_metadata", return_value=None),
+        ):
+            result = await fetch_session_data_activity(input_data)
+            assert result is False
+
 
 class TestExecuteSummarizeSessionVideoStream:
     @pytest.fixture(autouse=True)

@@ -31,8 +31,11 @@ def get_session_metadata(session_id: str, team_id: int, local_reads_prod: bool =
     else:
         session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team_id)
     if not session_metadata:
+        # Expired or deleted recordings have no replay metadata. This is expected (especially for
+        # bulk sweeps over old sessions), so log at warning level and let callers skip the session
+        # cleanly rather than surfacing it as an exception in error tracking.
         msg = f"No session metadata found for session_id {session_id}"
-        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        logger.warning(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
         raise ValueError(msg)
     return session_metadata
 

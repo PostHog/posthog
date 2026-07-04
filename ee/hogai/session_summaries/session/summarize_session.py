@@ -23,7 +23,9 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class SessionSummaryDBData:
-    session_metadata: RecordingMetadata
+    # None when the session was skipped early (no metadata, no events); callers must check
+    # session_events before relying on metadata.
+    session_metadata: RecordingMetadata | None
     session_events_columns: list[str] | None
     session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]] | None
 
@@ -79,11 +81,23 @@ class SingleSessionSummaryLlmInputs:
 
 
 async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> SessionSummaryDBData:
-    session_metadata = await database_sync_to_async(get_session_metadata)(
-        session_id=session_id,
-        team_id=team_id,
-        local_reads_prod=local_reads_prod,
-    )
+    try:
+        session_metadata = await database_sync_to_async(get_session_metadata)(
+            session_id=session_id,
+            team_id=team_id,
+            local_reads_prod=local_reads_prod,
+        )
+    except ValueError as e:
+        if "No session metadata found for session_id" in str(e):
+            # Expired/deleted recordings have no metadata. Skip the session cleanly, the same way
+            # missing events are handled below, so the caller returns without raising.
+            return SessionSummaryDBData(
+                session_metadata=None,
+                session_events_columns=None,
+                session_events=None,
+            )
+        # Raise any unexpected errors
+        raise
     try:
         session_events_columns, session_events = await database_sync_to_async(get_session_events)(
             team_id=team_id,
@@ -200,6 +214,7 @@ async def prepare_data_for_single_session_summary(
 ) -> SingleSessionSummaryData:
     assert session_db_data.session_events is not None  # Must be verified by caller
     assert session_db_data.session_events_columns is not None  # Must be verified by caller
+    assert session_db_data.session_metadata is not None  # Present whenever events are present
     prompt_data = prepare_prompt_data(
         session_id=session_id,
         # Convert to a dict, so that we can amend its values freely
