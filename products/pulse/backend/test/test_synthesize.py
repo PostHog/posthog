@@ -68,7 +68,9 @@ class TestSayLessGate:
 
     @patch("products.pulse.backend.generation.synthesize.MaxChatOpenAI")
     async def test_empty_items_short_circuits_without_llm(self, mock_llm: MagicMock) -> None:
-        out = await synthesize_brief(team=MagicMock(), user=MagicMock(), config=None, items=[], period_days=7)
+        out = await synthesize_brief(
+            team=MagicMock(), user=MagicMock(), config=None, items=[], period_days=7, candidates=[]
+        )
         assert out.sections == []
         assert out.opportunities == []
         mock_llm.assert_not_called()
@@ -86,7 +88,9 @@ class TestSayLessGate:
             fingerprint_hint="abc:0",
         )
         with pytest.raises(ValueError):
-            await synthesize_brief(team=MagicMock(), user=MagicMock(), config=None, items=[item], period_days=7)
+            await synthesize_brief(
+                team=MagicMock(), user=MagicMock(), config=None, items=[item], period_days=7, candidates=[]
+            )
 
 
 class TestRenderItems:

@@ -8,9 +8,9 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 
-from products.annotations.backend.models import Annotation
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.pulse.backend.sources.annotations import annotation_marker_summary, annotations_in_period
 
 MAX_CANDIDATES_PER_KIND = 10
 LABEL_MAX_CHARS = 100
@@ -39,19 +39,20 @@ def collect_causal_candidates(team: Team, period_days: int) -> list[CausalCandid
     now = timezone.now()
     period_start = now - timedelta(days=period_days)
     return [
-        *_flag_candidates(team, period_start, now),
+        *_flag_candidates(team, period_start),
         *_experiment_candidates(team, period_start, now),
         *_annotation_candidates(team, period_start, now),
     ]
 
 
-def _flag_candidates(team: Team, period_start: datetime, now: datetime) -> list[CausalCandidate]:
+def _flag_candidates(team: Team, period_start: datetime) -> list[CausalCandidate]:
     # updated_at moves on ANY save (auto_now), not just rollout changes — accepted v1 noise;
-    # precise change attribution would need the activity log.
+    # precise change attribution would need the activity log. No upper bound: auto_now can't
+    # be in the future.
     flags = (
         FeatureFlag.objects.filter(team=team, deleted=False)
         .annotate(changed_at=Coalesce(F("updated_at"), F("created_at")))
-        .filter(changed_at__gte=period_start, changed_at__lte=now)
+        .filter(changed_at__gte=period_start)
         .order_by("-changed_at")[:MAX_CANDIDATES_PER_KIND]
     )
     return [
@@ -102,27 +103,16 @@ def _experiment_candidate(experiment: Experiment, event: str, happened_at: datet
 
 
 def _annotation_candidates(team: Team, period_start: datetime, now: datetime) -> list[CausalCandidate]:
-    # Deliberately re-selects the rows the annotations source also emits: context items describe
-    # what was said, candidates carry the proximity semantics explain needs. Kept as a query
-    # (not an import of the source class) so the two can evolve independently.
-    annotations = (
-        Annotation.objects.filter(
-            Q(team=team) | Q(scope=Annotation.Scope.ORGANIZATION, organization_id=team.organization_id),
-            deleted=False,
-            content__isnull=False,
-        )
-        .exclude(content="")
-        .annotate(effective_date=Coalesce(F("date_marker"), F("created_at")))
-        .filter(effective_date__gte=period_start, effective_date__lte=now)
-        .order_by("-effective_date")[:MAX_CANDIDATES_PER_KIND]
-    )
+    # Same rows the annotations source emits as context items — the shared query keeps visibility
+    # semantics in one place; candidates re-shape them with the proximity semantics explain needs.
+    # Extending the annotations product's get_annotations_for_ai_context is a recorded follow-up.
     return [
         CausalCandidate(
             kind="annotation",
             ref=f"annotation:{annotation.id}",
             label=annotation.content[:LABEL_MAX_CHARS],
             happened_at=f"{annotation.effective_date:%Y-%m-%d}",
-            detail=f"Annotation marked {annotation.effective_date:%Y-%m-%d} ({annotation.get_scope_display()} scope).",
+            detail=f"Annotation {annotation_marker_summary(annotation)}.",
         )
-        for annotation in annotations
+        for annotation in annotations_in_period(team, period_start, now, MAX_CANDIDATES_PER_KIND)
     ]

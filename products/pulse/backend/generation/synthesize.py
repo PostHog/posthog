@@ -66,7 +66,7 @@ async def synthesize_brief(
     config: BriefConfig | None,
     items: list[SourceItem],
     period_days: int,
-    candidates: list[CausalCandidate] | None = None,
+    candidates: list[CausalCandidate],
 ) -> BriefOut:
     # Quiet periods must cost ~nothing: no items, no LLM call. Candidates alone are not a
     # brief — they only ever explain movements, so they can't rescue an empty period.
@@ -77,7 +77,7 @@ async def synthesize_brief(
         period_days=period_days,
         max_opportunities=MAX_OPPORTUNITIES,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
-        candidates_block=_render_candidates(candidates or []),
+        candidates_block=_render_candidates(candidates),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(

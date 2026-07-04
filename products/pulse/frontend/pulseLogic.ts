@@ -52,32 +52,17 @@ function parseCitation(citation: string): BriefCitation {
     return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
 }
 
-/** Tag labels for the citation types that link out; unknown types render as plain tags. */
-export const CITATION_TYPE_LABELS: Record<string, string> = {
-    insight: 'Insight',
-    dashboard: 'Dashboard',
-    flag: 'Feature flag',
-    experiment: 'Experiment',
-}
-
-/** URL for a citation's target scene, or null for unknown types (rendered unlinked). */
-export function citationUrl({ type, ref }: BriefCitation): string | null {
-    if (!ref) {
-        return null
-    }
-    switch (type) {
-        case 'insight':
-            return urls.insightView(ref as InsightShortId)
-        case 'dashboard':
-            return urls.dashboard(ref)
-        case 'flag':
-            // The backend cites flags by numeric id (the flag scene's param); the key lives in the label.
-            return urls.featureFlag(ref)
-        case 'experiment':
-            return urls.experiment(ref)
-        default:
-            return null
-    }
+/**
+ * Citation types that link out, in one table so the tag label and its URL can't drift.
+ * Unknown types render as plain tags. Flags and experiments are cited by numeric id
+ * (the scene route param); keys/names live in the candidate labels instead.
+ */
+export const CITATION_TYPES: Record<string, { label: string; url: (ref: string) => string }> = {
+    insight: { label: 'Insight', url: (ref) => urls.insightView(ref as InsightShortId) },
+    dashboard: { label: 'Dashboard', url: (ref) => urls.dashboard(ref) },
+    flag: { label: 'Feature flag', url: (ref) => urls.featureFlag(ref) },
+    experiment: { label: 'Experiment', url: (ref) => urls.experiment(ref) },
+    annotation: { label: 'Annotation', url: (ref) => urls.annotation(Number(ref)) },
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {

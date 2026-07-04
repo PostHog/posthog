@@ -9,7 +9,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { BriefConfigApi, ProductBriefApi } from './generated/api.schemas'
-import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, citationUrl, pulseLogic } from './pulseLogic'
+import {
+    BRIEF_ALREADY_GENERATING_MESSAGE,
+    CITATION_TYPES,
+    MAX_CONSECUTIVE_POLL_FAILURES,
+    pulseLogic,
+} from './pulseLogic'
 
 const generatingBrief = {
     id: 'brief-1',
@@ -276,14 +281,17 @@ describe('pulseLogic', () => {
         expect(logic.values.briefDetailSections[0]).toEqual(expected)
     })
 
-    it.each<[string, { type: string; ref: string }, string | null]>([
-        ['insight', { type: 'insight', ref: 'abc123' }, '/insights/abc123'],
-        ['dashboard', { type: 'dashboard', ref: '5' }, '/dashboard/5'],
-        ['flag', { type: 'flag', ref: '123' }, '/feature_flags/123'],
-        ['experiment', { type: 'experiment', ref: '45' }, '/experiments/45'],
-        ['unknown type falls back to unlinked', { type: 'signal_report', ref: 'x1' }, null],
-        ['empty ref never links', { type: 'flag', ref: '' }, null],
-    ])('maps %s citations to a scene URL', (_name, citation, expected) => {
-        expect(citationUrl(citation)).toEqual(expected)
+    it.each<[string, string, string]>([
+        ['insight', 'abc123', '/insights/abc123'],
+        ['dashboard', '5', '/dashboard/5'],
+        ['flag', '123', '/feature_flags/123'],
+        ['experiment', '45', '/experiments/45'],
+        ['annotation', '77', '/data-management/annotations/77'],
+    ])('maps %s citations to a scene URL', (type, ref, expected) => {
+        expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
+    })
+
+    it('has no citation table entry for unknown types, which render unlinked', () => {
+        expect(CITATION_TYPES['signal_report']).toBeUndefined()
     })
 })

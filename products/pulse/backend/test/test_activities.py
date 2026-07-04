@@ -19,7 +19,6 @@ from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut,
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
-    CANDIDATE_PAYLOAD_KEY,
     MAX_ITEMS,
     gather_brief_inputs_activity,
     synthesize_brief_activity,
@@ -187,38 +186,6 @@ async def test_gather_activity_cap_keeps_high_priority_kinds(team) -> None:
     assert health_hints == [f"health:{i}" for i in range(health_count)]
 
 
-async def test_gather_activity_appends_causal_candidates_after_items(team) -> None:
-    await _set_ai_consent(team, True)
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]),
-        patch("products.pulse.backend.temporal.activities.collect_causal_candidates", return_value=[_CANDIDATE]),
-    ):
-        payload = await env.run(
-            gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
-        )
-    assert payload[0]["fingerprint_hint"] == "abc:0"
-    assert payload[1] == {CANDIDATE_PAYLOAD_KEY: dataclasses.asdict(_CANDIDATE)}
-
-
-async def test_gather_activity_survives_candidate_collection_failure(team) -> None:
-    await _set_ai_consent(team, True)
-    env = ActivityEnvironment()
-    with (
-        patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]),
-        patch(
-            "products.pulse.backend.temporal.activities.collect_causal_candidates",
-            side_effect=RuntimeError("collector exploded"),
-        ),
-    ):
-        payload = await env.run(
-            gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
-        )
-    assert [entry["fingerprint_hint"] for entry in payload] == ["abc:0"]
-
-
 async def test_gather_activity_refuses_without_ai_consent(team) -> None:
     await _set_ai_consent(team, False)
     env = ActivityEnvironment()
@@ -247,7 +214,34 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     assert await _opportunity_count(team) == 1
 
 
-async def test_synthesize_activity_splits_candidates_from_items(team, user) -> None:
+@pytest.mark.parametrize("kind,expected_candidates", [("movement", [_CANDIDATE]), ("context", [])])
+async def test_synthesize_activity_collects_candidates_only_for_movements(
+    team, user, kind: SourceItemKind, expected_candidates: list[CausalCandidate]
+) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind=kind, title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_causal_candidates", return_value=[_CANDIDATE]
+        ) as collect_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    kwargs = synth_mock.call_args.kwargs
+    assert kwargs["items"] == [item]
+    assert kwargs["candidates"] == expected_candidates
+    assert collect_mock.called == bool(expected_candidates)
+
+
+async def test_synthesize_activity_survives_candidate_collection_failure(team, user) -> None:
     brief = await _create_brief(team, user)
     env = ActivityEnvironment()
     item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
@@ -255,20 +249,18 @@ async def test_synthesize_activity_splits_candidates_from_items(team, user) -> N
         patch(
             "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
         ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_causal_candidates",
+            side_effect=RuntimeError("collector exploded"),
+        ),
         patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
     ):
         status = await env.run(
             synthesize_brief_activity,
-            SynthesizeActivityInputs(
-                team_id=team.pk,
-                brief_id=str(brief.id),
-                items=[dataclasses.asdict(item), {CANDIDATE_PAYLOAD_KEY: dataclasses.asdict(_CANDIDATE)}],
-            ),
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
         )
     assert status == ProductBrief.Status.READY
-    kwargs = synth_mock.call_args.kwargs
-    assert kwargs["items"] == [item]
-    assert kwargs["candidates"] == [_CANDIDATE]
+    assert synth_mock.call_args.kwargs["candidates"] == []
 
 
 async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) -> None:

@@ -23,14 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BriefConfigModal } from './BriefConfigModal'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
-import {
-    BRIEF_ALREADY_GENERATING_MESSAGE,
-    BriefCitation,
-    BriefSection,
-    CITATION_TYPE_LABELS,
-    citationUrl,
-    pulseLogic,
-} from './pulseLogic'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefCitation, BriefSection, CITATION_TYPES, pulseLogic } from './pulseLogic'
 
 export const scene: SceneExport = {
     component: PulseScene,
@@ -279,13 +272,13 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
 
 function CitationTag({ citation }: { citation: BriefCitation }): JSX.Element {
     const { type, ref } = citation
-    const url = citationUrl(citation)
+    const citationType = ref ? CITATION_TYPES[type] : undefined
 
-    if (url) {
+    if (citationType) {
         return (
-            <Link to={url}>
+            <Link to={citationType.url(ref)}>
                 <LemonTag>
-                    {CITATION_TYPE_LABELS[type]} {ref}
+                    {citationType.label} {ref}
                 </LemonTag>
             </Link>
         )
