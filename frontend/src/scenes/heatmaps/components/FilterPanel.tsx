@@ -255,7 +255,7 @@ export function FilterPanel({
                         <div className="mt-2 md:mt-0">
                             <Popover
                                 overlay={
-                                    <div className="p-2 w-80 deprecated-space-y-2">
+                                    <div className="p-2 w-80 flex flex-col gap-2">
                                         <LemonSwitch
                                             checked={clickmapEnabled}
                                             onChange={onClickmapEnabledChange}

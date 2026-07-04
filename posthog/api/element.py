@@ -8,7 +8,7 @@ from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ProductKey
+from posthog.schema import PersonsOnEventsMode, ProductKey
 
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -157,9 +157,14 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # which only ever queries date range, event type, and URL
                 # person-property filters (e.g. filter_test_accounts) would otherwise render
                 # as a persons subquery, which exceeds query memory limits on large teams
+                # only possible when person properties live on the events table
                 person_properties_mode = (
                     PersonPropertiesMode.DIRECT_ON_EVENTS
-                    if self.team.person_on_events_querying_enabled
+                    if self.team.person_on_events_mode
+                    in (
+                        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                        PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    )
                     else PersonPropertiesMode.USING_SUBQUERY
                 )
                 prop_filters, prop_filter_params = parse_prop_grouped_clauses(
@@ -170,6 +175,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("person_properties_mode", person_properties_mode.name)
             span.set_attribute("limit", limit)
             span.set_attribute("offset", offset)
             span.set_attribute("sampling_factor", sampling_factor)

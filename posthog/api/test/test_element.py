@@ -167,17 +167,21 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
-    def test_element_stats_can_filter_by_person_properties(self) -> None:
-        self._setup_events()
+    @parameterized.expand([True, False])
+    def test_element_stats_can_filter_by_person_properties(self, person_on_events: bool) -> None:
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=person_on_events):
+            self._setup_events()
 
-        properties_filter = json.dumps(
-            [{"key": "email", "value": "two@mail.com", "operator": "exact", "type": "person"}]
-        )
-        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
+            properties_filter = json.dumps(
+                [{"key": "email", "value": "two@mail.com", "operator": "exact", "type": "person"}]
+            )
+            response = self.client.get(
+                f"/api/element/stats/?paginate_response=true&properties={properties_filter}"
+            ).json()
 
-        assert len(response["results"]) == 1
-        assert response["results"][0]["elements"][0]["href"] == "https://posthog.com/event-2"
-        assert response["results"][0]["count"] == 1
+            assert len(response["results"]) == 1
+            assert response["results"][0]["elements"][0]["href"] == "https://posthog.com/event-2"
+            assert response["results"][0]["count"] == 1
 
     def test_element_stats_can_filter_by_hogql(self) -> None:
         self._setup_events()
