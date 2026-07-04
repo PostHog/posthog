@@ -49,15 +49,31 @@ impl RemoteStaging {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<Option<(PathBuf, u64)>, Error>>,
     {
-        if self.backend.size(key).await?.is_some() {
-            debug!("Key already staged remotely: {}", key);
-            return Ok(());
+        // Guarantee a public-facing message on the staging legs of this path (attach
+        // check + ingest) without shadowing more specific ones (ceiling breach, rate
+        // limits). Download errors keep their own source-specific messages.
+        let staging_user_msg = || {
+            format!(
+                "Preparing import data for part {key} failed. The job retries temporary \
+                 storage errors automatically; if it stays paused, resume it to retry, \
+                 and if it keeps failing the source file may be corrupt — re-export it \
+                 or split it and run the remainder as a separate job."
+            )
+        };
+        match self.backend.size(key).await {
+            Ok(Some(_)) => {
+                debug!("Key already staged remotely: {}", key);
+                return Ok(());
+            }
+            Ok(None) => {}
+            Err(e) => return Err(crate::error::ensure_user_message(e, staging_user_msg())),
         }
         let downloaded = download().await?;
         let size = self
             .stage_downloaded(key, downloaded.map(|(path, _)| path))
-            .await?;
-        info!("Staged key {key} remotely ({size} decompressed bytes)");
+            .await
+            .map_err(|e| crate::error::ensure_user_message(e, staging_user_msg()))?;
+        info!(key, size, "Staged key remotely (decompressed bytes)");
         Ok(())
     }
 
@@ -76,7 +92,14 @@ impl RemoteStaging {
                 Ok(chunk) => return Ok(chunk),
                 Err(e) => {
                     if retries == 0 {
-                        return Err(e);
+                        return Err(crate::error::ensure_user_message(
+                            e,
+                            format!(
+                                "Reading staged import data for part {key} failed. The job \
+                                 retries temporary storage errors automatically; if it stays \
+                                 paused, resume it to continue from where it left off."
+                            ),
+                        ));
                     }
                     warn!(
                         key,

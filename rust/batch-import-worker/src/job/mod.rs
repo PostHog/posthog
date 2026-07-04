@@ -15,7 +15,8 @@ use crate::{
     emit::Emitter,
     error::{
         extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
-        is_transient_network_error, is_transient_server_error, UserError,
+        is_transient_network_error, is_transient_object_store_error, is_transient_server_error,
+        UserError,
     },
     extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
@@ -81,6 +82,18 @@ fn decide_on_error(
         let delay = policy.next_delay(current_attempt);
         let (status_msg, display_msg) =
             format_backoff_messages(current_date_range, delay, "Upstream server error (5xx)");
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else if is_transient_object_store_error(err) {
+        // Temp-bucket staging I/O that outlived the S3 client's internal retries
+        // (throttling, 5xx, timeouts, transport). Backoff and retry rather than
+        // pausing a customer job over infrastructure weather.
+        let delay = policy.next_delay(current_attempt);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Temporary storage error");
         ErrorHandlingDecision::Backoff {
             delay,
             status_msg,
@@ -324,9 +337,15 @@ pub(crate) async fn select_and_fetch_next_chunk(
     // that pauses the job.
     if !is_last_chunk && chunk_bytes == chunk_size && parsed.consumed <= 1 && parsed.data.is_empty()
     {
-        return Err(Error::from(UserError::new(format!(
-            "A single record in part {} exceeds the maximum chunk size ({chunk_size} bytes) \
-             and cannot be processed; split the oversized record into smaller ones.",
+        // Public message stays free of internal tuning values (chunk_size); the root
+        // error carries them for status_message and logs.
+        return Err(Error::msg(format!(
+            "single record exceeds chunk_size={chunk_size} in part {} at offset {}",
+            next_part.key, next_part.current_offset
+        ))
+        .context(UserError::new(format!(
+            "A single record in part {} is too large to process. Split the oversized \
+             record into smaller records and re-run this date range or file.",
             next_part.key
         ))));
     }
@@ -946,6 +965,74 @@ mod tests {
             }
             _ => panic!("expected pause"),
         }
+    }
+
+    /// Build the real object_store error a temp-bucket read/stage produces for the
+    /// given S3 response status (client-level retries disabled for speed).
+    async fn object_store_error_with_status(status: u16) -> Error {
+        use object_store::ObjectStoreExt;
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.any_request();
+            then.status(status);
+        });
+        let store = object_store::aws::AmazonS3Builder::new()
+            .with_bucket_name("b")
+            .with_endpoint(server.base_url())
+            .with_region("us-east-1")
+            .with_allow_http(true)
+            .with_virtual_hosted_style_request(false)
+            .with_access_key_id("k")
+            .with_secret_access_key("s")
+            .with_retry(object_store::RetryConfig {
+                max_retries: 0,
+                retry_timeout: std::time::Duration::from_secs(5),
+                ..Default::default()
+            })
+            .build()
+            .unwrap();
+        let err = store
+            .get(&object_store::path::Path::from("k.data"))
+            .await
+            .unwrap_err();
+        Error::from(err).context("Failed to read staged object for key: k")
+    }
+
+    fn policy_for_test() -> crate::job::backoff::BackoffPolicy {
+        crate::job::backoff::BackoffPolicy::new(
+            std::time::Duration::from_secs(60),
+            2.0,
+            std::time::Duration::from_secs(3600),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_transient_storage_error() {
+        // A temp-bucket 503 that outlived the S3 client's internal retries must
+        // reach job backoff, not pause a customer job over infrastructure weather.
+        let err = object_store_error_with_status(503).await;
+        let decision = decide_on_error(&err, None, policy_for_test(), 0, "unused");
+        match decision {
+            ErrorHandlingDecision::Backoff { status_msg, .. } => {
+                assert!(
+                    status_msg.contains("Temporary storage error"),
+                    "unexpected status: {status_msg}"
+                );
+            }
+            other => panic!("expected backoff for storage 503, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_pause_for_permanent_storage_error() {
+        // 403 (IAM misconfig) must pause visibly: with unlimited backoff attempts,
+        // classifying it transient would retry it invisibly forever.
+        let err = object_store_error_with_status(403).await;
+        let decision = decide_on_error(&err, None, policy_for_test(), 0, "Storage error");
+        assert!(
+            matches!(decision, ErrorHandlingDecision::Pause { .. }),
+            "expected pause for storage 403, got {decision:?}"
+        );
     }
 
     #[tokio::test]
@@ -1761,16 +1848,26 @@ mod tests {
             .await;
 
             let err = result.expect_err("oversized record must fail fast, not crawl");
-            // Actionable, user-facing message so the job pauses (not a transient retry).
+            // Actionable, user-facing message so the job pauses (not a transient retry),
+            // free of internal tuning values; the internal chain keeps chunk_size.
             let user_msg = crate::error::get_user_message(&err);
             assert!(
-                user_msg.contains("exceeds the maximum chunk size"),
+                user_msg.contains("too large to process"),
                 "unexpected message: {user_msg}"
+            );
+            assert!(
+                !user_msg.contains("chunk_size") && !user_msg.contains("1024"),
+                "public message must not leak internal tuning values: {user_msg}"
+            );
+            assert!(
+                format!("{err:#}").contains("chunk_size=1024"),
+                "internal chain must carry the limit detail: {err:#}"
             );
             assert!(!crate::error::is_rate_limited_error(&err));
             assert!(!crate::error::is_timeout_error(&err));
             assert!(!crate::error::is_transient_network_error(&err));
             assert!(!crate::error::is_transient_server_error(&err));
+            assert!(!crate::error::is_transient_object_store_error(&err));
         }
 
         #[tokio::test]
