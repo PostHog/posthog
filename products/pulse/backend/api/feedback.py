@@ -35,7 +35,11 @@ def record_vote(
     votes table is a straight backfill if the shape ever needs to grow.
     """
     with transaction.atomic():
-        instance = model.objects.for_team(team_id).select_for_update().get(pk=pk)
+        # select_related avoids a lazy created_by SELECT at serialization; of=("self",) locks only the
+        # main row — FOR UPDATE cannot lock the nullable side of the created_by outer join.
+        instance = (
+            model.objects.for_team(team_id).select_related("created_by").select_for_update(of=("self",)).get(pk=pk)
+        )
         votes = dict(_votes(instance.feedback))
         if helpful is None:
             votes.pop(str(user_id), None)
