@@ -138,27 +138,6 @@ export namespace Schemas {
     }
 
     /**
-     * A team-wide account note — an internal notebook linked to a Customer analytics account.
-     */
-    export interface AccountNote {
-      /** URL-safe short ID of the notebook. */
-      readonly short_id: string;
-      /**
-         * Title of the note.
-         * @nullable
-         */
-      readonly title: string | null;
-      /** When the note was created. */
-      readonly created_at: string;
-      /** When the note was last modified. */
-      readonly last_modified_at: string;
-      /** UUID of the account this note is linked to. */
-      readonly account_id: string;
-      /** Name of the account this note is linked to. */
-      readonly account_name: string;
-    }
-
-    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -213,6 +192,29 @@ export namespace Schemas {
       /** @nullable */
       readonly hedgehog_config: UserBasicHedgehogConfig;
       role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    /**
+     * A team-wide account note — an internal notebook linked to a Customer analytics account.
+     */
+    export interface AccountNote {
+      /** URL-safe short ID of the notebook. */
+      readonly short_id: string;
+      /**
+         * Title of the note.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the note was created. */
+      readonly created_at: string;
+      /** When the note was last modified. */
+      readonly last_modified_at: string;
+      /** UUID of the account this note is linked to. */
+      readonly account_id: string;
+      /** Name of the account this note is linked to. */
+      readonly account_name: string;
+      /** User who created the note, if known. */
+      readonly created_by: UserBasic | null;
     }
 
     export interface AccountNotebook {
@@ -8933,6 +8935,7 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
+     * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
      * * `daily` - daily
@@ -8943,6 +8946,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      RealTime: 'real_time',
       Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
@@ -9008,8 +9012,9 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
+       * * `real_time` - real_time
        * * `every_15_minutes` - every_15_minutes
        * * `hourly` - hourly
        * * `daily` - daily
@@ -36192,8 +36197,9 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
+       * * `real_time` - real_time
        * * `every_15_minutes` - every_15_minutes
        * * `hourly` - hourly
        * * `daily` - daily
@@ -60572,6 +60578,14 @@ export namespace Schemas {
     };
 
     export type AccountNotesListParams = {
+    /**
+     * Only return notes linked to this account.
+     */
+    account_id?: string;
+    /**
+     * Only return notes created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[];
     /**
      * Number of results to return per page.
      */

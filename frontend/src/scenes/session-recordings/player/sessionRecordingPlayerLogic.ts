@@ -42,6 +42,7 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import {
     isWithinIngestionGracePeriod,
     SessionRecordingDataCoordinatorLogicProps,
@@ -2373,6 +2374,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 url: values.currentURL,
             }
             localStorage.setItem(key, JSON.stringify(data))
+            // the player may be open in the global modal (e.g. from the heatmap recording
+            // fallback); close it or the heatmap scene renders hidden beneath it
+            sessionPlayerModalLogic.findMounted()?.actions.closeSessionPlayer()
             router.actions.push(urls.heatmapRecording(`iframeStorage=${key}`))
         },
 
