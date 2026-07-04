@@ -6,6 +6,16 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="The HogQL the node contains; the sandbox runs it through the data plane. Must not be blank.",
     )
+    refs = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        default=dict,
+        help_text=(
+            "Available upstream node definitions, mapping each named node's dataframe name to its "
+            "HogQL. The backend inlines the ones this node actually references as CTEs so the join "
+            "recomputes in ClickHouse; unreferenced entries are ignored."
+        ),
+    )
 
 
 class NotebookSQLV2PageRequestSerializer(serializers.Serializer):

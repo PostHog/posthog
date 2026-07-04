@@ -157,6 +157,42 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
         mock_start.assert_not_called()
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_inlines_referenced_nodes_as_ctes(self, _mock_enabled, mock_start):
+        # Paging re-queries run.code, so the stored + dispatched query must already carry the
+        # referenced definitions as CTEs — otherwise `from df1` hits a non-existent table.
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "join-node",
+                "code": "select * from df1 join df2 on df1.id = df2.id",
+                "refs": {"df1": "select id from events", "df2": "select id from persons"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
+        self.assertIn("df2 AS (SELECT id FROM persons)", run.code)
+        self.assertEqual(mock_start.call_args.args[0].code, run.code)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_rejects_reference_cycle_before_dispatch(self, _mock_enabled, mock_start):
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select * from a",
+                "refs": {"a": "select * from b", "b": "select * from a"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
+        mock_start.assert_not_called()
+
     @patch(
         "products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow",
         side_effect=RuntimeError("temporal unavailable"),

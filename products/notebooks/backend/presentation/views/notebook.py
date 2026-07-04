@@ -57,6 +57,7 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     is_sql_v2_enabled,
 )
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -888,11 +889,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
 
+        # Inline referenced upstream nodes as CTEs now, once, so the run stores a
+        # self-contained query and paging re-queries it without re-resolving refs.
+        try:
+            resolved_code = resolve_sql_v2_references(
+                serializer.validated_data["code"], serializer.validated_data.get("refs") or {}
+            )
+        except SQLV2ReferenceError as e:
+            return Response({"detail": str(e)}, status=400)
+
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
             notebook=notebook,
             node_id=serializer.validated_data["node_id"],
-            code=serializer.validated_data["code"],
+            code=resolved_code,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -903,7 +913,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook_short_id=notebook.short_id,
                     team_id=self.team_id,
                     user_id=user.id if isinstance(user, User) else None,
-                    code=serializer.validated_data["code"],
+                    code=resolved_code,
                 )
             )
         except Exception:

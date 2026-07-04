@@ -1,6 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -13,7 +15,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Result = {
@@ -26,6 +28,8 @@ export type NotebookNodeSQLV2Result = {
 
 export type NotebookNodeSQLV2Attributes = {
     code: string
+    // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
+    name?: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     outputTab?: OutputTab | null
@@ -211,14 +215,33 @@ const Settings = ({
     const { runQuery } = useActions(dataLogic)
 
     return (
-        <NotebookCodeSQLEditorSettings
-            attributes={attributes}
-            updateAttributes={updateAttributes}
-            tabIdSuffix="datav2"
-            onRunQuery={(code) => runQuery(code)}
-            runQueryLoading={isRunning}
-            runQueryTooltip="Run SQL (v2) query"
-        />
+        <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center gap-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                <LemonLabel className="text-xs">Name</LemonLabel>
+                <LemonInput
+                    size="xsmall"
+                    className="max-w-40"
+                    placeholder="e.g. df1"
+                    value={attributes.name ?? ''}
+                    onChange={(name) => updateAttributes({ name })}
+                    // A dataframe name is a HogQL identifier, so other nodes can `from df1`.
+                    onKeyDown={(event) => event.stopPropagation()}
+                />
+                <span className="text-[10px] text-muted">Reference this from another SQL node to join it</span>
+            </div>
+            <div className="min-h-0 flex-1">
+                <NotebookCodeSQLEditorSettings
+                    attributes={attributes}
+                    updateAttributes={updateAttributes}
+                    tabIdSuffix="datav2"
+                    onRunQuery={(code) =>
+                        runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))
+                    }
+                    runQueryLoading={isRunning}
+                    runQueryTooltip="Run SQL (v2) query"
+                />
+            </div>
+        </div>
     )
 }
 
@@ -232,6 +255,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
     startExpanded: true,
     attributes: {
         code: {
+            default: '',
+        },
+        name: {
             default: '',
         },
         runId: {

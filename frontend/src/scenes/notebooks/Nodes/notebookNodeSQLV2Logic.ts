@@ -3,8 +3,37 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { NotebookNodeType } from '../types'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
+
+// Walk the notebook document for every named SQLV2 node (except this one) and return
+// its dataframe name -> HogQL. The backend inlines the referenced ones as CTEs.
+export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<string, string> {
+    const refs: Record<string, string> = {}
+    const visit = (node: unknown): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        const { type, attrs, content } = node as {
+            type?: string
+            attrs?: { nodeId?: string; name?: string; code?: string }
+            content?: unknown[]
+        }
+        if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId !== selfNodeId) {
+            const name = attrs.name?.trim()
+            const code = attrs.code?.trim()
+            if (name && code) {
+                refs[name] = attrs.code as string
+            }
+        }
+        if (Array.isArray(content)) {
+            content.forEach(visit)
+        }
+    }
+    visit(doc)
+    return refs
+}
 
 const POLL_INTERVAL_MS = 1000
 const MAX_POLL_ATTEMPTS = 150 // ~2.5 minutes at 1s
@@ -32,7 +61,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     props({} as NotebookNodeSQLV2LogicProps),
     key((props) => props.nodeId),
     actions({
-        runQuery: (code: string) => ({ code }),
+        // refs maps each named sibling node's dataframe name to its HogQL; the backend
+        // inlines the ones this query references as CTEs (Journey 3).
+        runQuery: (code: string, refs: Record<string, string> = {}) => ({ code, refs }),
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
@@ -139,7 +170,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         return {
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
-            runQuery: async ({ code }) => {
+            runQuery: async ({ code, refs }) => {
                 if (!code.trim()) {
                     actions.setRunError('Query is empty — type some HogQL first.')
                     actions.setIsRunning(false)
@@ -149,6 +180,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
+                        refs,
                     })
                     props.updateAttributes({ runId: run_id, result: null })
                     actions.startPolling(run_id)
