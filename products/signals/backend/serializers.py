@@ -612,3 +612,68 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class ReviewCommentEntrySerializer(serializers.Serializer):
+    """One entry in a pull request's review conversation — a submitted review, an inline
+    diff-thread comment, or a top-level conversation comment, normalized to a single shape."""
+
+    # Plain CharField (not ChoiceField) to keep GitHub's kind vocabulary out of the shared OpenAPI
+    # enum namespace; the value is server-generated and simply echoed to the UI.
+    kind = serializers.CharField(
+        read_only=True,
+        help_text="What produced this entry: 'review' (a submitted review), 'review_comment' "
+        "(an inline diff-thread comment), or 'issue_comment' (a top-level conversation comment).",
+    )
+    author = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub login of the author, or null when GitHub did not attribute the entry.",
+    )
+    body = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="The comment or review body as GitHub-flavoured markdown. May be empty for a "
+        "verdict-only review (e.g. an approval with no note).",
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the entry was created / the review submitted (ISO 8601).",
+    )
+    # Plain CharField (not ChoiceField) on purpose: keeps GitHub's review-state vocabulary out of
+    # the shared OpenAPI enum namespace and avoids a name collision with other products' enums.
+    review_state = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="For 'review' entries, the review verdict: APPROVED, CHANGES_REQUESTED, or "
+        "COMMENTED. Null for inline and conversation comments.",
+    )
+    path = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="For inline diff-thread comments, the file the comment is attached to. Null otherwise.",
+    )
+    line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="For inline diff-thread comments, the line in the diff the comment is attached to "
+        "(falls back to the original line for an outdated thread). Null otherwise.",
+    )
+    html_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Link to the entry on GitHub, or null when GitHub did not provide one.",
+    )
+
+
+class ReviewCommentsResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact review-comments endpoint — the review conversation of the
+    report's implementation pull request, merged into one time-ordered list."""
+
+    comments = ReviewCommentEntrySerializer(
+        many=True,
+        read_only=True,
+        help_text="Review activity for the pull request (submitted reviews, inline diff-thread "
+        "comments, and conversation comments), oldest first.",
+    )

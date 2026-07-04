@@ -2917,6 +2917,123 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def get_pull_request_comments(self, repository: str, pull_number: int) -> dict[str, Any]:
+        """Return the review activity for a pull request as a single time-ordered list.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). Three GitHub endpoints are merged into one ``comments`` list so the caller can render
+        the whole review conversation in order:
+
+        - ``GET /pulls/{n}/reviews`` — review submissions carrying a verdict (APPROVED /
+          CHANGES_REQUESTED / COMMENTED),
+        - ``GET /pulls/{n}/comments`` — inline diff-thread comments (with file ``path`` + ``line``),
+        - ``GET /issues/{n}/comments`` — top-level conversation comments.
+
+        ``repository`` and ``pull_number`` reach us from team-writable artefact content / URLs, so
+        they're validated before interpolation into the authenticated request path — a crafted value
+        could otherwise redirect the request to a different GitHub endpoint. On any upstream failure
+        this returns ``{success: False, status_code}`` rather than raising, so the caller never 500s
+        on a GitHub error (mirrors :meth:`get_diff`).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        if not isinstance(pull_number, int) or pull_number <= 0:
+            return {"success": False, "error": f"Invalid pull request number '{pull_number}'.", "status_code": 400}
+
+        def _fetch(path: str, endpoint: str) -> list[dict[str, Any]] | int:
+            """Return the parsed JSON array, or an HTTP-style status code on a non-200 / network error."""
+            try:
+                response = self.api_request("GET", path, endpoint=endpoint, params={"per_page": 100})
+            except GitHubIntegrationError:
+                return 502
+            if response.status_code != 200:
+                return response.status_code
+            body = response.json()
+            return body if isinstance(body, list) else []
+
+        reviews_raw = _fetch(
+            f"/repos/{repo_path}/pulls/{pull_number}/reviews",
+            "/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+        )
+        if isinstance(reviews_raw, int):
+            return {"success": False, "error": "Failed to fetch reviews.", "status_code": reviews_raw}
+        inline_raw = _fetch(
+            f"/repos/{repo_path}/pulls/{pull_number}/comments",
+            "/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+        )
+        if isinstance(inline_raw, int):
+            return {"success": False, "error": "Failed to fetch review comments.", "status_code": inline_raw}
+        conversation_raw = _fetch(
+            f"/repos/{repo_path}/issues/{pull_number}/comments",
+            "/repos/{owner}/{repo}/issues/{pull_number}/comments",
+        )
+        if isinstance(conversation_raw, int):
+            return {
+                "success": False,
+                "error": "Failed to fetch conversation comments.",
+                "status_code": conversation_raw,
+            }
+
+        def _login(item: dict[str, Any]) -> str | None:
+            user = item.get("user")
+            return user.get("login") if isinstance(user, dict) else None
+
+        comments: list[dict[str, Any]] = []
+        for review in reviews_raw:
+            state = review.get("state")
+            body = review.get("body") or ""
+            # A PENDING review has not been submitted yet. GitHub also emits a bodyless COMMENTED
+            # review row as the container for each batch of inline comments — those carry no verdict
+            # or prose of their own, so drop them; the inline comments themselves are surfaced below.
+            if not state or state == "PENDING" or (state == "COMMENTED" and not body.strip()):
+                continue
+            comments.append(
+                {
+                    "kind": "review",
+                    "author": _login(review),
+                    "body": body,
+                    "created_at": review.get("submitted_at"),
+                    "review_state": state,
+                    "path": None,
+                    "line": None,
+                    "html_url": review.get("html_url"),
+                }
+            )
+        for inline in inline_raw:
+            comments.append(
+                {
+                    "kind": "review_comment",
+                    "author": _login(inline),
+                    "body": inline.get("body") or "",
+                    "created_at": inline.get("created_at"),
+                    "review_state": None,
+                    "path": inline.get("path"),
+                    # `line` is null for comments on a since-changed diff; fall back to the line the
+                    # comment was originally left on so an outdated thread still shows a location.
+                    "line": inline.get("line") if inline.get("line") is not None else inline.get("original_line"),
+                    "html_url": inline.get("html_url"),
+                }
+            )
+        for conversation in conversation_raw:
+            comments.append(
+                {
+                    "kind": "issue_comment",
+                    "author": _login(conversation),
+                    "body": conversation.get("body") or "",
+                    "created_at": conversation.get("created_at"),
+                    "review_state": None,
+                    "path": None,
+                    "line": None,
+                    "html_url": conversation.get("html_url"),
+                }
+            )
+
+        # Oldest-first so the section reads like the PR conversation top to bottom. Missing
+        # timestamps sort last rather than blowing up the comparison.
+        comments.sort(key=lambda c: c["created_at"] or "")
+        return {"success": True, "comments": comments}
+
 
 class GitLabIntegrationError(Exception):
     pass

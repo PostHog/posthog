@@ -31,6 +31,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ReviewCommentsResponseApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -388,6 +389,26 @@ export const signalsReportArtefactsDiff = async (
     options?: RequestInit
 ): Promise<CommitDiffResponseApi> => {
     return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportArtefactsReviewCommentsUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/review-comments/`
+}
+
+/**
+ * Fetch the review conversation — submitted reviews (approvals / change requests / comments), inline diff-thread comments, and top-level conversation comments — for the pull request backing a `commit` artefact's branch, via the team's GitHub integration. The PR is resolved from the report's implementation PR url, falling back to an open PR whose head branch matches the commit's branch.
+ * @summary Fetch review comments for a commit artefact's pull request
+ */
+export const signalsReportArtefactsReviewComments = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewCommentsResponseApi> => {
+    return apiMutator<ReviewCommentsResponseApi>(getSignalsReportArtefactsReviewCommentsUrl(projectId, reportId, id), {
         ...options,
         method: 'GET',
     })

@@ -36,6 +36,7 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { PullRequestReviewCommentsSection } from './PullRequestReviewCommentsSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -477,7 +478,13 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             }
             diffSection={
                 canDiff && commit && latestCommitArtefact ? (
-                    <PullRequestDiffPanel report={report} commit={commit} />
+                    <>
+                        <PullRequestDiffPanel report={report} commit={commit} />
+                        {/* Review conversation only exists once a PR is shipped for this report. */}
+                        {report.implementation_pr_url && (
+                            <PullRequestReviewCommentsSection report={report} commit={commit} />
+                        )}
+                    </>
                 ) : undefined
             }
         />

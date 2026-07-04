@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from datetime import timedelta
@@ -87,6 +88,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    ReviewCommentsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -131,6 +133,17 @@ tracer = trace.get_tracer(__name__)
 # signal that it's time to add real pagination, rather than silently truncating the list (the
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
+
+# Canonical GitHub PR URL: https://github.com/<owner>/<repo>/pull/<number>. Used to recover the PR
+# number from a report's stored `implementation_pr_url` so we can fetch its review conversation.
+_GITHUB_PR_URL_RE = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/(\d+)")
+
+
+def _parse_github_pr_number(pr_url: str | None) -> int | None:
+    if not pr_url:
+        return None
+    match = _GITHUB_PR_URL_RE.match(pr_url)
+    return int(match.group(1)) if match else None
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -2099,6 +2112,115 @@ class SignalReportArtefactViewSet(
                 "truncated": result.get("truncated", False),
             }
         )
+
+    def _resolve_pull_number(
+        self, github: GitHubIntegration, artefact: SignalReportArtefact, repository: str, branch: str
+    ) -> int | None:
+        """The PR number backing this commit artefact's branch, or None if we can't resolve one.
+
+        Prefer the report's shipped `implementation_pr_url` (the canonical link the inbox already
+        renders): a merged/closed PR is still reachable that way. Fall back to matching an open PR
+        whose head branch is the commit's branch, for a report whose PR url hasn't propagated yet.
+        """
+        pr_url_map = fetch_implementation_pr_urls_for_reports([str(artefact.report_id)])
+        pull_number = _parse_github_pr_number(pr_url_map.get(str(artefact.report_id)))
+        if pull_number is not None:
+            return pull_number
+        listing = github.list_pull_requests(repository)
+        if not listing.get("success"):
+            return None
+        for pr in listing.get("pull_requests", []):
+            if pr.get("head_branch") == branch:
+                return pr.get("number")
+        return None
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ReviewCommentsResponseSerializer,
+                description="The review conversation of the commit's implementation pull request.",
+            ),
+            400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
+            404: OpenApiResponse(
+                description="Artefact not found, no GitHub integration can access the repository, "
+                "or no pull request could be resolved for the branch."
+            ),
+            502: OpenApiResponse(description="GitHub could not return the review comments."),
+        },
+        summary="Fetch review comments for a commit artefact's pull request",
+        description=(
+            "Fetch the review conversation — submitted reviews (approvals / change requests / "
+            "comments), inline diff-thread comments, and top-level conversation comments — for the "
+            "pull request backing a `commit` artefact's branch, via the team's GitHub integration. "
+            "The PR is resolved from the report's implementation PR url, falling back to an open PR "
+            "whose head branch matches the commit's branch."
+        ),
+        operation_id="signals_report_artefacts_review_comments",
+    )
+    @action(detail=True, methods=["get"], url_path="review-comments", required_scopes=["task:read"])
+    def review_comments(self, request: Request, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
+            return Response(
+                {"error": f"Review comments are only available for commit artefacts, not '{artefact.type}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            content = {}
+        if not isinstance(content, dict):
+            # Log artefacts store arbitrary JSON; a non-object payload has no repository/branch.
+            content = {}
+        repository = content.get("repository")
+        branch = content.get("branch")
+        if not repository or not branch:
+            return Response(
+                {"error": "Artefact is missing a repository or branch."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Same connection-scoped boundary as `diff`: bounded to repos the team's GitHub installation
+        # can access, and repository/branch values are validated inside the integration methods.
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+            if github is None:
+                return Response(
+                    {"error": f"No GitHub integration can access '{repository}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            pull_number = self._resolve_pull_number(github, artefact, repository, str(branch))
+            if pull_number is None:
+                return Response(
+                    {"error": f"No pull request could be resolved for branch '{branch}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            result = github.get_pull_request_comments(repository, pull_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning("signals review comments fetch errored", repository=repository, branch=branch)
+            return Response(
+                {"error": "GitHub could not return the review comments for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if not result.get("success"):
+            if result.get("status_code") == 404:
+                return Response(
+                    {"error": f"The pull request for branch '{branch}' was not found on GitHub."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.warning(
+                "signals review comments fetch failed",
+                repository=repository,
+                branch=branch,
+                status_code=result.get("status_code"),
+            )
+            return Response(
+                {"error": "GitHub could not return the review comments for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"comments": result["comments"]})
 
 
 class SignalUserAutonomyConfigView(APIView):

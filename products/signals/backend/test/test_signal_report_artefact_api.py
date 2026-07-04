@@ -1266,3 +1266,130 @@ class TestSignalReportCommitDiff(APIBaseTest):
 
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+
+class TestSignalReportReviewComments(APIBaseTest):
+    """The commit artefact `review-comments` action — PR resolution + status-code contract the UI relies on."""
+
+    def _url(self, report_id: str, artefact_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/{artefact_id}/review-comments/"
+
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_commit_artefact(self, report: SignalReport, content: dict | list | None = None) -> SignalReportArtefact:
+        return SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.COMMIT,
+            content=json.dumps(content if content is not None else _COMMIT_CONTENT),
+        )
+
+    def _mock_github(self):
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        return github.return_value
+
+    def test_review_comments_rejects_non_commit_artefact(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "x"}),
+        )
+        response = self.client.get(self._url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "commit artefacts" in response.json()["error"]
+
+    @parameterized.expand(
+        [
+            ("missing_repository", {"branch": "b", "commit_sha": "abc123f", "message": "m"}),
+            ("missing_branch", {"repository": "PostHog/posthog", "commit_sha": "abc123f", "message": "m"}),
+        ]
+    )
+    def test_review_comments_rejects_incomplete_content(self, _name, content):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report, content)
+        response = self.client.get(self._url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_review_comments_returns_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_review_comments_resolves_pr_from_implementation_url(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github()
+        github.get_pull_request_comments.return_value = {
+            "success": True,
+            "comments": [{"kind": "review", "author": "bob", "body": "lgtm", "review_state": "APPROVED"}],
+        }
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/321"},
+        ):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["comments"][0]["author"] == "bob"
+        # PR number is parsed from the implementation PR url; the branch-listing fallback is not used.
+        github.get_pull_request_comments.assert_called_once_with("PostHog/posthog", 321)
+        github.list_pull_requests.assert_not_called()
+
+    def test_review_comments_resolves_pr_via_branch_when_no_url(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github()
+        github.list_pull_requests.return_value = {
+            "success": True,
+            "pull_requests": [
+                {"number": 99, "head_branch": "other-branch"},
+                {"number": 55, "head_branch": _COMMIT_CONTENT["branch"]},
+            ],
+        }
+        github.get_pull_request_comments.return_value = {"success": True, "comments": []}
+        with patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports", return_value={}):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        github.get_pull_request_comments.assert_called_once_with("PostHog/posthog", 55)
+
+    def test_review_comments_returns_404_when_no_pr_resolved(self):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github()
+        github.list_pull_requests.return_value = {"success": True, "pull_requests": []}
+        with patch("products.signals.backend.views.fetch_implementation_pr_urls_for_reports", return_value={}):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        github.get_pull_request_comments.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("upstream_404", 404, status.HTTP_404_NOT_FOUND),
+            ("upstream_500", 500, status.HTTP_502_BAD_GATEWAY),
+        ]
+    )
+    def test_review_comments_maps_upstream_failure(self, _name, upstream_status, expected_status):
+        report = self._create_report()
+        artefact = self._create_commit_artefact(report)
+        github = self._mock_github()
+        github.get_pull_request_comments.return_value = {"success": False, "status_code": upstream_status}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/321"},
+        ):
+            response = self.client.get(self._url(str(report.id), str(artefact.id)))
+        assert response.status_code == expected_status

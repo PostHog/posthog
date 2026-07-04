@@ -9,8 +9,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsReportArtefactsDiff,
+    signalsReportArtefactsReviewComments,
+} from 'products/signals/frontend/generated/api'
+import type { CommitDiffResponseApi, ReviewCommentsResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     deriveTaskPurpose,
@@ -218,6 +221,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // The review conversation on the report's implementation PR (submitted reviews, inline diff
+        // comments, and conversation comments), rendered in the "Review comments" section. Loaded here
+        // rather than in the component so it's keyed to the report and cascades off the artefact load —
+        // it hangs off the latest commit artefact and re-fetches only when a *new* commit lands, matching
+        // `reportDiff`.
+        reportReviewComments: [
+            null as ReviewCommentsResponseApi | null,
+            {
+                loadReportReviewComments: async ({ artefactId }: { artefactId: string }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsReportArtefactsReviewComments(String(teamId), props.reportId, artefactId)
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -272,6 +292,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 loadReportDiff: (_, { artefactId }) => artefactId,
+            },
+        ],
+        // Human-readable review-comments-load failure (kea-loaders only exposes a boolean loading flag).
+        // A failure usually means the PR could not be resolved or GitHub was unreachable.
+        reportReviewCommentsError: [
+            null as string | null,
+            {
+                loadReportReviewComments: () => null,
+                loadReportReviewCommentsSuccess: () => null,
+                loadReportReviewCommentsFailure: () =>
+                    "Couldn't load review comments — the pull request may have been closed, or GitHub was unreachable.",
+            },
+        ],
+        // The commit artefact the current `reportReviewComments` was loaded for, so the artefact poll
+        // re-fetches only when a new commit lands rather than on every tick.
+        reviewCommentsArtefactId: [
+            null as string | null,
+            {
+                loadReportReviewComments: (_, { artefactId }) => artefactId,
             },
         ],
     }),
@@ -447,6 +486,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const commit = values.latestCommitArtefact
             if (commit && commit.id !== values.diffArtefactId) {
                 actions.loadReportDiff({ artefactId: commit.id })
+            }
+            // The review conversation cascades off the same commit artefact as the diff, but only when
+            // the report has a shipped implementation PR — otherwise there's nothing to resolve.
+            if (commit && commit.id !== values.reviewCommentsArtefactId && values.report?.implementation_pr_url) {
+                actions.loadReportReviewComments({ artefactId: commit.id })
             }
         },
         // Poll the artefact log only while the report is active; stop once it reaches a terminal status

@@ -1067,6 +1067,85 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is True
         mock_get.assert_called_once()
 
+    def _pr_comments_api_request(self, reviews, inline, conversation):
+        """Route the three sequential api_request calls in get_pull_request_comments by URL path."""
+
+        def _dispatch(method, path, **kwargs):
+            if path.endswith("/reviews"):
+                body = reviews
+            elif path.endswith("/pulls/7/comments"):
+                body = inline
+            else:  # /issues/7/comments
+                body = conversation
+            response = MagicMock(status_code=200)
+            response.json.return_value = body
+            return response
+
+        return _dispatch
+
+    def test_get_pull_request_comments_merges_orders_and_filters(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        reviews = [
+            {"state": "APPROVED", "body": "", "user": {"login": "alice"}, "submitted_at": "2024-01-03T00:00:00Z"},
+            {
+                "state": "CHANGES_REQUESTED",
+                "body": "fix",
+                "user": {"login": "bob"},
+                "submitted_at": "2024-01-01T00:00:00Z",
+            },
+            # Bodyless COMMENTED batch-container review and unsubmitted PENDING review are dropped.
+            {"state": "COMMENTED", "body": "", "user": {"login": "noise"}, "submitted_at": "2024-01-02T00:00:00Z"},
+            {"state": "PENDING", "body": "draft", "user": {"login": "x"}},
+        ]
+        inline = [
+            {
+                "body": "typo",
+                "path": "a.py",
+                "line": None,
+                "original_line": 42,
+                "user": {"login": "bob"},
+                "created_at": "2024-01-01T12:00:00Z",
+            }
+        ]
+        conversation = [{"body": "thanks", "user": None, "created_at": "2024-01-04T00:00:00Z"}]
+        with patch.object(
+            github, "api_request", side_effect=self._pr_comments_api_request(reviews, inline, conversation)
+        ):
+            result = github.get_pull_request_comments("PostHog/posthog", 7)
+
+        assert result["success"] is True
+        summary = [(c["created_at"], c["kind"], c["author"], c["review_state"], c["line"]) for c in result["comments"]]
+        assert summary == [
+            ("2024-01-01T00:00:00Z", "review", "bob", "CHANGES_REQUESTED", None),
+            ("2024-01-01T12:00:00Z", "review_comment", "bob", None, 42),  # original_line fallback
+            ("2024-01-03T00:00:00Z", "review", "alice", "APPROVED", None),  # empty-body approval kept
+            ("2024-01-04T00:00:00Z", "issue_comment", None, None, None),  # null user -> None author
+        ]
+
+    def test_get_pull_request_comments_surfaces_upstream_failure(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=404, text="Not Found")):
+            result = github.get_pull_request_comments("PostHog/posthog", 7)
+        assert result == {"success": False, "error": "Failed to fetch reviews.", "status_code": 404}
+
+    @parameterized.expand(
+        [
+            ("unsafe_repo", "../../other/repo", 7),
+            ("zero_pull_number", "PostHog/posthog", 0),
+            ("negative_pull_number", "PostHog/posthog", -1),
+        ]
+    )
+    def test_get_pull_request_comments_rejects_unsafe_values(self, _name, repository, pull_number):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "api_request") as mock_request:
+            result = github.get_pull_request_comments(repository, pull_number)
+        assert result["success"] is False
+        assert result["status_code"] == 400
+        mock_request.assert_not_called()
+
     @parameterized.expand(
         [
             ("traversal", "../../other/repo"),
