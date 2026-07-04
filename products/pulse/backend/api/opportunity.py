@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -11,9 +13,15 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
+from products.pulse.backend.api.feedback import (
+    FeedbackFieldsSerializerMixin,
+    FeedbackVoteRequestSerializer,
+    record_vote,
+)
 from products.pulse.backend.models import Opportunity
 
 
@@ -34,7 +42,7 @@ class ProposedExperimentSerializer(serializers.Serializer):
     variant_sketch = serializers.CharField(help_text="Short sketch of the control and test variants.")
 
 
-class OpportunitySerializer(serializers.ModelSerializer):
+class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the opportunity.")
     evidence = serializers.ListField(
         child=serializers.DictField(),
@@ -63,6 +71,9 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "goal_relevant",
             "proposed_experiment",
             "first_seen_brief",
+            "my_vote",
+            "helpful_count",
+            "not_helpful_count",
             "created_at",
             "created_by",
             "updated_at",
@@ -154,6 +165,36 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # so the row keeps suppressing re-creation whether open or dismissed.
         return self._transition(Opportunity.Status.DISMISSED, Opportunity.Status.OPEN, "opportunity_reopened")
 
+    @extend_schema(
+        request=FeedbackVoteRequestSerializer,
+        responses={200: OpportunitySerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def feedback(self, request: Request, **kwargs) -> Response:
+        vote_serializer = FeedbackVoteRequestSerializer(data=request.data)
+        vote_serializer.is_valid(raise_exception=True)
+        helpful = vote_serializer.validated_data["helpful"]
+        opportunity = self.get_object()
+        user = cast(User, request.user)
+        opportunity = record_vote(Opportunity, self.team_id, opportunity.pk, user.id, helpful)
+        # The context props ARE the tuning signal — they let the feedback stream answer "which
+        # opportunity shapes are helpful" without joining back to the rows.
+        report_user_action(
+            user,
+            "opportunity_feedback",
+            {
+                "opportunity_id": str(opportunity.id),
+                "helpful": helpful,
+                "kind": opportunity.kind,
+                "status": opportunity.status,
+                "goal_relevant": opportunity.goal_relevant,
+                "has_proposed_experiment": opportunity.proposed_experiment is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(opportunity).data)
+
     def _transition(self, expected: Opportunity.Status, target: Opportunity.Status, event: str) -> Response:
         # Known v1 limitation: transitions don't sync the emitted SignalReport (and inbox triage
         # doesn't sync back) — the cross-product lifecycle is an open design question with the
@@ -178,4 +219,4 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             team=self.team,
             request=self.request,
         )
-        return Response(OpportunitySerializer(opportunity).data)
+        return Response(self.get_serializer(opportunity).data)

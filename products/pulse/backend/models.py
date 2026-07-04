@@ -77,6 +77,19 @@ class ProductBrief(PulseModel):
             )
         ]
 
+    @property
+    def has_goal(self) -> bool:
+        """Whether the brief was generated for a config with a non-blank goal — the pivot the
+        instrumentation slices on (goal-conditioned vs plain briefs)."""
+        return self.config is not None and bool(self.config.goal.strip())
+
+    @property
+    def section_kinds(self) -> list[str]:
+        """Sorted unique kinds of the generated sections, for capture properties."""
+        return sorted(
+            {str(section.get("kind")) for section in self.sections if isinstance(section, dict) and section.get("kind")}
+        )
+
 
 class Opportunity(PulseModel):
     class Kind(models.TextChoices):
