@@ -470,7 +470,6 @@ describe('infiniteListLogic', () => {
                     'setSearchQuery',
                     'loadRemoteItems',
                     'loadRemoteItemsFailure',
-                    'remoteItemsFetchFailedForQuery',
                 ])
                 .toMatchValues({
                     showLoadingState: false,

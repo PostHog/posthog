@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -208,7 +208,6 @@ export function clearApiCache(): void {
     apiCacheTimers = {}
 }
 
-
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
     if (apiCache[url]) {
@@ -303,10 +302,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         minSearchQueryLength,
                     } = values
 
-                    // Record which query this run is fetching so a loadRemoteItemsFailure listener
-                    // can tie the failure to the right query (and not settle a newer in-flight one).
-                    cache.inflightFetchQuery = searchQuery
-
                     if (!remoteEndpoint) {
                         return createEmptyListStorage(searchQuery)
                     }
@@ -340,45 +335,54 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
-                    // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
-                    const isGroupNamesFilter = values.listGroupType.startsWith(
-                        TaxonomicFilterGroupType.GroupNamesPrefix
-                    )
-                    if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                        const groupsResponse = await api.groups.listClickhouse({
-                            group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                            search: searchQuery || '',
-                            limit,
-                        })
+                    try {
+                        // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
+                        const isGroupNamesFilter = values.listGroupType.startsWith(
+                            TaxonomicFilterGroupType.GroupNamesPrefix
+                        )
+                        if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
+                            const groupsResponse = await api.groups.listClickhouse({
+                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                search: searchQuery || '',
+                                limit,
+                            })
 
-                        const transformedGroups = mapGroupQueryResponse(groupsResponse)
-                        response = {
-                            results: transformedGroups,
-                            count: transformedGroups.length,
+                            const transformedGroups = mapGroupQueryResponse(groupsResponse)
+                            response = {
+                                results: transformedGroups,
+                                count: transformedGroups.length,
+                            }
+                            actions.setHasMore(groupsResponse.hasMore || false)
+                            if (scopedRemoteEndpoint && !isExpanded) {
+                                expandedCountResponse = { count: transformedGroups.length }
+                            }
+                        } else {
+                            // Use the original REST API for non-groups endpoints
+                            const [apiResponse, expandedApiResponse] = await Promise.all([
+                                // get the list of results
+                                fetchCachedListResponse(
+                                    scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                    searchParams
+                                ),
+                                // if this is an unexpanded scoped list, get the count for the full list
+                                scopedRemoteEndpoint && !isExpanded
+                                    ? fetchCachedListResponse(remoteEndpoint, {
+                                          ...searchParams,
+                                          limit: 1,
+                                          offset: 0,
+                                      })
+                                    : null,
+                            ])
+                            response = apiResponse
+                            expandedCountResponse = expandedApiResponse
                         }
-                        actions.setHasMore(groupsResponse.hasMore || false)
-                        if (scopedRemoteEndpoint && !isExpanded) {
-                            expandedCountResponse = { count: transformedGroups.length }
+                    } catch (error) {
+                        if (!isBreakpoint(error)) {
+                            // Carry the query that was in flight when this run errored so the
+                            // reducer can attribute the failure to the right query string.
+                            actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
-                    } else {
-                        // Use the original REST API for non-groups endpoints
-                        const [apiResponse, expandedApiResponse] = await Promise.all([
-                            // get the list of results
-                            fetchCachedListResponse(
-                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                searchParams
-                            ),
-                            // if this is an unexpanded scoped list, get the count for the full list
-                            scopedRemoteEndpoint && !isExpanded
-                                ? fetchCachedListResponse(remoteEndpoint, {
-                                      ...searchParams,
-                                      limit: 1,
-                                      offset: 0,
-                                  })
-                                : null,
-                        ])
-                        response = apiResponse
-                        expandedCountResponse = expandedApiResponse
+                        throw error
                     }
                     breakpoint()
 
@@ -1243,13 +1247,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     })
                 }
             }
-        },
-        loadRemoteItemsFailure: () => {
-            // Tie the failure to the query that was actually in flight. cache.inflightFetchQuery is
-            // recorded at the start of each loader run (after the debounce breakpoint), so it
-            // reflects the query run A was fetching — not the newer searchQuery run B is working on.
-            // This prevents a stale failure from settling run B's result prematurely.
-            actions.remoteItemsFetchFailedForQuery(cache.inflightFetchQuery ?? values.searchQuery)
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
