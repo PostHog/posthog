@@ -41,6 +41,7 @@ def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceIte
         evidence=evidence,
         metric_ref=metric_ref,
         baseline=baseline,
+        goal_relevant=opp.goal_relevant,
         fingerprint=opportunity_fingerprint(opp.kind, opp.fingerprint_hint),
     )
 

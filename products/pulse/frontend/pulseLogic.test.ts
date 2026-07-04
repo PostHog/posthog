@@ -58,6 +58,7 @@ const openOpportunity: OpportunityApi = {
     summary: 's',
     suggested_action: 'a',
     evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups' }],
+    goal_relevant: false,
     first_seen_brief: null,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
@@ -241,8 +242,8 @@ describe('pulseLogic', () => {
             null,
             'post',
             { dashboards: [2] },
-            // Whitespace-only entry must clear to null, and a real entry must be trimmed.
-            { goal: 'Grow usage', goal_metric_short_id: '  NewMetric1 ' },
+            // Whitespace-only entries must clear to null, and real entries must be trimmed.
+            { goal: '  Grow usage ', goal_metric_short_id: '  NewMetric1 ' },
             { goal: 'Grow usage', goal_metric: { insight_short_id: 'NewMetric1' } },
         ],
         // Insight anchors set through the API must survive a save from this dashboards-only form,

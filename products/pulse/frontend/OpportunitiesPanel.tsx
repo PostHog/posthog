@@ -39,7 +39,14 @@ export function OpportunitiesPanel(): JSX.Element {
             key: 'title',
             render: (_, opportunity) => (
                 <div className="flex flex-col gap-1">
-                    <span className="font-semibold">{opportunity.title}</span>
+                    <span className="flex items-center gap-2">
+                        <span className="font-semibold">{opportunity.title}</span>
+                        {opportunity.goal_relevant && (
+                            <LemonTag size="small" type="completion">
+                                Goal
+                            </LemonTag>
+                        )}
+                    </span>
                     <span className="text-muted text-xs">{opportunity.summary}</span>
                 </div>
             ),

@@ -271,7 +271,7 @@ export const pulseLogic = kea<pulseLogicType>([
                     name: formValues.name.trim(),
                     focus_prompt: formValues.focus_prompt,
                     anchors,
-                    goal: formValues.goal,
+                    goal: formValues.goal.trim(),
                     goal_metric: goalMetricShortId ? { insight_short_id: goalMetricShortId } : null,
                 }
                 const saved = editing

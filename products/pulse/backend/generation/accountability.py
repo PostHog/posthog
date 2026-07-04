@@ -141,17 +141,31 @@ def _current_window(
     A fixed-date-range insight returns the same series forever and re-scores to delta ≈ 0,
     which reads as "no change" — a known v1 limitation.
     """
-    insight = insights.get(opportunity.metric_ref["insight_short_id"])
+    short_id = opportunity.metric_ref["insight_short_id"]
+    insight = insights.get(short_id)
     if insight is None:
+        # Info logs on the unavailable branches (mirrors collect_goal_status): a quietly broken
+        # re-score metric must be queryable, not just visible as METRIC_UNAVAILABLE prose.
+        logger.info(
+            "pulse_accountability_insight_missing",
+            team_id=opportunity.team_id,
+            opportunity_id=str(opportunity.id),
+            insight_short_id=short_id,
+        )
         return None
     results = results_cache.results_for(insight)
     series_index = int(opportunity.metric_ref.get("series_index", 0))
-    if not 0 <= series_index < len(results):
-        return None
-    values = series_daily_values(results[series_index], period_days)
-    if values is None:
-        return None
-    windows = split_score_windows(values)
-    if windows is None:
-        return None
-    return windows[1]
+    window: list[float] | None = None
+    if 0 <= series_index < len(results):
+        values = series_daily_values(results[series_index], period_days)
+        if values is not None:
+            windows = split_score_windows(values)
+            window = windows[1] if windows is not None else None
+    if window is None:
+        logger.info(
+            "pulse_accountability_metric_unreadable",
+            team_id=opportunity.team_id,
+            opportunity_id=str(opportunity.id),
+            insight_short_id=short_id,
+        )
+    return window
