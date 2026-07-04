@@ -80,6 +80,7 @@ describe('recordingClickmapLogic', () => {
             )
             expect(boxes).toHaveLength(1)
             expect(boxes[0].count).toBe(13)
+            expect(boxes[0]).toMatchObject({ label: 'Sign up', selector: 'button#cta' })
         })
 
         it('produces one box per matched element, sorted by count descending', () => {

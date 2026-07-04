@@ -30,6 +30,8 @@ export interface ClickmapBox {
     width: number
     height: number
     count: number
+    label: string
+    selector: string
 }
 
 export type RecordingClickmapLogicProps = {
@@ -87,6 +89,16 @@ export function buildElementStatsParams(
     } as unknown as ElementsStatsRetrieveParams
 }
 
+function describeElement(element: HTMLElement): { label: string; selector: string } {
+    const tag = element.tagName.toLowerCase()
+    const id = element.id ? `#${element.id}` : ''
+    const firstClass = element.classList.length ? `.${element.classList[0]}` : ''
+    return {
+        selector: `${tag}${id}${firstClass}`,
+        label: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 60) ?? '',
+    }
+}
+
 export function computeClickmapBoxes(
     statsRows: ElementStatsResponseApi['results'],
     snapshotDocument: Document,
@@ -120,6 +132,7 @@ export function computeClickmapBoxes(
                 width: rect.width,
                 height: rect.height,
                 count,
+                ...describeElement(element),
             })
         }
     })
