@@ -12,6 +12,7 @@ from unittest import mock
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
@@ -20,7 +21,10 @@ from posthog.tasks.usage_report import ExternalDataJob
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
+    decrement_rows,
     finish_row_tracking,
+    get_all_rows_for_team,
+    get_rows,
     increment_rows,
     setup_row_tracking,
     will_hit_billing_limit,
@@ -89,6 +93,36 @@ class TestRowTracking(BaseTest):
     def _create_source(self) -> ExternalDataSource:
         with freeze_time(datetime(2023, 12, 1)):
             return ExternalDataSource.objects.create(team=self.team)
+
+    @parameterized.expand(
+        [
+            ("setup_row_tracking", lambda t, s: setup_row_tracking(t, s), None),
+            ("increment_rows", lambda t, s: increment_rows(t, s, 5), None),
+            ("decrement_rows", lambda t, s: decrement_rows(t, s, 5), None),
+            ("finish_row_tracking", lambda t, s: finish_row_tracking(t, s), None),
+            ("get_rows", lambda t, s: get_rows(t, s), 0),
+            ("get_all_rows_for_team", lambda t, s: get_all_rows_for_team(t), 0),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_row_tracking_degrades_gracefully_when_redis_unreachable(self, _name, call, expected):
+        # A failed ping must not hand out a broken client that then raises on use - row tracking is best-effort.
+        schema_id = str(uuid.uuid4())
+        broken_client = mock.AsyncMock()
+        broken_client.ping.side_effect = ConnectionError("Redis is down")
+
+        with (
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=broken_client,
+            ),
+        ):
+            assert await call(self.team.pk, schema_id) == expected
+
+        # No row-tracking operation should have been attempted on the broken client.
+        broken_client.hset.assert_not_called()
+        broken_client.hincrby.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_row_tracking(self):

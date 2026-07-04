@@ -42,6 +42,7 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        redis = None
 
     yield redis
 
