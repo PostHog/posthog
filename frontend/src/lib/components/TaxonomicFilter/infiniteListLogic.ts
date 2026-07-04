@@ -462,6 +462,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         // Tracks the searchQuery whose fetch failed. Using the query (not a boolean) prevents
         // a stale out-of-order failure from settling a newer in-flight request — only a failure
         // for the _current_ query should count as settled.
+        // Deliberately no `loadRemoteItemsFailure` handler: the loader dispatches
+        // `remoteItemsFetchFailedForQuery` from its catch *before* rethrowing, so a reset on
+        // the (later) failure action would wipe the query and reintroduce the infinite spinner.
         remoteFetchFailed: [
             null as string | null,
             {
