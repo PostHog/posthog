@@ -208,8 +208,6 @@ export function clearApiCache(): void {
     apiCacheTimers = {}
 }
 
-/** @deprecated Use clearApiCache instead. */
-export const clearApiCacheForTesting = clearApiCache
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
