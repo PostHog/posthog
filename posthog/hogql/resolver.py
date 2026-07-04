@@ -199,7 +199,14 @@ def resolve_types(
         resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
     else:
         resolver = resolver_factory(context, dialect, scopes)
-    return resolver.visit(node)
+    try:
+        return resolver.visit(node)
+    except RecursionError:
+        # The resolver walks the AST recursively (visit -> accept -> visit_*), so a sufficiently
+        # deeply nested query blows Python's stack. That's bad user input, not an engine failure, so
+        # surface it as a clean query error instead of an uncaught RecursionError. The unwind back to
+        # this frame frees the deep stack, so building the error here is safe.
+        raise QueryError("Query is too deeply nested to process. Please simplify it.") from None
 
 
 def _select_type_columns(
