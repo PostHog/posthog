@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -28,6 +29,33 @@ class Movement:
     pct_change: float
     baseline_total: float
     current_total: float
+
+
+def calculate_insight_results(insight: Insight, team: Team) -> list[Any]:
+    """Insight execution shared by gathering and accountability re-scoring — one execution
+    mode so a brief and its later then-vs-now check read the metric the same way."""
+    calculation = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user=None,
+    )
+    return calculation.result if isinstance(calculation.result, list) else []
+
+
+def split_score_windows(values: list[float], period_days: int) -> tuple[list[float], list[float]] | None:
+    """Trim a daily series to the last 2×period_days and split it into (baseline, current) halves.
+
+    Shared by gathering and accountability re-scoring so "current" always means the same window
+    math the movement was originally scored with. Returns None when there is too little data.
+    """
+    values = values[-2 * period_days :]
+    if len(values) % 2:
+        values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
+    if len(values) < 2:
+        return None
+    half = len(values) // 2
+    return values[:half], values[half:]
 
 
 def score_movement(*, baseline: list[float], current: list[float]) -> Movement:
@@ -77,26 +105,15 @@ class AnchoredInsightsSource:
         return Insight.objects.filter(team=team, deleted=False, dashboards__in=fallback_dashboards).distinct()
 
     def _items_for_insight(self, insight: Insight, team: Team, period_days: int) -> list[SourceItem]:
-        calculation = calculate_for_query_based_insight(
-            insight,
-            team=team,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            user=None,
-        )
-        if not calculation.result:
-            return []
         items: list[SourceItem] = []
         label = insight.name or insight.derived_name or ""
-        for series_index, series_result in enumerate(calculation.result):
+        for series_index, series_result in enumerate(calculate_insight_results(insight, team)):
             if not isinstance(series_result, dict) or "data" not in series_result:
                 continue  # non-trends result shape — skip
-            values = [float(v) for v in series_result["data"][-2 * period_days :]]
-            if len(values) % 2:
-                values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
-            if len(values) < 2:
+            windows = split_score_windows([float(v) for v in series_result["data"]], period_days)
+            if windows is None:
                 continue
-            half = len(values) // 2
-            movement = score_movement(baseline=values[:half], current=values[half:])
+            movement = score_movement(baseline=windows[0], current=windows[1])
             if not movement.significant:
                 continue
             direction = "rose" if movement.pct_change > 0 else "dropped"
