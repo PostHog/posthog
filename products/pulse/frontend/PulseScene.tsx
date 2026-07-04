@@ -273,10 +273,11 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
 function CitationTag({ citation }: { citation: BriefCitation }): JSX.Element {
     const { type, ref } = citation
     const citationType = ref ? CITATION_TYPES[type] : undefined
+    const url = citationType?.url(ref)
 
-    if (citationType) {
+    if (citationType && url) {
         return (
-            <Link to={citationType.url(ref)}>
+            <Link to={url}>
                 <LemonTag>
                     {citationType.label} {ref}
                 </LemonTag>

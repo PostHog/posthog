@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -143,6 +144,17 @@ class TestCollectCausalCandidates(BaseTest):
         assert len(candidates) == MAX_CANDIDATES_PER_KIND
         assert candidates[0].label == "flag-0"
         assert all(c.label != f"flag-{MAX_CANDIDATES_PER_KIND}" for c in candidates)
+
+    def test_one_broken_collector_does_not_blank_the_others(self) -> None:
+        self._flag(key="healthy-flag")
+
+        with patch(
+            "products.pulse.backend.generation.explain._experiment_candidates",
+            side_effect=RuntimeError("collector exploded"),
+        ):
+            candidates = collect_causal_candidates(self.team, period_days=7)
+
+        assert [c.kind for c in candidates] == ["flag"]
 
     def test_other_team_resources_excluded(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")

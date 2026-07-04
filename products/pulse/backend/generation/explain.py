@@ -1,21 +1,30 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, get_args
 
 from django.db.models import F, Q
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
+
+import structlog
 
 from posthog.models.team import Team
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.pulse.backend.sources.annotations import annotation_marker_summary, annotations_in_period
+from products.pulse.backend.sources.base import EvidenceType
+
+logger = structlog.get_logger(__name__)
 
 MAX_CANDIDATES_PER_KIND = 10
 LABEL_MAX_CHARS = 100
 
 CandidateKind = Literal["flag", "experiment", "annotation"]
+# Candidate kinds double as the evidence-ref types the LLM cites (`flag:123`), which the
+# frontend maps to scene URLs — every kind must stay part of the citation vocabulary.
+assert set(get_args(CandidateKind)) <= set(get_args(EvidenceType))
 
 
 @dataclass(frozen=True)
@@ -38,11 +47,20 @@ class CausalCandidate:
 def collect_causal_candidates(team: Team, period_days: int) -> list[CausalCandidate]:
     now = timezone.now()
     period_start = now - timedelta(days=period_days)
-    return [
-        *_flag_candidates(team, period_start),
-        *_experiment_candidates(team, period_start, now),
-        *_annotation_candidates(team, period_start, now),
+    collectors: list[tuple[CandidateKind, Callable[[], list[CausalCandidate]]]] = [
+        ("flag", lambda: _flag_candidates(team, period_start)),
+        ("experiment", lambda: _experiment_candidates(team, period_start, now)),
+        ("annotation", lambda: _annotation_candidates(team, period_start, now)),
     ]
+    candidates: list[CausalCandidate] = []
+    for kind, collect in collectors:
+        try:
+            candidates.extend(collect())
+        except Exception:
+            # Symmetry with gather's per-source isolation: one broken collector must not
+            # blank the other kinds.
+            logger.exception("pulse_causal_collector_failed", team_id=team.id, kind=kind)
+    return candidates
 
 
 def _flag_candidates(team: Team, period_start: datetime) -> list[CausalCandidate]:
@@ -77,8 +95,10 @@ def _experiment_candidates(team: Team, period_start: datetime, now: datetime) ->
         .exclude(deleted=True)
         .filter(in_period)
         # Postgres GREATEST ignores NULLs, so this orders by the most recent boundary event.
+        # Fetch 2x the cap: each row expands into up to two boundary events, and a row cap at
+        # MAX could otherwise exclude an event that belongs in the newest MAX post-expansion.
         .annotate(latest_event=Greatest(F("start_date"), F("end_date")))
-        .order_by("-latest_event")[:MAX_CANDIDATES_PER_KIND]
+        .order_by("-latest_event")[: MAX_CANDIDATES_PER_KIND * 2]
     )
     candidates: list[CausalCandidate] = []
     for experiment in experiments:

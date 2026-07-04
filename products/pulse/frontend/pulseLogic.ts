@@ -52,17 +52,24 @@ function parseCitation(citation: string): BriefCitation {
     return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
 }
 
+/** A hallucinated non-numeric ref must fall back to a plain tag, not a dead `/NaN` link. */
+function numericSceneUrl(ref: string, buildUrl: (id: number) => string): string | undefined {
+    const id = Number(ref)
+    return Number.isFinite(id) ? buildUrl(id) : undefined
+}
+
 /**
  * Citation types that link out, in one table so the tag label and its URL can't drift.
- * Unknown types render as plain tags. Flags and experiments are cited by numeric id
- * (the scene route param); keys/names live in the candidate labels instead.
+ * Unknown types render as plain tags. The backend source of truth for the linkable kinds is
+ * `CandidateKind` in products/pulse/backend/generation/explain.py. Flags and experiments are
+ * cited by numeric id (the scene route param); keys/names live in the candidate labels instead.
  */
-export const CITATION_TYPES: Record<string, { label: string; url: (ref: string) => string }> = {
+export const CITATION_TYPES: Record<string, { label: string; url: (ref: string) => string | undefined }> = {
     insight: { label: 'Insight', url: (ref) => urls.insightView(ref as InsightShortId) },
     dashboard: { label: 'Dashboard', url: (ref) => urls.dashboard(ref) },
-    flag: { label: 'Feature flag', url: (ref) => urls.featureFlag(ref) },
-    experiment: { label: 'Experiment', url: (ref) => urls.experiment(ref) },
-    annotation: { label: 'Annotation', url: (ref) => urls.annotation(Number(ref)) },
+    flag: { label: 'Feature flag', url: (ref) => numericSceneUrl(ref, urls.featureFlag) },
+    experiment: { label: 'Experiment', url: (ref) => numericSceneUrl(ref, (id) => urls.experiment(id)) },
+    annotation: { label: 'Annotation', url: (ref) => numericSceneUrl(ref, urls.annotation) },
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {

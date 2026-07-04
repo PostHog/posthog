@@ -281,13 +281,15 @@ describe('pulseLogic', () => {
         expect(logic.values.briefDetailSections[0]).toEqual(expected)
     })
 
-    it.each<[string, string, string]>([
+    it.each<[string, string, string | undefined]>([
         ['insight', 'abc123', '/insights/abc123'],
         ['dashboard', '5', '/dashboard/5'],
         ['flag', '123', '/feature_flags/123'],
         ['experiment', '45', '/experiments/45'],
         ['annotation', '77', '/data-management/annotations/77'],
-    ])('maps %s citations to a scene URL', (type, ref, expected) => {
+        // A hallucinated non-numeric ref renders unlinked instead of a dead /NaN link.
+        ['flag', 'not-a-number', undefined],
+    ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
         expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
     })
 

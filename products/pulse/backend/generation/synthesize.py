@@ -49,12 +49,13 @@ def _render_items(items: list[SourceItem]) -> str:
 
 def _render_candidates(candidates: list[CausalCandidate]) -> str:
     # Labels and details carry untrusted free text (flag keys, experiment names, annotation
-    # content) — same render-boundary sanitization as items.
+    # content) — same render-boundary sanitization as items. The ref is exempt: it is
+    # code-generated (`kind:numeric_id`) and the LLM must copy it verbatim for citation linking.
     if not candidates:
         return "None identified."
     return "\n".join(
         f"- [{candidate.kind}] {sanitize_for_prompt(candidate.label)} — {candidate.happened_at} — "
-        f"{sanitize_for_prompt(candidate.detail)} (evidence_ref: {sanitize_for_prompt(candidate.ref)})"
+        f"{sanitize_for_prompt(candidate.detail)} (evidence_ref: {candidate.ref})"
         for candidate in candidates
     )
 
