@@ -8,11 +8,12 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { BriefConfigApi, ProductBriefApi } from './generated/api.schemas'
+import type { BriefConfigApi, OpportunityApi, ProductBriefApi } from './generated/api.schemas'
 import {
     BRIEF_ALREADY_GENERATING_MESSAGE,
     CITATION_TYPES,
     MAX_CONSECUTIVE_POLL_FAILURES,
+    parseOpportunityEvidence,
     pulseLogic,
 } from './pulseLogic'
 
@@ -45,6 +46,20 @@ const readyBrief = {
     sources_used: ['anchored_insights'],
 }
 
+const openOpportunity: OpportunityApi = {
+    id: 'opp-1',
+    kind: 'build',
+    status: 'open',
+    title: 'Recover the signup drop',
+    summary: 's',
+    suggested_action: 'a',
+    evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups' }],
+    first_seen_brief: null,
+    created_at: '2026-06-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+}
+
 const existingConfig: BriefConfigApi = {
     id: 'cfg-1',
     name: 'Flags team',
@@ -65,6 +80,7 @@ describe('pulseLogic', () => {
                 '/api/projects/:team_id/pulse/brief_configs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/': { count: 0, results: [] },
                 '/api/projects/:team_id/pulse/briefs/:id/': readyBrief,
+                '/api/projects/:team_id/pulse/opportunities/': { count: 0, results: [] },
             },
             post: {
                 '/api/projects/:team_id/pulse/briefs/generate/': () => [201, generatingBrief],
@@ -287,6 +303,8 @@ describe('pulseLogic', () => {
         ['flag', '123', '/feature_flags/123'],
         ['experiment', '45', '/experiments/45'],
         ['annotation', '77', '/data-management/annotations/77'],
+        // Opportunity refs are internal UUIDs — every one links to the opportunities panel.
+        ['opportunity', '11111111-1111-1111-1111-111111111111', '/pulse?tab=opportunities'],
         // A hallucinated non-numeric ref renders unlinked instead of a dead /NaN link.
         ['flag', 'not-a-number', undefined],
         // Empty-string and "0" are finite numbers but not real ids — must not link to resource 0.
@@ -294,6 +312,87 @@ describe('pulseLogic', () => {
         ['experiment', '0', undefined],
     ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
         expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
+    })
+
+    it('parses opportunity evidence entries, dropping malformed ones', () => {
+        expect(
+            parseOpportunityEvidence([
+                { type: 'insight', ref: 'abc123', label: 'Signups' },
+                { type: 42, ref: 'x' },
+                { type: 'insight' },
+            ])
+        ).toEqual([
+            { type: 'insight', ref: 'abc123' },
+            { type: '', ref: 'x' },
+        ])
+    })
+
+    it('applies a transition optimistically and swaps in the server row on success', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/dismiss/': () => [
+                    200,
+                    { ...openOpportunity, status: 'dismissed', updated_at: '2026-07-04T00:00:00Z' },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.transitionOpportunity('opp-1', 'dismiss')
+        })
+            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionSucceeded'])
+            .toMatchValues({ transitionsInFlight: {} })
+        expect(logic.values.opportunities[0].status).toEqual('dismissed')
+        expect(logic.values.opportunities[0].updated_at).toEqual('2026-07-04T00:00:00Z')
+    })
+
+    it('reverts the optimistic status and toasts when a transition fails', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/reopen/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'invalid',
+                        detail: 'Cannot change a open opportunity to open; it must be dismissed.',
+                        attr: null,
+                    },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.transitionOpportunity('opp-1', 'reopen')
+        })
+            .toDispatchActions(['opportunityTransitionStarted', 'opportunityTransitionFailed'])
+            .toMatchValues({ transitionsInFlight: {} })
+        expect(logic.values.opportunities[0].status).toEqual('open')
+        expect(errorSpy).toHaveBeenCalledWith('Cannot change a open opportunity to open; it must be dismissed.')
+    })
+
+    it('ignores a second transition for the same row while one is in flight', async () => {
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/dismiss/': () => {
+                    requests += 1
+                    return [200, { ...openOpportunity, status: 'dismissed' }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.transitionOpportunity('opp-1', 'dismiss')
+            logic.actions.transitionOpportunity('opp-1', 'dismiss')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1)
     })
 
     it('has no citation table entry for unknown types, which render unlinked', () => {

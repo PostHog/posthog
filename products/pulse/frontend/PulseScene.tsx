@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -21,9 +22,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BriefConfigModal } from './BriefConfigModal'
+import { CitationTag } from './CitationTag'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
-import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefCitation, BriefSection, CITATION_TYPES, pulseLogic } from './pulseLogic'
+import { OpportunitiesPanel } from './OpportunitiesPanel'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefSection, PulseTab, pulseLogic } from './pulseLogic'
 
 export const scene: SceneExport = {
     component: PulseScene,
@@ -40,8 +43,8 @@ const STATUS_TAG_TYPES: Record<ProductBriefStatusEnumApi, LemonTagType> = {
 
 export function PulseScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PULSE')
-    const { aiConsentRequired, briefConfigs, selectedConfigId } = useValues(pulseLogic)
-    const { selectConfig, openConfigModal } = useActions(pulseLogic)
+    const { activeTab, aiConsentRequired, briefConfigs, selectedConfigId } = useValues(pulseLogic)
+    const { setActiveTab, selectConfig, openConfigModal } = useActions(pulseLogic)
 
     if (!isEnabled) {
         return <NotFound object="Pulse" caption="This feature is not enabled for your project." />
@@ -74,23 +77,46 @@ export function PulseScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {briefConfigs.length > 0 && (
-                <div className="flex items-center gap-2">
-                    <span className="text-muted">Focus</span>
-                    <LemonSelect<string | null>
-                        size="small"
-                        value={selectedConfigId}
-                        onChange={(value) => selectConfig(value)}
-                        options={[
-                            { value: null, label: 'Whole project' },
-                            ...briefConfigs.map((config) => ({ value: config.id, label: config.name })),
-                        ]}
-                    />
-                    {selectedConfigId !== null && <SelectedConfigActions selectedConfigId={selectedConfigId} />}
-                </div>
-            )}
-
-            <BriefsView />
+            <LemonTabs<PulseTab>
+                activeKey={activeTab}
+                onChange={(tab) => setActiveTab(tab)}
+                tabs={[
+                    {
+                        key: 'briefs',
+                        label: 'Briefs',
+                        content: (
+                            <div className="flex flex-col gap-4">
+                                {briefConfigs.length > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-muted">Focus</span>
+                                        <LemonSelect<string | null>
+                                            size="small"
+                                            value={selectedConfigId}
+                                            onChange={(value) => selectConfig(value)}
+                                            options={[
+                                                { value: null, label: 'Whole project' },
+                                                ...briefConfigs.map((config) => ({
+                                                    value: config.id,
+                                                    label: config.name,
+                                                })),
+                                            ]}
+                                        />
+                                        {selectedConfigId !== null && (
+                                            <SelectedConfigActions selectedConfigId={selectedConfigId} />
+                                        )}
+                                    </div>
+                                )}
+                                <BriefsView />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'opportunities',
+                        label: 'Opportunities',
+                        content: <OpportunitiesPanel />,
+                    },
+                ]}
+            />
             <BriefConfigModal />
         </SceneContent>
     )
@@ -268,21 +294,4 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
             )}
         </div>
     )
-}
-
-function CitationTag({ citation }: { citation: BriefCitation }): JSX.Element {
-    const { type, ref } = citation
-    const citationType = ref ? CITATION_TYPES[type] : undefined
-    const url = citationType?.url(ref)
-
-    if (citationType && url) {
-        return (
-            <Link to={url}>
-                <LemonTag>
-                    {citationType.label} {ref}
-                </LemonTag>
-            </Link>
-        )
-    }
-    return <LemonTag>{type ? `${type}:${ref}` : ref}</LemonTag>
 }
