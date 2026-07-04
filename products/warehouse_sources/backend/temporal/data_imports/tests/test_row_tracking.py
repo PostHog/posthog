@@ -12,7 +12,6 @@ from unittest import mock
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
-from parameterized import parameterized
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
@@ -92,20 +91,11 @@ class TestRowTracking(BaseTest):
         with freeze_time(datetime(2023, 12, 1)):
             return ExternalDataSource.objects.create(team=self.team)
 
-    @parameterized.expand(
-        [
-            ("host_not_configured", None, "6379"),
-            ("connection_refused", "localhost", "1"),
-        ]
-    )
     @pytest.mark.asyncio
-    async def test_row_tracking_no_ops_and_does_not_report_when_redis_unavailable(
-        self, _name: str, host: Optional[str], port: str
-    ):
-        # A misconfigured worker must degrade quietly: callers no-op and the failure is not
-        # reported to error tracking (which previously flooded it on every call).
+    async def test_row_tracking_no_ops_when_redis_host_not_configured(self):
+        # An unconfigured worker must skip row tracking cleanly rather than attempt a connection.
         with (
-            override_settings(DATA_WAREHOUSE_REDIS_HOST=host, DATA_WAREHOUSE_REDIS_PORT=port),
+            override_settings(DATA_WAREHOUSE_REDIS_HOST=None),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture,
@@ -116,6 +106,34 @@ class TestRowTracking(BaseTest):
 
             assert await get_all_rows_for_team(self.team.pk) == 0
             mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_no_ops_and_does_not_report_when_redis_ping_fails(self):
+        # When Redis can't be reached the ping raises. Callers must no-op (never touching the
+        # broken client) and the failure must not be reported to error tracking, which previously
+        # flooded it on every call.
+        broken_client = mock.AsyncMock()
+        broken_client.ping.side_effect = ConnectionError("connection refused")
+
+        with (
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=broken_client,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture,
+        ):
+            schema_id = str(uuid.uuid4())
+            await setup_row_tracking(self.team.pk, schema_id)
+            await increment_rows(self.team.pk, schema_id, 10)
+
+            assert await get_all_rows_for_team(self.team.pk) == 0
+            mock_capture.assert_not_called()
+            # The client whose ping failed is dropped, so callers never issue commands against it.
+            broken_client.hset.assert_not_called()
+            broken_client.hincrby.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_row_tracking(self):
