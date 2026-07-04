@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS, UI_TEXT_REPR_MAX_LENGTH } from './constants'
+import { getTruncatedSegmentIndices } from './parsing'
 import type { textViewLogicType } from './textViewLogicType'
 
 interface TraceTreeNode {
@@ -191,6 +192,18 @@ export const textViewLogic = kea<textViewLogicType>([
         fetchTextRepr: () => {
             // Reset UI state when fetching new text representation
             actions.resetUIState()
+        },
+        fetchTextReprSuccess: ({ textRepr }) => {
+            // Auto-expand truncated message content so the full message is visible without
+            // clicking each "truncated" link. Structural expandables (nested generations,
+            // hidden tools) stay collapsed so the trace tree doesn't blow up on load.
+            if (!textRepr) {
+                return
+            }
+            const truncatedIndices = getTruncatedSegmentIndices(textRepr)
+            if (truncatedIndices.length > 0) {
+                actions.setExpandedSegments(new Set(truncatedIndices))
+            }
         },
         fetchTextReprFailure: async ({ error }) => {
             console.error('Error fetching text representation:', error)
