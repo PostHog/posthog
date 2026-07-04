@@ -123,6 +123,22 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_rejects_redirect(self, mock_get_record, mock_post):
+        # With allow_redirects=False a 3xx is not followed; raise_for_status only rejects 4xx/5xx,
+        # so this guards that a redirect fails the check instead of silently marking the proxy live.
+        mock_get_record.return_value = self.proxy_record
+        mock_response = Mock(status_code=302)
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Proxy returned a redirect (302); expected a direct 2xx response"])
+        self.assertEqual(result.warnings, [])
+
+    @pytest.mark.asyncio
     @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")

@@ -276,6 +276,16 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
             allow_redirects=False,
         )
 
+        # Since we don't follow redirects, treat a 3xx as a failed check rather than a live proxy:
+        # a working proxy answers /i/v0/e/ with a direct 2xx, and a redirect is exactly the response
+        # the allow_redirects=False guard above refuses to chase. raise_for_status only rejects
+        # 4xx/5xx, so 3xx would otherwise slip through and mark the record VALID.
+        if 300 <= response.status_code < 400:
+            return CheckActivityOutput(
+                errors=[f"Proxy returned a redirect ({response.status_code}); expected a direct 2xx response"],
+                warnings=[],
+            )
+
         response.raise_for_status()
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
