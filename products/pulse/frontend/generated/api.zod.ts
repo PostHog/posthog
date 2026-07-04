@@ -133,6 +133,13 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
 })
 
+export const PulseBriefsFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    helpful: zod
+        .boolean()
+        .nullable()
+        .describe('True marks the item helpful, false marks it not helpful, and null clears your vote.'),
+})
+
 export const pulseBriefsGenerateCreateBodyPeriodDaysDefault = 7
 export const pulseBriefsGenerateCreateBodyPeriodDaysMax = 90
 
@@ -147,4 +154,11 @@ export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({
         .max(pulseBriefsGenerateCreateBodyPeriodDaysMax)
         .default(pulseBriefsGenerateCreateBodyPeriodDaysDefault)
         .describe('Number of days the brief should cover. Defaults to 7.'),
+})
+
+export const PulseOpportunitiesFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    helpful: zod
+        .boolean()
+        .nullable()
+        .describe('True marks the item helpful, false marks it not helpful, and null clears your vote.'),
 })
