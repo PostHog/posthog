@@ -11,6 +11,7 @@ from posthog.models.team import Team
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.models import BriefConfig
+from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -44,11 +45,19 @@ class TestCollectGoalStatus(BaseTest):
 
         assert status == GoalStatus(
             goal="Increase subscription usage",
+            metric_state="ok",
+            insight_short_id=self.insight.short_id,
             metric_label="Subscriptions created",
             current_rate="100.0/day avg",
             previous_rate="70.0/day avg",
             delta_pct=42.9,
         )
+
+    @parameterized.expand([("empty", ""), ("whitespace_only", "   \n ")])
+    @patch(_CALCULATE_PATH)
+    def test_blank_goal_yields_none(self, _name: str, goal: str, mock_calculate: MagicMock) -> None:
+        assert collect_goal_status(self.team, self._config(goal=goal), 7) is None
+        mock_calculate.assert_not_called()
 
     @parameterized.expand(
         [
@@ -65,13 +74,8 @@ class TestCollectGoalStatus(BaseTest):
     ) -> None:
         status = collect_goal_status(self.team, self._config(**overrides), 7)
 
-        assert status == GoalStatus(
-            goal="Increase subscription usage",
-            metric_label=None,
-            current_rate=None,
-            previous_rate=None,
-            delta_pct=None,
-        )
+        # metric_state defaults to "none": a malformed ref degrades to a qualitative goal.
+        assert status == GoalStatus(goal="Increase subscription usage")
         mock_calculate.assert_not_called()
 
     @parameterized.expand(
@@ -83,7 +87,7 @@ class TestCollectGoalStatus(BaseTest):
         ]
     )
     @patch(_CALCULATE_PATH)
-    def test_unreadable_metric_degrades_to_goal_text_only(
+    def test_unreadable_metric_degrades_to_unavailable(
         self, _name: str, short_id: str | None, result: list[dict], mock_calculate: MagicMock
     ) -> None:
         mock_calculate.return_value = MagicMock(result=result)
@@ -91,19 +95,23 @@ class TestCollectGoalStatus(BaseTest):
 
         status = collect_goal_status(self.team, config, 7)
 
+        assert status is not None
         assert status.goal == "Increase subscription usage"
+        assert status.metric_state == "unavailable"
+        assert status.insight_short_id == (short_id or self.insight.short_id)
         assert status.metric_label is None
         assert status.current_rate is None
         assert status.previous_rate is None
         assert status.delta_pct is None
 
     @patch(_CALCULATE_PATH)
-    def test_failing_execution_degrades_to_goal_text_only(self, mock_calculate: MagicMock) -> None:
+    def test_failing_execution_degrades_to_unavailable(self, mock_calculate: MagicMock) -> None:
         mock_calculate.side_effect = RuntimeError("query exploded")
 
         status = collect_goal_status(self.team, self._config(), 7)
 
-        assert status.goal == "Increase subscription usage"
+        assert status is not None
+        assert status.metric_state == "unavailable"
         assert status.current_rate is None
 
     @patch(_CALCULATE_PATH)
@@ -113,7 +121,8 @@ class TestCollectGoalStatus(BaseTest):
 
         status = collect_goal_status(self.team, self._config(), 7)
 
-        assert status.current_rate is None
+        assert status is not None
+        assert status.metric_state == "unavailable"
         mock_calculate.assert_not_called()
 
     @patch(_CALCULATE_PATH)
@@ -125,7 +134,8 @@ class TestCollectGoalStatus(BaseTest):
             self.team, self._config(goal_metric={"insight_short_id": foreign_insight.short_id}), 7
         )
 
-        assert status.current_rate is None
+        assert status is not None
+        assert status.metric_state == "unavailable"
         mock_calculate.assert_not_called()
 
     @patch(_CALCULATE_PATH)
@@ -134,6 +144,7 @@ class TestCollectGoalStatus(BaseTest):
 
         status = collect_goal_status(self.team, self._config(), 7)
 
+        assert status is not None
         assert status.current_rate == "100.0/day avg"
         assert status.previous_rate == "0.0/day avg"
         assert status.delta_pct is None
@@ -145,4 +156,15 @@ class TestCollectGoalStatus(BaseTest):
         status = collect_goal_status(self.team, self._config(goal="  grow <fast>\n  "), 7)
 
         # Sanitization happens once at the prompt-render boundary — the collector stays raw.
+        assert status is not None
         assert status.goal == "grow <fast>"
+
+    @patch(_CALCULATE_PATH)
+    def test_shared_results_cache_prevents_reexecution(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
+        cache = InsightResultsCache(self.team)
+
+        collect_goal_status(self.team, self._config(), 7, results_cache=cache)
+        collect_goal_status(self.team, self._config(), 7, results_cache=cache)
+
+        mock_calculate.assert_called_once()

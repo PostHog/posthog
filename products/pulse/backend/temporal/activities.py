@@ -16,6 +16,7 @@ from products.pulse.backend.generation.persist import opportunity_fingerprint, p
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
+from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
@@ -99,23 +100,30 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
             )
         except Exception:
             logger.exception("pulse_causal_candidates_failed", team_id=brief.team_id, brief_id=str(brief.id))
+    # One results cache per brief run: accountability runs first, then the goal read — a goal
+    # metric that overlaps an accountability metric reuses its execution instead of re-running,
+    # and the later goal read never consumes accountability's attempt budget.
+    results_cache = InsightResultsCache(brief.team)
     status_lines: list[OpportunityStatusLine] = []
     # Unlike candidates, accountability is not movement-gated — past suggestions matter every
     # period. Only an empty gather skips it, since synthesize short-circuits without items
     # anyway. Best-effort: a broken re-score degrades to no accountability section.
     if items:
         try:
-            status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(brief.team)
+            status_lines = await database_sync_to_async(collect_accountability, thread_sensitive=False)(
+                brief.team, results_cache=results_cache
+            )
         except Exception:
             logger.exception("pulse_accountability_failed", team_id=brief.team_id, brief_id=str(brief.id))
     goal_status: GoalStatus | None = None
-    # Goal framing is config-scoped: only a config with a non-empty goal gets a goal block, and
-    # an empty gather skips it since synthesize short-circuits without items anyway. Best-effort:
-    # a broken metric read degrades inside the collector; this guard covers everything else.
-    if items and brief.config is not None and brief.config.goal.strip():
+    # Goal framing is config-scoped: the collector itself is the single gate for blank goals
+    # (returns None), and an empty gather skips it since synthesize short-circuits without items
+    # anyway. Best-effort: a broken metric read degrades inside the collector; this guard covers
+    # everything else.
+    if items and brief.config is not None:
         try:
             goal_status = await database_sync_to_async(collect_goal_status, thread_sensitive=False)(
-                brief.team, brief.config, brief.period_days
+                brief.team, brief.config, brief.period_days, results_cache=results_cache
             )
         except Exception:
             logger.exception("pulse_goal_status_failed", team_id=brief.team_id, brief_id=str(brief.id))

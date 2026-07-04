@@ -18,8 +18,8 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
-from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import (
     GENERATE_BRIEF_WORKFLOW_NAME,
     GenerateBriefWorkflowInputs,
@@ -90,10 +90,10 @@ class BriefConfigSerializer(serializers.ModelSerializer):
     def validate_goal_metric(self, value: dict[str, str] | None) -> dict[str, str] | None:
         if value is None:
             return value
-        # Same ownership check style as the config reference on pulse_brief subscriptions:
-        # a metric must be a live insight in the caller's team.
-        short_id = value["insight_short_id"]
-        if not Insight.objects.filter(team_id=self.context["team_id"], short_id=short_id, deleted=False).exists():
+        # Same ownership check style as the config reference on pulse_brief subscriptions, via
+        # the same resolver the collectors read the metric with: a metric must be a live insight
+        # in the caller's team.
+        if resolve_metric_insight(self.context["get_team"](), value["insight_short_id"]) is None:
             raise serializers.ValidationError("This insight does not exist or does not belong to your team.")
         return value
 

@@ -42,6 +42,65 @@ def calculate_insight_results(insight: Insight, team: Team) -> list[Any]:
     return calculation.result if isinstance(calculation.result, list) else []
 
 
+class InsightResultsCache:
+    """Memoizes insight executions per short_id and counts every attempt (success or raise).
+
+    Memoization bounds the happy path at one cached-execution-mode run per distinct insight
+    (so parallelizing the calls is not worth the machinery); the attempt count lets callers
+    budget the failure path too, keeping re-scoring latency bounded inside the synthesize
+    activity's shared 5-minute timeout. One instance is shared across the collectors of a
+    single brief run so an insight referenced twice executes once.
+    """
+
+    def __init__(self, team: Team) -> None:
+        self._team = team
+        self._results: dict[str, list[Any]] = {}
+        self.attempts = 0
+
+    def results_for(self, insight: Insight) -> list[Any]:
+        if insight.short_id not in self._results:
+            # A raising execution is deliberately not cached: the caller's per-read handler
+            # logs it, and a retry on a later read still counts against the attempt budget.
+            self.attempts += 1
+            self._results[insight.short_id] = calculate_insight_results(insight, self._team)
+        return self._results[insight.short_id]
+
+
+def live_insights(team: Team) -> QuerySet[Insight]:
+    """The team's non-deleted insights — the only population metric refs may resolve against."""
+    return Insight.objects.filter(team=team, deleted=False)
+
+
+def resolve_metric_insight(team: Team, short_id: str) -> Insight | None:
+    """Resolve one metric-ref short_id; lowest id wins when a short_id has duplicates."""
+    return live_insights(team).filter(short_id=short_id).order_by("id").first()
+
+
+def resolve_metric_insights(team: Team, short_ids: set[str]) -> dict[str, Insight]:
+    """Batch shape of resolve_metric_insight — same lowest-id-wins rule, one query."""
+    insights: dict[str, Insight] = {}
+    for insight in live_insights(team).filter(short_id__in=short_ids).order_by("id"):
+        insights.setdefault(insight.short_id, insight)
+    return insights
+
+
+def per_day_rate(values: list[float]) -> float:
+    """Average per-day rate over the values actually read — a live window can be shorter than
+    period_days when data is sparse, and a delta must agree with the rates stated beside it."""
+    return float(sum(values)) / len(values)
+
+
+def pct_delta(current: float, previous: float) -> float | None:
+    """Then-vs-now percentage delta; None off a zero baseline — meaningless, not infinite.
+
+    Deliberately different from score_movement's volume floor: this compares against a
+    snapshot or prior window, it is not a significance test.
+    """
+    if not previous:
+        return None
+    return round(((current - previous) / previous) * 100.0, 1)
+
+
 def series_daily_values(series_result: Any, period_days: int) -> list[float] | None:
     """Shape-check one calculation series and return its trailing 2×period_days daily values.
 
@@ -112,12 +171,12 @@ class AnchoredInsightsSource:
                 anchor_filter |= Q(short_id__in=insight_short_ids)
             if dashboard_ids:
                 anchor_filter |= Q(dashboards__id__in=dashboard_ids)
-            return Insight.objects.filter(team=team, deleted=False).filter(anchor_filter).distinct()
+            return live_insights(team).filter(anchor_filter).distinct()
         # Zero-config default: insights on the team's most recently accessed dashboards.
         fallback_dashboards = Dashboard.objects.filter(
             team=team, deleted=False, last_accessed_at__isnull=False
         ).order_by("-last_accessed_at")[:FALLBACK_DASHBOARD_COUNT]
-        return Insight.objects.filter(team=team, deleted=False, dashboards__in=fallback_dashboards).distinct()
+        return live_insights(team).filter(dashboards__in=fallback_dashboards).distinct()
 
     def _items_for_insight(self, insight: Insight, team: Team, period_days: int) -> list[SourceItem]:
         items: list[SourceItem] = []

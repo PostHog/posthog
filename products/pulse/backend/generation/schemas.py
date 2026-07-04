@@ -32,6 +32,12 @@ class OpportunityOut(BaseModel):
     evidence_refs: list[str] = Field(description="Evidence refs from the input, verbatim.")
     fingerprint_hint: str = Field(description="The fingerprint_hint of the source item, copied through unchanged.")
     confidence: float = Field(description="Confidence in this opportunity, 0.0-1.0.")
+    goal_relevant: bool = Field(
+        description=(
+            "True only when this opportunity plausibly advances the stated focus goal and its cited "
+            "evidence supports that. Always false when the brief has no goal."
+        ),
+    )
 
 
 class BriefOut(BaseModel):

@@ -146,6 +146,7 @@ def _confident_out() -> BriefOut:
                 evidence_refs=["insight:abc"],
                 fingerprint_hint="abc:0",
                 confidence=0.9,
+                goal_relevant=False,
             )
         ],
     )
@@ -307,6 +308,8 @@ async def test_synthesize_activity_collects_accountability_for_any_item_kind(tea
 
 _GOAL_STATUS = GoalStatus(
     goal="Increase subscription usage",
+    metric_state="ok",
+    insight_short_id="abc123",
     metric_label="Subscriptions created",
     current_rate="100.0/day avg",
     previous_rate="70.0/day avg",
@@ -314,11 +317,8 @@ _GOAL_STATUS = GoalStatus(
 )
 
 
-@pytest.mark.parametrize("goal,expect_collected", [("Increase subscription usage", True), ("", False), ("   ", False)])
-async def test_synthesize_activity_collects_goal_status_only_for_configs_with_a_goal(
-    team, user, goal: str, expect_collected: bool
-) -> None:
-    config = await _create_config(team, goal=goal)
+async def test_synthesize_activity_collects_goal_status_for_configured_briefs(team, user) -> None:
+    config = await _create_config(team, goal="Increase subscription usage")
     brief = await _create_brief(team, user, config=config)
     env = ActivityEnvironment()
     item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
@@ -329,6 +329,9 @@ async def test_synthesize_activity_collects_goal_status_only_for_configs_with_a_
         patch(
             "products.pulse.backend.temporal.activities.collect_goal_status", return_value=_GOAL_STATUS
         ) as collect_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_accountability", return_value=[]
+        ) as accountability_mock,
         patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
     ):
         status = await env.run(
@@ -336,8 +339,13 @@ async def test_synthesize_activity_collects_goal_status_only_for_configs_with_a_
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
         )
     assert status == ProductBrief.Status.READY
-    assert synth_mock.call_args.kwargs["goal_status"] == (_GOAL_STATUS if expect_collected else None)
-    assert collect_mock.called is expect_collected
+    assert synth_mock.call_args.kwargs["goal_status"] == _GOAL_STATUS
+    collect_mock.assert_called_once()
+    # Accountability and the goal read share one per-run results cache — an overlapping goal
+    # metric must reuse the accountability execution instead of re-running the insight.
+    shared_cache = collect_mock.call_args.kwargs["results_cache"]
+    assert shared_cache is not None
+    assert accountability_mock.call_args.kwargs["results_cache"] is shared_cache
 
 
 async def test_synthesize_activity_skips_goal_status_without_a_config(team, user) -> None:
