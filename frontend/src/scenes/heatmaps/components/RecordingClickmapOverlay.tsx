@@ -1,8 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { Popover } from 'lib/lemon-ui/Popover'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 
 import { ClickmapBox, recordingClickmapLogic } from './recordingClickmapLogic'
@@ -55,14 +56,22 @@ function useSnapshotScrollTransform(
     return innerRef
 }
 
-function ClickmapBoxTooltipContent({ box, totalCount }: { box: ClickmapBox; totalCount: number }): JSX.Element {
+function ClickmapBoxInfo({
+    box,
+    rank,
+    totalCount,
+}: {
+    box: ClickmapBox
+    rank: number
+    totalCount: number
+}): JSX.Element {
     return (
-        <div className="deprecated-space-y-1">
+        <div className="deprecated-space-y-1 max-w-100">
             {box.label ? <div className="font-semibold">{box.label}</div> : null}
             <div className="font-mono text-xs text-muted-alt">{box.selector}</div>
             <div>
-                {humanFriendlyLargeNumber(box.count)} clicks
-                {totalCount ? <> &middot; {percentage(box.count / totalCount)} of clicks on this page</> : null}
+                #{rank} clicked element &middot; {humanFriendlyLargeNumber(box.count)} clicks
+                {totalCount ? <> ({percentage(box.count / totalCount)} of clicks on this page)</> : null}
             </div>
         </div>
     )
@@ -74,7 +83,8 @@ export function RecordingClickmapOverlay({
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = recordingClickmapLogic({ iframeRef })
-    const { clickmapActive, clickmapBoxes, highestClickCount } = useValues(logic)
+    const { clickmapActive, clickmapBoxes, highestClickCount, selectedBoxKey } = useValues(logic)
+    const { selectClickmapBox, setHeatmapTooltipSuppressed } = useActions(logic)
     const showClickmap = clickmapActive && clickmapBoxes.length > 0
     const innerRef = useSnapshotScrollTransform(showClickmap, iframeRef)
 
@@ -87,13 +97,14 @@ export function RecordingClickmapOverlay({
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
-                {clickmapBoxes.map((box, index) => (
-                    <Tooltip
-                        key={`${box.top}:${box.left}:${index}`}
-                        title={<ClickmapBoxTooltipContent box={box} totalCount={totalCount} />}
-                    >
+                {clickmapBoxes.map((box, index) => {
+                    const key = `${box.top}:${box.left}:${index}`
+                    const isSelected = key === selectedBoxKey
+                    const boxElement = (
                         <div
-                            className="absolute rounded-sm border border-danger pointer-events-auto hover:border-2"
+                            className={`absolute rounded-sm border border-danger pointer-events-auto cursor-pointer ${
+                                isSelected ? 'border-2' : 'hover:border-2'
+                            }`}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 top: box.top,
@@ -104,6 +115,9 @@ export function RecordingClickmapOverlay({
                                     0.1 + 0.4 * (highestClickCount ? box.count / highestClickCount : 0)
                                 })`,
                             }}
+                            onClick={() => selectClickmapBox(isSelected ? null : key)}
+                            onMouseEnter={() => setHeatmapTooltipSuppressed(true)}
+                            onMouseLeave={() => setHeatmapTooltipSuppressed(false)}
                             onWheel={(e) => {
                                 // the boxes intercept pointer events, so hand scrolling
                                 // back to the snapshot document underneath
@@ -114,8 +128,31 @@ export function RecordingClickmapOverlay({
                                 {humanFriendlyLargeNumber(box.count)}
                             </div>
                         </div>
-                    </Tooltip>
-                ))}
+                    )
+
+                    return isSelected ? (
+                        <Popover
+                            key={key}
+                            visible
+                            onClickOutside={() => selectClickmapBox(null)}
+                            placement="right"
+                            overlay={
+                                <div className="p-2">
+                                    <ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalCount} />
+                                </div>
+                            }
+                        >
+                            {boxElement}
+                        </Popover>
+                    ) : (
+                        <Tooltip
+                            key={key}
+                            title={<ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalCount} />}
+                        >
+                            {boxElement}
+                        </Tooltip>
+                    )
+                })}
             </div>
         </div>
     )

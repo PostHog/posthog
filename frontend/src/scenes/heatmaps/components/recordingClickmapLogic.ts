@@ -159,11 +159,12 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             heatmapsBrowserLogic,
             ['onIframeLoad', 'setReplayIframeData', 'setReplayIframeDataURL'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['setCommonFilters', 'setWindowWidthOverride'],
+            ['setCommonFilters', 'setWindowWidthOverride', 'setHeatmapTooltipSuppressed'],
         ],
     })),
     actions({
         setClickmapEnabled: (enabled: boolean) => ({ enabled }),
+        selectClickmapBox: (key: string | null) => ({ key }),
         loadElementStats: true,
         maybeLoadElementStats: true,
         recomputeClickmap: true,
@@ -183,6 +184,16 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setClickmapEnabled: (state, { enabled }) => (enabled ? state : []),
                 setReplayIframeData: () => [],
                 setReplayIframeDataURL: () => [],
+            },
+        ],
+        selectedBoxKey: [
+            null as string | null,
+            {
+                selectClickmapBox: (_, { key }) => key,
+                setClickmapBoxes: () => null,
+                setClickmapEnabled: () => null,
+                setReplayIframeData: () => null,
+                setReplayIframeDataURL: () => null,
             },
         ],
         // the loader keeps stale stats across recording changes otherwise, and
