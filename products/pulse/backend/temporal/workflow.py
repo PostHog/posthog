@@ -42,10 +42,10 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             return await temporalio.workflow.execute_activity(
                 synthesize_brief_activity,
                 SynthesizeActivityInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, items=items),
-                # Padded well past the sum of the internal budgets (collectors, planner, the
+                # The ceiling must exceed the internal budgets (collectors, planner, the
                 # investigation stage deadline, synthesis retries): an activity timeout here
-                # fails the brief (maximum_attempts=1), so the ceiling must exceed the worst
-                # cases rather than race them.
+                # fails the brief (maximum_attempts=1). The true margin depends on collector
+                # latency, so the ceiling is stated simply rather than itemized.
                 start_to_close_timeout=dt.timedelta(minutes=15),
                 # A failed synthesis is not retried: retrying double-spends LLM calls.
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),

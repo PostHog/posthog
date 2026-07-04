@@ -46,7 +46,12 @@ _STEP_TIMEOUT_SECONDS = 30
 # The stage's slice of the synthesize activity budget (same attempt-budget idea as
 # accountability's cap): past the deadline no new step starts; completed findings are kept.
 _STAGE_DEADLINE_SECONDS = 180
+# Flat per-step cap (vs the ai_subscription sibling's scaled per-plan budget): with at most 10
+# steps the stage deadline, not prompt size, is the effective bound.
 _RESULT_MAX_CHARS = 1500
+# Appended when a summary is clipped so neither the synthesize LLM nor a reader mistakes a
+# clipped partial number for a complete result.
+_TRUNCATION_SENTINEL = "\n…(truncated)"
 # Mirrors the planner-side bound on PlannedStep.hogql so a repair can't silently outgrow it.
 _HOGQL_MAX_LENGTH = 5000
 
@@ -231,7 +236,9 @@ async def _run_hogql(executor: AssistantQueryExecutor, hogql: str) -> str:
         timeout=_STEP_TIMEOUT_SECONDS,
     )
     # The deterministic result summary: the executor's own formatting, truncated in code.
-    return formatted[:_RESULT_MAX_CHARS]
+    if len(formatted) > _RESULT_MAX_CHARS:
+        return formatted[:_RESULT_MAX_CHARS] + _TRUNCATION_SENTINEL
+    return formatted
 
 
 async def _request_hogql_repair(*, team: Team, user: User, step: PlannedStep, exc: BaseException) -> str | None:

@@ -8,6 +8,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.investigate import (
     _RESULT_MAX_CHARS,
+    _TRUNCATION_SENTINEL,
     MAX_INVESTIGATION_STEPS,
     QUERY_FAILED_PREFIX,
     HogQLRepair,
@@ -15,6 +16,7 @@ from products.pulse.backend.generation.investigate import (
     PlannedStep,
     execute_investigation,
     plan_investigation,
+    run_investigation,
 )
 from products.pulse.backend.sources.base import SourceItem
 
@@ -175,12 +177,32 @@ class TestExecuteInvestigation:
         assert findings[0].succeeded is True
 
     @patch(_EXECUTOR_PATH)
-    async def test_result_summary_is_truncated(self, mock_executor: MagicMock) -> None:
+    async def test_result_summary_is_truncated_with_a_sentinel(self, mock_executor: MagicMock) -> None:
         mock_executor.return_value.arun_and_format_query = AsyncMock(return_value=("x" * 5000, False))
 
         findings = await execute_investigation(team=self._team(), user=MagicMock(), steps=[_step(0)])
 
-        assert len(findings[0].result_summary) == _RESULT_MAX_CHARS
+        # The sentinel keeps a clipped partial number from reading as a complete result.
+        assert findings[0].result_summary == "x" * _RESULT_MAX_CHARS + _TRUNCATION_SENTINEL
+
+
+class TestRunInvestigation:
+    @patch(_LLM_PATH)
+    @patch(_EXECUTOR_PATH)
+    async def test_plan_flows_into_execution_unchanged(self, mock_executor: MagicMock, mock_llm: MagicMock) -> None:
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = InvestigationPlan(
+            steps=[_step(0), _step(1)]
+        )
+        mock_executor.return_value.arun_and_format_query = AsyncMock(return_value=("ok", False))
+
+        findings = await run_investigation(
+            team=MagicMock(), user=MagicMock(), goal_status=_goal_status(), items=[_item()], period_days=7
+        )
+
+        assert [(finding.question, finding.hogql, finding.succeeded) for finding in findings] == [
+            ("q0", "SELECT 0", True),
+            ("q1", "SELECT 1", True),
+        ]
 
 
 class TestPlannerMetricLine:

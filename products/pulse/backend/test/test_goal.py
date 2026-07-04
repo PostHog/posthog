@@ -105,6 +105,33 @@ class TestCollectGoalStatus(BaseTest):
         assert status.previous_rate is None
         assert status.delta_pct is None
 
+    @parameterized.expand(
+        [
+            ("no_source", {"kind": "InsightVizNode"}),
+            ("source_without_series", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}),
+            ("non_dict_first_series", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": ["x"]}}),
+            (
+                "non_string_event",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": 42}]}},
+            ),
+            ("blank_event", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": ""}]}}),
+        ]
+    )
+    @patch(_CALCULATE_PATH)
+    def test_misshapen_metric_query_degrades_to_no_metric_event(
+        self, _name: str, query: dict, mock_calculate: MagicMock
+    ) -> None:
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 7 + [100.0] * 7}])
+        self.insight.query = query
+        self.insight.save()
+
+        status = collect_goal_status(self.team, self._config(), 7)
+
+        # The figures still read fine — only the "what the metric measures" clause degrades.
+        assert status is not None
+        assert status.metric_state == "ok"
+        assert status.metric_event is None
+
     @patch(_CALCULATE_PATH)
     def test_failing_execution_degrades_to_unavailable(self, mock_calculate: MagicMock) -> None:
         mock_calculate.side_effect = RuntimeError("query exploded")

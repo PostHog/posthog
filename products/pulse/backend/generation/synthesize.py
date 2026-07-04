@@ -2,6 +2,7 @@ import structlog
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
@@ -25,6 +26,10 @@ logger = structlog.get_logger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.6
 MAX_OPPORTUNITIES = 3
+# Backstops for the two-layer finding sanitization below — above investigate's own bounds
+# (question 500, result 1500 + truncation sentinel), so they never clip legitimate content.
+_FINDING_QUESTION_MAX_CHARS = 600
+_FINDING_RESULT_MAX_CHARS = 2000
 SYNTHESIS_MODEL = "gpt-4.1"
 _LLM_TIMEOUT_SECONDS = 120
 
@@ -103,16 +108,24 @@ def _render_goal_block(goal_status: GoalStatus | None, period_days: int) -> str:
     return GOAL_BLOCK.format(goal_text=sanitize_for_prompt(goal_status.goal), metric_line=metric_line)
 
 
+def _sanitize_finding_text(text: str, max_len: int) -> str:
+    # Two layers: strip structural LLM framing markers (result summaries are real query output
+    # over user-authored event data re-entering a prompt — matching the ai_subscription sibling's
+    # treatment of query results), then the char-level translation shared with every other block.
+    return sanitize_for_prompt(strip_llm_framing_markers(text, max_len))
+
+
 def _render_investigation_block(findings: list[InvestigationFinding]) -> str:
     # Questions come from the planner LLM and result summaries carry real query output over
-    # user-authored event data — both untrusted at this boundary, same render-boundary
-    # sanitization as items. `query:<n>` refs are code-generated (1-based finding order) and the
-    # LLM must copy them verbatim for citation linking; the scene maps them back by index.
+    # user-authored event data — both untrusted at this boundary. `query:<n>` refs are
+    # code-generated (1-based finding order) and the LLM must copy them verbatim for citation
+    # linking; the scene maps them back by index.
     if not findings:
         return ""
     rendered_findings = "\n".join(
-        f"- query:{index} [{'ok' if finding.succeeded else 'FAILED'}] {sanitize_for_prompt(finding.question)}\n"
-        f"  result: {sanitize_for_prompt(finding.result_summary)}"
+        f"- query:{index} [{'ok' if finding.succeeded else 'FAILED'}] "
+        f"{_sanitize_finding_text(finding.question, _FINDING_QUESTION_MAX_CHARS)}\n"
+        f"  result: {_sanitize_finding_text(finding.result_summary, _FINDING_RESULT_MAX_CHARS)}"
         for index, finding in enumerate(findings, start=1)
     )
     return INVESTIGATION_BLOCK.format(findings_block=rendered_findings)

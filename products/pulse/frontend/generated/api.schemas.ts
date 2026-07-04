@@ -203,7 +203,16 @@ export interface PaginatedProductBriefListListApi {
 
 export type ProductBriefApiSectionsItem = { [key: string]: unknown }
 
-export type ProductBriefApiInvestigationItem = { [key: string]: unknown }
+export interface InvestigationFindingApi {
+    /** The plain-English question this investigation step answers. */
+    question: string
+    /** The HogQL SELECT that was executed (the repaired query when a repair ran). */
+    hogql: string
+    /** Deterministic rendering of the query output; a one-line error note when the step failed. */
+    result_summary: string
+    /** Whether the query executed successfully. Failed steps are gaps, never data. */
+    succeeded: boolean
+}
 
 export interface ProductBriefApi {
     readonly id: string
@@ -228,8 +237,8 @@ export interface ProductBriefApi {
     readonly period_days: number
     /** Generated brief sections: kind, title, markdown, citations, confidence. */
     readonly sections: readonly ProductBriefApiSectionsItem[]
-    /** Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into this list): question, hogql, result_summary, succeeded. Empty for goal-less briefs. */
-    readonly investigation: readonly ProductBriefApiInvestigationItem[]
+    /** Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into this list). Empty for goal-less briefs. */
+    readonly investigation: readonly InvestigationFindingApi[]
     /** Names of the brief sources that contributed items. */
     readonly sources_used: readonly string[]
     /**

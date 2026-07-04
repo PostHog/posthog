@@ -116,6 +116,19 @@ class BriefConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class InvestigationFindingSerializer(serializers.Serializer):
+    question = serializers.CharField(help_text="The plain-English question this investigation step answers.")
+    hogql = serializers.CharField(
+        help_text="The HogQL SELECT that was executed (the repaired query when a repair ran)."
+    )
+    result_summary = serializers.CharField(
+        help_text="Deterministic rendering of the query output; a one-line error note when the step failed."
+    )
+    succeeded = serializers.BooleanField(
+        help_text="Whether the query executed successfully. Failed steps are gaps, never data."
+    )
+
+
 class ProductBriefSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
     sections = serializers.ListField(
@@ -123,12 +136,12 @@ class ProductBriefSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Generated brief sections: kind, title, markdown, citations, confidence.",
     )
-    investigation = serializers.ListField(
-        child=serializers.DictField(),
+    investigation = InvestigationFindingSerializer(
+        many=True,
         read_only=True,
         help_text=(
             "Goal-investigation findings in citation order (a `query:<n>` citation is a 1-based index into "
-            "this list): question, hogql, result_summary, succeeded. Empty for goal-less briefs."
+            "this list). Empty for goal-less briefs."
         ),
     )
     sources_used = serializers.ListField(

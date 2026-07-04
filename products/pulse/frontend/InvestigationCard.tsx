@@ -4,7 +4,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import { InvestigationFinding, pulseLogic } from './pulseLogic'
+import type { InvestigationFindingApi } from './generated/api.schemas'
+import { pulseLogic } from './pulseLogic'
 
 /** The goal-investigation findings of the shown brief: per finding the planner's question, the
  * deterministic result summary, and the raw HogQL behind an expandable panel. The "Query <n>"
@@ -26,7 +27,7 @@ export function InvestigationCard(): JSX.Element | null {
     )
 }
 
-function InvestigationFindingRow({ finding, index }: { finding: InvestigationFinding; index: number }): JSX.Element {
+function InvestigationFindingRow({ finding, index }: { finding: InvestigationFindingApi; index: number }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
