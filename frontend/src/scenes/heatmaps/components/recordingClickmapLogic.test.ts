@@ -71,15 +71,26 @@ describe('recordingClickmapLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('aggregates counts from multiple chains resolving to the same element into one box', () => {
+        it('aggregates counts per event type from chains resolving to the same element', () => {
             const boxes = computeClickmapBoxes(
-                [statsRow({ count: 10 }), statsRow({ count: 3, hash: 'other-chain-same-element' })],
+                [
+                    statsRow({ count: 10 }),
+                    statsRow({ count: 3, hash: 'rage', type: '$rageclick' }),
+                    statsRow({ count: 2, hash: 'dead', type: '$dead_click' }),
+                ],
                 snapshotDocument,
                 null,
                 ['data-attr']
             )
             expect(boxes).toHaveLength(1)
-            expect(boxes[0].count).toBe(13)
+            expect(boxes[0]).toMatchObject({
+                count: 15,
+                clickCount: 10,
+                rageclickCount: 3,
+                deadclickCount: 2,
+                label: 'Sign up',
+                selector: 'button#cta',
+            })
         })
 
         it('produces one box per matched element, sorted by count descending', () => {

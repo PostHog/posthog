@@ -92,6 +92,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (palette: string | null) => ({ palette }),
+        setHeatmapTooltipSuppressed: (suppressed: boolean) => ({ suppressed }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
@@ -141,6 +142,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { persist: true },
             {
                 setHeatmapColorPalette: (_, { palette }) => palette,
+            },
+        ],
+        // e.g. while the clickmap overlay shows its own element tooltip
+        heatmapTooltipSuppressed: [
+            false,
+            {
+                setHeatmapTooltipSuppressed: (_, { suppressed }) => suppressed,
             },
         ],
         href: [
