@@ -180,6 +180,27 @@ export const CustomRanges: Story = {
     },
 }
 
+export const EmbeddedDayGranular: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<DateTimeValue>({
+            start: startOfMonth(new Date()),
+            end: new Date(),
+            range: calendarRanges[0],
+        })
+        return (
+            <DateTimePicker
+                value={value}
+                onApply={setValue}
+                ranges={calendarRanges}
+                showHeader={false}
+                showTime={false}
+                className="shadow-none ring-1"
+            />
+        )
+    },
+}
+
 export const WeekStartsThursday: Story = {
     args: baseArgs,
     render: () => {
