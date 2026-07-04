@@ -525,13 +525,12 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
+        if let Some(remote) = &self.remote_staging {
+            return remote.read_chunk(key, offset, size).await;
+        }
         let mut retries = self.retries;
         loop {
-            let result = match &self.remote_staging {
-                Some(remote) => remote.backend.read(key, offset, size).await,
-                None => self.get_chunk_from_prepared_key(key, offset, size).await,
-            };
-            match result {
+            match self.get_chunk_from_prepared_key(key, offset, size).await {
                 Ok(chunk) => return Ok(chunk),
                 Err(e) => {
                     if retries == 0 {
@@ -573,9 +572,7 @@ impl DataSource for DateRangeExportSource {
         // Sweep any staged objects this job left in the remote backend (best-effort;
         // the bucket TTL is the final backstop).
         if let Some(remote) = &self.remote_staging {
-            if let Err(e) = remote.backend.cleanup_job().await {
-                warn!("Failed to clean up remote staging after job: {e:#}");
-            }
+            remote.sweep_job().await;
         }
         // Clear refs then explicitly close() the temp dir to surface removal errors
         {
@@ -601,19 +598,9 @@ impl DataSource for DateRangeExportSource {
     // So this needs to be idempotent/a no-op when the key/part is already prepared
     async fn prepare_key(&self, key: &str) -> Result<(), Error> {
         if let Some(remote) = &self.remote_staging {
-            // Idempotent via the backend: a completed object (cached size, or `head` on a
-            // cold process) means the part is staged — multipart atomicity guarantees no
-            // torn part is ever visible, so attach without re-downloading from origin.
-            if remote.backend.size(key).await?.is_some() {
-                debug!("Key already staged remotely: {}", key);
-                return Ok(());
-            }
-            let downloaded = self.download_part_raw(key).await?;
-            let size = remote
-                .stage_downloaded(key, downloaded.map(|(path, _)| path))
-                .await?;
-            info!("Staged key {key} remotely ({size} decompressed bytes)");
-            return Ok(());
+            return remote
+                .prepare_key(key, || self.download_part_raw(key))
+                .await;
         }
 
         {
