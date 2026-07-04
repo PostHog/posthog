@@ -245,7 +245,8 @@ function BriefHistoryList({ briefs }: { briefs: ProductBriefListApi[] }): JSX.El
 }
 
 function BriefDetail(): JSX.Element | null {
-    const { briefDetail, briefDetailLoading, briefDetailSections, selectedBriefId } = useValues(pulseLogic)
+    const { briefDetail, briefDetailLoading, briefDetailSections, briefDetailGoal, selectedBriefId } =
+        useValues(pulseLogic)
 
     if (!briefDetail || briefDetail.id !== selectedBriefId) {
         return briefDetailLoading ? <Spinner /> : null
@@ -272,6 +273,11 @@ function BriefDetail(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-6">
+            {briefDetailGoal !== null && (
+                <div className="text-muted text-sm">
+                    <span className="font-semibold">Goal:</span> {briefDetailGoal}
+                </div>
+            )}
             {briefDetailSections.map((section, index) => (
                 <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
             ))}

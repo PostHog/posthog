@@ -132,6 +132,20 @@ export function BriefConfigModal(): JSX.Element {
                     <LemonTextArea placeholder='e.g. "we’re the feature flags team — flag adoption, evaluation latency, SDK errors"' />
                 </LemonField>
                 <LemonField
+                    name="goal"
+                    label="Goal"
+                    info="What should this focus be driving toward? Briefs open with progress toward it and rank opportunities by goal impact."
+                >
+                    <LemonTextArea placeholder='e.g. "increase subscription usage"' />
+                </LemonField>
+                <LemonField
+                    name="goal_metric_short_id"
+                    label="Goal metric insight"
+                    info="Optional: the short ID of a trends insight measuring the goal. Briefs state its current vs previous per-day rate."
+                >
+                    <LemonInput placeholder="Insight short ID, e.g. AbC123xY" />
+                </LemonField>
+                <LemonField
                     name="dashboards"
                     label="Anchor dashboards"
                     info="The brief scouts the insights on these dashboards. Leave empty to fall back to the team's most recently accessed dashboards."

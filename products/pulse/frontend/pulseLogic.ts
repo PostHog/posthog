@@ -199,9 +199,18 @@ export interface BriefConfigForm {
     name: string
     focus_prompt: string
     dashboards: number[]
+    goal: string
+    // Insight short ID typed as plain text for v1 — no picker; validated server-side.
+    goal_metric_short_id: string
 }
 
-const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboards: [] }
+const EMPTY_CONFIG_FORM: BriefConfigForm = {
+    name: '',
+    focus_prompt: '',
+    dashboards: [],
+    goal: '',
+    goal_metric_short_id: '',
+}
 
 export type BriefScheduleFrequency = 'daily' | 'weekly'
 
@@ -257,7 +266,14 @@ export const pulseLogic = kea<pulseLogicType>([
                 // Only the dashboards anchor is editable here — spread the existing anchors so
                 // insight anchors set through the API survive a save from this form.
                 const anchors = { ...editing?.anchors, dashboards: formValues.dashboards }
-                const payload = { name: formValues.name.trim(), focus_prompt: formValues.focus_prompt, anchors }
+                const goalMetricShortId = formValues.goal_metric_short_id.trim()
+                const payload = {
+                    name: formValues.name.trim(),
+                    focus_prompt: formValues.focus_prompt,
+                    anchors,
+                    goal: formValues.goal,
+                    goal_metric: goalMetricShortId ? { insight_short_id: goalMetricShortId } : null,
+                }
                 const saved = editing
                     ? await pulseBriefConfigsPartialUpdate(currentProjectId(), editing.id, payload)
                     : await pulseBriefConfigsCreate(currentProjectId(), payload)
@@ -485,6 +501,18 @@ export const pulseLogic = kea<pulseLogicType>([
             (s) => [s.briefDetail],
             (briefDetail): BriefSection[] => (briefDetail?.sections ?? []).map(parseSection),
         ],
+        // The goal of the config the shown brief was generated for — the subtle header line above
+        // the brief detail. Null when the brief is config-less or its config has no goal.
+        briefDetailGoal: [
+            (s) => [s.briefDetail, s.briefConfigs],
+            (briefDetail, briefConfigs): string | null => {
+                if (!briefDetail?.config) {
+                    return null
+                }
+                const goal = briefConfigs.find((config) => config.id === briefDetail.config)?.goal?.trim()
+                return goal || null
+            },
+        ],
         // The subscription delivering the config being edited, if any — one schedule per config
         // is the v1 surface (more via the subscriptions page).
         editingConfigSubscription: [
@@ -580,6 +608,8 @@ export const pulseLogic = kea<pulseLogicType>([
                 name: config?.name ?? '',
                 focus_prompt: config?.focus_prompt ?? '',
                 dashboards: config?.anchors?.dashboards ?? [],
+                goal: config?.goal ?? '',
+                goal_metric_short_id: config?.goal_metric?.insight_short_id ?? '',
             })
             actions.resetScheduleForm(EMPTY_SCHEDULE_FORM)
         },
