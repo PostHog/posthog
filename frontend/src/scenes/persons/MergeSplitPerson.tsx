@@ -70,9 +70,10 @@ function SplitPerson(): JSX.Element | null {
         key: distinctId,
     }))
 
-    // The person view only loads a bounded slice of distinct IDs, so people with many IDs won't see
-    // all of them listed. When we're likely truncated, hint that an exact ID can be pasted directly.
-    const distinctIdsMayBeTruncated = person.distinct_ids.length >= 100
+    // The person view only loads a bounded slice of distinct IDs (the person query caps at 101 via
+    // groupArray(101)), so people with many IDs won't see all of them listed. Once we hit that cap the
+    // list is likely truncated, so hint that an exact ID can be pasted directly.
+    const distinctIdsMayBeTruncated = person.distinct_ids.length >= 101
     const pasteHint = distinctIdsMayBeTruncated ? (
         <p className="text-muted text-xs mt-1">
             Not all distinct IDs are shown for a person with this many IDs. You can paste an exact distinct ID that
