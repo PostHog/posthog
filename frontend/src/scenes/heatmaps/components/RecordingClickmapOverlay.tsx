@@ -3,8 +3,9 @@ import React, { useEffect, useRef } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { ClickmapBox, recordingClickmapLogic } from './recordingClickmapLogic'
 
@@ -69,10 +70,7 @@ function ClickmapBoxInfo({
         <div className="deprecated-space-y-1 max-w-100">
             {box.label ? <div className="font-semibold">{box.label}</div> : null}
             <div className="font-mono text-xs text-muted-alt">{box.selector}</div>
-            <div>
-                #{rank} clicked element &middot; {humanFriendlyLargeNumber(box.count)} clicks
-                {totalCount ? <> ({percentage(box.count / totalCount)} of clicks on this page)</> : null}
-            </div>
+            <ElementClickStats count={box.count} totalCount={totalCount} rank={rank} />
         </div>
     )
 }
