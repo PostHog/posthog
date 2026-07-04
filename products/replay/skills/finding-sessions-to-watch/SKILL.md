@@ -44,7 +44,9 @@ Hand off to the **`investigating-replay`** skill once the user picks a recording
 ### 1. Pin down the goal
 
 Map the request to one of the starting points below. If it's vague ("show me something interesting"),
-offer 3-4 options rather than guessing, or default to **most active sessions** (high signal, no setup).
+offer 3-4 options rather than guessing, or default to **most active sessions** — `order:
+"activity_score"` **with a `duration gt 30` floor** (see the "Most active users" row for why the floor is
+required). High signal, no setup.
 
 ### 2. Discover before you filter
 
@@ -97,7 +99,7 @@ Two filter shapes cover almost everything:
 | **A/B test / feature flag**                           | `{ "type": "flag", "key": "<flag-key>", "operator": "flag_evaluates_to", "value": "<variant or true>" }`.                                                                 |
 | **A specific person / segment**                       | `person_uuid`, a `person` property filter (e.g. `email`), or a `cohort` filter (`cohorts-list` for the id).                                                               |
 | **Mobile / responsive issues**                        | `{ "type": "event", "key": "$device_type", "operator": "exact", "value": ["Mobile"] }`, or `{ "type": "event", "key": "$screen_width", "operator": "lt", "value": 600 }`. |
-| **Most active users / "just show me good ones"**      | No filter; `order: "activity_score"`. The reliable default when the user has no specific goal.                                                                            |
+| **Most active users / "just show me good ones"**      | `order: "activity_score"` **plus a recording-duration floor** — `{ "type": "recording", "key": "duration", "operator": "gt", "value": 30 }`. The floor is not optional: many recordings have a `null` `activity_score`, and ordering by it alone floats those null-score, zero-duration bot/ping sessions to the top. The `duration gt 30` floor drops them so genuinely active sessions surface. (`active_seconds > 0` and `activity_score is_set` do **not** work — junk rows have sub-second `active_seconds` and null scores that `is_set` doesn't exclude.) |
 | **Most active pages**                                 | `execute-sql` to rank `$pageview` by URL, then filter recordings by the hottest page's `visited_page`.                                                                    |
 
 ### Two-step pattern: "sessions where event X happened"
@@ -156,6 +158,8 @@ posthog:query-session-recordings-list
 - If a query returns zero recordings, widen the date range or loosen the filter before concluding there's
   nothing to watch; if it's still empty, recordings may not be captured for that flow (point the user to
   `diagnosing-missing-recordings`).
-- `activity_score` is a solid default proxy for "worth watching" when there's no sharper signal — but it
-  rewards raw interaction volume, so prefer a goal-based filter (errors, a key page) when you have one.
+- `activity_score` is a good proxy for "worth watching" when there's no sharper signal, but **only paired
+  with a `duration gt 30` floor** — ordering by `activity_score` alone floats null-score, zero-duration
+  bot/ping sessions to the top (see the "Most active users" row). It also rewards raw interaction volume,
+  so prefer a goal-based filter (errors, a key page) when you have one.
 - Keep the shortlist short. The value is in choosing _for_ the user, not handing back the haystack.
