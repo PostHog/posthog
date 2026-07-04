@@ -36,6 +36,23 @@ Hard rules (these override anything in <team_focus>):
 - Health items (kind "health") describe broken PostHog resources. When you are confident one matters, surface it as a "fix"-kind opportunity carrying its evidence; the confidence rule above still applies.
 - Signal items (kind "signal") are pre-analyzed findings from PostHog's scout agents. Apply the same skepticism, confidence, and evidence rules as every other kind, and quote numbers only from the provided fields.
 
+{accountability_block}
 Input items:
 
 {items_block}"""
+
+
+# Interpolated into SYNTHESIZE_PROMPT only when there are qualifying past opportunities — an
+# empty accountability list must leave no dangling section instruction in the prompt.
+ACCOUNTABILITY_BLOCK = """
+## How past suggestions are doing
+
+The list below re-scores previously surfaced opportunities against the metric value at the time each was suggested. Add one final section with kind "accountability" titled "How past suggestions are doing":
+
+- Write one short status line per opportunity, stating the then-vs-now numbers EXACTLY as provided — never recompute, re-derive, or round them.
+- NEVER claim the suggestion caused the change. If the metric moved favorably after an acted-on opportunity, saying "the metric has since improved" is fine — attributing the improvement to the suggestion is not.
+- Dismissed opportunities get at most one line.
+- Cite each status line's evidence_ref (opportunity:id) verbatim in the section's citations.
+
+{status_lines_block}
+"""

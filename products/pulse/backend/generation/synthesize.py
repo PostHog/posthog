@@ -4,7 +4,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, sanitize_for_prompt
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.prompts import ACCOUNTABILITY_BLOCK, SYNTHESIZE_PROMPT, sanitize_for_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem, format_evidence_ref
@@ -46,10 +47,30 @@ def _render_items(items: list[SourceItem]) -> str:
     return "\n".join(blocks)
 
 
+def _render_status_lines(status_lines: list[OpportunityStatusLine]) -> str:
+    # Titles carry untrusted free text (LLM-authored on an earlier run) — same render-boundary
+    # sanitization as items. Summaries and deltas are code-generated and stated verbatim; the
+    # opportunity ref is the citation the frontend links by.
+    return "\n".join(
+        f"- [{line.kind}/{line.status}] {sanitize_for_prompt(line.title)} — suggested {line.age_days} days ago — "
+        f"then {line.baseline_summary}, now {line.current_summary}"
+        + (f" ({line.delta_pct:+.1f}% vs suggestion time)" if line.delta_pct is not None else "")
+        + f" (evidence_ref: opportunity:{line.opportunity_id})"
+        for line in status_lines
+    )
+
+
 async def synthesize_brief(
-    *, team: Team, user: User, config: BriefConfig | None, items: list[SourceItem], period_days: int
+    *,
+    team: Team,
+    user: User,
+    config: BriefConfig | None,
+    items: list[SourceItem],
+    period_days: int,
+    status_lines: list[OpportunityStatusLine],
 ) -> BriefOut:
-    # Quiet periods must cost ~nothing: no items, no LLM call.
+    # Quiet periods must cost ~nothing: no items, no LLM call. Status lines alone are not a
+    # brief — they follow up on movements, so they can't rescue an empty period.
     if not items:
         return BriefOut(sections=[], opportunities=[])
     focus_prompt = (config.focus_prompt if config else "") or "the whole product"
@@ -60,6 +81,9 @@ async def synthesize_brief(
         period_days=period_days,
         max_opportunities=MAX_OPPORTUNITIES,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
+        accountability_block=(
+            ACCOUNTABILITY_BLOCK.format(status_lines_block=_render_status_lines(status_lines)) if status_lines else ""
+        ),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(

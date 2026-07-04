@@ -17,7 +17,7 @@ _KIND_FIELD_DESCRIPTION = "; ".join(f"{kind} = {description}" for kind, descript
 
 
 class BriefSectionOut(BaseModel):
-    kind: str = Field(description="Section kind, e.g. 'what_happened' or 'what_to_build_next'.")
+    kind: str = Field(description="Section kind, e.g. 'what_happened', 'what_to_build_next', or 'accountability'.")
     title: str = Field(description="Short, specific section heading.")
     markdown: str = Field(description="Section body in markdown.")
     citations: list[str] = Field(description="Evidence refs from the input, verbatim, e.g. 'insight:abc123'.")
