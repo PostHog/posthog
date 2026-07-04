@@ -344,6 +344,9 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-report-artefacts-review-comments:
+        operation: signals_report_artefacts_review_comments
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true

@@ -47732,6 +47732,56 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    /**
+     * One entry in a pull request's review conversation — a submitted review, an inline
+     * diff-thread comment, or a top-level conversation comment, normalized to a single shape.
+     */
+    export interface ReviewCommentEntry {
+      /** What produced this entry: 'review' (a submitted review), 'review_comment' (an inline diff-thread comment), or 'issue_comment' (a top-level conversation comment). */
+      readonly kind: string;
+      /**
+         * GitHub login of the author, or null when GitHub did not attribute the entry.
+         * @nullable
+         */
+      readonly author: string | null;
+      /** The comment or review body as GitHub-flavoured markdown. May be empty for a verdict-only review (e.g. an approval with no note). */
+      readonly body: string;
+      /**
+         * When the entry was created / the review submitted (ISO 8601).
+         * @nullable
+         */
+      readonly created_at: string | null;
+      /**
+         * For 'review' entries, the review verdict: APPROVED, CHANGES_REQUESTED, or COMMENTED. Null for inline and conversation comments.
+         * @nullable
+         */
+      readonly review_state: string | null;
+      /**
+         * For inline diff-thread comments, the file the comment is attached to. Null otherwise.
+         * @nullable
+         */
+      readonly path: string | null;
+      /**
+         * For inline diff-thread comments, the line in the diff the comment is attached to (falls back to the original line for an outdated thread). Null otherwise.
+         * @nullable
+         */
+      readonly line: number | null;
+      /**
+         * Link to the entry on GitHub, or null when GitHub did not provide one.
+         * @nullable
+         */
+      readonly html_url: string | null;
+    }
+
+    /**
+     * Response for the `commit` artefact review-comments endpoint — the review conversation of the
+     * report's implementation pull request, merged into one time-ordered list.
+     */
+    export interface ReviewCommentsResponse {
+      /** Review activity for the pull request (submitted reviews, inline diff-thread comments, and conversation comments), oldest first. */
+      readonly comments: readonly ReviewCommentEntry[];
+    }
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
