@@ -24,7 +24,6 @@ import {
     BRIEF_ALREADY_GENERATING_MESSAGE,
     CITATION_TYPES,
     MAX_CONSECUTIVE_POLL_FAILURES,
-    formatProposedExperiment,
     parseOpportunityEvidence,
     pulseLogic,
     transitionsForStatus,
@@ -628,7 +627,10 @@ describe('pulseLogic', () => {
         // The acted transition landed before the navigation, so accountability re-scores it.
         expect(logic.values.opportunities[0].status).toEqual('acted')
         expect(copyToClipboard).toHaveBeenCalledWith(
-            formatProposedExperiment(proposedExperiment),
+            'Hypothesis: Moving the entry point above the fold lifts subscription creation\n' +
+                'Feature flag key: subscription-entry-point\n' +
+                'Target metric insight: abc123\n' +
+                'Variants: Control keeps the sidebar entry; test adds a button above the insights list.',
             'experiment proposal'
         )
         // The router prefixes the current project, so assert the app path suffix.

@@ -1,19 +1,28 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.generation.investigate import InvestigationFinding
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut, ProposedExperimentOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
+_TRENDS_QUERY = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
 
-def _proposed_experiment() -> ProposedExperimentOut:
+_CALCULATE_PATH = "products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight"
+
+
+def _proposed_experiment(target_short_id: str = "abc") -> ProposedExperimentOut:
     return ProposedExperimentOut(
         hypothesis="Moving the entry point above the fold lifts subscription creation",
         flag_key_suggestion="subscription-entry-point",
-        target_metric_insight_short_id="abc",
+        target_metric_insight_short_id=target_short_id,
         variant_sketch="Control keeps the sidebar entry; test adds a button above the insights list.",
     )
 
@@ -22,6 +31,7 @@ def _out(
     fingerprint_hint: str = "abc:0",
     goal_relevant: bool = False,
     proposed_experiment: ProposedExperimentOut | None = None,
+    evidence_refs: list[str] | None = None,
 ) -> BriefOut:
     return BriefOut(
         sections=[
@@ -33,7 +43,7 @@ def _out(
                 title="t",
                 summary="s",
                 suggested_action="a",
-                evidence_refs=["insight:abc"],
+                evidence_refs=evidence_refs if evidence_refs is not None else ["insight:abc"],
                 fingerprint_hint=fingerprint_hint,
                 confidence=0.9,
                 goal_relevant=goal_relevant,
@@ -77,15 +87,52 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
         assert opportunity.goal_relevant is True
 
-    def test_goal_relevant_proposed_experiment_roundtrips_to_the_stored_shape(self) -> None:
+    @patch(_CALCULATE_PATH)
+    def test_goal_relevant_proposed_experiment_roundtrips_to_the_stored_shape(self, mock_calculate: MagicMock) -> None:
         out = _out(goal_relevant=True, proposed_experiment=_proposed_experiment())
         persist_brief_output(brief=self._brief(), out=out, items=[_item()], findings=[])
-        assert self._opportunities().get().proposed_experiment == {
+        opportunity = self._opportunities().get()
+        assert opportunity.proposed_experiment == {
             "hypothesis": "Moving the entry point above the fold lifts subscription creation",
             "flag_key_suggestion": "subscription-entry-point",
             "target_metric": {"insight_short_id": "abc"},
             "variant_sketch": "Control keeps the sidebar entry; test adds a button above the insights list.",
         }
+        # The item resolved a metric of its own — promotion must not touch it or run an insight.
+        assert opportunity.metric_ref == {"insight_short_id": "abc"}
+        assert opportunity.baseline == _item().numbers
+        mock_calculate.assert_not_called()
+
+    @patch(_CALCULATE_PATH)
+    def test_promotes_validated_target_metric_for_metricless_opportunity(self, mock_calculate: MagicMock) -> None:
+        insight = Insight.objects.create(team=self.team, name="Subscriptions created", query=_TRENDS_QUERY)
+        mock_calculate.return_value = MagicMock(result=[{"data": [1.0] * 7 + [2.0] * 7}])
+        out = _out(
+            fingerprint_hint="unknown:9",
+            goal_relevant=True,
+            proposed_experiment=_proposed_experiment(insight.short_id),
+            evidence_refs=[f"insight:{insight.short_id}"],
+        )
+        persist_brief_output(brief=self._brief(), out=out, items=[], findings=[])
+        opportunity = self._opportunities().get()
+        assert opportunity.metric_ref == {"insight_short_id": insight.short_id}
+        assert opportunity.baseline == {"current_total": 14.0, "period_days": 7}
+        assert opportunity.proposed_experiment["target_metric"] == {"insight_short_id": insight.short_id}
+
+    @patch(_CALCULATE_PATH)
+    def test_uncited_target_metric_is_dropped_and_never_promoted(self, mock_calculate: MagicMock) -> None:
+        out = _out(
+            fingerprint_hint="unknown:9",
+            goal_relevant=True,
+            proposed_experiment=_proposed_experiment("zzz9"),
+            evidence_refs=["insight:abc"],
+        )
+        persist_brief_output(brief=self._brief(), out=out, items=[], findings=[])
+        opportunity = self._opportunities().get()
+        assert opportunity.proposed_experiment["target_metric"] is None
+        assert opportunity.metric_ref is None
+        assert opportunity.baseline is None
+        mock_calculate.assert_not_called()
 
     @parameterized.expand(
         [

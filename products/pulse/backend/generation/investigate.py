@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.hogql.escape_sql import escape_hogql_string
+
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -40,6 +42,9 @@ logger = structlog.get_logger(__name__)
 # User decision (2026-07-04): room to explore — the prompt-side justification requirement, not
 # the cap, is the primary quality control on investigation steps.
 MAX_INVESTIGATION_STEPS = 10
+# Tighter than the overall cap: every clicks step re-scans the $autocapture window, so a
+# scheduled brief must not be able to run that scan MAX_INVESTIGATION_STEPS times.
+MAX_CLICKS_STEPS = 3
 INVESTIGATION_MODEL = "gpt-4.1"
 _PLANNER_TIMEOUT_SECONDS = 60
 _REPAIR_TIMEOUT_SECONDS = 30
@@ -151,6 +156,7 @@ def plan_investigation(
             goal_text=sanitize_for_prompt(goal_status.goal),
             metric_line=_render_metric_line(goal_status),
             max_steps=MAX_INVESTIGATION_STEPS,
+            max_clicks_steps=MAX_CLICKS_STEPS,
             period_days=period_days,
             items_block=_render_items_for_planner(items),
         )
@@ -179,14 +185,19 @@ def _step_tool_input(step: PlannedStep) -> str:
 
 
 def _apply_plan_gates(team: Team, steps: list[PlannedStep]) -> list[PlannedStep]:
-    # The hard cap is code-enforced regardless of model output. The blank-field check is only a
+    # The hard caps are code-enforced regardless of model output. The blank-field check is only a
     # backstop — the justification gate proper is the prompt-side forcing function (a model that
     # pads justifications sails through here; the eval loop is what catches that).
-    kept = [
-        step
-        for step in steps
-        if step.question.strip() and step.justification.strip() and _step_tool_input(step).strip()
-    ]
+    kept: list[PlannedStep] = []
+    clicks_kept = 0
+    for step in steps:
+        if not (step.question.strip() and step.justification.strip() and _step_tool_input(step).strip()):
+            continue
+        if step.tool == "clicks":
+            if clicks_kept >= MAX_CLICKS_STEPS:
+                continue
+            clicks_kept += 1
+        kept.append(step)
     if len(kept) < len(steps):
         logger.info("pulse_investigation_steps_dropped", team_id=team.id, dropped=len(steps) - len(kept))
     return kept[:MAX_INVESTIGATION_STEPS]
@@ -245,10 +256,6 @@ async def execute_investigation(
     return findings
 
 
-def _hogql_string_literal(value: str) -> str:
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
 def build_clicks_query(url_pattern: str, selector_hint: str, period_days: int) -> str:
     """The clicks tool's deterministic HogQL: top clicked elements ($autocapture) on pages whose
     URL matches the planner's pattern.
@@ -260,13 +267,13 @@ def build_clicks_query(url_pattern: str, selector_hint: str, period_days: int) -
     semantics from its heatmaps API). A heatmaps facade capability is the recorded ask.
     """
     selector_filter = (
-        f"\n  AND elements_chain ILIKE {_hogql_string_literal('%' + selector_hint + '%')}" if selector_hint else ""
+        f"\n  AND elements_chain ILIKE {escape_hogql_string('%' + selector_hint + '%')}" if selector_hint else ""
     )
     return (
         "SELECT properties.$el_text AS element_text, count() AS clicks\n"
         "FROM events\n"
         "WHERE event = '$autocapture'\n"
-        f"  AND match(properties.$current_url, {_hogql_string_literal(url_pattern)})\n"
+        f"  AND match(properties.$current_url, {escape_hogql_string(url_pattern)})\n"
         f"  AND timestamp >= now() - INTERVAL {period_days} DAY\n"
         "  AND notEmpty(properties.$el_text)"
         f"{selector_filter}\n"

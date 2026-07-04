@@ -46,7 +46,6 @@ import type {
     ProductBriefApi,
     ProductBriefApiSectionsItem,
     ProductBriefListApi,
-    ProposedExperimentApi,
 } from './generated/api.schemas'
 import { OpportunityStatusEnumApi, ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
@@ -113,17 +112,6 @@ export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
 /** What a row can have in flight: a plain lifecycle transition, or the create-experiment flow
  * (an acted transition followed by a navigation) — distinct so only its own button spinners. */
 export type OpportunityRowAction = OpportunityTransition | 'create_experiment'
-
-/** The clipboard payload for the new-experiment form. The experiments creation URL prefills
- * nothing usable today (name is gated behind a metric param; hypothesis and flag key have no
- * params at all — a prefill hook is the recorded ask), so the proposal travels via clipboard. */
-export function formatProposedExperiment(proposal: ProposedExperimentApi): string {
-    return [
-        `Hypothesis: ${proposal.hypothesis}`,
-        `Feature flag key: ${proposal.flag_key_suggestion}`,
-        `Variants: ${proposal.variant_sketch}`,
-    ].join('\n')
-}
 
 /** The lifecycle transitions in one table so endpoint, allowed source status, and button label can't drift. */
 export const OPPORTUNITY_TRANSITIONS: Record<
@@ -567,209 +555,228 @@ export const pulseLogic = kea<pulseLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        loadBriefsSuccess: ({ briefs }) => {
-            if (values.selectedBriefId === null && values.visibleBriefs.length > 0) {
-                actions.selectBrief(values.visibleBriefs[0].id)
+    listeners(({ actions, values, cache }) => {
+        /** One transition round-trip: in-flight guard, server call, row swap on success, toast on
+         * failure. Returns the updated row, or null when skipped or failed. */
+        const runTransition = async (
+            opportunityId: string,
+            action: OpportunityRowAction,
+            call: (projectId: string, id: string) => Promise<OpportunityApi>
+        ): Promise<OpportunityApi | null> => {
+            if (opportunityId in values.transitionsInFlight) {
+                return null // state-level double-submission guard; the row's buttons are also disabled
             }
-            if (briefs.some(isGeneratingBrief)) {
-                actions.startPolling()
-            }
-        },
-        selectConfig: () => {
-            actions.selectBrief(values.visibleBriefs.length > 0 ? values.visibleBriefs[0].id : null)
-        },
-        selectBrief: ({ briefId }) => {
-            if (briefId === null) {
-                return
-            }
-            if (values.briefDetail?.id !== briefId) {
-                actions.loadBriefDetail({ briefId })
-            }
-        },
-        generateBriefSuccess: ({ generatedBrief }) => {
-            if (!generatedBrief) {
-                return
-            }
-            actions.selectBrief(generatedBrief.id)
-            actions.startPolling()
-        },
-        generateBriefFailure: ({ errorObject }) => {
-            if (errorObject instanceof ApiError && errorObject.status === 409) {
-                lemonToast.info(BRIEF_ALREADY_GENERATING_MESSAGE)
-            }
-        },
-        startPolling: () => {
-            cache.pollFailureRounds = 0
-            cache.disposables.add(() => {
-                const intervalId = setInterval(() => actions.pollGeneratingBriefs(), BRIEF_POLL_INTERVAL_MS)
-                return () => clearInterval(intervalId)
-            }, 'briefPoll')
-        },
-        stopPolling: () => {
-            cache.disposables.dispose('briefPoll')
-        },
-        pollGeneratingBriefs: async () => {
-            // The single stop decision: a tick with nothing left to poll ends the interval.
-            const generating = values.briefs.filter(isGeneratingBrief)
-            if (generating.length === 0) {
-                actions.stopPolling()
-                return
-            }
-            if (cache.pollInFlight) {
-                return // A slow previous tick is still fetching — skip instead of stacking requests.
-            }
-            cache.pollInFlight = true
+            actions.opportunityTransitionStarted(opportunityId, action)
             try {
-                const results = await Promise.allSettled(
-                    generating.map((brief) => pulseBriefsRetrieve(currentProjectId(), brief.id))
+                const updated = await call(currentProjectId(), opportunityId)
+                actions.opportunityTransitionSucceeded(updated)
+                return updated
+            } catch (error) {
+                actions.opportunityTransitionFailed(opportunityId)
+                lemonToast.error(
+                    error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
                 )
-                const refreshed = results
-                    .filter(
-                        (result): result is PromiseFulfilledResult<ProductBriefApi> => result.status === 'fulfilled'
-                    )
-                    .map((result) => result.value)
-                if (refreshed.length > 0) {
-                    cache.pollFailureRounds = 0
-                    actions.briefsRefreshed(refreshed)
+                return null
+            }
+        }
+        return {
+            loadBriefsSuccess: ({ briefs }) => {
+                if (values.selectedBriefId === null && values.visibleBriefs.length > 0) {
+                    actions.selectBrief(values.visibleBriefs[0].id)
+                }
+                if (briefs.some(isGeneratingBrief)) {
+                    actions.startPolling()
+                }
+            },
+            selectConfig: () => {
+                actions.selectBrief(values.visibleBriefs.length > 0 ? values.visibleBriefs[0].id : null)
+            },
+            selectBrief: ({ briefId }) => {
+                if (briefId === null) {
                     return
                 }
-                // Every retrieve failed — count rounds so a persistent outage becomes legible instead
-                // of an interval spinning forever behind a "Generating…" state.
-                cache.pollFailureRounds = (cache.pollFailureRounds ?? 0) + 1
-                if (cache.pollFailureRounds >= MAX_CONSECUTIVE_POLL_FAILURES) {
-                    actions.stopPolling()
-                    lemonToast.error('Checking brief status keeps failing — reload the page to retry')
+                if (values.briefDetail?.id !== briefId) {
+                    actions.loadBriefDetail({ briefId })
                 }
-            } finally {
-                cache.pollInFlight = false
-            }
-        },
-        openConfigModal: ({ config }) => {
-            actions.resetConfigForm({
-                name: config?.name ?? '',
-                focus_prompt: config?.focus_prompt ?? '',
-                dashboards: config?.anchors?.dashboards ?? [],
-                goal: config?.goal ?? '',
-                goal_metric_short_id: config?.goal_metric?.insight_short_id ?? '',
-            })
-            actions.resetScheduleForm(EMPTY_SCHEDULE_FORM)
-        },
-        briefScheduled: () => {
-            lemonToast.success('Brief scheduled')
-        },
-        submitScheduleFormFailure: ({ error }) => {
-            // Field-level validation failures already render inline — only toast API errors.
-            if (error instanceof ApiError) {
-                lemonToast.error(error.detail || 'Scheduling the brief failed')
-            }
-        },
-        unscheduleBrief: async ({ subscriptionId }) => {
-            try {
-                // Subscriptions forbid hard deletes — soft-delete via PATCH.
-                await subscriptionsPartialUpdate(currentProjectId(), subscriptionId, { deleted: true })
-            } catch {
-                actions.briefUnscheduleFailed()
-                lemonToast.error('Removing the schedule failed')
-                return
-            }
-            actions.briefUnscheduled(subscriptionId)
-            lemonToast.success('Brief schedule removed')
-        },
-        configSaved: ({ config, created }) => {
-            lemonToast.success(created ? 'Brief config created' : 'Brief config updated')
-            if (created) {
-                actions.selectConfig(config.id)
-            }
-        },
-        submitConfigFormFailure: ({ error }) => {
-            // Field-level validation failures already render inline — only toast API errors.
-            if (error instanceof ApiError) {
-                lemonToast.error(error.detail || 'Saving the brief config failed')
-            }
-        },
-        transitionOpportunity: async ({ opportunityId, transition }) => {
-            if (opportunityId in values.transitionsInFlight) {
-                return // state-level double-submission guard; the row's buttons are also disabled
-            }
-            actions.opportunityTransitionStarted(opportunityId, transition)
-            try {
-                const updated = await OPPORTUNITY_TRANSITIONS[transition].call(currentProjectId(), opportunityId)
-                actions.opportunityTransitionSucceeded(updated)
-            } catch (error) {
-                actions.opportunityTransitionFailed(opportunityId)
-                lemonToast.error(
-                    error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
+            },
+            generateBriefSuccess: ({ generatedBrief }) => {
+                if (!generatedBrief) {
+                    return
+                }
+                actions.selectBrief(generatedBrief.id)
+                actions.startPolling()
+            },
+            generateBriefFailure: ({ errorObject }) => {
+                if (errorObject instanceof ApiError && errorObject.status === 409) {
+                    lemonToast.info(BRIEF_ALREADY_GENERATING_MESSAGE)
+                }
+            },
+            startPolling: () => {
+                cache.pollFailureRounds = 0
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => actions.pollGeneratingBriefs(), BRIEF_POLL_INTERVAL_MS)
+                    return () => clearInterval(intervalId)
+                }, 'briefPoll')
+            },
+            stopPolling: () => {
+                cache.disposables.dispose('briefPoll')
+            },
+            pollGeneratingBriefs: async () => {
+                // The single stop decision: a tick with nothing left to poll ends the interval.
+                const generating = values.briefs.filter(isGeneratingBrief)
+                if (generating.length === 0) {
+                    actions.stopPolling()
+                    return
+                }
+                if (cache.pollInFlight) {
+                    return // A slow previous tick is still fetching — skip instead of stacking requests.
+                }
+                cache.pollInFlight = true
+                try {
+                    const results = await Promise.allSettled(
+                        generating.map((brief) => pulseBriefsRetrieve(currentProjectId(), brief.id))
+                    )
+                    const refreshed = results
+                        .filter(
+                            (result): result is PromiseFulfilledResult<ProductBriefApi> => result.status === 'fulfilled'
+                        )
+                        .map((result) => result.value)
+                    if (refreshed.length > 0) {
+                        cache.pollFailureRounds = 0
+                        actions.briefsRefreshed(refreshed)
+                        return
+                    }
+                    // Every retrieve failed — count rounds so a persistent outage becomes legible instead
+                    // of an interval spinning forever behind a "Generating…" state.
+                    cache.pollFailureRounds = (cache.pollFailureRounds ?? 0) + 1
+                    if (cache.pollFailureRounds >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                        actions.stopPolling()
+                        lemonToast.error('Checking brief status keeps failing — reload the page to retry')
+                    }
+                } finally {
+                    cache.pollInFlight = false
+                }
+            },
+            openConfigModal: ({ config }) => {
+                actions.resetConfigForm({
+                    name: config?.name ?? '',
+                    focus_prompt: config?.focus_prompt ?? '',
+                    dashboards: config?.anchors?.dashboards ?? [],
+                    goal: config?.goal ?? '',
+                    goal_metric_short_id: config?.goal_metric?.insight_short_id ?? '',
+                })
+                actions.resetScheduleForm(EMPTY_SCHEDULE_FORM)
+            },
+            briefScheduled: () => {
+                lemonToast.success('Brief scheduled')
+            },
+            submitScheduleFormFailure: ({ error }) => {
+                // Field-level validation failures already render inline — only toast API errors.
+                if (error instanceof ApiError) {
+                    lemonToast.error(error.detail || 'Scheduling the brief failed')
+                }
+            },
+            unscheduleBrief: async ({ subscriptionId }) => {
+                try {
+                    // Subscriptions forbid hard deletes — soft-delete via PATCH.
+                    await subscriptionsPartialUpdate(currentProjectId(), subscriptionId, { deleted: true })
+                } catch {
+                    actions.briefUnscheduleFailed()
+                    lemonToast.error('Removing the schedule failed')
+                    return
+                }
+                actions.briefUnscheduled(subscriptionId)
+                lemonToast.success('Brief schedule removed')
+            },
+            configSaved: ({ config, created }) => {
+                lemonToast.success(created ? 'Brief config created' : 'Brief config updated')
+                if (created) {
+                    actions.selectConfig(config.id)
+                }
+            },
+            submitConfigFormFailure: ({ error }) => {
+                // Field-level validation failures already render inline — only toast API errors.
+                if (error instanceof ApiError) {
+                    lemonToast.error(error.detail || 'Saving the brief config failed')
+                }
+            },
+            transitionOpportunity: async ({ opportunityId, transition }) => {
+                await runTransition(opportunityId, transition, OPPORTUNITY_TRANSITIONS[transition].call)
+            },
+            createExperimentFromOpportunity: async ({ opportunityId }) => {
+                const proposal = values.opportunities.find((o) => o.id === opportunityId)?.proposed_experiment
+                if (!proposal) {
+                    return // the button only renders with a proposal; a stale click is a no-op
+                }
+                // The acted transition lands FIRST so accountability re-scores this opportunity even
+                // if the user abandons the experiment form after navigation. A skipped or failed
+                // transition never leaves the scene.
+                const updated = await runTransition(
+                    opportunityId,
+                    'create_experiment',
+                    OPPORTUNITY_TRANSITIONS.acted.call
                 )
-            }
-        },
-        createExperimentFromOpportunity: async ({ opportunityId }) => {
-            if (opportunityId in values.transitionsInFlight) {
-                return // state-level double-submission guard; the row's buttons are also disabled
-            }
-            const proposal = values.opportunities.find((o) => o.id === opportunityId)?.proposed_experiment
-            if (!proposal) {
-                return // the button only renders with a proposal; a stale click is a no-op
-            }
-            actions.opportunityTransitionStarted(opportunityId, 'create_experiment')
-            try {
-                // The acted transition lands FIRST so accountability re-scores this opportunity
-                // even if the user abandons the experiment form after navigation.
-                const updated = await pulseOpportunitiesActedCreate(currentProjectId(), opportunityId)
-                actions.opportunityTransitionSucceeded(updated)
-            } catch (error) {
-                actions.opportunityTransitionFailed(opportunityId)
-                lemonToast.error(
-                    error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
+                if (!updated) {
+                    return
+                }
+                // The experiments creation URL prefills nothing usable today (name is gated behind a
+                // metric param; hypothesis and flag key have no params — a prefill hook is the
+                // recorded ask), so the proposal travels via clipboard for the blank form.
+                await copyToClipboard(
+                    [
+                        `Hypothesis: ${proposal.hypothesis}`,
+                        `Feature flag key: ${proposal.flag_key_suggestion}`,
+                        ...(proposal.target_metric
+                            ? [`Target metric insight: ${proposal.target_metric.insight_short_id}`]
+                            : []),
+                        `Variants: ${proposal.variant_sketch}`,
+                    ].join('\n'),
+                    'experiment proposal'
                 )
-                return // don't leave the scene when the opportunity was not actually acted on
-            }
-            // No URL prefill exists on the new-experiment form (recorded ask) — hand the proposal
-            // over via clipboard so it can be pasted into the blank form.
-            await copyToClipboard(formatProposedExperiment(proposal), 'experiment proposal')
-            router.actions.push(urls.experiment('new'))
-        },
-        setActiveTab: ({ tab }) => {
-            // Lazy first load — briefs are the default landing surface, so the opportunities
-            // request waits until the tab is actually opened. The flag only latches on success,
-            // so a failed load retries on the next switch instead of masquerading as empty.
-            if (
-                tab === 'opportunities' &&
-                !cache.opportunitiesLoaded &&
-                !values.opportunitiesLoading &&
-                values.featureFlags[FEATURE_FLAGS.PULSE]
-            ) {
-                actions.loadOpportunities()
-            }
-        },
-        loadOpportunitiesSuccess: () => {
-            cache.opportunitiesLoaded = true
-        },
-        loadOpportunitiesFailure: () => {
-            lemonToast.error('Loading opportunities failed — reopen the tab to retry')
-        },
-        loadBriefDetailSuccess: ({ briefDetail }) => {
-            reportBriefViewed(cache, briefDetail)
-        },
-        briefsRefreshed: () => {
-            // The poll path swaps a generating detail to terminal without a loadBriefDetail.
-            reportBriefViewed(cache, values.briefDetail)
-        },
-        deleteConfig: async ({ configId }) => {
-            try {
-                await pulseBriefConfigsDestroy(currentProjectId(), configId)
-            } catch {
-                actions.configDeleteFailed()
-                lemonToast.error('Deleting the brief config failed')
-                return
-            }
-            if (values.selectedConfigId === configId) {
-                actions.selectConfig(null)
-            }
-            actions.configDeleted(configId)
-            lemonToast.success('Brief config deleted')
-        },
-    })),
+                router.actions.push(urls.experiment('new'))
+            },
+            setActiveTab: ({ tab }) => {
+                // Lazy first load — briefs are the default landing surface, so the opportunities
+                // request waits until the tab is actually opened. The flag only latches on success,
+                // so a failed load retries on the next switch instead of masquerading as empty.
+                if (
+                    tab === 'opportunities' &&
+                    !cache.opportunitiesLoaded &&
+                    !values.opportunitiesLoading &&
+                    values.featureFlags[FEATURE_FLAGS.PULSE]
+                ) {
+                    actions.loadOpportunities()
+                }
+            },
+            loadOpportunitiesSuccess: () => {
+                cache.opportunitiesLoaded = true
+            },
+            loadOpportunitiesFailure: () => {
+                lemonToast.error('Loading opportunities failed — reopen the tab to retry')
+            },
+            loadBriefDetailSuccess: ({ briefDetail }) => {
+                reportBriefViewed(cache, briefDetail)
+            },
+            briefsRefreshed: () => {
+                // The poll path swaps a generating detail to terminal without a loadBriefDetail.
+                reportBriefViewed(cache, values.briefDetail)
+            },
+            deleteConfig: async ({ configId }) => {
+                try {
+                    await pulseBriefConfigsDestroy(currentProjectId(), configId)
+                } catch {
+                    actions.configDeleteFailed()
+                    lemonToast.error('Deleting the brief config failed')
+                    return
+                }
+                if (values.selectedConfigId === configId) {
+                    actions.selectConfig(null)
+                }
+                actions.configDeleted(configId)
+                lemonToast.success('Brief config deleted')
+            },
+        }
+    }),
     actionToUrl(({ values }) => ({
         setActiveTab: () => [
             router.values.location.pathname,

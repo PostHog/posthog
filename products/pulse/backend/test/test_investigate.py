@@ -12,6 +12,7 @@ from products.pulse.backend.generation.investigate import (
     _CLICKS_TOP_ROWS,
     _RESULT_MAX_CHARS,
     _TRUNCATION_SENTINEL,
+    MAX_CLICKS_STEPS,
     MAX_INVESTIGATION_STEPS,
     QUERY_FAILED_PREFIX,
     HogQLRepair,
@@ -95,6 +96,12 @@ class TestPlanInvestigation:
         assert [s.question for s in steps] == (["q0", "q1"] if kept else ["q0"])
 
     @patch(_LLM_PATH)
+    def test_gate_caps_clicks_steps_without_dropping_hogql_steps(self, mock_llm: MagicMock) -> None:
+        plan = InvestigationPlan(steps=[_clicks_step(n) for n in range(MAX_CLICKS_STEPS + 2)] + [_step(9)])
+        steps = self._plan(mock_llm, plan)
+        assert [s.question for s in steps] == [f"q{n}" for n in range(MAX_CLICKS_STEPS)] + ["q9"]
+
+    @patch(_LLM_PATH)
     def test_planner_failure_degrades_to_empty_plan(self, mock_llm: MagicMock) -> None:
         mock_llm.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("llm down")
         steps = plan_investigation(
@@ -137,6 +144,7 @@ class TestPlanInvestigation:
         assert '"hogql" (the default)' in rendered
         assert '"clicks": a pre-built click-density summary' in rendered
         assert "`url_pattern`" in rendered
+        assert f'at most {MAX_CLICKS_STEPS} "clicks" steps' in rendered
 
 
 class TestExecuteInvestigation:

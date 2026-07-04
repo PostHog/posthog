@@ -100,7 +100,7 @@ The goal directs WHAT to investigate — follow it freely when choosing question
 Two tools are available; set each step's `tool` accordingly:
 
 - "hogql" (the default): the step's `hogql` is one read-only HogQL SELECT; leave `url_pattern` and `selector_hint` empty.
-- "clicks": a pre-built click-density summary — the top clicked elements on pages whose URL matches the step's `url_pattern` (a regular expression, e.g. 'https://app.example.com/insights.*'); leave `hogql` empty. Reach for it for where-do-users-click and is-this-entry-point-used questions instead of writing element queries by hand. Optionally set `selector_hint` to count only clicks whose DOM element chain contains that substring.
+- "clicks": a pre-built click-density summary — the top clicked elements on pages whose URL matches the step's `url_pattern` (a regular expression, e.g. 'https://app.example.com/insights.*'); leave `hogql` empty. Reach for it for where-do-users-click and is-this-entry-point-used questions instead of writing element queries by hand. Optionally set `selector_hint` to count only clicks whose DOM element chain contains that substring. Propose at most {max_clicks_steps} "clicks" steps — each one is a full click-data scan.
 
 HogQL syntax constraints — write "hogql" steps that PARSE first. Each such step's hogql is one SELECT over the `events` table, ideally flat; a single level of FROM-subquery is allowed:
 """

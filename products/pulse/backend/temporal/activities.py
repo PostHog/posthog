@@ -156,7 +156,7 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         findings=findings,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
-        brief=brief, out=out, items=items, findings=findings
+        brief=brief, out=out, items=items, findings=findings, results_cache=results_cache
     )
     await _emit_opportunity_signals(brief, out, created)
     try:
