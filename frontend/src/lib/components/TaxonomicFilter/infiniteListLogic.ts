@@ -413,6 +413,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
         hasMore: [false, { setHasMore: (_, { hasMore }) => hasMore }],
+        remoteFetchFailed: [
+            false,
+            {
+                loadRemoteItems: () => false,
+                loadRemoteItemsSuccess: () => false,
+                loadRemoteItemsFailure: () => true,
+            },
+        ],
     })),
     selectors({
         listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
@@ -539,13 +547,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         remoteResultsAreFresh: [
-            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery],
-            (hasRemoteDataSource: boolean, remoteItems: ListStorage, searchQuery: string): boolean =>
+            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery, s.remoteFetchFailed],
+            (
+                hasRemoteDataSource: boolean,
+                remoteItems: ListStorage,
+                searchQuery: string,
+                remoteFetchFailed: boolean
+            ): boolean =>
                 // Local-only groups resolve synchronously, so they're always "fresh". For remote
                 // groups the debounced fetch lags the typed query — treat results as fresh only once
                 // the response for the *current* query has landed. This keeps a stale (or transiently
                 // empty) list from being rendered as "No results" before the real response arrives.
-                !hasRemoteDataSource || (remoteItems.searchQuery ?? '') === searchQuery,
+                // A failed fetch also counts as settled: `remoteItems.searchQuery` never catches up
+                // after a failure, and without this the loading state would spin forever.
+                !hasRemoteDataSource || remoteFetchFailed || (remoteItems.searchQuery ?? '') === searchQuery,
         ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],

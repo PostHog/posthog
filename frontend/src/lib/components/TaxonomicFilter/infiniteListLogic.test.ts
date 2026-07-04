@@ -446,6 +446,32 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('remote fetch failure settles the list', () => {
+        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const failingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'failingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            failingLogic.mount()
+            await expectLogic(failingLogic, () => {
+                failingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toMatchValues({
+                    showLoadingState: false,
+                    showEmptyState: true,
+                })
+        })
+    })
+
     describe('internal events local options filtering', () => {
         // The Internal Events group has multiple local options ("All internal events" plus
         // product filter options), so substring matching needs to cover both the meta option
