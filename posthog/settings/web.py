@@ -599,6 +599,7 @@ SPECTACULAR_SETTINGS = {
         ],
         "AssigneeTypeEnum": ["user", "role"],
         "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
+        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
