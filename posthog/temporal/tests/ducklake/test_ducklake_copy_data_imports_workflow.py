@@ -397,6 +397,8 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
+    # The copy introspects the source columns before building the CREATE statement.
+    mock_conn.execute.return_value.description = [_FakeColumn("id", 20), _FakeColumn("name", 25)]
 
     mock_heartbeater = MagicMock()
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
@@ -470,6 +472,8 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
+    # The copy introspects the source columns before building the CREATE statement.
+    mock_conn.execute.return_value.description = [_FakeColumn("id", 20), _FakeColumn("name", 25)]
 
     mock_heartbeater = MagicMock()
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
@@ -928,6 +932,43 @@ def test_fetch_schema_uses_select_metadata(description, expected_schema):
     assert conn.calls == [
         ("SELECT * FROM posthog_data_imports_team_1.postgres_customers LIMIT 0", None),
     ]
+
+
+@pytest.mark.parametrize(
+    "names, expected",
+    [
+        pytest.param(["id", "name", "created_at"], ["id", "name", "created_at"], id="no_collision"),
+        pytest.param(["id", "Id"], ["id", "Id_1"], id="case_insensitive_collision"),
+        pytest.param(["id", "ID", "id"], ["id", "ID_1", "id_2"], id="triple_collision"),
+        pytest.param(["id", "id_1", "id"], ["id", "id_1", "id_2"], id="suffix_avoids_existing_name"),
+    ],
+)
+def test_deduplicate_column_names(names, expected):
+    assert ducklake_module._deduplicate_column_names(names) == expected
+
+
+def test_build_delta_source_relation_aliases_case_insensitive_collisions():
+    # Two columns colliding case-insensitively (id / Id) would make CREATE TABLE ... AS
+    # SELECT * fail with "Column with name id already exists!"; the relation must alias
+    # the duplicate apart so the copy can proceed.
+    conn = _FakeVerificationConnection([_FakeColumn("id", 20), _FakeColumn("Id", 20), _FakeColumn("name", 25)])
+
+    relation = ducklake_module._build_delta_source_relation(
+        conn, "s3://bucket/staged/customers", parameter_placeholder="%s", logger=MagicMock()
+    )
+
+    assert relation == 'delta_scan(%s) AS _delta_source("id", "Id_1", "name")'
+    assert conn.calls == [("SELECT * FROM delta_scan(%s) LIMIT 0", ["s3://bucket/staged/customers"])]
+
+
+def test_build_delta_source_relation_preserves_names_without_collisions():
+    conn = _FakeVerificationConnection([_FakeColumn("id", 20), _FakeColumn("name", 25)])
+
+    relation = ducklake_module._build_delta_source_relation(
+        conn, "s3://bucket/staged/customers", parameter_placeholder="?", logger=MagicMock()
+    )
+
+    assert relation == 'delta_scan(?) AS _delta_source("id", "name")'
 
 
 def test_ducklake_copy_data_imports_workflow_parse_inputs():

@@ -310,6 +310,10 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
         qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
         qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
 
+        source_relation = _build_delta_source_relation(
+            conn, inputs.model.source_table_uri, parameter_placeholder="?", logger=logger
+        )
+
         logger.info(
             "Creating DuckLake table from Delta snapshot",
             ducklake_table=qualified_table,
@@ -317,7 +321,7 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM {source_relation}",
             [inputs.model.source_table_uri],
         )
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
@@ -351,6 +355,11 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+
+        source_relation = _build_delta_source_relation(
+            conn, inputs.model.staging_uri, parameter_placeholder="%s", logger=logger
+        )
+
         logger.info(
             "Creating DuckLake table from staged Delta snapshot via duckgres",
             ducklake_table=table,
@@ -358,10 +367,67 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM delta_scan(%s)",
+            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM {source_relation}",
             [inputs.model.staging_uri],
         )
         logger.info("Successfully materialized DuckLake table via duckgres", ducklake_table=table)
+
+
+def _build_delta_source_relation(
+    conn: _VerificationConnection,
+    source_uri: str,
+    *,
+    parameter_placeholder: str,
+    logger: typing.Any,
+) -> str:
+    """Build a ``delta_scan(...)`` relation with case-insensitive column collisions aliased apart.
+
+    A bare ``SELECT *`` over a Delta source that exposes two columns colliding
+    case-insensitively (e.g. ``id`` and ``Id``) makes ``CREATE TABLE ... AS`` fail with an
+    opaque ``Column with name id already exists!`` — DuckLake/DuckDB identifiers are
+    case-insensitive, so a table can't hold both. Enumerate the source columns and
+    positionally re-alias the table function so duplicates become ``id``, ``id_1``, ...,
+    letting the copy proceed instead of crashing deterministically.
+    """
+    ordered_names = [
+        name for name, _ in _fetch_delta_schema(conn, source_uri, parameter_placeholder=parameter_placeholder)
+    ]
+    if not ordered_names:
+        return f"delta_scan({parameter_placeholder})"
+
+    deduplicated_names = _deduplicate_column_names(ordered_names)
+
+    renamed = [
+        (original, deduped) for original, deduped in zip(ordered_names, deduplicated_names) if original != deduped
+    ]
+    if renamed:
+        logger.warning(
+            "Delta source has case-insensitive column collisions; aliasing duplicates so the copy can proceed",
+            renamed_columns=renamed,
+        )
+
+    column_aliases = ", ".join(_quote_identifier(name) for name in deduplicated_names)
+    return f"delta_scan({parameter_placeholder}) AS _delta_source({column_aliases})"
+
+
+def _deduplicate_column_names(names: list[str]) -> list[str]:
+    """Rename case-insensitive column-name collisions to unique aliases, preserving order.
+
+    The first occurrence keeps its name; each later collision gets a ``_1``, ``_2``, ...
+    suffix chosen to avoid any name already taken (case-insensitively).
+    """
+    taken: set[str] = set()
+    result: list[str] = []
+    for name in names:
+        candidate = name
+        if candidate.lower() in taken:
+            suffix = 1
+            while f"{name}_{suffix}".lower() in taken:
+                suffix += 1
+            candidate = f"{name}_{suffix}"
+        taken.add(candidate.lower())
+        result.append(candidate)
+    return result
 
 
 @dataclasses.dataclass
@@ -702,7 +768,12 @@ def _run_data_imports_schema_verification(
     """Compare schema between Delta source and DuckLake table."""
     effective_source_uri = source_uri_override or inputs.model.source_table_uri
     try:
-        source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+        # Dedupe the source columns the same way the copy does, so a Delta source with
+        # case-insensitive column collisions matches the aliased DuckLake table instead
+        # of tripping a spurious schema mismatch.
+        source_schema = _deduplicate_schema(
+            _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+        )
         ducklake_schema = _fetch_schema(conn, ducklake_table)
     except Exception as exc:
         return DuckLakeCopyDataImportsVerificationResult(
@@ -819,6 +890,12 @@ def _fetch_delta_schema(
         [source_uri],
     )
     return _schema_from_cursor_description(cursor)
+
+
+def _deduplicate_schema(schema: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Apply the copy's column de-duplication to a fetched (name, type) schema."""
+    deduplicated_names = _deduplicate_column_names([name for name, _ in schema])
+    return [(name, column_type) for name, (_, column_type) in zip(deduplicated_names, schema)]
 
 
 def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
