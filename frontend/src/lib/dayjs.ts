@@ -1,5 +1,10 @@
 // oxlint-disable-next-line no-restricted-imports
-import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
+import dayjs, {
+    Dayjs as DayjsOriginal,
+    isDayjs,
+    type ManipulateType as DayjsManipulateType,
+    type QUnitType as DayjsQUnitType,
+} from 'dayjs'
 import advancedFormat from 'dayjs/plugin/advancedFormat'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import duration from 'dayjs/plugin/duration'
@@ -33,8 +38,8 @@ dayjs.extend(updateLocale)
 // so merge one overload that takes both.
 declare module 'dayjs' {
     interface Dayjs {
-        add(value: number, unit?: ManipulateType | QUnitType): Dayjs
-        subtract(value: number, unit?: ManipulateType | QUnitType): Dayjs
+        add(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
+        subtract(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
     }
 }
 
