@@ -160,7 +160,7 @@ resource "posthog_insight" "pulse_action_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_brief_helpfulness" {
   name        = "Pulse: Brief helpfulness"
-  description = "Weekly helpful vs not-helpful votes on briefs (product_brief_feedback), split by whether the brief had a focus goal."
+  description = "Weekly helpful vs not-helpful votes on briefs (product_brief_feedback), split by whether the brief had a focus goal. Charts vote actions per week, not net helpfulness state: revotes count again, and a later-cleared vote still counts in the week it was cast."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -169,8 +169,8 @@ resource "posthog_insight" "pulse_brief_helpfulness" {
         SELECT
             toStartOfWeek(timestamp) AS week,
             concat(
-                if(toString(properties.helpful) = 'true', 'Helpful', 'Not helpful'),
-                if(toString(properties.has_goal) = 'true', ' · goal', ' · no goal')
+                if(properties.helpful = 'true', 'Helpful', 'Not helpful'),
+                if(properties.has_goal = 'true', ' · goal', ' · no goal')
             ) AS series,
             count() AS votes
         FROM events
@@ -213,7 +213,7 @@ resource "posthog_insight" "pulse_brief_helpfulness" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "pulse_opportunity_helpfulness" {
   name        = "Pulse: Opportunity helpfulness"
-  description = "Weekly helpful vs not-helpful votes on opportunities (opportunity_feedback), split by opportunity kind (build / fix / instrument)."
+  description = "Weekly helpful vs not-helpful votes on opportunities (opportunity_feedback), split by opportunity kind (build / fix / instrument). Charts vote actions per week, not net helpfulness state: revotes count again, and a later-cleared vote still counts in the week it was cast."
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {
@@ -223,7 +223,7 @@ resource "posthog_insight" "pulse_opportunity_helpfulness" {
             toStartOfWeek(timestamp) AS week,
             concat(
                 coalesce(properties.kind, 'unknown'),
-                if(toString(properties.helpful) = 'true', ' · helpful', ' · not helpful')
+                if(properties.helpful = 'true', ' · helpful', ' · not helpful')
             ) AS series,
             count() AS votes
         FROM events
@@ -279,7 +279,7 @@ resource "posthog_insight" "pulse_attention_retention" {
                 groupUniqArray(toStartOfWeek(timestamp)) AS weeks
             FROM events
             WHERE event = 'product_brief_viewed'
-              AND timestamp >= now() - INTERVAL 13 WEEK
+              AND timestamp >= now() - INTERVAL 14 WEEK
             GROUP BY person_id
         ),
         expanded AS (
@@ -288,6 +288,8 @@ resource "posthog_insight" "pulse_attention_retention" {
         )
         SELECT week AS time, metric, value
         FROM (
+            -- Scan one week more than we display so the oldest displayed week
+            -- has a real previous week to compute "Returning viewers" against.
             SELECT
                 week,
                 ['Weekly viewers', 'Returning viewers'] AS metrics,
@@ -296,6 +298,7 @@ resource "posthog_insight" "pulse_attention_retention" {
                     toFloat(uniqExactIf(person_id, has(weeks, week - INTERVAL 7 DAY)))
                 ] AS vals
             FROM expanded
+            WHERE week >= toStartOfWeek(now() - INTERVAL 13 WEEK)
             GROUP BY week
         )
         ARRAY JOIN metrics AS metric, vals AS value
