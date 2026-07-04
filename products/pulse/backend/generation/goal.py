@@ -1,22 +1,27 @@
 from dataclasses import dataclass
-from typing import Any
-
-from django.db.models import QuerySet
+from typing import Any, Literal
 
 import structlog
 
 from posthog.models.team import Team
 
-from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_insights import (
-    calculate_insight_results,
+    InsightResultsCache,
+    pct_delta,
+    per_day_rate,
     rate_summary,
+    resolve_metric_insight,
     series_daily_values,
     split_score_windows,
 )
 
 logger = structlog.get_logger(__name__)
+
+# "none": no metric configured (qualitative goal). "ok": figures below are populated.
+# "unavailable": a metric is configured but could not be read this period — itself an
+# investigable signal, so it must stay distinguishable from "none" downstream.
+MetricState = Literal["none", "ok", "unavailable"]
 
 
 @dataclass(frozen=True)
@@ -26,52 +31,59 @@ class GoalStatus:
     `goal` and `metric_label` carry untrusted user-authored free text; they are sanitized once
     at the prompt-render boundary, the collector stays raw. Rates and `delta_pct` are
     code-computed via the shared anchored-insights window math so the LLM never arithmetics.
+    `insight_short_id` is the configured metric ref (set whenever a valid-shaped ref exists,
+    even when unreadable) so downstream consumers can investigate the metric itself.
     """
 
     goal: str
-    metric_label: str | None
-    current_rate: str | None
-    previous_rate: str | None
-    delta_pct: float | None
+    metric_state: MetricState = "none"
+    insight_short_id: str | None = None
+    metric_label: str | None = None
+    current_rate: str | None = None
+    previous_rate: str | None = None
+    delta_pct: float | None = None
 
 
-def collect_goal_status(team: Team, config: BriefConfig, period_days: int) -> GoalStatus:
+def collect_goal_status(
+    team: Team, config: BriefConfig, period_days: int, results_cache: InsightResultsCache | None = None
+) -> GoalStatus | None:
     """Compute where the config's goal metric stands: current vs previous per-day rates.
 
-    A metric that can't be read (missing/deleted insight, failing execution, non-trends shape,
-    too little data) degrades to the goal text alone — the prompt still states the goal, it
-    just carries no figures.
+    None when the config has no goal — the single gate for blank goals. A metric that can't be
+    read (missing/deleted insight, failing execution, non-trends shape, too little data) yields
+    metric_state="unavailable": the prompt still states the goal, just without figures.
     """
     goal = config.goal.strip()
-    text_only = GoalStatus(goal=goal, metric_label=None, current_rate=None, previous_rate=None, delta_pct=None)
+    if not goal:
+        return None
     short_id = _metric_short_id(config)
     if short_id is None:
-        return text_only
-    insight = _metric_insight(team, short_id)
+        return GoalStatus(goal=goal)
+    unavailable = GoalStatus(goal=goal, metric_state="unavailable", insight_short_id=short_id)
+    insight = resolve_metric_insight(team, short_id)
     if insight is None:
-        return text_only
+        return unavailable
+    cache = results_cache or InsightResultsCache(team)
     try:
-        results = calculate_insight_results(insight, team)
+        results = cache.results_for(insight)
     except Exception:
         # Best-effort by design: a broken metric read must not cost the brief its goal framing.
         logger.exception("pulse_goal_metric_read_failed", team_id=team.id, insight_short_id=short_id)
-        return text_only
+        return unavailable
     windows = _goal_windows(results, period_days)
     if windows is None:
-        return text_only
+        return unavailable
     previous, current = windows
-    # Per-day rates, not window totals: the live window can be shorter than period_days when
-    # data is sparse, and the delta must agree with the two rates stated beside it.
-    previous_rate = float(sum(previous)) / len(previous)
-    current_rate = float(sum(current)) / len(current)
-    # Zero-baseline guard: a delta off nothing is meaningless, not infinite.
-    delta_pct = round(((current_rate - previous_rate) / previous_rate) * 100.0, 1) if previous_rate else None
+    previous_rate = per_day_rate(previous)
+    current_rate = per_day_rate(current)
     return GoalStatus(
         goal=goal,
+        metric_state="ok",
+        insight_short_id=short_id,
         metric_label=insight.name or insight.derived_name or insight.short_id,
         current_rate=rate_summary(current_rate),
         previous_rate=rate_summary(previous_rate),
-        delta_pct=delta_pct,
+        delta_pct=pct_delta(current_rate, previous_rate),
     )
 
 
@@ -82,11 +94,6 @@ def _metric_short_id(config: BriefConfig) -> str | None:
     if isinstance(metric, dict) and isinstance(metric.get("insight_short_id"), str) and metric["insight_short_id"]:
         return metric["insight_short_id"]
     return None
-
-
-def _metric_insight(team: Team, short_id: str) -> Insight | None:
-    queryset: QuerySet[Insight] = Insight.objects.filter(team=team, short_id=short_id, deleted=False)
-    return queryset.order_by("id").first()  # lowest id wins when a short_id has duplicates
 
 
 def _goal_windows(results: list[Any], period_days: int) -> tuple[list[float], list[float]] | None:

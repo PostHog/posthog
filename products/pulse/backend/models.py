@@ -34,7 +34,8 @@ class BriefConfig(PulseModel):
     # What the focus is driving toward, e.g. "increase subscription usage". User-authored
     # free text — sanitized at the prompt-render boundary, never trusted raw in prompts.
     goal = models.TextField(blank=True, default="")
-    # {"insight_short_id": str} | null — same shape as Opportunity.metric_ref
+    # {"insight_short_id": str} | null — a subset of Opportunity.metric_ref (no series_index:
+    # the goal metric is always the insight's first series)
     goal_metric = models.JSONField(null=True, blank=True)
     enabled = models.BooleanField(default=True)
     # Soft delete: configs are recoverable and brief history keeps pointing at them.
