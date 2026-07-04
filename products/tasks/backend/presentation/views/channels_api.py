@@ -1,4 +1,3 @@
-import logging
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -20,8 +19,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

@@ -31,9 +31,6 @@ class ChannelsAPITestCase(TestCase):
     def _tasks_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/"
 
-    def _thread_url(self, task_id) -> str:
-        return f"/api/projects/{self.team.id}/tasks/{task_id}/thread_messages/"
-
     def test_list_provisions_personal_channel(self):
         response = self.client.get(self._channels_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)

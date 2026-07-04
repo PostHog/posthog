@@ -3970,8 +3970,9 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
 
 
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+    # select_related so _channel_to_dto doesn't lazy-load created_by per call.
     try:
-        channel, _ = Channel.objects.get_or_create(
+        channel, _ = Channel.objects.select_related("created_by").get_or_create(
             team_id=team_id,
             created_by_id=user_id,
             channel_type=Channel.ChannelType.PERSONAL,
@@ -3979,7 +3980,7 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
             defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
         )
     except IntegrityError:
-        channel = Channel.objects.get(
+        channel = Channel.objects.select_related("created_by").get(
             team_id=team_id,
             created_by_id=user_id,
             channel_type=Channel.ChannelType.PERSONAL,
@@ -4008,7 +4009,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
     if not normalized:
         return None
     try:
-        channel, _ = Channel.objects.get_or_create(
+        channel, _ = Channel.objects.select_related("created_by").get_or_create(
             team_id=team_id,
             name=normalized,
             channel_type=Channel.ChannelType.PUBLIC,
@@ -4016,7 +4017,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
             defaults={"created_by_id": user_id},
         )
     except IntegrityError:
-        channel = Channel.objects.get(
+        channel = Channel.objects.select_related("created_by").get(
             team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
         )
     return _channel_to_dto(channel)
@@ -4090,7 +4091,8 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
-    return _thread_message_to_dto(TaskThreadMessage.objects.select_related("author", "forwarded_by").get(pk=message.pk))
+    # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
+    return _thread_message_to_dto(message)
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
@@ -4129,7 +4131,7 @@ def forward_thread_message(
         return "no_run", None
 
     author = message.author
-    author_name = (f"{author.first_name} {author.last_name}".strip() or author.email) if author else "A teammate"
+    author_name = (author.get_full_name() or author.email) if author else "A teammate"
     content = f"[Thread comment from {author_name}] {message.content}"
     signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
     if not signal_result:
