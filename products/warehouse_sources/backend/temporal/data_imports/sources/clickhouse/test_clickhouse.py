@@ -680,6 +680,10 @@ class TestIsTransientConnectDrop:
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            # Smokescreen egress-proxy gateway blip on the CONNECT tunnel — retryable, not a config error.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', "
+            "OSError('Tunnel connection failed: 502 Bad gateway'))) executing HTTP request attempt 1",
         ],
     )
     def test_matches_transient_drops(self, message):

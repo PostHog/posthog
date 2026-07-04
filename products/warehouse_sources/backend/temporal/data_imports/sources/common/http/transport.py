@@ -24,6 +24,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    is_transient_proxy_gateway_error,
+)
 
 DEFAULT_RETRY = Retry(
     total=3,
@@ -32,6 +35,13 @@ DEFAULT_RETRY = Retry(
     allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
     raise_on_status=False,
 )
+
+# A Smokescreen egress-proxy gateway blip (502/504 on the HTTPS CONNECT tunnel) raises rather than
+# returning a status, so `status_forcelist` can't catch it. urllib3's own connect retries fire
+# quickly (sub-2s) and can be outlasted by a longer blip, at which point the error propagates and
+# gets captured to error tracking. We re-dispatch the whole request a few extra times with a
+# longer linear backoff so a transient proxy outage is absorbed within one activity attempt.
+_MAX_PROXY_GATEWAY_ATTEMPTS = 3
 
 
 class TrackedHTTPAdapter(HTTPAdapter):
@@ -65,36 +75,49 @@ class TrackedHTTPAdapter(HTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
-        started = time.monotonic()
-        response: Response | None = None
-        exception: BaseException | None = None
-        try:
-            response = super().send(
-                request,
-                stream=stream,
-                timeout=timeout,
-                verify=verify,
-                cert=cert,
-                proxies=proxies,
-            )
-            return response
-        except BaseException as exc:
-            exception = exc
-            raise
-        finally:
+        attempt = 0
+        while True:
+            attempt += 1
+            started = time.monotonic()
+            response: Response | None = None
+            exception: BaseException | None = None
             try:
-                record_request(
+                response = super().send(
                     request,
-                    response,
-                    started_at_monotonic=started,
-                    exception=exception,
-                    redact_values=self._redact_values,
-                    capture=self._capture,
+                    stream=stream,
+                    timeout=timeout,
+                    verify=verify,
+                    cert=cert,
+                    proxies=proxies,
                 )
-            except Exception:
-                # Belt-and-braces: record_request should never raise, but if
-                # something does we never want to mask the real outcome.
-                pass
+                return response
+            except BaseException as exc:
+                exception = exc
+                # Re-dispatch transient egress-proxy gateway blips instead of letting them
+                # propagate and get captured as error-tracking noise. Only exceptions reach here
+                # (a returned response — including a 502 forward-proxy status — is handled by
+                # urllib3's `status_forcelist`), so retrying can't replay a partial stream. Swallow
+                # to fall through to the backoff below; anything else re-raises unchanged.
+                if not (attempt < _MAX_PROXY_GATEWAY_ATTEMPTS and is_transient_proxy_gateway_error(str(exc))):
+                    raise
+            finally:
+                try:
+                    record_request(
+                        request,
+                        response,
+                        started_at_monotonic=started,
+                        exception=exception,
+                        redact_values=self._redact_values,
+                        capture=self._capture,
+                    )
+                except Exception:
+                    # Belt-and-braces: record_request should never raise, but if
+                    # something does we never want to mask the real outcome.
+                    pass
+
+            # Only reached when the request raised a retryable proxy-gateway blip. Back off
+            # after recording (so the recorded latency excludes the sleep) and re-dispatch.
+            time.sleep(attempt)
 
 
 def make_tracked_adapter(

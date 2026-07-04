@@ -26,6 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    is_transient_proxy_gateway_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -108,7 +111,11 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
 
 
 def _is_transient_connect_drop(error_message: str) -> bool:
-    return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+    if any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS):
+        return True
+    # Smokescreen egress-proxy gateway blips (502/504 on the CONNECT tunnel) surface here too and
+    # are just as retryable as a TLS drop — treat them the same instead of failing on attempt 1.
+    return is_transient_proxy_gateway_error(error_message)
 
 
 def _get_client(

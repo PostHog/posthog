@@ -7,11 +7,17 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    _MAX_PROXY_GATEWAY_ATTEMPTS,
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
     _NoRedirectSession,
     make_tracked_adapter,
     make_tracked_session,
+)
+
+_PROXY_GATEWAY_ERROR = requests.exceptions.ProxyError(
+    "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/ok "
+    "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
 )
 
 
@@ -213,6 +219,50 @@ def test_send_does_not_mask_real_outcome_when_record_raises(fake_http_send):
         response = session.get("https://api.example.com/")
 
     assert response.status_code == 200
+
+
+def test_send_retries_transient_proxy_gateway_blip_then_succeeds(mock_record):
+    session = make_tracked_session()
+    ok = _fake_response(status_code=200, body=b"ok")
+
+    with (
+        patch("time.sleep") as mock_sleep,
+        patch.object(HTTPAdapter, "send", side_effect=[_PROXY_GATEWAY_ERROR, ok]) as parent_send,
+    ):
+        response = session.get("https://api.example.com/v1/ok")
+
+    assert response.status_code == 200
+    assert parent_send.call_count == 2
+    # Each real dispatch is metered — the failed blip and the recovering success.
+    assert mock_record.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+def test_send_gives_up_after_max_proxy_gateway_attempts(mock_record):
+    session = make_tracked_session()
+
+    with (
+        patch("time.sleep"),
+        patch.object(HTTPAdapter, "send", side_effect=_PROXY_GATEWAY_ERROR) as parent_send,
+    ):
+        with pytest.raises(requests.exceptions.ProxyError):
+            session.get("https://api.example.com/v1/ok")
+
+    assert parent_send.call_count == _MAX_PROXY_GATEWAY_ATTEMPTS
+
+
+def test_send_does_not_retry_non_proxy_exception(mock_record):
+    session = make_tracked_session()
+
+    with (
+        patch("time.sleep") as mock_sleep,
+        patch.object(HTTPAdapter, "send", side_effect=requests.exceptions.ConnectionError("Connection refused")),
+    ):
+        with pytest.raises(requests.exceptions.ConnectionError):
+            session.get("https://api.example.com/v1/ok")
+
+    # A non-proxy failure must not trigger the proxy-gateway backoff loop.
+    mock_sleep.assert_not_called()
 
 
 def test_send_does_not_mask_real_exception_when_record_raises():
