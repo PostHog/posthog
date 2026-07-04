@@ -317,6 +317,14 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
             errors=[f"Failed to send event to proxy, expected 200 but got {e.response.status_code}"],
             warnings=[],
         )
+    except requests.exceptions.RequestException:
+        # Any other POST-phase requests failure (malformed response, bad URL, etc). Caught before the
+        # stdlib handler below so a POST error isn't mislabelled as a cert-fetch failure - requests
+        # exceptions subclass OSError. Mirrors the sibling's broad RequestException handling.
+        return CheckActivityOutput(
+            errors=["Failed to send event to proxy"],
+            warnings=[],
+        )
     except (TimeoutError, ssl.SSLError, OSError) as e:
         # Raw-socket cert fetch failed (timeout, refused connection, TLS error). requests exceptions
         # are handled above; this catches the stdlib socket/ssl errors the cert probe can raise.

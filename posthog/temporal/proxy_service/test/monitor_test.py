@@ -93,9 +93,9 @@ class TestCheckProxyIsLive(TestCase):
                 requests.exceptions.ConnectionError("Connection refused"),
                 ["Failed to connect to proxy"],
             ),
-            # read_timeout guards the handler added alongside the request timeout: ReadTimeout
-            # subclasses requests.Timeout, not ConnectionError, so without a dedicated except it
-            # escapes uncaught and crashes the activity instead of reporting a user-visible error.
+            # read_timeout guards the dedicated Timeout handler: ReadTimeout subclasses
+            # requests.Timeout (not ConnectionError), so it must return the specific timeout
+            # message rather than being caught by one of the later, more generic handlers.
             (
                 "read_timeout",
                 requests.exceptions.ReadTimeout("timed out"),
