@@ -456,6 +456,7 @@ describe('infiniteListLogic', () => {
                 },
             })
             initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
             const failingLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'failingList',
                 listGroupType: TaxonomicFilterGroupType.Events,
@@ -467,10 +468,21 @@ describe('infiniteListLogic', () => {
                 failingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
                     showEmptyState: true,
                 })
+
+            // The failure lands on the same empty state as a genuine no-match, so telemetry is
+            // the only prod signal that the backend blipped — losing this capture makes the
+            // worst case ("event exists, fetch failed") invisible.
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: 'user_signed_up',
+            })
         })
     })
 

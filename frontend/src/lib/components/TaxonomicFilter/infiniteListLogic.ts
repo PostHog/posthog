@@ -1248,6 +1248,27 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
+        remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
+            // Failures land on the same empty state as genuine no-matches, so without this
+            // capture the "event exists but the backend blipped" case is invisible in prod.
+            // Gated on the active tab for the same reason as `taxonomic filter empty result`:
+            // every list runs the search in parallel, and background-tab failures the user
+            // never sees would inflate the metric.
+            if (!values.isActiveTab) {
+                return
+            }
+            const dedupeKey = `${props.listGroupType}::${searchQuery.trim()}`
+            if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
+                cache.lastFetchFailedDedupeKey = dedupeKey
+                posthog.capture('taxonomic filter fetch failed', {
+                    surface: legacyTaxonomicSurface(
+                        posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                    ),
+                    groupType: props.listGroupType,
+                    searchQuery: searchQuery.trim(),
+                })
+            }
+        },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
         },
