@@ -41,6 +41,10 @@ from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusR
 
 LOGGER = get_logger(__name__)
 
+# Socket timeout for the live-proxy probe. The domain is attacker-controllable, so an unbounded
+# request lets a malicious domain hang the activity until Temporal's start_to_close_timeout.
+PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
+
 
 @dataclass
 class MonitorManagedProxyInputs:
@@ -255,10 +259,18 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
     # send dummy event to check the proxy is working
     try:
+        # allow_redirects=False is a security boundary: the domain is attacker-controllable
+        # (an org admin sets it, and controls its DNS), so following redirects would let them
+        # point us at internal targets (ClickHouse's HTTP interface, cloud metadata, management
+        # APIs) - an SSRF. A working proxy answers /i/v0/e/ with a 2xx directly. Same protection
+        # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
+        # (_check_live_event). The timeout also stops a malicious domain hanging the activity.
         response = requests.post(
             f"https://{proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
         )
 
         response.raise_for_status()

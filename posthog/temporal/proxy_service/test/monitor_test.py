@@ -60,11 +60,15 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        # Verify the request was made correctly
+        # Verify the request was made correctly. allow_redirects=False is a security boundary:
+        # the domain is org-admin-controlled, so following redirects would enable SSRF to
+        # internal targets (see check_proxy_is_live). timeout stops a malicious domain hanging us.
         mock_post.assert_called_once_with(
             f"https://{self.proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            timeout=5.0,
+            allow_redirects=False,
         )
 
         self.assertEqual(result.errors, [])
