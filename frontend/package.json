@@ -175,7 +175,7 @@
         "@tiptap/starter-kit": "3.20.1",
         "@tiptap/suggestion": "3.20.1",
         "@vapi-ai/web": "2.5.2",
-        "@vitejs/plugin-react": "^4.7.0",
+        "@vitejs/plugin-react": "catalog:",
         "@xyflow/react": "^12.6.0",
         "bloommx": "^1.0.3",
         "buffer": "^6.0.3",
@@ -343,7 +343,7 @@
         "tsconfig-paths": "^4.2.0",
         "typescript": "catalog:",
         "undici": "^6.25.0",
-        "vite": "^7.3.3"
+        "vite": "catalog:"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

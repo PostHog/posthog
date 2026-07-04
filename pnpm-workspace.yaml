@@ -51,6 +51,8 @@ catalog:
     '@parcel/transformer-typescript-types': 2.16.4
     typescript: 6.0.3
     oxfmt: ^0.35.0
+    vite: ^8.1.0
+    '@vitejs/plugin-react': ^5.2.0
     # Testing
     jest: ^29.7.0
     '@types/jest': ^29.5.12

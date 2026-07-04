@@ -76,7 +76,7 @@
         "@types/node": "^22.17.2",
         "@types/react": "^17.0.39",
         "@types/react-dom": "^18.2.8",
-        "@vitejs/plugin-react": "^5.2.0",
+        "@vitejs/plugin-react": "catalog:",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
@@ -89,8 +89,7 @@
         "tailwindcss": "^4.1.10",
         "tsx": "^4.20.5",
         "typescript": "catalog:",
-        "vite": "^7.3.5",
-        "vite-plugin-singlefile": "^2.3.0",
+        "vite": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^4.1.0",
         "wrangler": "^4.98.0"
