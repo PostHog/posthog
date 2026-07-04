@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { recordingClickmapLogic } from './recordingClickmapLogic'
+import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
+
+import { ClickmapBox, recordingClickmapLogic } from './recordingClickmapLogic'
 
 function useSnapshotScrollTransform(
     enabled: boolean,
@@ -53,6 +55,19 @@ function useSnapshotScrollTransform(
     return innerRef
 }
 
+function ClickmapBoxTooltipContent({ box, totalCount }: { box: ClickmapBox; totalCount: number }): JSX.Element {
+    return (
+        <div className="deprecated-space-y-1">
+            {box.label ? <div className="font-semibold">{box.label}</div> : null}
+            <div className="font-mono text-xs text-muted-alt">{box.selector}</div>
+            <div>
+                {humanFriendlyLargeNumber(box.count)} clicks
+                {totalCount ? <> &middot; {percentage(box.count / totalCount)} of clicks on this page</> : null}
+            </div>
+        </div>
+    )
+}
+
 export function RecordingClickmapOverlay({
     iframeRef,
 }: {
@@ -67,28 +82,39 @@ export function RecordingClickmapOverlay({
         return null
     }
 
+    const totalCount = clickmapBoxes.reduce((sum, box) => sum + box.count, 0)
+
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
                 {clickmapBoxes.map((box, index) => (
-                    <div
+                    <Tooltip
                         key={`${box.top}:${box.left}:${index}`}
-                        className="absolute rounded-sm border border-danger"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            top: box.top,
-                            left: box.left,
-                            width: box.width,
-                            height: box.height,
-                            backgroundColor: `rgba(245, 78, 0, ${
-                                0.1 + 0.4 * (highestClickCount ? box.count / highestClickCount : 0)
-                            })`,
-                        }}
+                        title={<ClickmapBoxTooltipContent box={box} totalCount={totalCount} />}
                     >
-                        <div className="absolute -top-2 -left-2 rounded-full bg-danger text-white text-xs px-1 whitespace-nowrap">
-                            {humanFriendlyLargeNumber(box.count)}
+                        <div
+                            className="absolute rounded-sm border border-danger pointer-events-auto hover:border-2"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                top: box.top,
+                                left: box.left,
+                                width: box.width,
+                                height: box.height,
+                                backgroundColor: `rgba(245, 78, 0, ${
+                                    0.1 + 0.4 * (highestClickCount ? box.count / highestClickCount : 0)
+                                })`,
+                            }}
+                            onWheel={(e) => {
+                                // the boxes intercept pointer events, so hand scrolling
+                                // back to the snapshot document underneath
+                                iframeRef?.current?.contentWindow?.scrollBy(e.deltaX, e.deltaY)
+                            }}
+                        >
+                            <div className="absolute -top-2 -left-2 rounded-full bg-danger text-white text-xs px-1 whitespace-nowrap">
+                                {humanFriendlyLargeNumber(box.count)}
+                            </div>
                         </div>
-                    </div>
+                    </Tooltip>
                 ))}
             </div>
         </div>
