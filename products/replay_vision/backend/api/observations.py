@@ -104,18 +104,10 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         help_text="Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
     )
     scanner_snapshot = serializers.SerializerMethodField(
-        help_text=(
-            "Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. "
-            "In list responses the (invariant, per-scanner) `scanner_config.prompt` is omitted to keep pages small; "
-            "fetch a single observation or the scanner itself for the full prompt."
-        ),
+        help_text="Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation.",
     )
     scanner_result = serializers.SerializerMethodField(
-        help_text=(
-            "Result data persisted on success; null until the observation succeeds. In list responses the "
-            "`model_output.reasoning_segments` (a chip-annotated restatement of the flat `reasoning`) is omitted; "
-            "fetch a single observation for the citation segments."
-        ),
+        help_text="Result data persisted on success; null until the observation succeeds.",
     )
 
     @extend_schema_field(ScannerSnapshotSerializer(allow_null=True))
