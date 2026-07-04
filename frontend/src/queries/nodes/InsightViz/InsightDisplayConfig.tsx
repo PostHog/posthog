@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { InsightDateFilterNext } from 'scenes/insights/filters/InsightDateFilter/InsightDateFilterNext'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -52,6 +53,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
+    const quillDateFilterEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
 
     const isMetric = display === ChartDisplayType.Metric
     // The slope graph shows the first vs last interval, so it drops the options that need the points
@@ -82,7 +84,11 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
                 {!isRetention && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        {quillDateFilterEnabled ? (
+                            <InsightDateFilterNext disabled={isFunnels && !!isEmptyFunnel} />
+                        ) : (
+                            <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        )}
                     </ConfigFilter>
                 )}
 
