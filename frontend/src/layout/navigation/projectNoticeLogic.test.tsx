@@ -117,7 +117,10 @@ describe('projectNoticeLogic', () => {
         })
     })
 
-    describe('proxy records 401 handling', () => {
+    describe.each([
+        { status: 401, reason: 'missing or expired session' },
+        { status: 403, reason: 'restricted org member below read access' },
+    ])('proxy records $status handling', ({ status }) => {
         let getItemSpy: jest.SpyInstance
         let getDateSpy: jest.SpyInstance
 
@@ -125,8 +128,8 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     // Function form so the [status, body] tuple is honored — a static array value
-                    // would be served as a 200 JSON body instead of a 401.
-                    '/api/organizations/:organization_id/proxy_records': () => [401, {}],
+                    // would be served as a 200 JSON body instead of the error status.
+                    '/api/organizations/:organization_id/proxy_records': () => [status, {}],
                 },
                 post: {
                     '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
@@ -142,7 +145,7 @@ describe('projectNoticeLogic', () => {
             getDateSpy.mockRestore()
         })
 
-        it('swallows a 401 instead of surfacing a load failure', async () => {
+        it(`swallows a ${status} instead of surfacing a load failure`, async () => {
             const logic = projectNoticeLogic()
             logic.mount()
 

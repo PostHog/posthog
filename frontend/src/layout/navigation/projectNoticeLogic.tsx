@@ -155,9 +155,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
-                    // A missing or expired session makes this boot-time GET 401. There's no banner to
-                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && error.status === 401) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                         return null
                     }
                     throw error
