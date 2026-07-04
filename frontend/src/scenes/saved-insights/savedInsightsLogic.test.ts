@@ -15,7 +15,13 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { QueryBasedInsightModel } from '~/types'
 
-import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
+import {
+    INSIGHTS_PER_PAGE,
+    InsightsResult,
+    SavedInsightFilters,
+    cleanFilters,
+    savedInsightsLogic,
+} from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
@@ -322,6 +328,18 @@ describe('savedInsightsLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
             }).toDispatchActions(['addInsight'])
+        })
+    })
+
+    describe('cleanFilters createdBy coercion', () => {
+        // A saved-insights URL like `?createdBy=5` is parsed to a bare number; cleanFilters must
+        // return an array so the member picker never calls `.includes` on a non-array (a render crash).
+        it.each([
+            ['a bare number to an array', 5, [5]],
+            ['an array through unchanged', [1, 2], [1, 2]],
+            ['undefined to "All users"', undefined, 'All users'],
+        ])('coerces %s', (_desc, input, expected) => {
+            expect(cleanFilters({ createdBy: input } as Partial<SavedInsightFilters>).createdBy).toEqual(expected)
         })
     })
 })

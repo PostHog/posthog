@@ -62,12 +62,20 @@ export interface SavedInsightFilters {
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+    // kea-router parses `?createdBy=<id>` to a bare number, so coerce to an array before it
+    // reaches the member picker (which calls `.includes` on it).
+    const rawCreatedBy = values.createdBy
+    const createdByIds = Array.isArray(rawCreatedBy)
+        ? rawCreatedBy.map(Number).filter((id) => !Number.isNaN(id))
+        : typeof rawCreatedBy === 'number'
+          ? [rawCreatedBy]
+          : []
     return {
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: values.createdBy || 'All users',
+        createdBy: createdByIds.length > 0 ? createdByIds : 'All users',
         tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
