@@ -73,7 +73,22 @@ tools:
         title: List annotations
         description: >
             List annotations in the current project, newest first. Use this to review existing deployment markers and
-            analysis notes before adding new annotations.
+            analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit`
+            and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is
+            trimmed to `{id, email}`.
+        param_overrides:
+            limit:
+                description: Number of annotations to return per page (default 100).
+                default: 100
+        response:
+            exclude:
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     annotations-partial-update:
         operation: annotations_partial_update
         enabled: true
