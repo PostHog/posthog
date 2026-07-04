@@ -20,6 +20,7 @@ def _out(fingerprint_hint: str = "abc:0") -> BriefOut:
                 evidence_refs=["insight:abc"],
                 fingerprint_hint=fingerprint_hint,
                 confidence=0.9,
+                goal_relevant=False,
             )
         ],
     )

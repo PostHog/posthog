@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 
 from django.utils import timezone
 
@@ -12,8 +11,11 @@ from posthog.models.team import Team
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import Opportunity
 from products.pulse.backend.sources.anchored_insights import (
-    calculate_insight_results,
+    InsightResultsCache,
+    pct_delta,
+    per_day_rate,
     rate_summary,
+    resolve_metric_insights,
     series_daily_values,
     split_score_windows,
 )
@@ -45,30 +47,11 @@ class OpportunityStatusLine:
     delta_pct: float | None
 
 
-class _InsightResultsCache:
-    """Memoizes insight executions per short_id and counts every attempt (success or raise).
-
-    Memoization bounds the happy path at one cached-execution-mode run per distinct insight
-    (so parallelizing the calls is not worth the machinery); the attempt count lets the
-    collector budget the failure path too, keeping re-scoring latency bounded inside the
-    synthesize activity's shared 5-minute timeout.
-    """
-
-    def __init__(self, team: Team) -> None:
-        self._team = team
-        self._results: dict[str, list[Any]] = {}
-        self.attempts = 0
-
-    def results_for(self, insight: Insight) -> list[Any]:
-        if insight.short_id not in self._results:
-            # A raising execution is deliberately not cached: the per-line handler logs it,
-            # and a retry on a later line still counts against the attempt budget.
-            self.attempts += 1
-            self._results[insight.short_id] = calculate_insight_results(insight, self._team)
-        return self._results[insight.short_id]
-
-
-def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone.now) -> list[OpportunityStatusLine]:
+def collect_accountability(
+    team: Team,
+    now_fn: Callable[[], datetime] = timezone.now,
+    results_cache: InsightResultsCache | None = None,
+) -> list[OpportunityStatusLine]:
     """Re-score past opportunities against their creation-time baselines.
 
     Team-wide, not config-scoped: opportunities carry no config affinity in the model, so every
@@ -84,8 +67,8 @@ def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone
         .order_by("-created_at")[: MAX_STATUS_LINES * 2]
     )
     usable = [row for row in rows if _has_usable_refs(row)]
-    insights = _insights_by_short_id(team, usable)
-    results_cache = _InsightResultsCache(team)
+    insights = resolve_metric_insights(team, {opportunity.metric_ref["insight_short_id"] for opportunity in usable})
+    results_cache = results_cache or InsightResultsCache(team)
     lines: list[OpportunityStatusLine] = []
     for opportunity in usable:
         # The attempt budget also caps blocking insight executions when lines keep failing —
@@ -113,19 +96,11 @@ def _has_usable_refs(opportunity: Opportunity) -> bool:
     )
 
 
-def _insights_by_short_id(team: Team, opportunities: list[Opportunity]) -> dict[str, Insight]:
-    short_ids = {opportunity.metric_ref["insight_short_id"] for opportunity in opportunities}
-    insights: dict[str, Insight] = {}
-    for insight in Insight.objects.filter(team=team, short_id__in=short_ids, deleted=False).order_by("id"):
-        insights.setdefault(insight.short_id, insight)  # lowest id wins when a short_id has duplicates
-    return insights
-
-
 def _status_line(
     opportunity: Opportunity,
     now: datetime,
     insights: dict[str, Insight],
-    results_cache: _InsightResultsCache,
+    results_cache: InsightResultsCache,
 ) -> OpportunityStatusLine:
     baseline = opportunity.baseline
     period_days = int(baseline["period_days"])
@@ -136,15 +111,9 @@ def _status_line(
         current_summary = METRIC_UNAVAILABLE
         delta_pct = None
     else:
-        # The live window can be shorter than period_days when data is sparse — average over
-        # what was actually read, and compare per-day rates so the delta always agrees with
-        # the two summaries beside it.
-        current_rate = float(sum(window)) / len(window)
+        current_rate = per_day_rate(window)
         current_summary = rate_summary(current_rate)
-        # Zero-baseline guard: a delta off nothing is meaningless, not infinite. Deliberately
-        # different from score_movement's volume floor — this compares against a snapshot, it
-        # is not a significance test.
-        delta_pct = round(((current_rate - then_rate) / then_rate) * 100.0, 1) if then_rate else None
+        delta_pct = pct_delta(current_rate, then_rate)
     return OpportunityStatusLine(
         opportunity_id=str(opportunity.id),
         kind=opportunity.kind,
@@ -161,7 +130,7 @@ def _current_window(
     opportunity: Opportunity,
     period_days: int,
     insights: dict[str, Insight],
-    results_cache: _InsightResultsCache,
+    results_cache: InsightResultsCache,
 ) -> list[float] | None:
     """Re-run the anchored-insights window math over the metric's current data.
 
