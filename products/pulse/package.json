@@ -6,7 +6,8 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
