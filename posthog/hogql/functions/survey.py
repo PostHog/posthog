@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from django.conf import settings
-
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
+
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 
 def get_survey_response(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
@@ -78,7 +78,7 @@ def _build_property_access(key: str | ast.Expr) -> ast.Expr:
     Native JSON static-key access reads the subcolumn and stringifies the value. Legacy and dynamic-key access use
     JSONExtractString to keep a consistent String return type.
     """
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+    if use_new_events_schema() and isinstance(key, str):
         return ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
 
     return ast.Call(
@@ -110,7 +110,7 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
 
 
 def _build_property_array_raw(key: str | ast.Expr) -> ast.Expr:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+    if use_new_events_schema() and isinstance(key, str):
         json_value = ast.Call(name="toJSONString", args=[ast.Field(chain=["properties", key])])
         return ast.Call(
             name="JSONExtractArrayRaw",
@@ -124,7 +124,7 @@ def _build_property_array_raw(key: str | ast.Expr) -> ast.Expr:
 
 
 def _build_property_presence(key: str | ast.Expr) -> ast.Expr:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+    if use_new_events_schema() and isinstance(key, str):
         return ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", key])])
 
     return ast.Call(

@@ -6,7 +6,6 @@ from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
 
-from django.conf import settings
 from django.utils import timezone
 
 import posthoganalytics
@@ -28,6 +27,7 @@ from posthog.caching.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.queries.property_values import (
     get_event_property_values_from_aggregated_table,
     get_person_property_values_for_key,
@@ -252,7 +252,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if use_new_events_schema():
                 values.append(_parse_jsonish_property_value(raw))
             elif isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
@@ -274,7 +274,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         values: list[object] = []
         for row in rows:
             raw = row[0]
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if use_new_events_schema():
                 values.append(_parse_jsonish_property_value(raw))
             else:
                 try:

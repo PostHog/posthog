@@ -33,6 +33,11 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
+        get_from_env("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool),
+        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        bool,
+    ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
@@ -314,6 +319,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

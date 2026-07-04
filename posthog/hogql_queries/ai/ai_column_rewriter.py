@@ -15,12 +15,11 @@ The rewriter is scope-aware: it only rewrites fields within SELECT queries that 
 `FROM ai_events`. Fields in outer queries (referencing subquery aliases) are left unchanged.
 """
 
-from django.conf import settings as django_settings
-
 from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 # Invert AI_PROPERTY_TO_COLUMN: column_name -> property_name
 AI_COLUMN_TO_PROPERTY: dict[str, str] = {col: prop for prop, col in AI_PROPERTY_TO_COLUMN.items()}
@@ -101,7 +100,7 @@ class AiColumnToPropertyRewriter(CloningVisitor):
                 ast.Alias(alias=name, expr=item) if name and not isinstance(item, ast.Alias) else item
                 for name, item in zip(natural_names, result.select)
             ]
-            if django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if use_new_events_schema():
                 result.select = [_rename_events_result_alias(item) for item in result.select]
         self._in_ai_events_scope = was_in_scope
         self._table_qualifier = old_qualifier
@@ -221,7 +220,7 @@ def _wrap_for_events_type(col_name: str, chain: list[str | int]) -> ast.Expr:
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
-    if col_name in _RAW_JSON_COLUMNS and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    if col_name in _RAW_JSON_COLUMNS and use_new_events_schema():
         return ast.Call(name="toJSONString", args=[ast.Field(chain=chain)])
     return ast.Field(chain=chain)
 

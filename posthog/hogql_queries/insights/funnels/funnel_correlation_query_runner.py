@@ -1,8 +1,6 @@
 import dataclasses
 from typing import Any, Literal, Optional, TypedDict, cast
 
-from django.conf import settings
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -40,6 +38,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
@@ -613,7 +612,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             # for every non-string value (numbers, bools, objects), and those properties should still
             # show up in correlation results.
             properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            if use_new_events_schema():
                 properties_pairs = f"arrayFilter(prop -> prop.2 != '', {properties_pairs})"
             event_property_array_query = f"""
                 if(

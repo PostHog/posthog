@@ -2,8 +2,6 @@ from abc import ABC
 from datetime import datetime
 from typing import Any, Optional
 
-from django.conf import settings
-
 import orjson
 
 from posthog.caching.utils import ThresholdMode, is_stale
@@ -12,6 +10,7 @@ from posthog.caching.utils import ThresholdMode, is_stale
 # These are stripped from the properties JSON by the MV and stored in dedicated columns.
 # Derived from AI_PROPERTY_TO_COLUMN to avoid drift between the two mappings.
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.team.team import Team
 
@@ -80,7 +79,7 @@ def parse_ai_property_value(value: Any) -> Any:
 
     # Reconstructed new-schema blobs can double-encode list elements as JSON strings; legacy
     # blobs must keep list elements exactly as stored.
-    if isinstance(parsed, list) and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    if isinstance(parsed, list) and use_new_events_schema():
         return [parse_ai_property_value(item) for item in parsed]
 
     return parsed
@@ -94,7 +93,7 @@ def parse_ai_properties(properties: Any) -> dict[str, Any]:
     # New-schema blob reconstruction materializes subcolumn keys even when absent from the
     # original event; drop the resulting ""/None placeholders. Legacy blobs only contain keys
     # that were actually ingested, so an empty value there is real data.
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    if use_new_events_schema():
         for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
             if parsed.get(prop_key) in ("", None):
                 parsed.pop(prop_key, None)
