@@ -230,8 +230,8 @@ tools:
             failed — useful for triaging why a scan produced no result), `triggered_by` (`schedule` or `on_demand`),
             `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
-            found over time; to see every scanner's observations for one session, use `vision-observations-list`.
-            To keep pages small, list rows omit the invariant `scanner_snapshot.scanner_config.prompt` and the
+            found over time; to see every scanner's observations for one session, use `vision-observations-list`. To
+            keep pages small, list rows omit the invariant `scanner_snapshot.scanner_config.prompt` and the
             `scanner_result.model_output.reasoning_segments` (a chip-annotated restatement of the flat `reasoning`);
             fetch one observation with `vision-scanners-observations-get` for the full prompt and citation segments.
         feature_flag: replay-vision

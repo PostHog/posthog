@@ -466,9 +466,9 @@ export interface ReplayObservationApi {
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
-    /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+    /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. In list responses the (invariant, per-scanner) `scanner_config.prompt` is omitted to keep pages small; fetch a single observation or the scanner itself for the full prompt. */
     readonly scanner_snapshot: ScannerSnapshotApi | null
-    /** Result data persisted on success; null until the observation succeeds. */
+    /** Result data persisted on success; null until the observation succeeds. In list responses the `model_output.reasoning_segments` (a chip-annotated restatement of the flat `reasoning`) is omitted; fetch a single observation for the citation segments. */
     readonly scanner_result: ScannerResultApi | null
     /** Whether this observation came from the schedule or an on-demand request.
      *
