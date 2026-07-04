@@ -20,6 +20,9 @@ const baseOpportunity: OpportunityApi = {
     goal_relevant: false,
     proposed_experiment: null,
     first_seen_brief: null,
+    my_vote: null,
+    helpful_count: 0,
+    not_helpful_count: 0,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -107,5 +110,22 @@ describe('OpportunitiesPanel', () => {
         render(<ProposedExperimentSummary proposal={proposal} />)
         expect(screen.getByText('Hypothesis:')).toBeInTheDocument()
         expect(screen.queryByText('Target metric:') !== null).toBe(metricVisible)
+    })
+
+    it("highlights only the caller's own vote and shows the counts", () => {
+        logic.actions.loadOpportunitiesSuccess([
+            { ...baseOpportunity, my_vote: true, helpful_count: 2, not_helpful_count: 1 },
+        ])
+        const { container } = render(
+            <Provider>
+                <OpportunitiesPanel />
+            </Provider>
+        )
+        const helpful = container.querySelector('[data-attr="pulse-feedback-helpful"]')
+        const notHelpful = container.querySelector('[data-attr="pulse-feedback-not-helpful"]')
+        expect(helpful).toHaveClass('LemonButton--active')
+        expect(helpful).toHaveTextContent('2')
+        expect(notHelpful).not.toHaveClass('LemonButton--active')
+        expect(notHelpful).toHaveTextContent('1')
     })
 })

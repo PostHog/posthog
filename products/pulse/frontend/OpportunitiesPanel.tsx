@@ -13,6 +13,7 @@ import { InsightShortId } from '~/types'
 import { CitationTag } from './CitationTag'
 import type { OpportunityApi, ProposedExperimentApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
+import { HelpfulnessVote } from './HelpfulnessVote'
 import { parseOpportunityEvidence, pulseLogic, transitionsForStatus } from './pulseLogic'
 
 // Exhaustive over the enums so a new backend value fails compilation here instead of rendering unstyled.
@@ -83,7 +84,12 @@ export function OpportunitiesPanel(): JSX.Element {
             title: '',
             key: 'actions',
             width: 0,
-            render: (_, opportunity) => <OpportunityRowActions opportunity={opportunity} />,
+            render: (_, opportunity) => (
+                <div className="flex items-center gap-2 justify-end">
+                    <OpportunityRowActions opportunity={opportunity} />
+                    <OpportunityVote opportunity={opportunity} />
+                </div>
+            ),
         },
     ]
 
@@ -94,6 +100,21 @@ export function OpportunitiesPanel(): JSX.Element {
             loading={opportunitiesLoading}
             rowKey="id"
             emptyState="No opportunities yet — run a brief to surface some"
+        />
+    )
+}
+
+function OpportunityVote({ opportunity }: { opportunity: OpportunityApi }): JSX.Element {
+    const { feedbackVotesInFlight } = useValues(pulseLogic)
+    const { voteOnOpportunity } = useActions(pulseLogic)
+
+    return (
+        <HelpfulnessVote
+            myVote={opportunity.my_vote}
+            helpfulCount={opportunity.helpful_count}
+            notHelpfulCount={opportunity.not_helpful_count}
+            inFlight={opportunity.id in feedbackVotesInFlight}
+            onVote={(helpful) => voteOnOpportunity(opportunity.id, helpful)}
         />
     )
 }
