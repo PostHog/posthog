@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -192,13 +192,33 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
+type ListResponse = unknown[] | { results?: unknown[]; count?: number }
+
+function responseHasResults(response: ListResponse): boolean {
+    if (Array.isArray(response)) {
+        return response.length > 0
+    }
+    return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
+}
+
+/** Reset the module-level API cache. */
+export function clearApiCache(): void {
+    Object.values(apiCacheTimers).forEach((timerId) => window.clearTimeout(timerId))
+    apiCache = {}
+    apiCacheTimers = {}
+}
+
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
     if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
+        return apiCache[url]
+    }
+    const response = await api.get(url)
+    // Never cache an empty response. A transient empty result (a backend blip, a race) would
+    // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
+    // "No results" for up to a minute — retrying the same query just re-reads the cached blank.
+    // Only successful, non-empty responses are safe to reuse.
+    if (responseHasResults(response)) {
         apiCache[url] = response
         apiCacheTimers[url] = window.setTimeout(() => {
             delete apiCache[url]
@@ -256,6 +276,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -314,45 +335,54 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
-                    // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
-                    const isGroupNamesFilter = values.listGroupType.startsWith(
-                        TaxonomicFilterGroupType.GroupNamesPrefix
-                    )
-                    if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                        const groupsResponse = await api.groups.listClickhouse({
-                            group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                            search: searchQuery || '',
-                            limit,
-                        })
+                    try {
+                        // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
+                        const isGroupNamesFilter = values.listGroupType.startsWith(
+                            TaxonomicFilterGroupType.GroupNamesPrefix
+                        )
+                        if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
+                            const groupsResponse = await api.groups.listClickhouse({
+                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                search: searchQuery || '',
+                                limit,
+                            })
 
-                        const transformedGroups = mapGroupQueryResponse(groupsResponse)
-                        response = {
-                            results: transformedGroups,
-                            count: transformedGroups.length,
+                            const transformedGroups = mapGroupQueryResponse(groupsResponse)
+                            response = {
+                                results: transformedGroups,
+                                count: transformedGroups.length,
+                            }
+                            actions.setHasMore(groupsResponse.hasMore || false)
+                            if (scopedRemoteEndpoint && !isExpanded) {
+                                expandedCountResponse = { count: transformedGroups.length }
+                            }
+                        } else {
+                            // Use the original REST API for non-groups endpoints
+                            const [apiResponse, expandedApiResponse] = await Promise.all([
+                                // get the list of results
+                                fetchCachedListResponse(
+                                    scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                    searchParams
+                                ),
+                                // if this is an unexpanded scoped list, get the count for the full list
+                                scopedRemoteEndpoint && !isExpanded
+                                    ? fetchCachedListResponse(remoteEndpoint, {
+                                          ...searchParams,
+                                          limit: 1,
+                                          offset: 0,
+                                      })
+                                    : null,
+                            ])
+                            response = apiResponse
+                            expandedCountResponse = expandedApiResponse
                         }
-                        actions.setHasMore(groupsResponse.hasMore || false)
-                        if (scopedRemoteEndpoint && !isExpanded) {
-                            expandedCountResponse = { count: transformedGroups.length }
+                    } catch (error: any) {
+                        if (!isBreakpoint(error)) {
+                            // Carry the query that was in flight when this run errored so the
+                            // reducer can attribute the failure to the right query string.
+                            actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
-                    } else {
-                        // Use the original REST API for non-groups endpoints
-                        const [apiResponse, expandedApiResponse] = await Promise.all([
-                            // get the list of results
-                            fetchCachedListResponse(
-                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                searchParams
-                            ),
-                            // if this is an unexpanded scoped list, get the count for the full list
-                            scopedRemoteEndpoint && !isExpanded
-                                ? fetchCachedListResponse(remoteEndpoint, {
-                                      ...searchParams,
-                                      limit: 1,
-                                      offset: 0,
-                                  })
-                                : null,
-                        ])
-                        response = apiResponse
-                        expandedCountResponse = expandedApiResponse
+                        throw error
                     }
                     breakpoint()
 
@@ -380,8 +410,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 },
                 updateRemoteItem: ({ item }) => {
                     // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
+                    clearApiCache()
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -430,6 +459,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
         hasMore: [false, { setHasMore: (_, { hasMore }) => hasMore }],
+        // Tracks the searchQuery whose fetch failed. Using the query (not a boolean) prevents
+        // a stale out-of-order failure from settling a newer in-flight request — only a failure
+        // for the _current_ query should count as settled.
+        remoteFetchFailed: [
+            null as string | null,
+            {
+                loadRemoteItems: () => null,
+                loadRemoteItemsSuccess: () => null,
+                remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
     })),
     selectors({
         listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
@@ -555,6 +595,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        remoteResultsAreFresh: [
+            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery, s.remoteFetchFailed],
+            (
+                hasRemoteDataSource: boolean,
+                remoteItems: ListStorage,
+                searchQuery: string,
+                remoteFetchFailed: string | null
+            ): boolean => {
+                // Local-only groups resolve synchronously — always fresh.
+                const isLocalOnly = !hasRemoteDataSource
+                // A failed fetch for *this* query counts as settled. We check the exact query
+                // rather than a bare boolean so that an out-of-order stale failure (run A failing
+                // after run B is already in flight) doesn't incorrectly settle run B's result.
+                const currentQueryFailed = remoteFetchFailed === searchQuery
+                const currentQuerySettled = (remoteItems.searchQuery ?? '') === searchQuery
+                return isLocalOnly || currentQueryFailed || currentQuerySettled
+            },
+        ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
             (
@@ -592,6 +650,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
+                s.remoteResultsAreFresh,
             ],
             (
                 totalListCount: number,
@@ -601,25 +660,44 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
-                needsMoreSearchCharacters: boolean
+                needsMoreSearchCharacters: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
+                    // Don't declare "No results" until the fetch for the *current* query has landed —
+                    // otherwise a stale/empty list from the previous query masquerades as no matches.
+                    remoteResultsAreFresh &&
                     !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
-            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results, s.searchQuery],
+            (s) => [
+                s.isLoading,
+                s.isSuggestedFilters,
+                s.anyGroupLoading,
+                s.results,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.remoteResultsAreFresh,
+            ],
             (
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
-                searchQuery: string
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
-                (isLoading || (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0)) &&
+                (isLoading ||
+                    (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) ||
+                    // The current-query remote fetch hasn't landed yet: keep the spinner up rather
+                    // than flash a premature "No results". Gated on there being nothing to show
+                    // (below) so still-valid rows aren't replaced by a spinner on every keystroke.
+                    (hasRemoteDataSource && !remoteResultsAreFresh && searchQuery.trim().length > 0)) &&
                 (!results || results.length === 0),
         ],
         rawLocalItems: [
@@ -1146,6 +1224,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
 
+            // A success ends the failure episode: the next failure for the same query is a
+            // new episode and should capture again, not be deduped against the previous one.
+            cache.lastFetchFailedDedupeKey = null
+
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
             const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
             // Only fire on the tab the user is actually looking at — every list runs the same
@@ -1168,6 +1250,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         searchQuery: trimmedQuery,
                     })
                 }
+            }
+        },
+        remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
+            // Failures land on the same empty state as genuine no-matches, so without this
+            // capture the "event exists but the backend blipped" case is invisible in prod.
+            // Only count failures the user can actually see: the current query (a stale
+            // out-of-order failure is rejected by `remoteResultsAreFresh` and never renders),
+            // a real typed search (mount loads with an empty query are a different signal),
+            // and the active tab — every list runs the search in parallel, and background-tab
+            // failures the user never sees would inflate the metric.
+            const trimmedQuery = searchQuery.trim()
+            if (!values.isActiveTab || searchQuery !== values.searchQuery || trimmedQuery.length === 0) {
+                return
+            }
+            const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+            if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
+                cache.lastFetchFailedDedupeKey = dedupeKey
+                posthog.capture('taxonomic filter fetch failed', {
+                    surface: legacyTaxonomicSurface(
+                        posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                    ),
+                    groupType: props.listGroupType,
+                    searchQuery: trimmedQuery,
+                })
             }
         },
         infiniteListResultsReceived: () => {
