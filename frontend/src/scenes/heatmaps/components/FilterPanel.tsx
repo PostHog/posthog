@@ -191,7 +191,7 @@ export function FilterPanel({
                     <div className="mt-2 md:mt-0">
                         <Popover
                             overlay={
-                                <div className="p-2">
+                                <div className="p-2 w-80">
                                     <HeatmapsSettings
                                         heatmapFilters={heatmapFilters}
                                         patchHeatmapFilters={patchHeatmapFilters}
