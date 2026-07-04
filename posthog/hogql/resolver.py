@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -2053,13 +2053,9 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            try:
-                loop_type = loop_type.get_child(str(next_chain), self.context)
-            except NotImplementedError:
-                raise QueryError(
-                    f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
-                    f"This can happen when a column alias shadows a table field. Try renaming the alias."
-                )
+            # get_child raises an exposed QueryError when the chain reaches a type with no
+            # children (e.g. a column alias shadowing a table field) — see Type.get_child.
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             resolved_chain.append(str(next_chain))
             # Note: get_child currently always raises rather than returning None,
             # but this guard is kept for safety in case that contract changes.

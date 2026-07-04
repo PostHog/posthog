@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -149,7 +149,14 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 @dataclass(kw_only=True, slots=True)
 class Type(AST):
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
-        raise NotImplementedError("Type.get_child not overridden")
+        # Reaching this base implementation means a property/child was accessed on a type that
+        # has none (e.g. a scalar column alias shadowing a table field). That's a malformed query,
+        # so surface an exposed QueryError rather than letting an internal NotImplementedError
+        # escape field resolution and bubble up to the query runner as an uncaught error.
+        raise QueryError(
+            f"Cannot access property '{name}' on this expression. "
+            f"This can happen when a column alias shadows a table field. Try renaming the alias."
+        )
 
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None

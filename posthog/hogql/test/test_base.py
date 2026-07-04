@@ -11,9 +11,10 @@ import pydantic
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, Type
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
@@ -214,6 +215,20 @@ def test_deepcopy_clears_nothing_and_matches_structure():
 def test_deepcopy_returns_ast_subclass_instance():
     assert isinstance(copy.deepcopy(ast.Constant(value=1)), ast.Constant)
     assert isinstance(copy.deepcopy(ast.Field(chain=["x"])), AST)
+
+
+# --- childless types surface an exposed error, not an internal one, from any call site ---
+
+
+def test_type_get_child_on_childless_type_raises_exposed_error():
+    # Accessing a property on a type with no children (e.g. a scalar column alias shadowing a table
+    # field) reaches Type.get_child. It must raise an exposed QueryError so field resolution fails
+    # cleanly, rather than an internal NotImplementedError that escapes to the query runner.
+    context = HogQLContext(team_id=1)
+    with pytest.raises(ExposedHogQLError, match="Cannot access property.*renaming the alias"):
+        Type().get_child("foo", context)
+    with pytest.raises(ExposedHogQLError):
+        Type().has_child("foo", context)
 
 
 # --- corpus: a broad set of parsed queries cloned and checked for faithfulness ---
