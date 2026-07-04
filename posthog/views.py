@@ -12,7 +12,7 @@ from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
@@ -110,15 +110,19 @@ def login_required(view):
 
 
 def health(request):
-    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    status = 503 if plan else 200
-    if status == 503:
+    try:
+        executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    except OperationalError:
+        # Transient DB connectivity blip (e.g. connection timeout). Degrade gracefully like
+        # `readyz` instead of throwing an unhandled exception into error tracking.
+        logger.warning("health_check_postgres_unavailable", exc_info=True)
+        return HttpResponse("Database is unavailable", status=503, content_type="text/plain")
+    if plan:
         err = Exception("Migrations are not up to date. If this continues migrations have failed")
         capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
-    if status == 200:
-        return HttpResponse("ok", status=status, content_type="text/plain")
+        return HttpResponse("Migrations are not up to date", status=503, content_type="text/plain")
+    return HttpResponse("ok", status=200, content_type="text/plain")
 
 
 def stats(request):
