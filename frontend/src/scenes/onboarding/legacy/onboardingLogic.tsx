@@ -25,6 +25,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
+import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { appendSharedTrailingSteps } from './sharedSteps'
@@ -69,6 +70,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
+            onboardingEventUsageLogic,
+            ['reportContextOnboardingCompleted'],
         ],
     })),
     actions({
@@ -595,7 +598,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 products.push(ProductKey.SURVEYS)
             }
             for (const productKey of products) {
-                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
+                // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
+                // so dashboards can split the flows without a rename (GROW-89).
+                actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so

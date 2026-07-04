@@ -4,6 +4,8 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
 
+import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
+import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
 
 export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
@@ -94,6 +96,57 @@ export function parseTaskRunStreamMessage(rawData: string): TaskRunStreamMessage
     return null
 }
 
+export const TERMINAL_TASK_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const
+export type TerminalTaskRunStatus = (typeof TERMINAL_TASK_RUN_STATUSES)[number]
+
+function isTerminalStatus(status: string): status is TerminalTaskRunStatus {
+    return (TERMINAL_TASK_RUN_STATUSES as readonly string[]).includes(status)
+}
+
+// The agent opens the PR mid-run (while it keeps CI green), so the url arrives via the "pr" progress
+// step before the run reaches a terminal output. Prefer the terminal output when present.
+export function taskRunPrUrl(state: TaskRunStreamState | null, steps: TaskRunProgressStep[]): string | null {
+    const prStepUrl = steps.find((s) => s.step === 'pr')?.detail
+    return state?.output?.pr_url ?? (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
+}
+
+export interface CloudRunCompletionReport {
+    status: TerminalTaskRunStatus
+    durationSeconds: number | null
+    prOpened: boolean
+    prUrl: string | null
+}
+
+/**
+ * The v2 onboarding funnel's terminal cloud-run event (GROW-89), or null when this state update is
+ * not one to report. Only an OBSERVED transition into a terminal status counts: a stream that
+ * (re)connects to an already-finished run replays that state, and reporting it would double-count
+ * the run — the backend `task_run_completed` / `task_run_failed` events already cover runs that
+ * finish while nobody is watching.
+ */
+export function cloudRunCompletionReport(
+    previous: TaskRunStreamState | null,
+    state: TaskRunStreamState,
+    progressSteps: TaskRunProgressStep[],
+    startedAt: string | undefined
+): CloudRunCompletionReport | null {
+    if (!isTerminalStatus(state.status) || !previous || isTerminalStatus(previous.status)) {
+        return null
+    }
+    // Duration since kickoff (the handle's startedAt) — the stream carries no started_at of its own.
+    // The backend's `duration_seconds` (created_at → completed_at) stays the authoritative figure.
+    const endedAt = state.completed_at ?? state.updated_at
+    const elapsedMs = startedAt && endedAt ? new Date(endedAt).getTime() - new Date(startedAt).getTime() : NaN
+    const durationSeconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.round(elapsedMs / 1000)) : null
+    const prUrl = taskRunPrUrl(state, progressSteps)
+    return { status: state.status, durationSeconds, prOpened: !!prUrl, prUrl }
+}
+
+// Terminal outcomes already reported this pageload, keyed by run id. Guards against a re-observed
+// transition (e.g. the stream replaying history after a remount) double-counting a run. Mirrors the
+// wizard tracker's once-per-session report guards.
+const reportedTerminalRuns = new Set<string>()
+
 /**
  * Raw SSE consumer for a single TaskRun (the cloud-run pipeline: provision → clone → wizard → agent →
  * PR). A private source for the Installation layer — `installationProgressLogic` merges this with the
@@ -108,7 +161,8 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     key((props) => props.runId),
     path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId']],
+        values: [projectLogic, ['currentProjectId'], activeCloudRunLogic, ['activeCloudRun']],
+        actions: [onboardingEventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
     })),
     actions({
         connect: true,
@@ -170,10 +224,25 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, props, cache }) => ({
-        // Arm a stall timer while the run reports `queued`; any other status disarms it. The timer
-        // rides disposables so unmount (and tab-hide) tears it down with everything else.
-        taskRunStateUpdated: ({ state }) => {
+    listeners(({ values, actions, props, cache, selectors }) => ({
+        taskRunStateUpdated: ({ state }, _breakpoint, _action, previousState) => {
+            // The run's terminal state flows through here no matter which surface is watching (inline
+            // install view, sources step, FAB, sidebar button), so this is where the funnel's cloud-run
+            // outcome is reported (GROW-89) — the keyed logic dedupes concurrent surfaces to one listener.
+            const previous = selectors.taskRunState(previousState)
+            // startedAt travels on the persisted run handle; ignore it if the handle is a different run.
+            const startedAt = values.activeCloudRun?.runId === props.runId ? values.activeCloudRun.startedAt : undefined
+            const report = cloudRunCompletionReport(previous, state, values.progressSteps, startedAt)
+            if (report && !reportedTerminalRuns.has(props.runId)) {
+                reportedTerminalRuns.add(props.runId)
+                actions.reportContextOnboardingCloudRunCompleted({
+                    taskId: props.taskId,
+                    runId: props.runId,
+                    ...report,
+                })
+            }
+            // Arm a stall timer while the run reports `queued`; any other status disarms it. The timer
+            // rides disposables so unmount (and tab-hide) tears it down with everything else.
             if (state.status !== 'queued') {
                 cache.disposables.dispose('queued-stall')
                 return
