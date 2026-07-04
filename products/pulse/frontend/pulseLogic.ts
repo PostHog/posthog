@@ -4,11 +4,23 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import {
+    subscriptionsCreate,
+    subscriptionsList,
+    subscriptionsPartialUpdate,
+} from '@posthog/products-subscriptions/frontend/generated/api'
+import {
+    SubscriptionsListResourceType,
+    type SubscriptionApi,
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isEmail } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
@@ -193,6 +205,24 @@ export interface BriefConfigForm {
 
 const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboards: [] }
 
+export type BriefScheduleFrequency = 'daily' | 'weekly'
+
+export interface BriefScheduleForm {
+    frequency: BriefScheduleFrequency
+    // Comma-separated email addresses — same storage convention as the subscription form.
+    target_value: string
+}
+
+const EMPTY_SCHEDULE_FORM: BriefScheduleForm = { frequency: 'weekly', target_value: '' }
+
+function invalidScheduleTargetReason(target_value: string): string | undefined {
+    const emails = target_value.split(',').filter(Boolean)
+    if (emails.length === 0) {
+        return 'Add at least one email address'
+    }
+    return emails.some((email) => !isEmail(email)) ? 'One or more email addresses are invalid' : undefined
+}
+
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
     connect(() => ({ values: [featureFlagLogic, ['featureFlags']] })),
@@ -221,6 +251,10 @@ export const pulseLogic = kea<pulseLogicType>([
         deleteConfig: (configId: string) => ({ configId }),
         configDeleted: (configId: string) => ({ configId }),
         configDeleteFailed: true,
+        briefScheduled: (subscription: SubscriptionApi) => ({ subscription }),
+        unscheduleBrief: (subscriptionId: number) => ({ subscriptionId }),
+        briefUnscheduled: (subscriptionId: number) => ({ subscriptionId }),
+        briefUnscheduleFailed: true,
     }),
     forms(({ actions, values }) => ({
         configForm: {
@@ -238,6 +272,29 @@ export const pulseLogic = kea<pulseLogicType>([
                     ? await pulseBriefConfigsPartialUpdate(currentProjectId(), editing.id, payload)
                     : await pulseBriefConfigsCreate(currentProjectId(), payload)
                 actions.configSaved(saved, !editing)
+            },
+        },
+        scheduleForm: {
+            defaults: EMPTY_SCHEDULE_FORM,
+            errors: ({ target_value }: BriefScheduleForm) => ({
+                target_value: invalidScheduleTargetReason(target_value),
+            }),
+            submit: async (formValues: BriefScheduleForm) => {
+                const config = values.editingConfig
+                if (!config) {
+                    return // scheduling only exists for a saved config
+                }
+                const subscription = await subscriptionsCreate(currentProjectId(), {
+                    pulse_brief_config_id: config.id,
+                    title: `${config.name} brief`,
+                    target_type: 'email',
+                    target_value: formValues.target_value,
+                    frequency: formValues.frequency,
+                    interval: 1,
+                    // Matches the subscription form convention: first delivery at the next 9:00.
+                    start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
+                })
+                actions.briefScheduled(subscription)
             },
         },
     })),
@@ -290,6 +347,18 @@ export const pulseLogic = kea<pulseLogicType>([
             {
                 loadOpportunities: async (): Promise<OpportunityApi[]> => {
                     const response = await pulseOpportunitiesList(currentProjectId(), { limit: LIST_PAGE_SIZE })
+                    return response.results
+                },
+            },
+        ],
+        briefSubscriptions: [
+            [] as SubscriptionApi[],
+            {
+                loadBriefSubscriptions: async (): Promise<SubscriptionApi[]> => {
+                    const response = await subscriptionsList(currentProjectId(), {
+                        resource_type: SubscriptionsListResourceType.PulseBrief,
+                        limit: LIST_PAGE_SIZE,
+                    })
                     return response.results
                 },
             },
@@ -361,6 +430,19 @@ export const pulseLogic = kea<pulseLogicType>([
                 configDeleteFailed: () => null,
             },
         ],
+        subscriptionIdBeingUnscheduled: [
+            null as number | null,
+            {
+                unscheduleBrief: (_, { subscriptionId }) => subscriptionId,
+                briefUnscheduled: () => null,
+                briefUnscheduleFailed: () => null,
+            },
+        ],
+        briefSubscriptions: {
+            briefScheduled: (state, { subscription }) => [subscription, ...state],
+            briefUnscheduled: (state, { subscriptionId }) =>
+                state.filter((subscription) => subscription.id !== subscriptionId),
+        },
         briefConfigs: {
             configSaved: (state, { config, created }) =>
                 created ? [config, ...state] : state.map((existing) => (existing.id === config.id ? config : existing)),
@@ -413,6 +495,17 @@ export const pulseLogic = kea<pulseLogicType>([
         briefDetailSections: [
             (s) => [s.briefDetail],
             (briefDetail): BriefSection[] => (briefDetail?.sections ?? []).map(parseSection),
+        ],
+        // The subscription delivering the config being edited, if any — one schedule per config
+        // is the v1 surface (more via the subscriptions page).
+        editingConfigSubscription: [
+            (s) => [s.briefSubscriptions, s.editingConfig],
+            (briefSubscriptions, editingConfig): SubscriptionApi | null =>
+                editingConfig
+                    ? (briefSubscriptions.find(
+                          (subscription) => subscription.pulse_brief_config_id === editingConfig.id
+                      ) ?? null)
+                    : null,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -499,6 +592,28 @@ export const pulseLogic = kea<pulseLogicType>([
                 focus_prompt: config?.focus_prompt ?? '',
                 dashboards: config?.anchors?.dashboards ?? [],
             })
+            actions.resetScheduleForm(EMPTY_SCHEDULE_FORM)
+        },
+        briefScheduled: () => {
+            lemonToast.success('Brief scheduled')
+        },
+        submitScheduleFormFailure: ({ error }) => {
+            // Field-level validation failures already render inline — only toast API errors.
+            if (error instanceof ApiError) {
+                lemonToast.error(error.detail || 'Scheduling the brief failed')
+            }
+        },
+        unscheduleBrief: async ({ subscriptionId }) => {
+            try {
+                // Subscriptions forbid hard deletes — soft-delete via PATCH.
+                await subscriptionsPartialUpdate(currentProjectId(), subscriptionId, { deleted: true })
+            } catch {
+                actions.briefUnscheduleFailed()
+                lemonToast.error('Removing the schedule failed')
+                return
+            }
+            actions.briefUnscheduled(subscriptionId)
+            lemonToast.success('Brief schedule removed')
         },
         configSaved: ({ config, created }) => {
             lemonToast.success(created ? 'Brief config created' : 'Brief config updated')
@@ -589,5 +704,6 @@ export const pulseLogic = kea<pulseLogicType>([
         }
         actions.loadBriefConfigs()
         actions.loadBriefs()
+        actions.loadBriefSubscriptions()
     }),
 ])
