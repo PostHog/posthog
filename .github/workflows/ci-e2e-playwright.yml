@@ -689,8 +689,7 @@ jobs:
             # failure is an already-quarantined flake, non-zero otherwise (falls back to the
             # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
             # master, and the merge queue — never on fork PRs or Dependabot, which have no
-            # secret. Also uploads results for classification, so it supersedes the old
-            # detection-only upload.
+            # secret.
             - name: Quarantine gate
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
