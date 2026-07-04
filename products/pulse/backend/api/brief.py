@@ -241,6 +241,8 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 )
             )
         except WorkflowAlreadyStartedError:
+            # Collision policy (shared with cleanup_skipped_pulse_brief in the scheduled
+            # subscription path): delete the stranded GENERATING row.
             try:
                 brief.delete()
             except Exception:

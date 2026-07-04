@@ -2,14 +2,9 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlencode
 
-import nh3
 import structlog
-from markdown_it import MarkdownIt
-from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.email import EmailMessage
-from posthog.helpers.markdown_safety import strip_external_links_markdown
-from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -21,6 +16,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.delivery_common import (
+    build_markdown_slack_message,
+    render_markdown_email_html,
+)
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -30,67 +29,6 @@ from ee.tasks.subscriptions.slack_subscriptions import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-_MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable("table")
-_SLACK_CONVERTER = SlackMarkdownConverter()
-
-# defense-in-depth on top of html=False: allow only the tags commonmark emits
-_ALLOWED_EMAIL_TAGS = {
-    "a",
-    "p",
-    "br",
-    "hr",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "ul",
-    "ol",
-    "li",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "code",
-    "pre",
-    "blockquote",
-    "table",
-    "thead",
-    "tbody",
-    "tr",
-    "th",
-    "td",
-}
-_ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
-
-# Slack's hard limit is 3000 chars per section block; keep margin for safety.
-SLACK_MRKDWN_SECTION_LIMIT = 2900
-
-
-def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
-    if len(text) <= limit:
-        return [text] if text else []
-
-    chunks: list[str] = []
-    remaining = text
-    while len(remaining) > limit:
-        # prefer a paragraph break, then any newline, else a hard cut; cut <= 0 guards against
-        # carving an empty leading chunk and never progressing
-        cut = remaining.rfind("\n\n", 0, limit)
-        if cut <= 0:
-            cut = remaining.rfind("\n", 0, limit)
-        if cut <= 0:
-            cut = limit
-        chunk = remaining[:cut].rstrip()
-        if chunk:
-            chunks.append(chunk)
-        remaining = remaining[cut:].lstrip()
-    if remaining:
-        chunks.append(remaining)
-    return chunks
 
 
 def _resolve_subscription_actors(subscription: Subscription) -> tuple[Team, User | None]:
@@ -108,7 +46,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         team=team,
         user=user,
         prompt=subscription.prompt,
-        window_days=subscription.ai_report_window_days,
+        window_days=subscription.report_window_days,
         trace_correlation_id=subscription.id,
     )
 
@@ -120,11 +58,6 @@ def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback:
     return f"{subscription_url}?{params}"
 
 
-def render_ai_email_html(markdown: str) -> str:
-    rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
-    return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
-
-
 def send_email_ai_subscription_report(
     *,
     email: str,
@@ -134,7 +67,7 @@ def send_email_ai_subscription_report(
     delivery_id: uuid.UUID,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
-    html = render_ai_email_html(markdown)
+    html = render_markdown_email_html(markdown)
     title = subscription.title or "Your PostHog AI report"
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
@@ -199,61 +132,29 @@ def _build_ai_slack_message(
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
 ) -> SlackMessageData:
-    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
-    channel = subscription.target_value.split("|")[0]
-    sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
-    title = subscription.title or "Your PostHog AI report"
-    first_section = sections[0] if sections else "_No report content was generated._"
-
-    blocks: list[dict] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
-    ]
-    if len(sections) > 1:
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
-        )
-
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
     feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
     feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
-
-    action_elements: list[dict] = [
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Manage subscription"},
-            "url": f"{subscription_url}?{utm_tags}",
-        }
-    ]
-    blocks.extend(
-        [
-            {"type": "divider"},
-            {"type": "actions", "elements": action_elements},
+    feedback_block = {
+        "type": "context",
+        "elements": [
             {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": (
-                            "Was this report useful? "
-                            f"<{feedback_positive_url}|👍 Yes> · <{feedback_negative_url}|👎 No>"
-                        ),
-                    }
-                ],
-            },
-        ]
+                "type": "mrkdwn",
+                "text": (f"Was this report useful? <{feedback_positive_url}|👍 Yes> · <{feedback_negative_url}|👎 No>"),
+            }
+        ],
+    }
+    return build_markdown_slack_message(
+        subscription,
+        markdown,
+        default_title="Your PostHog AI report",
+        button_label="Manage subscription",
+        button_url=subscription_url,
+        extra_blocks=[feedback_block],
+        integration=integration,
     )
-    # AI consent is enforced upstream before this report is built, so the hint always shows here.
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
-        blocks.append(explore_hint)
-
-    thread_messages = [
-        {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
-    ]
-    # unfurl=False: report content is LLM-generated; never let Slack auto-fetch a link it contains.
-    return SlackMessageData(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
 
 
 async def send_slack_ai_subscription_report(
@@ -269,7 +170,6 @@ async def send_slack_ai_subscription_report(
 
 __all__ = [
     "build_ai_subscription_report",
-    "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",
 ]

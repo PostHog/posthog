@@ -5,19 +5,20 @@ import pytest
 from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
     PULSE_BRIEF_ID_SNAPSHOT_KEY,
     PULSE_BRIEF_REPORT_SNAPSHOT_KEY,
-    mark_pulse_brief_generation_skipped,
+    cleanup_skipped_pulse_brief,
     prepare_pulse_brief_subscription,
     render_pulse_brief_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.pulse_subscription.delivery import QUIET_BRIEF_NOTE
 from products.exports.backend.temporal.subscriptions.types import (
-    MarkPulseBriefSkippedInputs,
+    CleanupSkippedPulseBriefInputs,
     PreparePulseBriefInputs,
     RenderPulseBriefInputs,
 )
@@ -141,7 +142,7 @@ async def test_prepare_aborts_and_auto_disables_on_terminal_state(
 
 
 @pytest.mark.parametrize(
-    "name,status,expected_deliverable",
+    "name,status,deliverable",
     [
         ("ready", ProductBrief.Status.READY, True),
         ("quiet", ProductBrief.Status.QUIET, True),
@@ -149,7 +150,7 @@ async def test_prepare_aborts_and_auto_disables_on_terminal_state(
         ("still_generating", ProductBrief.Status.GENERATING, False),
     ],
 )
-async def test_render_by_brief_status(team, user, name: str, status: str, expected_deliverable: bool) -> None:
+async def test_render_by_brief_status(team, user, name: str, status: str, deliverable: bool) -> None:
     config = await _create_config(team)
     subscription = await _create_pulse_subscription(team, user, config.id)
     delivery = await _create_delivery(subscription)
@@ -160,15 +161,18 @@ async def test_render_by_brief_status(team, user, name: str, status: str, expect
         status=status,
         sections=[{"title": "What happened", "markdown": "Conversion dropped.", "citations": ["insight:abc"]}],
     )
-
-    result = await ActivityEnvironment().run(
-        render_pulse_brief_for_delivery,
-        RenderPulseBriefInputs(
-            subscription_id=subscription.id, team_id=team.id, brief_id=str(brief.id), delivery_id=delivery.id
-        ),
+    inputs = RenderPulseBriefInputs(
+        subscription_id=subscription.id, team_id=team.id, brief_id=str(brief.id), delivery_id=delivery.id
     )
 
-    assert result.deliverable is expected_deliverable
+    if deliverable:
+        await ActivityEnvironment().run(render_pulse_brief_for_delivery, inputs)
+    else:
+        # A non-terminal-deliverable brief after a successful generate run is an invariant
+        # break — the activity must fail loud (non-retryable), never deliver.
+        with pytest.raises(ApplicationError):
+            await ActivityEnvironment().run(render_pulse_brief_for_delivery, inputs)
+
     snapshot = await _snapshot(delivery.id)
     if status == ProductBrief.Status.READY:
         assert "## What happened" in snapshot[PULSE_BRIEF_REPORT_SNAPSHOT_KEY]
@@ -178,17 +182,19 @@ async def test_render_by_brief_status(team, user, name: str, status: str, expect
         assert PULSE_BRIEF_REPORT_SNAPSHOT_KEY not in snapshot, "a failed brief must never be rendered for delivery"
 
 
-async def test_mark_generation_skipped_only_touches_generating_briefs(team, user) -> None:
+async def test_cleanup_skipped_brief_only_deletes_generating_briefs(team, user) -> None:
     generating = await _create_brief(team, user, status=ProductBrief.Status.GENERATING)
     ready = await _create_brief(team, user, status=ProductBrief.Status.READY)
 
     for brief in (generating, ready):
         await ActivityEnvironment().run(
-            mark_pulse_brief_generation_skipped,
-            MarkPulseBriefSkippedInputs(team_id=team.id, brief_id=str(brief.id)),
+            cleanup_skipped_pulse_brief,
+            CleanupSkippedPulseBriefInputs(team_id=team.id, brief_id=str(brief.id)),
         )
 
-    assert (await _get_brief(team, generating.id)).status == ProductBrief.Status.FAILED
+    assert not await sync_to_async(
+        lambda: ProductBrief.objects.for_team(team.id).filter(id=generating.id).exists()
+    )(), "the stranded GENERATING row is deleted — same collision policy as the on-demand API path"
     assert (await _get_brief(team, ready.id)).status == ProductBrief.Status.READY, (
-        "a brief the concurrent run completed must not be clobbered"
+        "a brief the concurrent run completed must not be deleted"
     )

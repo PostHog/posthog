@@ -22,7 +22,7 @@ function SchedulingSection(): JSX.Element {
         isScheduleFormSubmitting,
         subscriptionIdBeingUnscheduled,
     } = useValues(pulseLogic)
-    const { submitScheduleForm, unscheduleBrief } = useActions(pulseLogic)
+    const { unscheduleBrief } = useActions(pulseLogic)
 
     if (editingConfigSubscription) {
         const isUnscheduling = subscriptionIdBeingUnscheduled === editingConfigSubscription.id
@@ -85,9 +85,9 @@ function SchedulingSection(): JSX.Element {
                 <LemonButton
                     type="primary"
                     size="small"
+                    htmlType="submit"
                     loading={isScheduleFormSubmitting}
                     disabledReason={briefSubscriptionsLoading ? 'Loading existing schedule…' : undefined}
-                    onClick={submitScheduleForm}
                 >
                     Schedule this brief
                 </LemonButton>

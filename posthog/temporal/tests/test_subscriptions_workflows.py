@@ -54,7 +54,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.pulse_subscription.activities import (
-    mark_pulse_brief_generation_skipped,
+    cleanup_skipped_pulse_brief,
     prepare_pulse_brief_subscription,
     render_pulse_brief_for_delivery,
 )
@@ -2517,7 +2517,7 @@ PULSE_SUBSCRIPTION_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_delivery_record,
         validate_subscription_for_delivery,
         prepare_pulse_brief_subscription,
-        mark_pulse_brief_generation_skipped,
+        cleanup_skipped_pulse_brief,
         render_pulse_brief_for_delivery,
         deliver_subscription,
         update_delivery_record,
