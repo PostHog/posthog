@@ -7,5 +7,11 @@
                       AND age('month', timestamp, now()) >= %(min_age_months)s
                   
     ''',
+    '''
+      DELETE FROM posthog_test.sharded_events_json IN PARTITION '202408' WHERE 
+                      team_id IN %(team_ids)s
+                      AND age('month', timestamp, now()) >= %(min_age_months)s
+                  
+    ''',
   ])
 # ---
