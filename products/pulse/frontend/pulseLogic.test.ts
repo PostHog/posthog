@@ -43,6 +43,9 @@ const generatingBrief = {
     sections: [],
     sources_used: [],
     error: null,
+    my_vote: null,
+    helpful_count: 0,
+    not_helpful_count: 0,
     created_at: '2026-07-02T10:00:00Z',
     created_by: null,
     updated_at: null,
@@ -74,6 +77,9 @@ const openOpportunity: OpportunityApi = {
     goal_relevant: false,
     proposed_experiment: null,
     first_seen_brief: null,
+    my_vote: null,
+    helpful_count: 0,
+    not_helpful_count: 0,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -784,6 +790,88 @@ describe('pulseLogic', () => {
         expect(requests).toEqual(2)
         expect(logic.values.opportunities).toHaveLength(1)
         resumeKeaLoadersErrors()
+    })
+
+    it('records a helpfulness vote and swaps in the server row', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/feedback/': () => [
+                    200,
+                    { ...openOpportunity, my_vote: true, helpful_count: 1 },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnOpportunity('opp-1', true)
+        })
+            .toDispatchActions(['feedbackVoteStarted', 'opportunityFeedbackUpdated'])
+            .toMatchValues({ feedbackVotesInFlight: {} })
+        expect(logic.values.opportunities[0].my_vote).toBe(true)
+        expect(logic.values.opportunities[0].helpful_count).toBe(1)
+    })
+
+    it('clears a brief vote by posting null and swaps the detail on confirmation', async () => {
+        let captured: Record<string, unknown> | null = null
+        const votedBrief = { ...readyBrief, my_vote: true, helpful_count: 1 }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/briefs/:id/feedback/': async (info) => {
+                    captured = (await info.request.json()) as Record<string, unknown>
+                    return [200, { ...votedBrief, my_vote: null, helpful_count: 0 }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadBriefDetailSuccess(votedBrief as unknown as ProductBriefApi)
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnBrief('brief-1', null)
+        })
+            .toDispatchActions(['feedbackVoteStarted', 'briefFeedbackUpdated'])
+            .toMatchValues({ feedbackVotesInFlight: {} })
+        expect(captured).toEqual({ helpful: null })
+        expect(logic.values.briefDetail?.my_vote).toBeNull()
+        expect(logic.values.briefDetail?.helpful_count).toBe(0)
+    })
+
+    it('ignores a second vote for the same target while one is in flight', async () => {
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/feedback/': () => {
+                    requests += 1
+                    return [200, { ...openOpportunity, my_vote: true, helpful_count: 1 }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnOpportunity('opp-1', true)
+            logic.actions.voteOnOpportunity('opp-1', false)
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1)
+    })
+
+    it('keeps the row unchanged, clears the guard, and toasts when a vote fails', async () => {
+        const errorSpy = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            post: { '/api/projects/:team_id/pulse/opportunities/:id/feedback/': () => [500, {}] },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnOpportunity('opp-1', true)
+        })
+            .toDispatchActions(['feedbackVoteStarted', 'feedbackVoteFailed'])
+            .toMatchValues({ feedbackVotesInFlight: {} })
+        expect(logic.values.opportunities[0].my_vote).toBeNull()
+        expect(errorSpy).toHaveBeenCalledWith('Saving your feedback failed')
     })
 
     it('reports product_brief_viewed once per brief', async () => {
