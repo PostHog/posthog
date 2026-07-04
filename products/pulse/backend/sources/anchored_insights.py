@@ -48,7 +48,7 @@ class InsightResultsCache:
     Memoization bounds the happy path at one cached-execution-mode run per distinct insight
     (so parallelizing the calls is not worth the machinery); the attempt count lets callers
     budget the failure path too, keeping re-scoring latency bounded inside the synthesize
-    activity's shared 5-minute timeout. One instance is shared across the collectors of a
+    activity's shared 10-minute timeout. One instance is shared across the collectors of a
     single brief run so an insight referenced twice executes once.
     """
 
