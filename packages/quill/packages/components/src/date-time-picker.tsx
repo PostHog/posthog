@@ -17,6 +17,12 @@ const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     YMD: 'yy-MM-dd HH:mm:ss',
 }
 
+const DATE_FORMATS: Record<DateFormatOrder, string> = {
+    MDY: 'MM/dd/yy',
+    DMY: 'dd/MM/yy',
+    YMD: 'yy-MM-dd',
+}
+
 // Tailwind `lg` breakpoint — matches the `lg:` classes that switch this picker
 // between a single calendar and the side-by-side dual-calendar layout.
 const LG_QUERY = '(min-width: 64rem)'
@@ -51,6 +57,10 @@ export interface DateTimePickerProps {
     compact?: boolean
     /** Quick-range presets to offer. Defaults to `quickRanges`; `CUSTOM_RANGE` entries are filtered out. */
     ranges?: DateTimeRange[]
+    /** Hide the "Choose date range / Quick ranges" header band when embedding in a host surface. */
+    showHeader?: boolean
+    /** Day-granular mode: hides the time segments and "Now", and drops time from the footer readout. */
+    showTime?: boolean
     className?: string
 }
 
@@ -66,6 +76,8 @@ export function DateTimePicker({
     onDateTimeSettings,
     compact = false,
     ranges = quickRanges,
+    showHeader = true,
+    showTime = true,
     className,
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
@@ -179,7 +191,7 @@ export function DateTimePicker({
         setLeftViewing(subMonths(nextEnd, 1))
     }
 
-    const dateTimeFormat = DATE_TIME_FORMATS[dateFormat]
+    const dateTimeFormat = showTime ? DATE_TIME_FORMATS[dateFormat] : DATE_FORMATS[dateFormat]
     const presentationalStart = format(start, dateTimeFormat)
     const presentationalEnd = format(end, dateTimeFormat)
 
@@ -192,7 +204,7 @@ export function DateTimePicker({
             )}
         >
             {/* Headers */}
-            {!compact && (
+            {!compact && showHeader && (
                 <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]">
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
@@ -232,18 +244,20 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime />
+                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime />
-                                <Button
-                                    variant="link"
-                                    size="xs"
-                                    onClick={handleNow}
-                                    aria-label="Set end to now"
-                                    title="Set end to now"
-                                >
-                                    Now
-                                </Button>
+                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
+                                {showTime && (
+                                    <Button
+                                        variant="link"
+                                        size="xs"
+                                        onClick={handleNow}
+                                        aria-label="Set end to now"
+                                        title="Set end to now"
+                                    >
+                                        Now
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     )}
