@@ -8,6 +8,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
@@ -99,6 +100,10 @@ class RunHogEvalTestTool(MaxTool):
             query_type="RunHogEvalTest",
             fall_back_to_events=True,
         )
+        # Resolved here rather than inside merge_heavy_properties: the fallback resolution
+        # reads an instance setting from Postgres, which raises SynchronousOnlyOperation in
+        # this async context.
+        new_events_schema = await database_sync_to_async(use_new_events_schema)(team.pk)
 
         if not response.results:
             return (
@@ -117,7 +122,7 @@ class RunHogEvalTestTool(MaxTool):
         for row in response.results:
             heavy_values = row[4 : 4 + len(HEAVY_COLUMN_NAMES)]
             heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values))
-            properties = merge_heavy_properties(row[2], heavy_columns)
+            properties = merge_heavy_properties(row[2], heavy_columns, team.pk, new_events_schema=new_events_schema)
             all_property_keys.update(properties.keys())
             parsed_events.append(
                 {

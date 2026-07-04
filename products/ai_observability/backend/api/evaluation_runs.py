@@ -240,5 +240,5 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         event_data = rows[0]
         # Merge heavy columns back into properties for the evaluation workflow.
         heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
-        event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
+        event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns, self.team_id)
         return event_data

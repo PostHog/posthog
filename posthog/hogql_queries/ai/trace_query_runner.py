@@ -252,7 +252,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         event_uuid, event_name, event_timestamp, event_properties, *heavy = event_tuple
         heavy_columns = dict(zip(("input", "output", "output_choices", "input_state", "output_state", "tools"), heavy))
         event_id = str(event_uuid)
-        properties = merge_heavy_properties(event_properties, heavy_columns)
+        properties = merge_heavy_properties(event_properties, heavy_columns, self.team.pk)
         generation: dict[str, Any] = {
             "id": event_id,
             "event": event_name,
