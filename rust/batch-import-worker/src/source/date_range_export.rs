@@ -504,6 +504,27 @@ impl DateRangeExportSource {
     ) -> Result<Vec<u8>, Error> {
         read_prepared_chunk(&self.prepared_keys, key, offset, size).await
     }
+
+    /// Free pod-local state: prepared readers/`.raw` files and the job temp dir.
+    /// Clear refs first, then explicitly `close()` the temp dir to surface removal
+    /// errors. Never touches remote staging.
+    async fn cleanup_local_resources(&self) {
+        {
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.clear();
+        }
+        {
+            let mut temp_dir_guard = self.temp_dir.lock().await;
+            if let Some(temp_dir) = temp_dir_guard.take() {
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -569,28 +590,23 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        // Sweep any staged objects this job left in the remote backend (best-effort;
-        // the bucket TTL is the final backstop).
+        // Terminal: sweep any staged objects this job left in the remote backend
+        // (best-effort; the bucket TTL is the final backstop), then release local
+        // resources.
         if let Some(remote) = &self.remote_staging {
             remote.sweep_job().await;
         }
-        // Clear refs then explicitly close() the temp dir to surface removal errors
-        {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.clear();
-        }
-        {
-            let mut temp_dir_guard = self.temp_dir.lock().await;
-            if let Some(temp_dir) = temp_dir_guard.take() {
-                let path = temp_dir.path().to_path_buf();
-                if let Err(e) = temp_dir.close() {
-                    warn!("Failed to remove temp directory {}: {e}", path.display());
-                } else {
-                    debug!("Cleaned up temp directory: {}", path.display());
-                }
-            }
-        }
+        self.cleanup_local_resources().await;
         debug!("Job cleanup complete");
+        Ok(())
+    }
+
+    async fn release_job_resources(&self) -> Result<(), Error> {
+        // Transient interruption: keep staged remote objects for the resume to
+        // re-attach to; free only pod-local disk and in-memory state (the disk is
+        // shared with whatever job this pod claims next).
+        self.cleanup_local_resources().await;
+        debug!("Job resources released (remote staging kept for resume)");
         Ok(())
     }
 
@@ -1891,5 +1907,90 @@ mod remote_staging_tests {
             remote_staging(store, 0),
         );
         assert_eq!(fresh.size(&keys[1]).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn release_job_resources_keeps_staged_parts_for_resume() {
+        // The transient-interruption path (backoff / sink rollback / shutdown):
+        // local resources are freed but staged remote parts survive, so the resume
+        // re-attaches — no origin re-hit — and re-reads byte-identical data at any
+        // offset (the property a sink-rollback retry depends on).
+        let server = MockServer::start();
+        let mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        src.prepare_for_job().await.unwrap();
+        let key = src.keys().await.unwrap().remove(0);
+        src.prepare_key(&key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+        let before = src.get_chunk(&key, 5, 12).await.unwrap();
+
+        src.release_job_resources().await.unwrap();
+
+        // Staged object survived; the job temp dir did not.
+        assert_eq!(src.size(&key).await.unwrap(), Some(BODY.len() as u64));
+        assert_eq!(
+            std::fs::read_dir(staging.path()).unwrap().count(),
+            0,
+            "local job temp dir must be freed"
+        );
+
+        // A fresh source (the resuming pod) attaches without re-downloading and
+        // re-reads the identical bytes at the same offset.
+        let staging_b = TempDir::new().unwrap();
+        let resumed = build_source(
+            server.url("/export"),
+            staging_b.path(),
+            1,
+            remote_staging(store, 0),
+        );
+        resumed.prepare_for_job().await.unwrap();
+        resumed.prepare_key(&key).await.unwrap();
+        assert_eq!(mock.hits(), 1, "resume must not re-hit the origin");
+        assert_eq!(resumed.get_chunk(&key, 5, 12).await.unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn cleanup_after_job_forces_clean_redownload_on_resume() {
+        // The source-pause path: a human may fix the source file in place, so the
+        // sweep guarantees the resume re-downloads a clean copy — attaching to a
+        // stale staged copy of a corrupt file would just re-fail the job.
+        let server = MockServer::start();
+        let mock = mock_export(&server, BODY);
+        let staging = TempDir::new().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let src = build_source(
+            server.url("/export"),
+            staging.path(),
+            1,
+            remote_staging(Arc::clone(&store), 0),
+        );
+        src.prepare_for_job().await.unwrap();
+        let key = src.keys().await.unwrap().remove(0);
+        src.prepare_key(&key).await.unwrap();
+        assert_eq!(mock.hits(), 1);
+
+        src.cleanup_after_job().await.unwrap();
+
+        let staging_b = TempDir::new().unwrap();
+        let resumed = build_source(
+            server.url("/export"),
+            staging_b.path(),
+            1,
+            remote_staging(store, 0),
+        );
+        resumed.prepare_for_job().await.unwrap();
+        resumed.prepare_key(&key).await.unwrap();
+        assert_eq!(
+            mock.hits(),
+            2,
+            "resume after a terminal sweep must re-download from origin"
+        );
     }
 }

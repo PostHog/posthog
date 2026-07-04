@@ -287,8 +287,23 @@ pub trait DataSource: Sync + Send {
     async fn prepare_for_job(&self) -> Result<(), Error> {
         Ok(())
     }
+
+    /// Terminal cleanup: reclaim everything, including durable remote staging.
+    /// Called when the job completes, and on source-side pauses — a human may fix
+    /// the source file in place before resuming, so the resume must re-download a
+    /// clean copy rather than attach to a stale staged one.
     async fn cleanup_after_job(&self) -> Result<(), Error> {
         Ok(())
+    }
+
+    /// Transient-interruption cleanup: release per-process resources (local temp
+    /// files, in-memory state) but keep durable remote staging, so a resumed job
+    /// re-attaches to staged parts instead of re-hitting the origin. Called on
+    /// transient backoff, sink commit rollback (the retried chunk then re-reads
+    /// byte-identical staged data), and graceful shutdown (the re-claiming pod
+    /// attaches). Defaults to full cleanup for sources with no remote staging.
+    async fn release_job_resources(&self) -> Result<(), Error> {
+        self.cleanup_after_job().await
     }
 
     fn get_date_range_for_key(&self, _key: &str) -> Option<String> {

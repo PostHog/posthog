@@ -78,6 +78,27 @@ impl GzipS3Source {
         read_prepared_chunk(&self.prepared_keys, key, offset, size).await
     }
 
+    /// Free pod-local state: prepared readers/`.raw` files and the job temp dir.
+    /// Clear refs first, then explicitly `close()` the temp dir to surface removal
+    /// errors. Never touches remote staging.
+    async fn cleanup_local_resources(&self) {
+        {
+            let mut prepared_keys = self.prepared_keys.lock().await;
+            prepared_keys.clear();
+        }
+        {
+            let mut temp_dir_guard = self.temp_dir.lock().await;
+            if let Some(temp_dir) = temp_dir_guard.take() {
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
+            }
+        }
+    }
+
     /// Stream the compressed object into a temp `.raw` file and return its path, or
     /// `None` for a zero-byte object (the empty `.raw` is removed). The staging guard is
     /// checked before the download, throttled as the file grows, and once more at the
@@ -231,27 +252,23 @@ impl DataSource for GzipS3Source {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        // Sweep any staged objects this job left in the remote backend (best-effort;
-        // the bucket TTL is the final backstop).
+        // Terminal: sweep any staged objects this job left in the remote backend
+        // (best-effort; the bucket TTL is the final backstop), then release local
+        // resources.
         if let Some(remote) = &self.remote_staging {
             remote.sweep_job().await;
         }
-        {
-            let mut prepared_keys = self.prepared_keys.lock().await;
-            prepared_keys.clear();
-        }
-        {
-            let mut temp_dir_guard = self.temp_dir.lock().await;
-            if let Some(temp_dir) = temp_dir_guard.take() {
-                let path = temp_dir.path().to_path_buf();
-                if let Err(e) = temp_dir.close() {
-                    warn!("Failed to remove temp directory {}: {e}", path.display());
-                } else {
-                    debug!("Cleaned up temp directory: {}", path.display());
-                }
-            }
-        }
+        self.cleanup_local_resources().await;
         debug!("Job cleanup complete");
+        Ok(())
+    }
+
+    async fn release_job_resources(&self) -> Result<(), Error> {
+        // Transient interruption: keep staged remote objects for the resume to
+        // re-attach to; free only pod-local disk and in-memory state (the disk is
+        // shared with whatever job this pod claims next).
+        self.cleanup_local_resources().await;
+        debug!("Job resources released (remote staging kept for resume)");
         Ok(())
     }
 

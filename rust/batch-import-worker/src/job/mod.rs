@@ -495,9 +495,12 @@ impl Job {
 
         if let Err(e) = next_commit {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
-            // but this pod should restart, in case it's sink is in some bad state
+            // but this pod should restart, in case it's sink is in some bad state.
+            // The failure is sink-side and the offset was rolled back, so keep the
+            // staged remote data: the resume re-reads the byte-identical chunk
+            // instead of re-downloading from an origin that may have changed.
             error!("Failed to commit chunk: {:?}", e);
-            if let Err(cleanup_err) = self.source.cleanup_after_job().await {
+            if let Err(cleanup_err) = self.source.release_job_resources().await {
                 warn!("Failed to cleanup after commit failure: {:?}", cleanup_err);
             }
             return Err(e);
@@ -514,9 +517,9 @@ impl Job {
                 return Ok(None);
             }
             Err(e) => {
-                if let Err(e) = self.source.cleanup_after_job().await {
-                    warn!("Failed to cleanup after job: {:?}", e);
-                }
+                // Cleanup is deferred until after classification below: transient
+                // interruptions keep remote staging for the resume to attach to,
+                // while source-side pauses sweep it for a clean re-download.
                 let user_facing_error_message = get_user_message(&e);
                 let current_date_range = {
                     let state = self.state.lock().await;
@@ -545,6 +548,12 @@ impl Job {
                         status_msg,
                         display_msg,
                     } => {
+                        // Transient (or transient-persisted, below): keep staged
+                        // remote parts so the resume attaches without re-hitting an
+                        // origin that is likely still rate-limited or flaky.
+                        if let Err(cleanup_err) = self.source.release_job_resources().await {
+                            warn!("Failed to release job resources: {:?}", cleanup_err);
+                        }
                         if should_pause_due_to_max_attempts(
                             next_attempt,
                             self.context.config.backoff_max_attempts,
@@ -596,6 +605,12 @@ impl Job {
                         error_msg,
                         display_msg,
                     } => {
+                        // Source-side pause: a human intervenes and may fix the
+                        // source file in place, so sweep staged data — the resume
+                        // must re-download a clean copy, never attach to a stale one.
+                        if let Err(cleanup_err) = self.source.cleanup_after_job().await {
+                            warn!("Failed to cleanup after job: {:?}", cleanup_err);
+                        }
                         let mut model = self.model.lock().await;
                         error!(
                             job_id = %model.id,
