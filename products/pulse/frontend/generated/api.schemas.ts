@@ -251,6 +251,80 @@ export interface GenerateBriefRequestApi {
     period_days?: number
 }
 
+/**
+ * * `build` - Build
+ * * `fix` - Fix
+ * * `instrument` - Instrument
+ */
+export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
+
+export const OpportunityKindEnumApi = {
+    Build: 'build',
+    Fix: 'fix',
+    Instrument: 'instrument',
+} as const
+
+/**
+ * * `open` - Open
+ * * `dismissed` - Dismissed
+ * * `acted` - Acted
+ * * `resolved` - Resolved
+ */
+export type OpportunityStatusEnumApi = (typeof OpportunityStatusEnumApi)[keyof typeof OpportunityStatusEnumApi]
+
+export const OpportunityStatusEnumApi = {
+    Open: 'open',
+    Dismissed: 'dismissed',
+    Acted: 'acted',
+    Resolved: 'resolved',
+} as const
+
+export type OpportunityApiEvidenceItem = { [key: string]: unknown }
+
+export interface OpportunityApi {
+    readonly id: string
+    /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
+     *
+     * * `build` - Build
+     * * `fix` - Fix
+     * * `instrument` - Instrument */
+    readonly kind: OpportunityKindEnumApi
+    /** Lifecycle status: open, dismissed, acted, or resolved.
+     *
+     * * `open` - Open
+     * * `dismissed` - Dismissed
+     * * `acted` - Acted
+     * * `resolved` - Resolved */
+    readonly status: OpportunityStatusEnumApi
+    /** Short, actionable opportunity title. */
+    readonly title: string
+    /** What was observed and why it matters. */
+    readonly summary: string
+    /** The concrete next step suggested for the team. */
+    readonly suggested_action: string
+    /** Evidence refs backing the opportunity: type, ref, and label per entry. */
+    readonly evidence: readonly OpportunityApiEvidenceItem[]
+    /**
+     * The brief this opportunity first surfaced in, if any.
+     * @nullable
+     */
+    readonly first_seen_brief: string | null
+    readonly created_at: string
+    /** User who created the opportunity. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedOpportunityListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OpportunityApi[]
+}
+
 export type PulseBriefConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -272,3 +346,40 @@ export type PulseBriefsListParams = {
      */
     offset?: number
 }
+
+export type PulseOpportunitiesListParams = {
+    /**
+     * Filter by opportunity kind.
+     */
+    kind?: PulseOpportunitiesListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by lifecycle status.
+     */
+    status?: PulseOpportunitiesListStatus
+}
+
+export type PulseOpportunitiesListKind = (typeof PulseOpportunitiesListKind)[keyof typeof PulseOpportunitiesListKind]
+
+export const PulseOpportunitiesListKind = {
+    Build: 'build',
+    Fix: 'fix',
+    Instrument: 'instrument',
+} as const
+
+export type PulseOpportunitiesListStatus =
+    (typeof PulseOpportunitiesListStatus)[keyof typeof PulseOpportunitiesListStatus]
+
+export const PulseOpportunitiesListStatus = {
+    Acted: 'acted',
+    Dismissed: 'dismissed',
+    Open: 'open',
+    Resolved: 'resolved',
+} as const
