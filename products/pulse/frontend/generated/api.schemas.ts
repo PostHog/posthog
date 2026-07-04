@@ -295,6 +295,22 @@ export const OpportunityStatusEnumApi = {
     Resolved: 'resolved',
 } as const
 
+export interface ProposedExperimentTargetMetricApi {
+    /** Short ID of the insight the experiment should move. */
+    insight_short_id: string
+}
+
+export interface ProposedExperimentApi {
+    /** The testable hypothesis grounded in the opportunity's evidence. */
+    hypothesis: string
+    /** Suggested feature flag key for the experiment. */
+    flag_key_suggestion: string
+    /** The goal metric the experiment should move, as an insight reference. */
+    target_metric: ProposedExperimentTargetMetricApi
+    /** Short sketch of the control and test variants. */
+    variant_sketch: string
+}
+
 export type OpportunityApiEvidenceItem = { [key: string]: unknown }
 
 export interface OpportunityApi {
@@ -322,6 +338,8 @@ export interface OpportunityApi {
     readonly evidence: readonly OpportunityApiEvidenceItem[]
     /** Whether this opportunity plausibly advances the focus goal of the brief it surfaced in. */
     readonly goal_relevant: boolean
+    /** Experiment proposed by goal-conditioned synthesis: hypothesis, flag key suggestion, target metric, and variant sketch. Only ever set on goal-relevant opportunities; null otherwise. */
+    readonly proposed_experiment: ProposedExperimentApi | null
     /**
      * The brief this opportunity first surfaced in, if any.
      * @nullable

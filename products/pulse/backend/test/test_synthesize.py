@@ -392,6 +392,9 @@ class TestRenderItems:
             return
         assert "## Focus goal" in rendered
         assert "The team's goal for this focus: 'Increase subscription usage'" in rendered
+        # The proposed_experiment rule must ride the goal-gated block: a goalless prompt (the
+        # empty-render case above) never mentions it, so the model has nothing to fill.
+        assert "proposed_experiment" in rendered
         if expected_metric_line:
             assert expected_metric_line in rendered
         else:
