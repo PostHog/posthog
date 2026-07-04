@@ -158,18 +158,20 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items, findings=findings, results_cache=results_cache
     )
-    await _emit_opportunity_signals(brief, out, created)
+    emit_failed_count = await _emit_opportunity_signals(brief, out, created)
     try:
         # ph_scoped_capture (not posthoganalytics.capture): outside request context the global
         # client's flush may never run before the worker moves on, silently losing the event.
-        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(brief, len(created), findings)
+        await database_sync_to_async(_report_brief_generated, thread_sensitive=False)(
+            brief, len(created), findings, emit_failed_count
+        )
     except Exception:
         logger.exception("pulse_brief_generated_capture_failed", team_id=brief.team_id, brief_id=str(brief.id))
     return brief.status
 
 
 def _report_brief_generated(
-    brief: ProductBrief, new_opportunity_count: int, findings: list[InvestigationFinding]
+    brief: ProductBrief, new_opportunity_count: int, findings: list[InvestigationFinding], emit_failed_count: int
 ) -> None:
     if brief.created_by is None:
         return
@@ -183,21 +185,26 @@ def _report_brief_generated(
                 "trigger": brief.trigger,
                 "period_days": brief.period_days,
                 "has_config": brief.config_id is not None,
+                "has_goal": brief.has_goal,
                 "new_opportunity_count": new_opportunity_count,
                 # Stage diagnostics for the investigation eval loop (per-step detail persists on
                 # the brief's investigation field).
                 "investigation_step_count": len(findings),
                 "investigation_failed_count": sum(1 for finding in findings if not finding.succeeded),
+                # Signal-emit failures are otherwise only a log line — carrying the count here
+                # makes them chartable without a dedicated event.
+                "emit_failed_count": emit_failed_count,
             },
         )
 
 
-async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> None:
+async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> int:
     """Surface newly created opportunities in the signals inbox via the signals facade.
 
     Deduped fingerprints never re-emit (they were surfaced by an earlier brief), delivery is
     opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and each
-    emit is best-effort — a failure must never fail the brief.
+    emit is best-effort — a failure must never fail the brief. Returns the number of failed
+    emits so product_brief_generated can carry them as a chartable property.
     """
     confidence_by_fingerprint: dict[str, float] = {}
     for opp in out.opportunities:
@@ -205,14 +212,15 @@ async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created:
         # one persisted, so its confidence is the weight that gets emitted.
         confidence_by_fingerprint.setdefault(opportunity_fingerprint(opp.kind, opp.fingerprint_hint), opp.confidence)
     # Independent best-effort emits, run concurrently (each still pays its own Temporal connect).
-    await asyncio.gather(
+    results = await asyncio.gather(
         *(_emit_opportunity_signal(brief, opportunity, confidence_by_fingerprint) for opportunity in created)
     )
+    return sum(1 for succeeded in results if not succeeded)
 
 
 async def _emit_opportunity_signal(
     brief: ProductBrief, opportunity: Opportunity, confidence_by_fingerprint: dict[str, float]
-) -> None:
+) -> bool:
     try:
         await emit_signal(
             team=brief.team,
@@ -226,6 +234,7 @@ async def _emit_opportunity_signal(
             weight=confidence_by_fingerprint[opportunity.fingerprint],
             extra={"brief_id": str(brief.id), "evidence": opportunity.evidence},
         )
+        return True
     except Exception:
         logger.exception(
             "pulse_opportunity_signal_emit_failed",
@@ -233,6 +242,7 @@ async def _emit_opportunity_signal(
             brief_id=str(brief.id),
             opportunity_id=str(opportunity.id),
         )
+        return False
 
 
 @temporalio.activity.defn

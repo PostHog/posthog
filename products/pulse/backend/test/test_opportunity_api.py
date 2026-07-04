@@ -41,6 +41,7 @@ class TestOpportunityAPI(APIBaseTest):
             title="Recover the signup drop",
             summary="s",
             fingerprint=f"{kind}:{uuid.uuid4()}",
+            goal_relevant=True,
         )
 
     def test_list_requires_flag(self) -> None:
@@ -80,6 +81,7 @@ class TestOpportunityAPI(APIBaseTest):
             self.mock_report.assert_called_once()
             assert self.mock_report.call_args.args[1] == _TRANSITION_EVENTS[transition]
             assert self.mock_report.call_args.args[2]["status"] == expected_status
+            assert self.mock_report.call_args.args[2]["goal_relevant"] is True
         else:
             assert opportunity.status == initial_status
             assert "This opportunity is" in response.json()["detail"]

@@ -215,7 +215,12 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         report_user_action(
             self.request.user,
             event,
-            {"opportunity_id": str(opportunity.id), "kind": opportunity.kind, "status": opportunity.status},
+            {
+                "opportunity_id": str(opportunity.id),
+                "kind": opportunity.kind,
+                "status": opportunity.status,
+                "goal_relevant": opportunity.goal_relevant,
+            },
             team=self.team,
             request=self.request,
         )
