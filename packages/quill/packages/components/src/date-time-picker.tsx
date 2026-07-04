@@ -81,6 +81,7 @@ export function DateTimePicker({
     className,
 }: DateTimePickerProps): React.ReactElement {
     const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
+    const hasPresets = presetRanges.length > 0
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
     // The second calendar only renders at `lg`; below it (and in compact) there's
@@ -205,7 +206,7 @@ export function DateTimePicker({
         >
             {/* Headers */}
             {!compact && showHeader && (
-                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]">
+                <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
                         {(minDate || hasExplicitMaxDate) && (
@@ -216,14 +217,16 @@ export function DateTimePicker({
                             </div>
                         )}
                     </div>
-                    <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
-                    </div>
+                    {hasPresets && (
+                        <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={compact
+            <div className={compact || !hasPresets
                 ? 'flex flex-col'
                 : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
             }>
@@ -299,6 +302,7 @@ export function DateTimePicker({
                 </div>
 
                 {/* Quick ranges column */}
+                {hasPresets && (
                 <div className={compact
                     ? 'order-0 border-b border-border'
                     : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
@@ -331,6 +335,7 @@ export function DateTimePicker({
                         </ul>
                     </ScrollArea>
                 </div>
+                )}
             </div>
 
             <Separator />
