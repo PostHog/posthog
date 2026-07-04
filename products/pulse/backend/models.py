@@ -93,6 +93,10 @@ class Opportunity(PulseModel):
     baseline = models.JSONField(null=True, blank=True)
     # Set by goal-conditioned synthesis: this opportunity plausibly advances the focus goal.
     goal_relevant = models.BooleanField(default=False)
+    # {"hypothesis": str, "flag_key_suggestion": str, "target_metric": {"insight_short_id": str},
+    # "variant_sketch": str} | null — only ever set on goal-relevant opportunities (persist nulls
+    # it otherwise).
+    proposed_experiment = models.JSONField(null=True, blank=True)
     fingerprint = models.CharField(max_length=512)
     feedback = models.JSONField(default=dict)
 

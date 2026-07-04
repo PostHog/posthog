@@ -24,6 +24,23 @@ class BriefSectionOut(BaseModel):
     confidence: float = Field(description="Confidence in this section, 0.0-1.0.")
 
 
+class ProposedExperimentOut(BaseModel):
+    hypothesis: str = Field(
+        description="The testable hypothesis, grounded in the opportunity's cited evidence — never in new numbers."
+    )
+    flag_key_suggestion: str = Field(
+        description="A suggested feature flag key for the experiment, kebab-case, e.g. 'sidebar-entry-point'."
+    )
+    target_metric_insight_short_id: str = Field(
+        description=(
+            "The short ID of the insight the experiment should move, copied verbatim from a cited insight evidence ref."
+        ),
+    )
+    variant_sketch: str = Field(
+        description="One or two sentences sketching the control and test variants a team would ship."
+    )
+
+
 class OpportunityOut(BaseModel):
     kind: Literal["build", "fix", "instrument"] = Field(description=_KIND_FIELD_DESCRIPTION)
     title: str = Field(description="Short, actionable opportunity title.")
@@ -36,6 +53,14 @@ class OpportunityOut(BaseModel):
         description=(
             "True only when this opportunity plausibly advances the stated focus goal and its cited "
             "evidence supports that. Always false when the brief has no goal."
+        ),
+    )
+    proposed_experiment: ProposedExperimentOut | None = Field(
+        default=None,
+        description=(
+            "An experiment worth running for this opportunity. Fill ONLY when goal_relevant is true and "
+            "the cited evidence supports the hypothesis; null otherwise. Always null when the brief has "
+            "no goal."
         ),
     )
 

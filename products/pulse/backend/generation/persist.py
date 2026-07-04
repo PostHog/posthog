@@ -17,6 +17,21 @@ def _fallback_evidence(evidence_refs: list[str]) -> list[EvidenceRef]:
     return [parse_evidence_ref(ref) for ref in evidence_refs]
 
 
+def _proposed_experiment_json(opp: OpportunityOut) -> dict | None:
+    # Deterministic guard, mirroring synthesize's goalless zeroing: the prompt allows a proposed
+    # experiment only on goal-relevant opportunities, but the model may not comply — persist is
+    # where non-compliance is dropped instead of stored.
+    if not opp.goal_relevant or opp.proposed_experiment is None:
+        return None
+    return {
+        "hypothesis": opp.proposed_experiment.hypothesis,
+        "flag_key_suggestion": opp.proposed_experiment.flag_key_suggestion,
+        # Nested to match the Opportunity.metric_ref convention for insight refs.
+        "target_metric": {"insight_short_id": opp.proposed_experiment.target_metric_insight_short_id},
+        "variant_sketch": opp.proposed_experiment.variant_sketch,
+    }
+
+
 def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None) -> Opportunity:
     if item is not None:
         evidence = item.evidence
@@ -42,6 +57,7 @@ def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceIte
         metric_ref=metric_ref,
         baseline=baseline,
         goal_relevant=opp.goal_relevant,
+        proposed_experiment=_proposed_experiment_json(opp),
         fingerprint=opportunity_fingerprint(opp.kind, opp.fingerprint_hint),
     )
 

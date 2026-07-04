@@ -1,12 +1,27 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from products.pulse.backend.generation.persist import persist_brief_output
-from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
+from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut, ProposedExperimentOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
 
-def _out(fingerprint_hint: str = "abc:0", goal_relevant: bool = False) -> BriefOut:
+def _proposed_experiment() -> ProposedExperimentOut:
+    return ProposedExperimentOut(
+        hypothesis="Moving the entry point above the fold lifts subscription creation",
+        flag_key_suggestion="subscription-entry-point",
+        target_metric_insight_short_id="abc",
+        variant_sketch="Control keeps the sidebar entry; test adds a button above the insights list.",
+    )
+
+
+def _out(
+    fingerprint_hint: str = "abc:0",
+    goal_relevant: bool = False,
+    proposed_experiment: ProposedExperimentOut | None = None,
+) -> BriefOut:
     return BriefOut(
         sections=[
             BriefSectionOut(kind="what_happened", title="t", markdown="m", citations=["insight:abc"], confidence=0.9)
@@ -21,6 +36,7 @@ def _out(fingerprint_hint: str = "abc:0", goal_relevant: bool = False) -> BriefO
                 fingerprint_hint=fingerprint_hint,
                 confidence=0.9,
                 goal_relevant=goal_relevant,
+                proposed_experiment=proposed_experiment,
             )
         ],
     )
@@ -59,6 +75,29 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
         assert opportunity.goal_relevant is True
+
+    def test_goal_relevant_proposed_experiment_roundtrips_to_the_stored_shape(self) -> None:
+        out = _out(goal_relevant=True, proposed_experiment=_proposed_experiment())
+        persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        assert self._opportunities().get().proposed_experiment == {
+            "hypothesis": "Moving the entry point above the fold lifts subscription creation",
+            "flag_key_suggestion": "subscription-entry-point",
+            "target_metric": {"insight_short_id": "abc"},
+            "variant_sketch": "Control keeps the sidebar entry; test adds a button above the insights list.",
+        }
+
+    @parameterized.expand(
+        [
+            ("not_goal_relevant", False, _proposed_experiment()),
+            ("no_proposal", True, None),
+        ]
+    )
+    def test_proposed_experiment_is_nulled_unless_goal_relevant(
+        self, _name: str, goal_relevant: bool, proposed: ProposedExperimentOut | None
+    ) -> None:
+        out = _out(goal_relevant=goal_relevant, proposed_experiment=proposed)
+        persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        assert self._opportunities().get().proposed_experiment is None
 
     def test_unresolvable_ref_falls_back_to_parsed_evidence(self) -> None:
         persist_brief_output(brief=self._brief(), out=_out(fingerprint_hint="unknown:9"), items=[_item()])
