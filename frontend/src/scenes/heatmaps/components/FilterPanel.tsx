@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
+import {
+    IconCursorClick,
+    IconGear,
+    IconLaptop,
+    IconPhone,
+    IconTabletLandscape,
+    IconTabletPortrait,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -130,6 +137,7 @@ export function FilterPanel({
     onClickmapEnabledChange?: (enabled: boolean) => void
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+    const [isClickmapSettingsOpen, setIsClickmapSettingsOpen] = useState(false)
     const {
         heatmapFilters,
         heatmapColorPalette,
@@ -223,34 +231,6 @@ export function FilterPanel({
                                             />
                                         </SectionSetting>
                                     )}
-                                    {clickmapEnabled !== undefined && onClickmapEnabledChange && (
-                                        <SectionSetting
-                                            title="Clickmap"
-                                            info="Overlay click counts on the elements users actually clicked"
-                                        >
-                                            <LemonSwitch
-                                                checked={clickmapEnabled}
-                                                onChange={onClickmapEnabledChange}
-                                                label="Show clickmap"
-                                                size="small"
-                                            />
-                                        </SectionSetting>
-                                    )}
-                                    <SectionSetting
-                                        title="Internal and test users filter"
-                                        info="Filter out internal and test users"
-                                    >
-                                        <TestAccountFilter
-                                            size="small"
-                                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
-                                            onChange={(value) => {
-                                                setCommonFilters?.({
-                                                    ...commonFilters,
-                                                    filter_test_accounts: value.filter_test_accounts,
-                                                })
-                                            }}
-                                        />
-                                    </SectionSetting>
                                 </div>
                             }
                             visible={isSettingsOpen}
@@ -270,6 +250,53 @@ export function FilterPanel({
                                 Heatmap settings
                             </LemonButton>
                         </Popover>
+                    </div>
+                    {clickmapEnabled !== undefined && onClickmapEnabledChange && (
+                        <div className="mt-2 md:mt-0">
+                            <Popover
+                                overlay={
+                                    <div className="p-2 w-80 deprecated-space-y-2">
+                                        <LemonSwitch
+                                            checked={clickmapEnabled}
+                                            onChange={onClickmapEnabledChange}
+                                            label="Show clickmap"
+                                            size="small"
+                                        />
+                                        <div className="text-xs text-muted">
+                                            Overlay click counts on the elements users actually clicked.
+                                        </div>
+                                    </div>
+                                }
+                                visible={isClickmapSettingsOpen}
+                                onClickOutside={() => {
+                                    setIsClickmapSettingsOpen(false)
+                                }}
+                                placement="bottom"
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsClickmapSettingsOpen(!isClickmapSettingsOpen)}
+                                    icon={<IconCursorClick />}
+                                    tooltip="Clickmap settings"
+                                    data-attr="clickmap-settings"
+                                >
+                                    Clickmap settings
+                                </LemonButton>
+                            </Popover>
+                        </div>
+                    )}
+                    <div className="mt-2 md:mt-0">
+                        <TestAccountFilter
+                            size="small"
+                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
+                            onChange={(value) => {
+                                setCommonFilters?.({
+                                    ...commonFilters,
+                                    filter_test_accounts: value.filter_test_accounts,
+                                })
+                            }}
+                        />
                     </div>
                 </div>
                 <ViewportChooser />
