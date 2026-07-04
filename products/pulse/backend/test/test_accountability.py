@@ -181,6 +181,27 @@ class TestCollectAccountability(BaseTest):
         assert sorted(line.status for line in lines) == sorted(Opportunity.Status.values)
 
     @patch(_CALCULATE_PATH)
+    def test_shared_insight_is_executed_once(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
+        for _ in range(3):
+            self._opportunity()
+
+        lines = collect_accountability(self.team)
+
+        assert len(lines) == 3
+        mock_calculate.assert_called_once()
+
+    @patch(_CALCULATE_PATH)
+    def test_sparse_data_averages_over_the_actual_window(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 6}])
+        self._opportunity()
+
+        lines = collect_accountability(self.team)
+
+        # 210 over the actual 3-day window — dividing by the recorded 7 would misreport 30/day.
+        assert lines[0].current_summary == "70.0/day avg"
+
+    @patch(_CALCULATE_PATH)
     def test_capped_newest_first(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(result=[{"label": "x", "data": [70.0] * 14}])
         for i in range(MAX_STATUS_LINES + 2):

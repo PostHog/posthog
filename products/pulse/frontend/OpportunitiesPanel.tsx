@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import { CitationTag } from './CitationTag'
 import type { OpportunityApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
-import { OpportunityTransition, parseOpportunityEvidence, pulseLogic } from './pulseLogic'
+import { parseOpportunityEvidence, pulseLogic, transitionsForStatus } from './pulseLogic'
 
 // Exhaustive over the enums so a new backend value fails compilation here instead of rendering unstyled.
 const STATUS_TAG_TYPES: Record<OpportunityStatusEnumApi, LemonTagType> = {
@@ -22,16 +22,6 @@ const KIND_TAG_TYPES: Record<OpportunityKindEnumApi, LemonTagType> = {
     [OpportunityKindEnumApi.Build]: 'highlight',
     [OpportunityKindEnumApi.Fix]: 'danger',
     [OpportunityKindEnumApi.Instrument]: 'caution',
-}
-
-const ROW_TRANSITIONS: Partial<
-    Record<OpportunityStatusEnumApi, { label: string; transition: OpportunityTransition }[]>
-> = {
-    [OpportunityStatusEnumApi.Open]: [
-        { label: 'Mark as acted', transition: 'acted' },
-        { label: 'Dismiss', transition: 'dismiss' },
-    ],
-    [OpportunityStatusEnumApi.Dismissed]: [{ label: 'Reopen', transition: 'reopen' }],
 }
 
 export function OpportunitiesPanel(): JSX.Element {
@@ -62,12 +52,10 @@ export function OpportunitiesPanel(): JSX.Element {
                 <LemonTag type={STATUS_TAG_TYPES[opportunity.status]}>{opportunity.status}</LemonTag>
             ),
         },
-        {
-            title: 'Surfaced',
-            key: 'created_at',
-            width: 0,
-            render: (_, opportunity) => <TZLabel time={opportunity.created_at} />,
-        },
+        atColumn<OpportunityApi>('created_at', 'Surfaced') as LemonTableColumn<
+            OpportunityApi,
+            keyof OpportunityApi | undefined
+        >,
         {
             title: 'Evidence',
             key: 'evidence',
@@ -102,8 +90,8 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
     const { transitionsInFlight } = useValues(pulseLogic)
     const { transitionOpportunity } = useActions(pulseLogic)
 
-    const available = ROW_TRANSITIONS[opportunity.status]
-    if (!available) {
+    const available = transitionsForStatus(opportunity.status)
+    if (available.length === 0) {
         return null
     }
     const inFlightTransition = transitionsInFlight[opportunity.id]
