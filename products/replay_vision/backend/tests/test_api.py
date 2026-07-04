@@ -928,6 +928,40 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["scanner_result"]["model_output"]["verdict"], "yes")
         self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
 
+    def _succeeded_observation_with_prompt_and_segments(self) -> ReplayObservation:
+        return self._create_observation(
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "yes",
+                    "reasoning": "user completed checkout",
+                    "reasoning_segments": [
+                        {"kind": "text", "value": "user completed checkout at "},
+                        {"kind": "chip", "timestamp_ms": 1000},
+                    ],
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+
+    @parameterized.expand([("list", True), ("retrieve", False)])
+    def test_list_trims_invariant_prompt_and_duplicate_reasoning_segments(self, _label: str, is_list: bool) -> None:
+        # The list re-embeds the (invariant) scanner prompt and a duplicate `reasoning_segments` on every row,
+        # which overflows agent token caps as history grows. List omits both; retrieve keeps them for the detail view.
+        obs = self._succeeded_observation_with_prompt_and_segments()
+        base = self.observations_url(str(self.scanner.id))
+        row = self.client.get(base).json()["results"][0] if is_list else self.client.get(f"{base}{obs.id}/").json()
+
+        # The snapshot itself is still there; only the heavy prompt is dropped from the list.
+        self.assertEqual(row["scanner_snapshot"]["scanner_type"], "monitor")
+        self.assertEqual("prompt" not in row["scanner_snapshot"]["scanner_config"], is_list)
+        model_output = row["scanner_result"]["model_output"]
+        self.assertEqual(model_output["reasoning"], "user completed checkout")  # flat prose kept either way
+        self.assertEqual("reasoning_segments" not in model_output, is_list)
+
     @parameterized.expand(
         [
             ("status", ObservationStatus.FAILED, 1),

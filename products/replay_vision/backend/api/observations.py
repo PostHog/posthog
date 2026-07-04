@@ -104,10 +104,18 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         help_text="Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
     )
     scanner_snapshot = serializers.SerializerMethodField(
-        help_text="Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation.",
+        help_text=(
+            "Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. "
+            "In list responses the (invariant, per-scanner) `scanner_config.prompt` is omitted to keep pages small; "
+            "fetch a single observation or the scanner itself for the full prompt."
+        ),
     )
     scanner_result = serializers.SerializerMethodField(
-        help_text="Result data persisted on success; null until the observation succeeds.",
+        help_text=(
+            "Result data persisted on success; null until the observation succeeds. In list responses the "
+            "`model_output.reasoning_segments` (a chip-annotated restatement of the flat `reasoning`) is omitted; "
+            "fetch a single observation for the citation segments."
+        ),
     )
 
     @extend_schema_field(ScannerSnapshotSerializer(allow_null=True))
@@ -115,20 +123,34 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         if not obj.scanner_snapshot:
             return None  # Snapshot is supposed to be populated at create; an empty blob is a write-side bug.
         try:
-            return ScannerSnapshot.model_validate(obj.scanner_snapshot).model_dump(mode="json")
+            data = ScannerSnapshot.model_validate(obj.scanner_snapshot).model_dump(mode="json")
         except PydanticValidationError:
             logger.exception("replay_vision.observation.malformed_scanner_snapshot", observation_id=str(obj.id))
             return None
+        # The snapshot is byte-identical across a scanner's observations, and its prompt is the single largest
+        # field; re-embedding it on every list row bloats the page (and overflows agent token caps) for no gain.
+        if self.context.get("trim_list_snapshot_prompt"):
+            config = data.get("scanner_config")
+            if isinstance(config, dict) and "prompt" in config:
+                data["scanner_config"] = {k: v for k, v in config.items() if k != "prompt"}
+        return data
 
     @extend_schema_field(ScannerResultSerializer(allow_null=True))
     def get_scanner_result(self, obj: ReplayObservation) -> dict | None:
         if not obj.scanner_result:
             return None
         try:
-            return ScannerResult.model_validate(obj.scanner_result).model_dump(mode="json")
+            data = ScannerResult.model_validate(obj.scanner_result).model_dump(mode="json")
         except PydanticValidationError:
             logger.exception("replay_vision.observation.malformed_scanner_result", observation_id=str(obj.id))
             return None
+        # `reasoning_segments` restates `reasoning` interleaved with timestamp chips — the same prose twice. The
+        # segments only drive the detail view's citation chips, so drop them from list rows and keep flat `reasoning`.
+        if self.context.get("trim_list_reasoning_segments"):
+            output = data.get("model_output")
+            if isinstance(output, dict) and "reasoning_segments" in output:
+                data["model_output"] = {k: v for k, v in output.items() if k != "reasoning_segments"}
+        return data
 
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
@@ -463,6 +485,15 @@ class ReplayObservationViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_class = ReplayObservationFilter
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # List rows re-embed the invariant scanner prompt and a duplicate `reasoning_segments` on every row.
+        # Trim both from the list; retrieve still returns the full snapshot and citation segments.
+        is_list = self.action == "list"
+        context["trim_list_snapshot_prompt"] = is_list
+        context["trim_list_reasoning_segments"] = is_list
+        return context
+
     def _scanner_for_url(self) -> ReplayScanner:
         # Per-request cache so `stats` doesn't re-run the RBAC + scanner-lookup roundtrip.
         cached = getattr(self, "_scanner_for_url_cache", None)
@@ -576,6 +607,13 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
     # The dock fetches one session's observations; `session_id` is required and enforced in
     # safely_get_queryset, so this viewset needs none of the base's optional list filters.
     filter_backends: list = []
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # The replay-page dock renders each scanner's prompt on its observation card, so keep the prompt
+        # in this list (unlike the scanner-scoped list, whose caller already knows the single scanner).
+        context["trim_list_snapshot_prompt"] = False
+        return context
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         # Observations expose recording-derived output, so reading them requires session_recording read.
