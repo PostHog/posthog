@@ -69,12 +69,13 @@ class Channel(TeamScopedRootMixin):
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are written on
+    # virtually every request, and adding an FK constraint takes a SHARE ROW EXCLUSIVE lock on
+    # them that stalls deploys. Django still enforces the relation and on_delete at the app
+    # level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     name = models.CharField(max_length=128)
     channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
-    # db_constraint=False: posthog_user is written on virtually every request, and adding an FK
-    # constraint takes a SHARE ROW EXCLUSIVE lock on it that stalls deploys. SET_NULL is enforced
-    # by Django regardless, so we skip the DB-level constraint (see safe-django-migrations.md).
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -725,10 +726,11 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="thread_messages")
-    # db_constraint=False on the user FKs: adding an FK constraint to the hot posthog_user table
-    # locks it and stalls deploys; Django still enforces SET_NULL (see safe-django-migrations.md).
     author = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

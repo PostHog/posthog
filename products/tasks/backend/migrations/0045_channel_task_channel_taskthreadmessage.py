@@ -46,6 +46,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.team",
@@ -83,10 +84,6 @@ class Migration(migrations.Migration):
                 related_name="tasks",
                 to="tasks.channel",
             ),
-        ),
-        migrations.AddIndex(
-            model_name="task",
-            index=models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
         ),
         migrations.CreateModel(
             name="TaskThreadMessage",
@@ -142,6 +139,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.team",
