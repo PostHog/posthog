@@ -17,11 +17,11 @@ export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<strin
         }
         const { type, attrs, content } = node as {
             type?: string
-            attrs?: { nodeId?: string; name?: string; code?: string }
+            attrs?: { nodeId?: string; returnVariable?: string; code?: string }
             content?: unknown[]
         }
         if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId !== selfNodeId) {
-            const name = attrs.name?.trim()
+            const name = attrs.returnVariable?.trim()
             const code = attrs.code?.trim()
             if (name && code) {
                 refs[name] = attrs.code as string

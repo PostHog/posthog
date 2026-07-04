@@ -2,9 +2,9 @@ import { NotebookNodeType } from '../types'
 import { collectSqlV2Refs } from './notebookNodeSQLV2Logic'
 
 describe('collectSqlV2Refs', () => {
-    const sqlNode = (nodeId: string, name: string, code: string): Record<string, unknown> => ({
+    const sqlNode = (nodeId: string, returnVariable: string, code: string): Record<string, unknown> => ({
         type: NotebookNodeType.SQLV2,
-        attrs: { nodeId, name, code },
+        attrs: { nodeId, returnVariable, code },
     })
 
     const doc = (...children: Record<string, unknown>[]): Record<string, unknown> => ({

@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { IconCornerDownRight } from '@posthog/icons'
+
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -13,6 +13,7 @@ import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
@@ -29,7 +30,7 @@ export type NotebookNodeSQLV2Result = {
 export type NotebookNodeSQLV2Attributes = {
     code: string
     // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
-    name?: string
+    returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     outputTab?: OutputTab | null
@@ -69,7 +70,8 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -81,6 +83,9 @@ const Component = ({
     })
     const { isRunning, runError, page, pageSize, pageResult, pageLoading } = useValues(dataLogic)
     const { setPage, setPageSize } = useActions(dataLogic)
+
+    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string =>
+        title.trim() || getCellLabel(nodeIndex, nodeType) || 'SQL'
 
     const result = attributes.result ?? null
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
@@ -192,6 +197,38 @@ const Component = ({
                     </div>
                 ) : null}
             </div>
+            <div
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+            >
+                <span className="font-mono mt-0.5">
+                    <IconCornerDownRight />
+                </span>
+                <input
+                    type="text"
+                    // A dataframe name other SQL nodes reference by table name (`from sql_df`).
+                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={attributes.returnVariable ?? ''}
+                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    spellCheck={false}
+                />
+                {sqlV2ReturnVariableUsage.length > 0 ? (
+                    <span className="text-muted">
+                        Used in{' '}
+                        {sqlV2ReturnVariableUsage.map((usage) => (
+                            <button
+                                key={usage.nodeId}
+                                type="button"
+                                className="text-muted hover:text-default underline underline-offset-2 ml-1"
+                                onClick={() => navigateToNode(usage.nodeId)}
+                            >
+                                {usageLabel(usage.nodeType, usage.nodeIndex, usage.title)}
+                            </button>
+                        ))}
+                    </span>
+                ) : null}
+            </div>
         </div>
     )
 }
@@ -215,33 +252,14 @@ const Settings = ({
     const { runQuery } = useActions(dataLogic)
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
-            <div className="flex shrink-0 items-center gap-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
-                <LemonLabel className="text-xs">Name</LemonLabel>
-                <LemonInput
-                    size="xsmall"
-                    className="max-w-40"
-                    placeholder="e.g. df1"
-                    value={attributes.name ?? ''}
-                    onChange={(name) => updateAttributes({ name })}
-                    // A dataframe name is a HogQL identifier, so other nodes can `from df1`.
-                    onKeyDown={(event) => event.stopPropagation()}
-                />
-                <span className="text-[10px] text-muted">Reference this from another SQL node to join it</span>
-            </div>
-            <div className="min-h-0 flex-1">
-                <NotebookCodeSQLEditorSettings
-                    attributes={attributes}
-                    updateAttributes={updateAttributes}
-                    tabIdSuffix="datav2"
-                    onRunQuery={(code) =>
-                        runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))
-                    }
-                    runQueryLoading={isRunning}
-                    runQueryTooltip="Run SQL (v2) query"
-                />
-            </div>
-        </div>
+        <NotebookCodeSQLEditorSettings
+            attributes={attributes}
+            updateAttributes={updateAttributes}
+            tabIdSuffix="datav2"
+            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))}
+            runQueryLoading={isRunning}
+            runQueryTooltip="Run SQL (v2) query"
+        />
     )
 }
 
@@ -257,8 +275,8 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         code: {
             default: '',
         },
-        name: {
-            default: '',
+        returnVariable: {
+            default: 'sql_df',
         },
         runId: {
             default: null,
