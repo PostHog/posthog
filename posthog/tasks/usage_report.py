@@ -1357,6 +1357,10 @@ def _get_teams_with_ai_credits_for_products(
             assert region is not None, "Region must be set in production infrastructure"
         return []
 
+    if region not in CLOUD_REGION_TO_TEAM_ID:
+        # Non-cloud regions (e.g. DEV) have no AI billing team to query, so no-op cleanly
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
     region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
     if region_filter_params is None:

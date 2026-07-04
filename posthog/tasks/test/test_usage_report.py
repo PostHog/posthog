@@ -4570,6 +4570,18 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
 
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_no_op_on_non_cloud_region(self, mock_region: MagicMock) -> None:
+        """A non-cloud region (e.g. DEV) has no AI billing team, so the query no-ops instead of KeyError."""
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+
+        mock_region.return_value = "DEV"
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        self.assertEqual(get_teams_with_posthog_code_credits_used_in_period(period_start, period_end), [])
+
     def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
         """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
         import dataclasses
