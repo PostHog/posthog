@@ -157,15 +157,20 @@ pub(crate) async fn select_and_fetch_next_chunk(
                 }
             }
 
-            if actual_size == 0 {
+            // Streaming sources only learn their size on the read that observes
+            // end-of-stream, which is usually also the read that consumed the last
+            // bytes - so by the time the size is known here, the offset may already
+            // be at (or past) the end. Re-check completion now: fetching again would
+            // return an empty chunk, and advancing on one would push the offset past
+            // the total, making the part permanently un-finishable.
+            if next_part.is_done() {
                 info!(
                     job_id = %job_id,
-                    "No data available for this key: {} try to get the next chunk",
-                    key
+                    "Part {} (size {}) was fully consumed when its size was discovered, moving on",
+                    key, actual_size
                 );
-                next_part.current_offset = actual_size;
                 return Ok(Some((
-                    key.clone(),
+                    key,
                     Parsed {
                         consumed: 0,
                         data: vec![],
@@ -183,12 +188,25 @@ pub(crate) async fn select_and_fetch_next_chunk(
         .await
         .context(format!("Fetching part chunk {next_part:?}"))?;
 
+    // `>=` because sources clamp reads to the end of the part, so the final chunk
+    // ends exactly at total_size - a strict `>` can never be true and would leave
+    // the unconsumed-bytes check below unreachable.
     let is_last_chunk = match next_part.total_size {
-        Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
+        Some(total_size) => next_part.current_offset + next_chunk.len() as u64 >= total_size,
         None => false,
     };
 
     let chunk_bytes = next_chunk.len();
+
+    // An empty chunk before the known end of the part means the source has nothing
+    // more to give at this offset (e.g. a stream already read to EOF). No further
+    // iteration can make progress, so fail rather than loop.
+    if chunk_bytes == 0 && !is_last_chunk {
+        return Err(Error::msg(format!(
+            "Source returned no data for part {} at offset {} before the end of the part",
+            next_part.key, next_part.current_offset
+        )));
+    }
 
     info!(job_id = %job_id, "Fetched part chunk {:?}", next_part);
     let m_tf = transform.clone();
@@ -209,6 +227,16 @@ pub(crate) async fn select_and_fetch_next_chunk(
         "Parsed part chunk {:?}, consumed {} bytes",
         next_part, parsed.consumed
     );
+
+    // Consuming more bytes than were read is always a parser bug: advancing the
+    // offset past real data would silently skip it, or overshoot the end of the
+    // part and make it permanently un-finishable.
+    if parsed.consumed > chunk_bytes {
+        return Err(Error::msg(format!(
+            "Parser consumed {} bytes but only {} were read from part {} at offset {}",
+            parsed.consumed, chunk_bytes, next_part.key, next_part.current_offset
+        )));
+    }
 
     // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
     if parsed.consumed < chunk_bytes && is_last_chunk {
@@ -1389,6 +1417,197 @@ mod tests {
             assert_eq!(
                 peak_raw, 1,
                 "exactly one .raw should exist while the part is in flight"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_part_fully_consumed_at_eof_read_completes_without_offset_overshoot() {
+            // Streaming sources only learn a part's total size on the read that
+            // observes EOF. When that same read fully consumes the remaining bytes,
+            // the offset lands exactly at the total while the job still has
+            // total_size = None. The next loop iteration must then recognize the
+            // part as done — not fetch an empty chunk, "consume" a phantom byte,
+            // and push the offset past the total (which makes is_done() unreachable
+            // and the job crawl one byte per iteration forever).
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let total_size = body.len() as u64;
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 1);
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            // Real newline parser so `consumed` behaves exactly as in production.
+            let transform = newline_consumed_transform();
+
+            // Generous iteration budget: a healthy run needs ~(total/chunk + 2)
+            // iterations. Far more than that means the loop is stuck.
+            let chunk_size = 1024usize;
+            let max_iterations = (total_size as usize / chunk_size) + 10;
+            let mut completed = false;
+            for _ in 0..max_iterations {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    chunk_size,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+
+                let offset = state.lock().await.parts[0].current_offset;
+                assert!(
+                    offset <= total_size,
+                    "part offset {offset} overshot total size {total_size}: the job would crawl forever"
+                );
+
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(
+                completed,
+                "job did not finish the part within {max_iterations} iterations (offset {} / total {total_size})",
+                state.lock().await.parts[0].current_offset
+            );
+        }
+
+        #[tokio::test]
+        async fn test_part_with_trailing_blank_lines_completes() {
+            // Data whose final bytes are blank lines must still complete: the blanks
+            // are only seen on the EOF read, after which the streaming source has
+            // freed the part and can never serve those bytes again.
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            body.push('\n');
+            let total_size = body.len() as u64;
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let chunk_size = 1024usize;
+            let max_iterations = (total_size as usize / chunk_size) + 10;
+            let mut completed = false;
+            for _ in 0..max_iterations {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    chunk_size,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(completed, "trailing blank lines must not stall the part");
+            assert_eq!(state.lock().await.parts[0].current_offset, total_size);
+        }
+
+        #[tokio::test]
+        async fn test_poisoned_part_with_overshot_offset_self_heals() {
+            // A job written by a worker version with the overshoot bug has a part
+            // whose stored offset exceeds its total size. On resume that part must
+            // be treated as done (its real bytes were all consumed before the
+            // phantom crawl began) so the job can move on to the remaining parts.
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..200 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 2);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 2);
+
+            // Part 1 poisoned as in production: offset way past its recorded total.
+            let poisoned = JobState {
+                parts: vec![
+                    PartState {
+                        key: keys[0].clone(),
+                        current_offset: 25_328_072,
+                        total_size: Some(24_441_157),
+                    },
+                    PartState {
+                        key: keys[1].clone(),
+                        current_offset: 0,
+                        total_size: None,
+                    },
+                ],
+            };
+            let state = Mutex::new(poisoned.clone());
+            let model = Mutex::new(dummy_model(poisoned));
+            let transform = newline_consumed_transform();
+
+            let mut completed = false;
+            for _ in 0..20 {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                if next.is_none() {
+                    completed = true;
+                    break;
+                }
+            }
+
+            assert!(
+                completed,
+                "job with an overshot part must skip it and finish the rest"
+            );
+            let state = state.lock().await;
+            assert_eq!(
+                state.parts[0].current_offset, 25_328_072,
+                "poisoned part must be skipped untouched, not re-read"
+            );
+            assert_eq!(
+                state.parts[1].total_size,
+                Some(state.parts[1].current_offset)
             );
         }
 

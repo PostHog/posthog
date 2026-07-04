@@ -127,6 +127,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
+        (AlertCalculationInterval.REAL_TIME, AlertCalculationInterval.REAL_TIME.value),
         (AlertCalculationInterval.EVERY_15_MINUTES, AlertCalculationInterval.EVERY_15_MINUTES.value),
         (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
         (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
@@ -350,7 +351,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
-    def check_real_time_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
+    def check_real_time_alert_limit(
+        cls, team_id: int, organization: Organization, *, exclude_id: str | None = None
+    ) -> str | None:
         """Return an error message if the team has reached its real-time alert limit, else None.
 
         Unlike check_alert_limit (which counts every alert against the ALERTS feature), this
@@ -366,9 +369,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         if allowed is None:
             return None
 
-        existing_count = cls.objects.filter(
-            team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True
-        ).count()
+        qs = cls.objects.filter(team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+        if exclude_id:
+            qs = qs.exclude(pk=exclude_id)
+        existing_count = qs.count()
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
         return None
