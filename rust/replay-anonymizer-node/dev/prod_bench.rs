@@ -45,13 +45,13 @@ fn main() {
         return;
     }
 
-    bench("crate (byte walk)", &allow, &payloads, AnonymizeOpts::default());
+    bench("crate (default)  ", &allow, &payloads, AnonymizeOpts::default());
     bench(
-        "crate (cv zstd)  ",
+        "crate (gzip cv)  ",
         &allow,
         &payloads,
         AnonymizeOpts {
-            cv_zstd: true,
+            cv_zstd: false,
             ..Default::default()
         },
     );

@@ -201,10 +201,12 @@ Conclusions:
   the biggest remaining lever — the SDK input stays gzip (we always decode gzip), only the
   re-emitted format changes. It needs support in the one consumer, the MLHog prep loader.
 
-### zstd-1 re-emission (done, gated off)
+### zstd-1 re-emission (done, default on)
 
-Shipped behind `AnonymizeOpts.cv_zstd` -> `SESSION_RECORDING_ML_CV_ZSTD` (default off until the ML
-prep loader deploys zstd support). Design decisions, both measured on the corpus:
+Shipped as `AnonymizeOpts.cv_zstd` -> `SESSION_RECORDING_ML_CV_ZSTD`, default **on**: the ML prep
+loader runs manually, so its magic-byte dispatch just has to land before the next run over zstd
+blocks — the switch is an operational fallback to gzip output, not a rollout gate. Design
+decisions, both measured on the corpus:
 
 - **Uniform output, not keep-verbatim**: zstd mode re-compresses every gzipped cv payload,
   including ones the scrub didn't change, so post-flip blocks carry exactly one compression
@@ -216,7 +218,7 @@ prep loader deploys zstd support). Design decisions, both measured on the corpus
   (`1f 8b`) from zstd (`28 b5 2f fd`) per compressed field, which also covers historical blocks
   and the transition window with one code path.
 
-Corpus numbers with the flag on: **3.96 ms/msg avg (113 MB/s)** vs 5.65 gzip mode — another -30%,
+Corpus numbers in zstd mode: **3.93 ms/msg avg (114 MB/s)** vs 5.58 gzip mode — another -30%,
 for **9.6 -> 3.96 ms/msg (-59%) across the whole cv effort**. Differentially pinned in both
 emission modes (stream-vs-tree, all cv shapes), plus unit tests for the magic contract and
 uniform-format output.

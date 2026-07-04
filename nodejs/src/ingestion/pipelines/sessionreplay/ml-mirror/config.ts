@@ -40,9 +40,9 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_RUST_ANONYMIZER: boolean
     /**
      * Native path only: re-emit every `cv` payload as zstd instead of gzip (same ratio, ~5x the
-     * compress speed; output blocks are single-format). Only enable once the ML prep loader
-     * dispatches compressed fields on magic bytes — new blocks are unreadable to a gzip-only
-     * loader.
+     * compress speed; output blocks are single-format). The ML prep loader must dispatch
+     * compressed fields on magic bytes before its next manual run over zstd blocks — this switch
+     * exists as the operational fallback to gzip output, not as a rollout gate.
      */
     SESSION_RECORDING_ML_CV_ZSTD: boolean
 }
@@ -71,6 +71,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
         SESSION_RECORDING_ML_RUST_ANONYMIZER: false,
-        SESSION_RECORDING_ML_CV_ZSTD: false,
+        SESSION_RECORDING_ML_CV_ZSTD: true,
     }
 }

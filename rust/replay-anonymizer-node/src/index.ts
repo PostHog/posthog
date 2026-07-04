@@ -77,14 +77,15 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * scrub, and the serialize; only the raw bytes cross the FFI boundary. CPU work — including the
  * decompression — runs off the Node event loop.
  *
- * `cvZstd` re-emits every `cv` payload as zstd instead of gzip (same ratio, ~5x the compress
- * speed; output blocks are single-format); the downstream reader must dispatch compressed fields
- * on magic bytes, since historical blocks stay gzip.
+ * `cvZstd` (default true) re-emits every `cv` payload as zstd instead of gzip (same ratio, ~5x
+ * the compress speed; output blocks are single-format); the downstream reader must dispatch
+ * compressed fields on magic bytes, since historical blocks stay gzip. `false` is the gzip
+ * fallback.
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
     cvZstd?: boolean
 ): Promise<AnonymizeKafkaPayloadResult> {
-    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined, cvZstd ?? false)
+    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined, cvZstd ?? true)
 }

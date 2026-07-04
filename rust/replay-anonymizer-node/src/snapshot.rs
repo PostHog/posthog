@@ -161,8 +161,9 @@ pub struct AnonymizeOpts {
     /// Re-emit every cv payload as zstd (level 1: gzip-6's ratio at ~5x the compress speed — see
     /// `gzip::compress_cv`), including ones the scrub did not change, so output blocks carry one
     /// compression format. Keeping unchanged payloads verbatim instead measured only ~6% faster
-    /// (zstd-1 is that cheap; see PERF_PLAN), not worth a mixed-format contract. Requires the ML
-    /// prep loader's zstd support, so it defaults off until that is deployed.
+    /// (zstd-1 is that cheap; see PERF_PLAN), not worth a mixed-format contract. `false` restores
+    /// gzip output — the operational fallback while the ML prep loader's magic-byte dispatch rolls
+    /// out (historical blocks are gzip either way, so the loader sniffs regardless).
     pub cv_zstd: bool,
 }
 
@@ -171,7 +172,7 @@ impl Default for AnonymizeOpts {
         Self {
             adaptive_routing: true,
             byte_walk: true,
-            cv_zstd: false,
+            cv_zstd: true,
         }
     }
 }

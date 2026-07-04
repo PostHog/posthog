@@ -117,7 +117,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(2)
         .and_then(|v| v.downcast::<JsBoolean, _>(&mut cx).ok())
         .map(|b| b.value(&mut cx))
-        .unwrap_or(false);
+        .unwrap_or(true);
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)

@@ -14,8 +14,8 @@ use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     /// Re-emit every cv payload (changed or not) as zstd instead of gzip, keeping output blocks
-    /// single-format (see `AnonymizeOpts::cv_zstd`). Off until the ML prep loader's zstd support
-    /// is deployed.
+    /// single-format (see `AnonymizeOpts::cv_zstd` — on in production, `false` is the gzip
+    /// fallback).
     pub cv_zstd: bool,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
