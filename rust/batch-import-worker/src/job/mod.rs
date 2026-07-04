@@ -741,11 +741,16 @@ impl Job {
         self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
 
-        // The committed part may now be fully consumed: free its staging eagerly, exactly
-        // once, and only after its offsets are durable. Safe against concurrent reads: the
-        // in-memory state marked this part done one iteration before this commit (offsets
-        // advance at fetch time), so the read loop can never re-select it. A rollback or a
-        // crash between the two commit stages returns/aborts before reaching this point,
+        // The committed part may now be fully consumed: free its staging eagerly and only
+        // after its offsets are durable. Safe against concurrent reads: the in-memory state
+        // marked this part done no later than the iteration before this commit (offsets
+        // advance at fetch time, and the completion short-circuits - size-discovery and
+        // empty-chunk - mark a part done in the same iteration that produces their
+        // synthetic zero-consumed checkpoint), so the read loop can never re-select it.
+        // Those synthetic checkpoints can make the hook fire a second time for a part
+        // whose data commit already cleaned up; cleanup_key is idempotent, so the double
+        // call is a tolerated no-op rather than a correctness issue. A rollback or a crash
+        // between the two commit stages returns/aborts before reaching this point,
         // preserving the staged data for the byte-identical re-read on resume.
         cleanup_committed_part_if_done(self.source.as_ref(), &self.model, &key).await;
 
