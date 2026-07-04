@@ -30,6 +30,7 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.property import PropertyName, TableColumn
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
@@ -40,7 +41,7 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractBool": ("Bool", 0),
 }
 
-_JSON_EXTRACT_COMPLEX_TYPE_FAMILIES = {"array", "map", "tuple", "unknown"}
+_JSON_EXTRACT_COMPLEX_TYPE_FAMILIES = {"array", "map", "tuple"}
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -411,7 +412,7 @@ class PropertySwapper(CloningVisitor):
             if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
                 return None
             path_args = node.args[1:-1]
-        elif node.name in _JSON_EXTRACT_SCALAR_CASTS:
+        elif node.name in _JSON_EXTRACT_SCALAR_CASTS or node.name == "JSONExtractRaw":
             path_args = node.args[1:]
         else:
             return None
@@ -460,6 +461,42 @@ class PropertySwapper(CloningVisitor):
                 type=ast.StringType(nullable=False),
             )
 
+        if node.name == "JSONExtractRaw":
+            # Raw text of one key never needs the whole blob: serialize just that subcolumn. The
+            # resolver lowers toJSONString(properties.k) to the raw-JSON subcolumn read; a missing
+            # key reads NULL there, while JSONExtractRaw's missing-key result is ''. Typed
+            # subcolumns are left on the blob fallback — their reads stringify scalars without
+            # JSON quoting, which would change JSONExtractRaw's output.
+            if len(property_path) != 1:
+                return None
+            typed_subcolumns = (
+                EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+                if field_type.name == "properties"
+                else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+            )
+            if property_path[0] in typed_subcolumns:
+                return None
+            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+                return ast.Constant(value="")
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(
+                        name="toJSONString",
+                        args=[
+                            ast.Field(
+                                start=node.start,
+                                end=node.end,
+                                chain=[*field_arg.chain, property_path[0]],
+                                type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
+                            )
+                        ],
+                    ),
+                    ast.Constant(value="", inline_sentinel=True),
+                ],
+                type=ast.StringType(nullable=False),
+            )
+
         if scalar_cast := _JSON_EXTRACT_SCALAR_CASTS.get(node.name):
             cast_type, default_value = scalar_cast
             if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
@@ -483,8 +520,36 @@ class PropertySwapper(CloningVisitor):
             return None
 
         requested_type = parse_sql_runtime_type(type_arg.value)
-        if requested_type.family in _JSON_EXTRACT_COMPLEX_TYPE_FAMILIES:
+        if requested_type.family == "unknown":
             return None
+        if requested_type.family in _JSON_EXTRACT_COMPLEX_TYPE_FAMILIES:
+            # Extract the complex value from just this subcolumn's raw JSON, not the whole blob.
+            # The resolver rewrites JSONExtract(ifNull(properties.k, ''), type) to the raw-JSON
+            # subcolumn read; JSONExtract('') keeps the type's default for missing keys.
+            if len(property_path) != 1:
+                return None
+            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+                if requested_type.nullable:
+                    return ast.Constant(value=None)
+                return ast.Call(name="defaultValueOfTypeName", args=[type_arg])
+            return ast.Call(
+                name="JSONExtract",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Field(
+                                start=node.start,
+                                end=node.end,
+                                chain=[*field_arg.chain, property_path[0]],
+                                type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
+                            ),
+                            ast.Constant(value="", inline_sentinel=True),
+                        ],
+                    ),
+                    type_arg,
+                ],
+            )
 
         if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             if requested_type.nullable:

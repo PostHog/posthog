@@ -1263,6 +1263,18 @@ class TestPrinter(BaseTest):
             self._expr("JSONHas(properties, 'items', 1)", context)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_keyed_json_extracts_avoid_blob_reconstruction(self) -> None:
+        # Extracting one key must read only that subcolumn — falling back to the reconstructed
+        # whole-properties blob is a large per-row serialization cost.
+        for expression in (
+            "JSONExtract(properties, 'cart_items', 'Array(String)')",
+            "JSONExtractRaw(properties, 'custom_key')",
+        ):
+            printed = self._expr(expression, HogQLContext(team_id=self.team.pk, enable_select_queries=True))
+            self.assertNotIn("JSONAllPaths", printed, expression)
+            self.assertIn("events.properties.^", printed, expression)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_filters_present_paths(self) -> None:
         printed = self._expr("toJSONString(properties)")
 
