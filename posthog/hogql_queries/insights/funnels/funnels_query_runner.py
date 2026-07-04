@@ -1,3 +1,4 @@
+import json
 import threading
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
@@ -9,14 +10,18 @@ from django.conf import settings
 import structlog
 
 from posthog.schema import (
+    BreakdownFilter,
+    BreakdownItem,
     CachedFunnelsQueryResponse,
     Compare,
+    CompareItem,
     DateRange,
     FunnelsQuery,
     FunnelsQueryResponse,
     FunnelTimeToConvertResults,
     FunnelVizType,
     HogQLQueryModifiers,
+    InsightActorsQueryOptionsResponse,
     ResolvedDateRangeResponse,
 )
 
@@ -42,7 +47,15 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
 )
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    ALL_USERS_COHORT_ID,
+    BREAKDOWN_BASELINE_DISPLAY,
+    BREAKDOWN_BASELINE_STRING_LABEL,
+    BREAKDOWN_NULL_DISPLAY,
+    has_breakdown_filter,
+    humanize_breakdown_label,
+)
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -52,6 +65,9 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
+
+from products.cohorts.backend.models.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
 
@@ -123,6 +139,120 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             previous_context.actorsQuery = actors_query
             return self._actor_class_for_context(previous_context).actor_query()
         return self.funnel_actor_class.actor_query()
+
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        res_compare: Optional[list[CompareItem]] = None
+        res_breakdown: Optional[list[BreakdownItem]] = None
+
+        # No period switch for the TRENDS viz: its actors are pinned to an absolute
+        # funnelTrendsEntrancePeriodStart, which exists in only one period's date range,
+        # so switching would always return an empty list.
+        if self._is_compare_active() and self.context.funnelsFilter.funnelVizType != FunnelVizType.TRENDS:
+            res_compare = [
+                CompareItem(label="Current", value="current"),
+                CompareItem(label="Previous", value="previous"),
+            ]
+
+        breakdown_filter = self.query.breakdownFilter
+        if has_breakdown_filter(breakdown_filter):
+            assert breakdown_filter is not None  # type checking
+            # Baseline = no breakdown filter (funnelStepBreakdown: null), mirroring the synthetic
+            # "Baseline" row the funnel steps table renders.
+            items: list[BreakdownItem] = [
+                BreakdownItem(label=BREAKDOWN_BASELINE_DISPLAY, value=BREAKDOWN_BASELINE_STRING_LABEL)
+            ]
+            if breakdown_filter.breakdown_type == "cohort":
+                items += self._cohort_breakdown_options(breakdown_filter)
+            else:
+                items += self._result_breakdown_options()
+            if len(items) > 1:  # Baseline alone means there are no values to switch between
+                res_breakdown = items
+
+        return InsightActorsQueryOptionsResponse(compare=res_compare, breakdown=res_breakdown)
+
+    def _cohort_breakdown_options(self, breakdown_filter: BreakdownFilter) -> list[BreakdownItem]:
+        # Cohort options come from the filter itself: the raw ids are what the actor query's
+        # breakdown condition matches (TRENDS-viz results only carry display names).
+        breakdown = breakdown_filter.breakdown
+        values = breakdown if isinstance(breakdown, list) else [breakdown]
+        items: list[BreakdownItem] = []
+        for value in values:
+            if value == "all" or str(value) == str(ALL_USERS_COHORT_ID):
+                items.append(BreakdownItem(label="all users", value=ALL_USERS_COHORT_ID))
+                continue
+            try:
+                cohort_id = int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+            try:
+                label = get_breakdown_cohort_name(cohort_id, self.team)
+            except Cohort.DoesNotExist:
+                label = str(cohort_id)
+            items.append(BreakdownItem(label=label, value=cohort_id))
+        return items
+
+    def _result_breakdown_options(self) -> list[BreakdownItem]:
+        items: list[BreakdownItem] = []
+        seen: set[tuple] = set()
+        for value in self._result_breakdown_values():
+            # Compare-merged results carry each breakdown value once per period; dedupe
+            # while preserving result order (current period first).
+            key = tuple(value) if isinstance(value, list) else (value,)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                BreakdownItem(label=self._breakdown_option_label(value), value=self._breakdown_option_value(value))
+            )
+        return items
+
+    def _result_breakdown_values(self) -> list[Any]:
+        results = self._own_results()
+        if self.context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+            return [row["breakdown_value"] for row in results if isinstance(row, dict) and "breakdown_value" in row]
+        if self._is_breakdown_groups(results):
+            return [
+                group[0]["breakdown_value"]
+                for group in results
+                if group and isinstance(group[0], dict) and "breakdown_value" in group[0]
+            ]
+        return []
+
+    def _own_results(self) -> list:
+        # The persons modal opens from a rendered funnel, so the insight cache is normally hot;
+        # recalculate only on a miss (matching the trends options builder's cost profile, which
+        # always executes a query).
+        cached = self.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        if isinstance(cached, CachedFunnelsQueryResponse) and cached.results:
+            return cached.results
+        return self.calculate().results or []
+
+    @staticmethod
+    def _breakdown_option_value(value: Any) -> str | int:
+        if isinstance(value, list):
+            if len(value) == 1:
+                # Safe to unwrap: the actor query compares via arrayFlatten(array(...)) on both
+                # sides, which normalizes scalar vs single-element array.
+                value = value[0]
+            else:
+                # Multi-property values must fit BreakdownItem's str|int schema; the modal parses
+                # this back into an array for funnelStepBreakdown.
+                return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, int):
+            return value
+        return str(value)
+
+    @staticmethod
+    def _breakdown_option_label(value: Any) -> str:
+        parts = value if isinstance(value, list) else [value]
+        labels = [
+            # Funnels encode a missing property value as '' (unlike trends' null sentinel).
+            BREAKDOWN_NULL_DISPLAY if part is None or str(part) == "" else humanize_breakdown_label(str(part))
+            for part in parts
+        ]
+        return ", ".join(labels)
 
     def _calculate(self):
         if self._is_compare_active():
