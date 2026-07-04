@@ -14,6 +14,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.explain import CausalCandidate
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
@@ -110,6 +111,17 @@ def _create_opportunity(team, fingerprint: str) -> Opportunity:
 
 _CANDIDATE = CausalCandidate(
     kind="flag", ref="flag:123", label="checkout-v2", happened_at="2026-07-01", detail="Feature flag created."
+)
+
+_STATUS_LINE = OpportunityStatusLine(
+    opportunity_id="11111111-1111-1111-1111-111111111111",
+    kind="build",
+    status="acted",
+    title="Recover the signup drop",
+    age_days=21,
+    baseline_summary="70.0/day avg",
+    current_summary="100.0/day avg",
+    delta_pct=42.9,
 )
 
 
@@ -239,6 +251,51 @@ async def test_synthesize_activity_collects_candidates_only_for_movements(
     assert kwargs["items"] == [item]
     assert kwargs["candidates"] == expected_candidates
     assert collect_mock.called == bool(expected_candidates)
+
+
+@pytest.mark.parametrize("kind", ["movement", "context"])
+async def test_synthesize_activity_collects_accountability_for_any_item_kind(team, user, kind: SourceItemKind) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind=kind, title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_accountability", return_value=[_STATUS_LINE]
+        ) as collect_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert synth_mock.call_args.kwargs["status_lines"] == [_STATUS_LINE]
+    collect_mock.assert_called_once()
+
+
+async def test_synthesize_activity_survives_accountability_collection_failure(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="context", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch(
+            "products.pulse.backend.temporal.activities.collect_accountability",
+            side_effect=RuntimeError("re-score exploded"),
+        ),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[dataclasses.asdict(item)]),
+        )
+    assert status == ProductBrief.Status.READY
+    assert synth_mock.call_args.kwargs["status_lines"] == []
 
 
 async def test_synthesize_activity_survives_candidate_collection_failure(team, user) -> None:

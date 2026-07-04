@@ -34,7 +34,23 @@ Hard rules:
 ## Possible causes in this period
 
 {candidates_block}
-
+{accountability_block}
 Input items:
 
 {items_block}"""
+
+
+# Interpolated into SYNTHESIZE_PROMPT only when there are qualifying past opportunities — an
+# empty accountability list must leave no dangling section instruction in the prompt.
+ACCOUNTABILITY_BLOCK = """
+## How past suggestions are doing
+
+The list below re-scores previously surfaced opportunities against the metric value at the time each was suggested. Add one final section with kind "accountability" titled "How past suggestions are doing":
+
+- Write one short status line per opportunity, stating the then-vs-now numbers EXACTLY as provided — never recompute, re-derive, or round them.
+- NEVER claim the suggestion caused the change. If the metric moved favorably after an acted-on opportunity, saying "the metric has since improved" is fine — attributing the improvement to the suggestion is not.
+- Dismissed opportunities get at most one line.
+- Cite each status line's evidence_ref (opportunity:id) verbatim in the section's citations.
+
+{status_lines_block}
+"""

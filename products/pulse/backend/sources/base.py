@@ -7,7 +7,7 @@ from products.pulse.backend.models import BriefConfig
 
 SourceItemKind = Literal["movement", "context", "health", "signal"]
 EvidenceType = Literal[
-    "insight", "dashboard", "annotation", "alert", "subscription", "signal_report", "flag", "experiment"
+    "insight", "dashboard", "annotation", "alert", "subscription", "signal_report", "flag", "experiment", "opportunity"
 ]
 
 
