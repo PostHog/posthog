@@ -30966,6 +30966,73 @@ export namespace Schemas {
       Remove: 'remove',
     } as const;
 
+    export type OpportunityEvidenceItem = { [key: string]: unknown };
+
+    /**
+     * * `build` - Build
+     * * `fix` - Fix
+     * * `instrument` - Instrument
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    /**
+     * * `open` - Open
+     * * `dismissed` - Dismissed
+     * * `acted` - Acted
+     * * `resolved` - Resolved
+     */
+    export type OpportunityStatusEnum = typeof OpportunityStatusEnum[keyof typeof OpportunityStatusEnum];
+
+
+    export const OpportunityStatusEnum = {
+      Open: 'open',
+      Dismissed: 'dismissed',
+      Acted: 'acted',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface Opportunity {
+      readonly id: string;
+      /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
+       *
+       * * `build` - Build
+       * * `fix` - Fix
+       * * `instrument` - Instrument */
+      readonly kind: OpportunityKindEnum;
+      /** Lifecycle status: open, dismissed, acted, or resolved.
+       *
+       * * `open` - Open
+       * * `dismissed` - Dismissed
+       * * `acted` - Acted
+       * * `resolved` - Resolved */
+      readonly status: OpportunityStatusEnum;
+      /** Short, actionable opportunity title. */
+      readonly title: string;
+      /** What was observed and why it matters. */
+      readonly summary: string;
+      /** The concrete next step suggested for the team. */
+      readonly suggested_action: string;
+      /** Evidence refs backing the opportunity: type, ref, and label per entry. */
+      readonly evidence: readonly OpportunityEvidenceItem[];
+      /**
+         * The brief this opportunity first surfaced in, if any.
+         * @nullable
+         */
+      readonly first_seen_brief: string | null;
+      readonly created_at: string;
+      /** User who created the opportunity. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     /**
      * * `latest` - latest
      * * `earliest` - earliest
@@ -32590,6 +32657,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
+    }
+
+    export interface PaginatedOpportunityList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Opportunity[];
     }
 
     export interface PaginatedOrganizationDomainList {
@@ -67687,6 +67763,44 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type PulseOpportunitiesListParams = {
+    /**
+     * Filter by opportunity kind.
+     */
+    kind?: PulseOpportunitiesListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by lifecycle status.
+     */
+    status?: PulseOpportunitiesListStatus;
+    };
+
+    export type PulseOpportunitiesListKind = typeof PulseOpportunitiesListKind[keyof typeof PulseOpportunitiesListKind];
+
+
+    export const PulseOpportunitiesListKind = {
+      Build: 'build',
+      Fix: 'fix',
+      Instrument: 'instrument',
+    } as const;
+
+    export type PulseOpportunitiesListStatus = typeof PulseOpportunitiesListStatus[keyof typeof PulseOpportunitiesListStatus];
+
+
+    export const PulseOpportunitiesListStatus = {
+      Acted: 'acted',
+      Dismissed: 'dismissed',
+      Open: 'open',
+      Resolved: 'resolved',
+    } as const;
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 
