@@ -18,6 +18,7 @@ from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.temporal.inputs import (
     GENERATE_BRIEF_WORKFLOW_NAME,
@@ -41,24 +42,60 @@ class BriefAnchorsSerializer(serializers.Serializer):
     )
 
 
+class BriefGoalMetricSerializer(serializers.Serializer):
+    insight_short_id = serializers.CharField(
+        allow_blank=False,
+        help_text="Short ID of the team-owned trends insight tracking progress toward the goal.",
+    )
+
+
 class BriefConfigSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the config.")
     anchors = BriefAnchorsSerializer(
         required=False,
         help_text="Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards.",
     )
+    goal_metric = BriefGoalMetricSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Insight whose trend measures progress toward the goal. Null when the goal is qualitative.",
+    )
 
     class Meta:
         model = BriefConfig
-        fields = ["id", "name", "focus_prompt", "anchors", "enabled", "created_at", "created_by", "updated_at"]
+        fields = [
+            "id",
+            "name",
+            "focus_prompt",
+            "anchors",
+            "goal",
+            "goal_metric",
+            "enabled",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
         extra_kwargs = {
             "name": {"help_text": "Human-readable name for this brief focus."},
             "focus_prompt": {
                 "help_text": 'Free-text focus steering gathering and tone, e.g. "we\'re the feature flags team".'
             },
+            "goal": {
+                "help_text": 'Free-text goal this focus drives toward, e.g. "increase subscription usage". Briefs open with progress toward it.'
+            },
             "enabled": {"help_text": "Whether this config generates briefs."},
         }
+
+    def validate_goal_metric(self, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return value
+        # Same ownership check style as the config reference on pulse_brief subscriptions:
+        # a metric must be a live insight in the caller's team.
+        short_id = value["insight_short_id"]
+        if not Insight.objects.filter(team_id=self.context["team_id"], short_id=short_id, deleted=False).exists():
+            raise serializers.ValidationError("This insight does not exist or does not belong to your team.")
+        return value
 
 
 class ProductBriefSerializer(serializers.ModelSerializer):

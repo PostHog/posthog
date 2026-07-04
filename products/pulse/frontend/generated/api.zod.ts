@@ -29,6 +29,23 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
+    goal: zod
+        .string()
+        .optional()
+        .describe(
+            'Free-text goal this focus drives toward, e.g. \"increase subscription usage\". Briefs open with progress toward it.'
+        ),
+    goal_metric: zod
+        .union([
+            zod.object({
+                insight_short_id: zod
+                    .string()
+                    .describe('Short ID of the team-owned trends insight tracking progress toward the goal.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
 })
 
@@ -52,6 +69,23 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
+    goal: zod
+        .string()
+        .optional()
+        .describe(
+            'Free-text goal this focus drives toward, e.g. \"increase subscription usage\". Briefs open with progress toward it.'
+        ),
+    goal_metric: zod
+        .union([
+            zod.object({
+                insight_short_id: zod
+                    .string()
+                    .describe('Short ID of the team-owned trends insight tracking progress toward the goal.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
 })
 
@@ -79,6 +113,23 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
+    goal: zod
+        .string()
+        .optional()
+        .describe(
+            'Free-text goal this focus drives toward, e.g. \"increase subscription usage\". Briefs open with progress toward it.'
+        ),
+    goal_metric: zod
+        .union([
+            zod.object({
+                insight_short_id: zod
+                    .string()
+                    .describe('Short ID of the team-owned trends insight tracking progress toward the goal.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Insight whose trend measures progress toward the goal. Null when the goal is qualitative.'),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
 })
 

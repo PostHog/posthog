@@ -30,6 +30,11 @@ class BriefConfig(PulseModel):
     focus_prompt = models.TextField(blank=True, default="")
     # {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
+    # What the focus is driving toward, e.g. "increase subscription usage". User-authored
+    # free text — sanitized at the prompt-render boundary, never trusted raw in prompts.
+    goal = models.TextField(blank=True, default="")
+    # {"insight_short_id": str} | null — same shape as Opportunity.metric_ref
+    goal_metric = models.JSONField(null=True, blank=True)
     enabled = models.BooleanField(default=True)
 
 
