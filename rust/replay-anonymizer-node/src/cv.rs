@@ -42,13 +42,8 @@ fn bytes_to_latin1(bytes: &[u8]) -> String {
     out
 }
 
-/// Gunzip a latin-1-encoded `cv` string into raw JSON bytes, size-capped per payload (the gzip
-/// codec's bomb cap) and charged against the message-cumulative budget (`Ctx::gunzip_cv`).
-///
-/// NOT depth-guarded: the byte walk that consumes this first bounds its own recursion (and copies
-/// unwalked spans iteratively), so the whole-buffer depth scan — profiled at ~6% of the pipeline —
-/// only runs where recursion actually happens, in front of the parse fallbacks below. This mirrors
-/// the uncompressed stream path, whose all-walked case pays no depth scan either.
+/// Not depth-guarded: the byte walk that consumes the result self-bounds its recursion, so the
+/// whole-buffer depth scan (~6% of the pipeline) runs only in front of the parse fallbacks below.
 fn decompress_string(ctx: &Ctx<'_>, s: &str) -> Result<Vec<u8>> {
     let raw = latin1_to_bytes(s)?;
     ctx.gunzip_cv(&raw).context("gunzip cv data")
@@ -72,16 +67,13 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
         bail!("compressed full snapshot data is not a string");
     };
     let mut scratch = decompress_string(ctx, s)?;
-    // Byte-walk the decompressed payload first: it reuses the same walkers as the uncompressed
-    // stream path, whose semantics the stream/tree differential suite pins. On decline (escaped or
-    // duplicate keys, unexpected shapes, over-deep nesting) fall through to the parse below.
+    // Byte-walk first; fall through to the parse below on decline.
     let mut walked = Vec::with_capacity(scratch.len() + 64);
     match bytewalk::scrub_cv_snapshot(ctx, &scratch, &mut walked) {
         Some(false) => {
             if !ctx.cv_zstd {
                 return Ok(false);
             }
-            // Single-format mode: unchanged content still re-emits in the configured codec.
             *data = string_value(compress_bytes(ctx, &scratch)?);
             return Ok(true);
         }
@@ -91,12 +83,9 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
         }
         None => {}
     }
-    // The parse and the tree scrub recurse per level where the walk above self-guarded, so an
-    // over-deep payload must fail closed here — a stack overflow aborts the worker process, which
-    // catch_unwind cannot contain.
+    // The parse/tree path below recurses (the walk self-guarded), so guard here — a stack overflow
+    // aborts the worker, which catch_unwind can't contain.
     reject_if_too_deep(&scratch, "cv payload")?;
-    // The decompressed payload lives in its own scratch buffer; the parsed tree borrows it and is
-    // dropped (re-serialized) before anything is written back.
     let mut payload = parse_untrusted(&mut scratch).context("parse cv payload")?;
     if !scrub_full_snapshot(ctx, &mut payload) && !ctx.cv_zstd {
         return Ok(false);
@@ -106,7 +95,6 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     Ok(true)
 }
 
-// Per-sub-field scrub dispatch for the synthetic mutation pieces.
 fn scrub_sub(ctx: &Ctx<'_>, sub_key: &str, arr: &mut Vec<Value<'_>>) -> bool {
     match sub_key {
         "texts" => scrub_mutation_texts(ctx, arr),
@@ -116,15 +104,10 @@ fn scrub_sub(ctx: &Ctx<'_>, sub_key: &str, arr: &mut Vec<Value<'_>>) -> bool {
     }
 }
 
-/// Scrub a `cv`-compressed Mutation `data` object in place. Returns whether it changed.
-///
-/// Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. Plain
-/// arrays are scrubbed in place inside the event tree. Gzipped sub-fields are each decompressed
-/// into their own scratch buffer and byte-walked (parse fallback on decline). Re-compression is
-/// mode-dependent: in gzip mode only sub-fields the scrub changed re-compress (level-6 deflate is
-/// the pipeline's most expensive leg, so untouched fields keep their original string verbatim); in
-/// zstd mode every gzipped sub-field re-emits so output blocks stay single-format (zstd-1 is cheap
-/// enough that uniformity costs ~6% — see PERF_PLAN).
+/// Scrub a `cv`-compressed Mutation `data` object in place. Returns whether it changed. Sub-fields
+/// arrive as gzipped strings or plain arrays; both are handled. Re-compression is codec-dependent:
+/// gzip mode re-compresses only changed sub-fields (level-6 deflate is the pipeline's costliest
+/// leg), zstd mode re-emits every one so blocks stay single-format.
 pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result<bool> {
     const KEYS: [(&str, bytewalk::CvMutationField); 3] = [
         ("texts", bytewalk::CvMutationField::Texts),
@@ -287,8 +270,7 @@ mod tests {
 
         let unzstd = |key: &str| -> Vec<u8> {
             let raw = latin1_to_bytes(as_str(data.get(key).unwrap()).unwrap()).unwrap();
-            // Single-format output: every gzipped sub-field re-emits as a zstd frame, scrubbed
-            // or not — the loader never sees mixed formats within a post-flip block.
+            // Single-format: every sub-field re-emits zstd, scrubbed or not.
             assert_eq!(&raw[..4], &[0x28, 0xb5, 0x2f, 0xfd], "{key} is a zstd frame");
             zstd::bulk::decompress(&raw, 1 << 20).unwrap()
         };

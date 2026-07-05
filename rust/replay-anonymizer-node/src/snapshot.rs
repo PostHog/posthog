@@ -158,12 +158,9 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event.
     pub byte_walk: bool,
-    /// Re-emit every cv payload as zstd (level 1: gzip-6's ratio at ~5x the compress speed — see
-    /// `gzip::compress_cv`), including ones the scrub did not change, so output blocks carry one
-    /// compression format. Keeping unchanged payloads verbatim instead measured only ~6% faster
-    /// (zstd-1 is that cheap; see PERF_PLAN), not worth a mixed-format contract. `false` restores
-    /// gzip output — the operational fallback while the ML prep loader's magic-byte dispatch rolls
-    /// out (historical blocks are gzip either way, so the loader sniffs regardless).
+    /// Re-emit *every* cv payload as zstd, changed or not, so output blocks are single-format
+    /// (uniform re-emit measured ~6% slower than keeping unchanged payloads verbatim — worth it to
+    /// avoid a mixed-format block). `false` is the gzip fallback for the loader rollout.
     pub cv_zstd: bool,
 }
 
@@ -763,9 +760,8 @@ fn finish(
     scan::write_json_string(&window_id_str, &mut prefix);
     prefix.push(b',');
     let n = sink.line_starts.len();
-    // Hard invariant, not a debug_assert: a body without a paired event (or vice versa) would
-    // mis-frame every subsequent JSONL line (events attributed to the wrong bodies), so fail the
-    // message closed rather than emit misaligned output.
+    // An unpaired body/event mis-frames every later line, so fail closed rather than emit misaligned
+    // output (hard error, not a debug_assert).
     if n != sink.events.len() {
         return Err(Failure::new(
             FailKind::AnonymizeFailed,
@@ -973,12 +969,9 @@ fn process_event_at(
     let (es, end) = scan_event(inner, start)?;
     let span = (start, end);
 
-    // Any raw C0 control byte in the event span (pretty-printed whitespace between tokens, or an
-    // unescaped control inside a string) routes to the tree, which normalizes or rejects it exactly
-    // like JSON.parse. `\n`/`\r` would break the one-record-per-line framing if memcpy'd; the
-    // others are structurally invalid JSON that the stream path would otherwise splice through
-    // verbatim (a stream-vs-tree divergence). The `< 0x20` scan autovectorizes; it runs only for
-    // events that reach here (fallback-flagged events short-circuit before it).
+    // Raw C0 controls route to the tree, which normalizes/rejects them like JSON.parse: `\n`/`\r`
+    // would break line framing if memcpy'd, the rest are invalid JSON the stream path would splice
+    // through verbatim (a stream-vs-tree divergence). The `< 0x20` scan autovectorizes.
     if es.fallback || inner[span.0..span.1].iter().any(|&b| b < 0x20) {
         process_event_via_tree(ctx, inner, span, sink)?;
         return Ok(EventStep::Next(end));

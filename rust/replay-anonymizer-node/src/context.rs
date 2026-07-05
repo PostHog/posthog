@@ -13,20 +13,15 @@ use anyhow::{bail, Result};
 use crate::allow_lists::AllowLists;
 use crate::blur::{blur_image_data_uri, pixelate_raw_rgba};
 
-/// Cumulative decompressed-bytes budget for all cv payloads in one message. Individual payloads
-/// are capped by `gzip::MAX_DECOMPRESSED_BYTES`; this bounds the *sum*, so a message stuffed with
-/// many high-ratio fields can't decompress gigabytes serially (a CPU/latency bomb even though each
-/// buffer is freed between fields). Real messages total well under 10 MB decompressed; the budget
-/// is sized with room for the byte walk's decline-and-reparse path charging a field twice.
+/// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
+/// `gzip::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
+/// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Remaining cv decompression budget for this message (see [`CV_MESSAGE_DECOMPRESSION_BUDGET`]).
     pub cv_budget: Cell<usize>,
-    /// Re-emit every cv payload (changed or not) as zstd instead of gzip, keeping output blocks
-    /// single-format (see `AnonymizeOpts::cv_zstd` — on in production, `false` is the gzip
-    /// fallback).
+    /// See `AnonymizeOpts::cv_zstd`.
     pub cv_zstd: bool,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
@@ -48,8 +43,7 @@ impl<'a> Ctx<'a> {
         self
     }
 
-    /// Gunzip a cv payload, charging the message-cumulative budget. All cv decompression must go
-    /// through here (not `gzip::gunzip` directly) so the budget can't be bypassed.
+    /// The only budgeted cv decompression path — cv code must not call `gzip::gunzip` directly.
     pub fn gunzip_cv(&self, raw: &[u8]) -> Result<Vec<u8>> {
         let out = crate::gzip::gunzip(raw)?;
         match self.cv_budget.get().checked_sub(out.len()) {

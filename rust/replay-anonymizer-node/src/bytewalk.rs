@@ -91,11 +91,9 @@ pub fn scrub_data_bytes(
     out: &mut Vec<u8>,
 ) -> Option<bool> {
     if compressed {
-        // Mirrors `route_data`'s cv dispatch. Only two shapes are actually blob-compressed: a
-        // FullSnapshot whose data is the gzip string, and a Mutation whose sub-fields are gzip
-        // strings. For everything else the marker changes nothing — a compressed-marked snapshot
-        // with object data scrubs plain (fall through), input text is never inside the gzip (fall
-        // through) — except the routes the walk doesn't carry at all (canvas etc.), which decline.
+        // Mirrors `route_data`'s cv dispatch: only a snapshot's data string and a mutation's
+        // sub-fields are blob-compressed. Snapshot-with-object-data and input fall through to the
+        // plain walk (the marker changes nothing there); routes the walk doesn't carry decline.
         match (ty, source) {
             (Some(TYPE_FULL_SNAPSHOT), _) if bytes.get(data.0) == Some(&b'"') => {
                 return scrub_cv_snapshot_value(ctx, bytes, data, out);
@@ -180,9 +178,8 @@ pub fn scrub_cv_snapshot(ctx: &Ctx<'_>, bytes: &[u8], out: &mut Vec<u8>) -> Opti
 }
 
 /// Scrub one decompressed cv mutation sub-field (`bytes` is the whole array) into `out`.
-/// `Some(changed)` on success; `None` means "fall back to the parse path" — which also owns
-/// failing payloads that are not arrays closed, so a non-`[` payload must decline here rather
-/// than take `walk_array`'s copy-verbatim branch for non-array values.
+/// `Some(changed)` on success; `None` declines to the parse. A non-`[` payload must decline (the
+/// parse fails non-arrays closed) rather than hit `walk_array`'s copy-verbatim branch.
 pub fn scrub_cv_mutation_field(
     ctx: &Ctx<'_>,
     field: CvMutationField,
@@ -208,12 +205,9 @@ pub fn scrub_cv_mutation_field(
     (scan::skip_ws(bytes, end) == bytes.len()).then_some(w.changed)
 }
 
-/// Scrub a cv-compressed FullSnapshot `data` value straight from its wire span (the still-escaped
-/// gzip-as-latin-1 JSON string, quotes included): decode the gzip bytes off the escaped span,
-/// gunzip, walk the decompressed payload, and re-emit — changed payloads as a freshly compressed
-/// (`gzip::compress_cv`) latin-1 string, unchanged ones as the original span verbatim. The tree path does the same work
-/// through simd-json's tape and an intermediate UTF-8 `String`; this skips both. Declines (`None`)
-/// on anything unexpected — the parse fallback owns failing malformed streams closed.
+/// Scrub a cv-compressed FullSnapshot data string from its still-escaped wire span, skipping the
+/// tree path's simd tape and intermediate UTF-8 `String`. Declines (`None`) on anything unexpected;
+/// the parse fallback fails malformed streams closed.
 fn scrub_cv_snapshot_value(
     ctx: &Ctx<'_>,
     bytes: &[u8],
@@ -231,7 +225,6 @@ fn scrub_cv_snapshot_value(
             out.extend_from_slice(&bytes[data.0..data.1]);
             return Some(false);
         }
-        // Single-format mode: unchanged content still re-emits in the configured codec.
         let gz = crate::gzip::compress_cv(ctx.cv_zstd, &decompressed).ok()?;
         write_latin1_json_string(&gz, out);
         return Some(true);
@@ -241,9 +234,8 @@ fn scrub_cv_snapshot_value(
     Some(true)
 }
 
-/// Scrub a cv-compressed Mutation `data` object from the wire: the envelope keys walk as usual,
-/// and each gzipped sub-field goes through the same decode/gunzip/walk/re-emit as
-/// [`scrub_cv_snapshot_value`], re-compressing only sub-fields the scrub changed.
+/// The mutation counterpart of [`scrub_cv_snapshot_value`]: envelope keys walk plainly, each
+/// gzipped sub-field re-emits per the codec mode.
 fn scrub_cv_mutation_data(
     ctx: &Ctx<'_>,
     bytes: &[u8],
@@ -269,12 +261,10 @@ fn scrub_cv_mutation_data(
     Some(w.changed)
 }
 
-/// Decode the raw (still-escaped) JSON string bytes of a cv value straight into gzip bytes — the
-/// wire-side counterpart of `cv::latin1_to_bytes`, skipping the intermediate UTF-8 `String`.
-/// Latin-1-in-JSON is exactly: ASCII (with the usual escapes), `\u00XX`, and two-byte UTF-8
-/// sequences with lead 0xC2/0xC3. `None` for anything else (codepoints > 0xFF, bad escapes, raw
-/// control bytes): the caller declines to the tree path, which owns failing malformed streams
-/// closed — and rejecting raw control bytes there keeps invalid JSON invalid.
+/// Decode still-escaped JSON-string bytes of a cv value into latin-1 (compressed) bytes — the
+/// wire-side counterpart of `cv::latin1_to_bytes` without the intermediate UTF-8 `String`. `None`
+/// on anything outside latin-1-in-JSON (codepoint > 0xFF, bad escape, raw control): the caller
+/// declines to the parse, which fails malformed streams closed.
 fn latin1_from_wire(wire: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(wire.len());
     let mut i = 0;
@@ -346,10 +336,7 @@ fn latin1_from_wire(wire: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Emit compressed-stream bytes as a JSON latin-1 string (quotes included): the write-side inverse of
-/// [`latin1_from_wire`]. Control bytes escape as `\u00XX`; 0x80..=0xFF emit as their two-byte
-/// UTF-8 sequence — the same codepoints the tree path's serializer produces, differently escaped
-/// at most (the output contract is semantic JSON).
+/// Write-side inverse of [`latin1_from_wire`]: emit compressed bytes as a JSON latin-1 string.
 fn write_latin1_json_string(bytes: &[u8], out: &mut Vec<u8>) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     out.push(b'"');
@@ -966,11 +953,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         })
     }
 
-    /// One cv-marked mutation sub-field, straight from the wire: a gzipped latin-1 string goes
-    /// through decode/gunzip/walk and re-compresses per the emission mode (changed-only in gzip
-    /// mode, always in zstd mode); a plain array walks uncompressed; `null` and the empty string
-    /// keep verbatim (mirroring the tree path); any other shape declines so the parse fallback
-    /// can fail it closed.
+    /// One cv-marked mutation sub-field from the wire: a gzipped string is decoded/walked, a plain
+    /// array walks uncompressed, `null`/empty-string keep verbatim, anything else declines.
     fn walk_cv_sub(
         &mut self,
         field: CvMutationField,

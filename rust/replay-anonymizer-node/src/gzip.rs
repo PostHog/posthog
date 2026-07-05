@@ -7,33 +7,17 @@ use std::cell::RefCell;
 use anyhow::{anyhow, bail, Result};
 use libdeflater::{CompressionLvl, Compressor, Decompressor};
 
-/// Cap decompressed sizes so a compression bomb (or a forged size claim) can't OOM the worker.
-/// Across a 1000-message production corpus the largest payload decompressed to 10.3 MB and the
-/// largest cv payload to 3.8 MB, so 64 MiB is ~6x the observed maximum — and exceeding it fails
-/// closed as a classified DLQ, which is the intended fate of a message that large anyway. An
-/// OOM-kill, by contrast, is unclassifiable: the consumer re-pulls the same message and crash-loops.
+/// Compression-bomb cap: ~6x the 10.3 MB largest payload in a 1000-message production sample.
+/// Exceeding it fails closed as a classified DLQ instead of an unclassifiable OOM crash-loop.
 pub const MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 
-/// zstd level for re-emitted cv payloads. Level 1 is the efficient-frontier point on the real cv
-/// corpus (`dev/compression_bench.rs`; full tables and the level sweep in `dev/PERF_PLAN.md`):
-/// gzip-6's ratio at ~5x its compress speed, with levels 2-4 adding nothing (flat ratio, lower
-/// speed). Measured on the corpus's 589 MB of decompressed cv payloads:
-///
-/// | codec   | compress MB/s | ratio |
-/// | ------- | ------------- | ----- |
-/// | gzip-6  | 184           | 0.149 |
-/// | zstd-1  | 958           | 0.149 |
-/// | zstd-6  | 293           | 0.129 |
-/// | zstd-12 | 99            | 0.123 |
-///
-/// (The finer sweep put zstd-8/9 at gzip-6's speed for ~17% smaller output — the alternative
-/// operating point if the S3 bill ever outweighs worker CPU.)
+/// zstd level for re-emitted cv payloads: the efficient frontier on the real cv corpus (gzip-6's
+/// ratio at ~5x its compress speed; levels 2-4 add nothing). Sweep in `dev/PERF_PLAN.md`.
 const CV_ZSTD_LEVEL: i32 = 1;
 
 thread_local! {
-    // libdeflate (de)compressor states are one-time ~50-300 KB mallocs (zstd's context likewise);
-    // cv work runs per sub-field (several calls per event), so reuse them per thread instead of
-    // paying the allocation on every call. The state carries nothing across calls.
+    // Reused per thread: each codec state is a one-time ~50-300 KB malloc and cv work runs several
+    // times per event.
     static DECOMPRESSOR: RefCell<Decompressor> = RefCell::new(Decompressor::new());
     static COMPRESSOR: RefCell<Compressor> =
         RefCell::new(Compressor::new(CompressionLvl::default()));
@@ -76,10 +60,8 @@ pub fn gzip(payload: &[u8]) -> Result<Vec<u8>> {
     })
 }
 
-/// Compress a scrubbed cv payload for re-emission: zstd frame at [`CV_ZSTD_LEVEL`] when enabled,
-/// else the gzip the SDK sent. The two are distinguishable downstream by magic bytes alone
-/// (`1f 8b` vs `28 b5 2f fd`), which is the consumer contract — post-flip blocks are uniformly
-/// zstd (unchanged payloads re-emit too), but the loader still sees gzip in historical blocks.
+/// Re-compress a cv payload as zstd (else gzip). The consumer distinguishes the two by magic bytes
+/// alone (`1f 8b` gzip vs `28 b5 2f fd` zstd), so historical gzip blocks stay readable post-flip.
 pub fn compress_cv(zstd: bool, payload: &[u8]) -> Result<Vec<u8>> {
     if !zstd {
         return gzip(payload);
@@ -118,8 +100,6 @@ mod tests {
 
     #[test]
     fn rejects_a_footer_claiming_more_than_the_cap() {
-        // A syntactically real stream whose ISIZE footer is forged upward must be rejected
-        // before any allocation happens (the pre-libdeflate code streamed up to the cap instead).
         let mut stream = gzip(b"small").unwrap();
         let n = stream.len();
         stream[n - 4..].copy_from_slice(&(u32::MAX).to_le_bytes());
@@ -129,8 +109,6 @@ mod tests {
 
     #[test]
     fn fails_closed_on_a_footer_claiming_less_than_the_real_size() {
-        // ISIZE forged downward: the exact-sized buffer runs out mid-stream and libdeflate
-        // reports it, rather than silently truncating the payload.
         let payload = b"0123456789".repeat(100);
         let mut stream = gzip(&payload).unwrap();
         let n = stream.len();
@@ -146,8 +124,7 @@ mod tests {
 
     #[test]
     fn compress_cv_formats_are_magic_byte_distinguishable() {
-        // The downstream loader dispatches compressed cv fields on magic bytes alone (one event
-        // can carry both formats), so the two legs emitting their standard magics IS the contract.
+        // Magic-byte dispatch is the consumer contract, so pin the emitted magics.
         let payload = b"payload".repeat(20);
         let gz = compress_cv(false, &payload).unwrap();
         assert_eq!(&gz[..2], &[0x1f, 0x8b]);

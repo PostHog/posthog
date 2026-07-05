@@ -624,8 +624,6 @@ describe('createParseMessageStep', () => {
         })
 
         it('rejects a size prefix that does not match the decoded length', () => {
-            // A prefix claiming more than the block decodes to would otherwise expose the
-            // uninitialized tail of the output buffer to JSON.parse.
             const payload = Buffer.from('0123456789'.repeat(20))
             const lying = lz4Frame(payload, payload.length + 512)
             expect(() => decompressMessageValue(lz4Message(lying))).toThrow(/decoded/)

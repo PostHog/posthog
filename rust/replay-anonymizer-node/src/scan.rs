@@ -131,22 +131,19 @@ pub fn skip_string(bytes: &[u8], start: usize) -> Result<usize> {
     Err(ScanError("unterminated string"))
 }
 
-/// Deepest bracket nesting `skip_balanced` tracks, matching the parse path's `MAX_JSON_DEPTH` so
-/// the scan and the parse fail closed on the same over-deep inputs. 1024 levels = a `[u64; 16]`
-/// bitstack; real replay DOMs nest to ~25 but some legitimately exceed 64.
+/// Matches the parse path's `MAX_JSON_DEPTH` so scan and parse fail closed on the same over-deep
+/// inputs; real DOMs nest to ~25 but some legitimately exceed 64.
 const MAX_BRACKET_NESTING: usize = 1024;
 
-/// `start` must be at `open`; returns the position just past the matching `close`.
+/// `start` must be at `open`; returns the position just past the matching `close`. `open`/`close`
+/// only name the expected top level.
 ///
-/// Tracks both bracket kinds so a mismatched closer (`]` inside `{…}`, `}` inside `[…]`) is
-/// rejected rather than silently closing the wrong container — otherwise `{"a":[}]}` would locate a
-/// span ending at the inner `}` and splice the invalid bytes through verbatim. The `stack` bitstack
-/// records each open level (0 = brace, 1 = bracket); a closer must match the innermost open.
-/// `open`/`close` only name the expected top level for the caller's convenience.
+/// The `stack` bitstack (0 = brace, 1 = bracket) rejects a mismatched closer instead of closing the
+/// wrong container — otherwise `{"a":[}]}` would locate a span at the inner `}` and splice invalid
+/// bytes through verbatim.
 ///
-/// Stays bytewise between strings: `skip_string` already jumps string content, so the structural
-/// gaps left here are a handful of bytes — too short for memchr's per-call setup to pay off
-/// (measured: memchr3 here costs ~20% on bracket-dense mousemove payloads).
+/// Stays bytewise: memchr3 here measured ~20% slower on bracket-dense payloads (the gaps between
+/// strings are too short to amortize its setup).
 pub fn skip_balanced(bytes: &[u8], start: usize, open: u8, close: u8) -> Result<usize> {
     debug_assert_eq!(bytes.get(start), Some(&open));
     let _ = close;

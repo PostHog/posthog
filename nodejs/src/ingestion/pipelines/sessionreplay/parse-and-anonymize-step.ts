@@ -106,8 +106,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         try {
             meta = parseJSON(result.meta!) as AnonymizeMeta
         } catch (error) {
-            // Malformed meta would otherwise escape the step and poison the pipeline (the consumer
-            // restarts and re-pulls the same message); fail closed like every other addon failure.
+            // Fail closed: an uncaught throw here poisons the pipeline instead of dropping one message.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
             SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')

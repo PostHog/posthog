@@ -64,11 +64,7 @@ export function buildMlMirrorServerConfig(
     }
 }
 
-/**
- * Startup self-test for the native anonymizer: scrub a minimal valid snapshot message through the
- * production entry and throw if it fails, so a broken addon crashes the boot instead of silently
- * dropping all mirror traffic as `anonymize_failed` once the consumer starts.
- */
+/** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
 async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
     const inner = JSON.stringify({
         event: '$snapshot_items',
@@ -139,11 +135,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             // on; the addon holds its own copy of the immutable allow lists, set once at startup.
             const anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
             anonymizer.initAnonymizer(allow.entries())
-            // Startup self-test: scrub a known-good fixture through the production entry so a zombie
-            // addon (bad build, missing symbol, broken init) fails the deploy loudly instead of
-            // silently dropping every message as anonymize_failed once traffic arrives. The addon
-            // runs CPU work on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared with the
-            // recorder's snappy compression — size it for the deployment if scrub latency backs up.
+            // The addon's scrub runs on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared
+            // with the recorder's snappy compression — size it for the deployment if scrub backs up.
             await assertAnonymizerHealthy(anonymizer)
             logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
         }

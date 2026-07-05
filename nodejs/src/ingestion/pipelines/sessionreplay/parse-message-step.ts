@@ -21,9 +21,8 @@ const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
-// Decompression-bomb cap, mirroring the Rust addon's MAX_DECOMPRESSED_BYTES: real replay payloads
-// decompress to ~10 MB at most (1000-message production sample), so 64 MiB is ~6x headroom and
-// exceeding it fails closed as invalid_compressed_data instead of an unclassifiable OOM.
+// Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
+// sample; exceeding it DLQs instead of risking an unclassifiable OOM.
 const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
 
 export interface ParseMessageStepInput {
@@ -68,8 +67,7 @@ export function decompressMessageValue(message: Message): Buffer {
         }
         const output = Buffer.allocUnsafe(uncompressedSize)
         const decodedLength = lz4.decodeBlock(value.subarray(4), output)
-        // The size prefix is untrusted input: a prefix larger than the real decoded length would
-        // otherwise expose the uninitialized tail of `output` (recycled process memory) downstream.
+        // Without this check an inflated prefix leaks the uninitialized tail of `output`.
         if (decodedLength !== uncompressedSize) {
             throw new Error(`lz4 decoded ${decodedLength} bytes but the size prefix claimed ${uncompressedSize}`)
         }

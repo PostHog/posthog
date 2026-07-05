@@ -39,10 +39,8 @@ export type MlMirrorConfig = {
     /** Route anonymization through the native Rust addon (`@posthog/replay-anonymizer`); off → the TS scrubbers. */
     SESSION_RECORDING_ML_RUST_ANONYMIZER: boolean
     /**
-     * Native path only: re-emit every `cv` payload as zstd instead of gzip (same ratio, ~5x the
-     * compress speed; output blocks are single-format). The ML prep loader must dispatch
-     * compressed fields on magic bytes before its next manual run over zstd blocks — this switch
-     * exists as the operational fallback to gzip output, not as a rollout gate.
+     * Native path only: re-emit `cv` payloads as zstd (same ratio, ~5x faster). The gzip fallback:
+     * the ML prep loader must read zstd via magic bytes before its next run over zstd blocks.
      */
     SESSION_RECORDING_ML_CV_ZSTD: boolean
 }

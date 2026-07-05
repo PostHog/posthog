@@ -174,11 +174,8 @@ describe('anonymize shared fixtures', () => {
             }
         })
 
-        // cv-compressed events can't live in the static JSON fixtures (their payloads are raw
-        // gzip bytes), and the Rust-side cv coverage never runs a payload through the addon's
-        // production FFI. These cases gzip a known payload, run the whole decode/scrub/re-emit
-        // path through anonymizeKafkaPayload, then decompress the output to assert the scrub —
-        // the one place the native cv wire path is checked end to end.
+        // cv payloads are raw gzip bytes, so they're gzipped here rather than authored as static
+        // fixtures; this is the only cv coverage that runs through the addon's production FFI.
         describe('cv-compressed events through the production entry', () => {
             // latin-1: each gzip byte is a U+00XX codepoint, matching the SDK wire format.
             const gzipLatin1 = (json: string): string => Buffer.from(gzipSync(Buffer.from(json))).toString('latin1')
@@ -200,8 +197,7 @@ describe('anonymize shared fixtures', () => {
                 data: { source: 0, texts: gzipLatin1(JSON.stringify([{ id: 5, value: 'keep secret' }])) },
             }
 
-            // cvZstd:false keeps the output gzip so the assertion can decode it with zlib alone;
-            // the scrub semantics are format-independent (the codec only changes the re-emit leg).
+            // cvZstd:false so the output decodes with zlib; the scrub is codec-independent.
             it('scrubs a cv full snapshot and re-emits a decodable payload', async () => {
                 rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
                 const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]), undefined, false)
@@ -220,8 +216,7 @@ describe('anonymize shared fixtures', () => {
                 expect(decoded[0].value).toBe('keep ******')
             })
 
-            // The production default re-emits zstd; downstream dispatches on the magic bytes, so
-            // pin that a changed payload actually carries the zstd frame magic (28 b5 2f fd).
+            // Downstream dispatches on magic bytes, so pin the default's zstd frame magic.
             it('emits zstd frames by default', async () => {
                 rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
                 const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]))
