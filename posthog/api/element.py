@@ -332,7 +332,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
         responses=ElementValueSerializer(many=True),
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, pagination_class=None)
     def values(self, request: request.Request, **kwargs) -> response.Response:
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="element").time(),
