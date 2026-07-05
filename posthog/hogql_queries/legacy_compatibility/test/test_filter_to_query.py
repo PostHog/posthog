@@ -954,7 +954,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "RetentionQuery")
+        assert isinstance(query, RetentionQuery)
         self.assertIsNone(query.retentionFilter.retentionType)
 
     def test_base_paths_query(self):
