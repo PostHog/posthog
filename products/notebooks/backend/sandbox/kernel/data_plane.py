@@ -64,6 +64,8 @@ def _poll_for_result(status_url: str, token: str) -> tuple[list[str], list[tuple
     interval = _POLL_INITIAL_INTERVAL_SECONDS
     while time.monotonic() < deadline:
         try:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected — status_url is the
+            # backend's own data-plane endpoint from the signed run payload, never user-controlled.
             with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 if _is_arrow(response):
                     return decode_arrow_stream(response)
