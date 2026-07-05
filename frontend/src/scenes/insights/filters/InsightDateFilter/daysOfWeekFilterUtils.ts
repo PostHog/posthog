@@ -14,6 +14,16 @@ export const DAY_LABELS: Record<number, string> = {
     7: 'Sun',
 }
 
+export const DAY_LABELS_SINGLE: Record<number, string> = {
+    1: 'M',
+    2: 'T',
+    3: 'W',
+    4: 'T',
+    5: 'F',
+    6: 'S',
+    7: 'S',
+}
+
 export const ALL_DAY_NUMBERS: number[] = [1, 2, 3, 4, 5, 6, 7]
 
 export function sortDays(days: number[]): number[] {
