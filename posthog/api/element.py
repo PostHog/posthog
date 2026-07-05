@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import DateRange, ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -152,16 +152,25 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
                     raise ValidationError("Limit must be an integer")
+                # keep the limit + 1 pagination probe below the printer's hard cap, so
+                # has_next can still see the extra row instead of it being clamped away
+                if not 0 < limit < MAX_SELECT_HEATMAPS_LIMIT:
+                    raise ValidationError(f"limit must be between 1 and {MAX_SELECT_HEATMAPS_LIMIT - 1}")
 
                 try:
                     offset = int(request.query_params.get("offset", 0))
                 except ValueError:
                     raise ValidationError("offset must be an integer")
+                if offset < 0:
+                    raise ValidationError("offset must be zero or greater")
 
                 try:
                     sampling_factor = float(request.query_params.get("sampling_factor", 1))
                 except ValueError:
                     raise ValidationError("sampling_factor must be a float")
+                # 0 would silently return no rows (SAMPLE 0); out-of-range values 500 in ClickHouse
+                if not 0 < sampling_factor <= 1:
+                    raise ValidationError("sampling_factor must be greater than 0 and at most 1")
 
                 events_filter = self._events_filter(request)
 

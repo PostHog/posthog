@@ -372,6 +372,20 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("zero_limit", "limit=0"),
+            ("negative_limit", "limit=-1"),
+            ("negative_offset", "offset=-1"),
+            ("zero_sampling_factor", "sampling_factor=0"),
+            ("sampling_factor_above_one", "sampling_factor=1.5"),
+            ("negative_sampling_factor", "sampling_factor=-0.5"),
+        ]
+    )
+    def test_element_stats_rejects_out_of_range_query_params(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/element/stats/?{query}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def _setup_events(self):
         _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
         _create_person(distinct_ids=["two"], team=self.team, properties={"email": "two@mail.com"})
