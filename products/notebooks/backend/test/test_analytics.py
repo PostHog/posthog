@@ -1,7 +1,10 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework.request import Request
 
 from posthog.auth import SessionAuthentication
 
@@ -24,6 +27,10 @@ class _FakeRequest:
         self.META = {"HTTP_USER_AGENT": user_agent}
 
 
+def _fake_request(authenticator, user_agent="agent/1.0") -> Request:
+    return cast(Request, _FakeRequest(authenticator, user_agent))
+
+
 class TestNotebookAnalytics(BaseTest):
     @parameterized.expand(
         [
@@ -38,17 +45,17 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(notebook_node_count(content), expected)
 
     def test_classify_request_source_session_is_ui(self):
-        source, extra = classify_request_source(_FakeRequest(SessionAuthentication()))
+        source, extra = classify_request_source(_fake_request(SessionAuthentication()))
         self.assertEqual(source, NotebookCreationSource.UI)
         self.assertEqual(extra, {})
 
     def test_classify_request_source_api_key_is_mcp_with_metadata(self):
-        source, extra = classify_request_source(_FakeRequest(_FakeKeyAuth(), user_agent="posthog-code/2"))
+        source, extra = classify_request_source(_fake_request(_FakeKeyAuth(), user_agent="posthog-code/2"))
         self.assertEqual(source, NotebookCreationSource.MCP)
         self.assertEqual(extra, {"api_key_type": "_FakeKeyAuth", "mcp_client": "posthog-code/2"})
 
     def test_classify_request_source_no_authenticator_defaults_to_ui(self):
-        source, extra = classify_request_source(_FakeRequest(None))
+        source, extra = classify_request_source(_fake_request(None))
         self.assertEqual(source, (NotebookCreationSource.UI))
         self.assertEqual(extra, {})
 
@@ -59,7 +66,7 @@ class TestNotebookAnalytics(BaseTest):
             creation_source=NotebookCreationSource.UI,
             team_id=self.team.id,
             user=self.user,
-            request=object(),
+            request=_fake_request(SessionAuthentication()),
             visibility="private",
             node_count=3,
             mcp_client=None,

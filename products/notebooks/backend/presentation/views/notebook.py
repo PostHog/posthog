@@ -229,7 +229,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             request=request,
             visibility=notebook.visibility,
             node_count=notebook_node_count(notebook.content),
-            **source_props,
+            mcp_client=source_props.get("mcp_client"),
+            api_key_type=source_props.get("api_key_type"),
         )
 
         return notebook
