@@ -135,6 +135,9 @@ class InvestigationFindingSerializer(serializers.Serializer):
     )
     citations = serializers.ListField(
         child=serializers.CharField(),
+        # Findings persisted before this field existed lack the key — default it instead of 500ing.
+        required=False,
+        default=list,
         help_text=(
             "Code-generated evidence refs for this finding, as `type:ref` strings "
             "(e.g. `session:<id>` linking to the session replay player). Empty for HogQL findings."

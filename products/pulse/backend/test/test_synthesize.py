@@ -239,10 +239,19 @@ class TestSayLessGate:
         without_goal = await _rendered_prompt([], goal_status=None)
         assert "## Focus goal" not in without_goal
 
-        with_findings = await _rendered_prompt([], findings=[_finding(), _finding(succeeded=False)])
+        with_findings = await _rendered_prompt(
+            [],
+            findings=[
+                _finding(),
+                _finding(succeeded=False),
+                # A replay finding (no hogql) must be labeled honestly, not as a SQL result.
+                _finding(question="Why the drop?", hogql="", result_summary="Watched 12 sessions"),
+            ],
+        )
         assert "## Goal investigation" in with_findings
         assert "- query:1 [ok] What is the CTR?\n  result: 0.42" in with_findings
         assert "- query:2 [FAILED] What is the CTR?" in with_findings
+        assert "- query:3 [ok, session replay pattern analysis] Why the drop?" in with_findings
 
         without_findings = await _rendered_prompt([])
         assert "## Goal investigation" not in without_findings

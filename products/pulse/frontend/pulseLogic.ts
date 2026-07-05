@@ -153,9 +153,13 @@ export function parseOpportunityEvidence(evidence: readonly OpportunityApiEviden
         .filter((citation) => citation.ref !== '')
 }
 
+/** InvestigationFindingApi after defensive narrowing — `citations` (optional in the schema for
+ * rows persisted before the field existed) is always present. */
+export type InvestigationFinding = InvestigationFindingApi & { citations: string[] }
+
 /** Defensive narrowing kept on top of the generated type: the findings live in a model-stored
  * JSON column, so runtime rows may predate or drift from the static shape. */
-function parseInvestigationFinding(finding: InvestigationFindingApi): InvestigationFindingApi {
+function parseInvestigationFinding(finding: InvestigationFindingApi): InvestigationFinding {
     return {
         question: typeof finding.question === 'string' ? finding.question : '',
         hogql: typeof finding.hogql === 'string' ? finding.hogql : '',
@@ -564,8 +568,7 @@ export const pulseLogic = kea<pulseLogicType>([
         // 1-based index into this list. Empty for goal-less briefs and list-shaped rows.
         briefDetailInvestigation: [
             (s) => [s.briefDetail],
-            (briefDetail): InvestigationFindingApi[] =>
-                (briefDetail?.investigation ?? []).map(parseInvestigationFinding),
+            (briefDetail): InvestigationFinding[] => (briefDetail?.investigation ?? []).map(parseInvestigationFinding),
         ],
         // The goal of the config the shown brief was generated for — the subtle header line above
         // the brief detail. Null when the brief is config-less or its config has no goal.

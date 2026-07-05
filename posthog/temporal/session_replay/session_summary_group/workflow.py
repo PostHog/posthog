@@ -733,6 +733,7 @@ async def drain_group_summary_patterns(
                 f"Unexpected final result payload ({type(payload).__name__}) from session group summarization"
             )
         final = payload
+        break
     if final is None:
         raise ValueError("Session group summarization stream produced no final result")
     return final

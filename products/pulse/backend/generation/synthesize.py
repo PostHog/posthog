@@ -115,6 +115,14 @@ def _sanitize_finding_text(text: str, max_len: int) -> str:
     return sanitize_for_prompt(strip_llm_framing_markers(text, max_len))
 
 
+def _render_finding_status(finding: InvestigationFinding) -> str:
+    # Honest labeling: replay findings (no hogql — their evidence is watched sessions) must not
+    # read as SQL query results. The `query:<n>` numbering itself stays shared: it is a positional
+    # citation into the investigation card, which renders both kinds.
+    status = "ok" if finding.succeeded else "FAILED"
+    return f"{status}, session replay pattern analysis" if not finding.hogql else status
+
+
 def _render_investigation_block(findings: list[InvestigationFinding]) -> str:
     # Questions come from the planner LLM and result summaries carry real query output over
     # user-authored event data — both untrusted at this boundary. `query:<n>` refs are
@@ -123,7 +131,7 @@ def _render_investigation_block(findings: list[InvestigationFinding]) -> str:
     if not findings:
         return ""
     rendered_findings = "\n".join(
-        f"- query:{index} [{'ok' if finding.succeeded else 'FAILED'}] "
+        f"- query:{index} [{_render_finding_status(finding)}] "
         f"{_sanitize_finding_text(finding.question, _FINDING_QUESTION_MAX_CHARS)}\n"
         f"  result: {_sanitize_finding_text(finding.result_summary, _FINDING_RESULT_MAX_CHARS)}"
         for index, finding in enumerate(findings, start=1)

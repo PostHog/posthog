@@ -90,8 +90,10 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
 
 
 # Replay pattern analysis rides its own workflow activity (group summarization runs minutes) with a
-# generous ceiling; a hung summary is killed here rather than dragging the brief. maximum_attempts=1
-# because each attempt drives LLM passes — a retry double-spends. The workflow swallows any failure.
+# generous ceiling. The timeout bounds the BRIEF, not the summary: the nested group-summary workflow
+# has its own id and may run to completion after the activity times out (cancellation propagation is
+# a recorded follow-up). maximum_attempts=1 because each attempt drives LLM passes — a retry
+# double-spends. The workflow swallows any failure.
 REPLAY_PATTERNS_ACTIVITY_TIMEOUT_MINUTES = 15
 
 

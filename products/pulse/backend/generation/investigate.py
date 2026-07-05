@@ -57,8 +57,8 @@ MAX_CLICKS_STEPS = 3
 # far past the investigate stage deadline), so exactly one replay per brief is the cost rail: each
 # replay step samples up to _MAX_REPLAY_SESSIONS recordings and drives a multi-pass group summary.
 MAX_REPLAY_STEPS = 1
-# Cap on the sessions handed to the group summary. Above GROUP_SUMMARIES_MIN_SESSIONS (5) the
-# summary runs in cross-session pattern mode; below it there is too little to generalize.
+# Cap on the sessions handed to the group summary, and pulse's own "too few to generalize"
+# floor below which a pattern claim would rest on a handful of anecdotes.
 _MAX_REPLAY_SESSIONS = 20
 _MIN_REPLAY_SESSIONS = 5
 # Top patterns rendered into the finding's result_summary (deterministic, strongest first).
@@ -608,10 +608,10 @@ def _resolve_replay_session_ids(team: Team, step: ReplayStep, period_days: int) 
     lookback_minutes = period_days * 24 * 60
     # sample_rate=1.0: the url/event anchor already narrows to the movement's segment, so the
     # ~20-session cap is the sampling — a fractional rate on top would routinely starve the group.
-    session_ids = fetch_recent_session_ids(
+    # The `limit` flows into the recordings query, so the result is already capped.
+    return fetch_recent_session_ids(
         team, lookback_minutes, sample_rate=1.0, recording_filters=filters, limit=_MAX_REPLAY_SESSIONS
     )
-    return session_ids[:_MAX_REPLAY_SESSIONS]
 
 
 async def _summarize_session_group(

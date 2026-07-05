@@ -28196,7 +28196,7 @@ export namespace Schemas {
       /** Whether the query executed successfully. Failed steps are gaps, never data. */
       succeeded: boolean;
       /** Code-generated evidence refs for this finding, as `type:ref` strings (e.g. `session:<id>` linking to the session replay player). Empty for HogQL findings. */
-      citations: string[];
+      citations?: string[];
     }
 
     export interface JiraProject {

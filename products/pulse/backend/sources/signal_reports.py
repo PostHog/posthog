@@ -14,11 +14,11 @@ TITLE_MAX_CHARS = 200
 SUMMARY_MAX_CHARS = 1000
 
 
-class ScoutReportsSource:
+class SignalReportsSource:
     # No availability gate needed: the facade read is already scoped to scout- and
     # replay-vision-derived, inbox-visible reports (and returns [] without AI consent), so a
     # team with neither source enabled simply has nothing to gather.
-    name = "scout_reports"
+    name = "signal_reports"
 
     def gather(self, team: Team, config: BriefConfig | None, period_days: int) -> list[SourceItem]:
         since = timezone.now() - timedelta(days=period_days)

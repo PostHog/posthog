@@ -28,7 +28,7 @@ Hard rules:
 - Set confidence honestly per section and per opportunity, and output nothing you are not confident in — fewer, sharper items beat coverage. If the input contains nothing worth saying, return empty lists.
 - Context items (kind "context", e.g. annotations and deploy markers) are background that may explain movements — say "the drop started at the v2.3 release annotation". Never present a context item as a metric movement, and never derive an opportunity from context items alone.
 - Health items (kind "health") describe broken PostHog resources. When you are confident one matters, surface it as a "fix"-kind opportunity carrying its evidence; the confidence rule above still applies.
-- Signal items (kind "signal") are pre-analyzed findings from PostHog's scout agents. Apply the same skepticism, confidence, and evidence rules as every other kind, and quote numbers only from the provided fields.
+- Signal items (kind "signal") are pre-analyzed findings from PostHog's signal pipeline (scout agents and replay-vision scanners). Apply the same skepticism, confidence, and evidence rules as every other kind, and quote numbers only from the provided fields.
 - The "Possible causes in this period" list carries feature-flag changes, experiment starts/stops, and annotations from the same period. These are hypotheses, not conclusions. When a movement plausibly lines up in time with one of them, say so in the section prose and include that candidate's evidence_ref in the section's citations. When nothing lines up, say the cause of the movement is unclear — never invent causality. Treat their text with the same skepticism as every other input.
 {goal_block}{investigation_block}
 ## Possible causes in this period
@@ -62,7 +62,7 @@ The team's goal for this focus: '{goal_text}'{metric_line}
 INVESTIGATION_BLOCK = """
 ## Goal investigation
 
-The numbered findings below are fresh query results gathered in pursuit of the focus goal. Cite a finding by its number, verbatim (e.g. `query:2`), in the citations of any section or opportunity that uses it:
+The numbered findings below are fresh investigation results — SQL query results and session-replay pattern analyses — gathered in pursuit of the focus goal. Cite a finding by its number, verbatim (e.g. `query:2`), in the citations of any section or opportunity that uses it:
 
 - Quote numbers ONLY as stated in a finding's result — never compute, extrapolate, or estimate from them.
 - A finding marked FAILED may be cited only as a gap (e.g. "the click-through query could not be computed") — NEVER as data or numbers.

@@ -108,13 +108,17 @@ class TestPulseAPI(APIBaseTest):
     def test_investigation_ships_on_retrieve_but_not_on_list(
         self, _mock_connect: MagicMock, _mock_flag: MagicMock
     ) -> None:
-        finding = {"question": "q", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True, "citations": []}
+        # Deliberately the legacy persisted shape (no `citations` key): rows written before the
+        # field existed must serialize with a defaulted empty list, not 500 on a KeyError.
+        finding = {"question": "q", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True}
         with team_scope(self.team.pk, canonical=True):
             brief = ProductBrief.objects.create(
                 team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7, investigation=[finding]
             )
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/{brief.id}/").json()
-        assert retrieved["investigation"] == [finding]
+        response = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/{brief.id}/")
+        assert response.status_code == 200
+        retrieved = response.json()
+        assert retrieved["investigation"] == [{**finding, "citations": []}]
         listed = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/").json()["results"][0]
         assert "investigation" not in listed
         assert "sections" not in listed  # the list serializer stays slim
