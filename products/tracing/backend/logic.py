@@ -232,7 +232,7 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
-def _projected_attribute_columns(exclude_attributes: bool) -> tuple[ast.Expr, ast.Expr]:
+def _projected_attribute_columns(exclude_attributes: bool | None) -> tuple[ast.Expr, ast.Expr]:
     """SELECT projections for the span and resource attribute maps, as (attributes, resource_attributes).
 
     Crucially, they are aliased to names that deliberately DIFFER from the `attributes` /
