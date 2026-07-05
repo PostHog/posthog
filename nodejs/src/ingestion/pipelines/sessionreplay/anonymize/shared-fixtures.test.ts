@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { gunzipSync, gzipSync } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -171,6 +172,64 @@ describe('anonymize shared fixtures', () => {
                 expect(result.failed).toBe(false)
                 expect(parseLines(result.lines!)).toEqual(expected)
             }
+        })
+
+        // cv-compressed events can't live in the static JSON fixtures (their payloads are raw
+        // gzip bytes), and the Rust-side cv coverage never runs a payload through the addon's
+        // production FFI. These cases gzip a known payload, run the whole decode/scrub/re-emit
+        // path through anonymizeKafkaPayload, then decompress the output to assert the scrub —
+        // the one place the native cv wire path is checked end to end.
+        describe('cv-compressed events through the production entry', () => {
+            // latin-1: each gzip byte is a U+00XX codepoint, matching the SDK wire format.
+            const gzipLatin1 = (json: string): string => Buffer.from(gzipSync(Buffer.from(json))).toString('latin1')
+            const gunzipLatin1 = (s: string): unknown => parseJSON(gunzipSync(Buffer.from(s, 'latin1')).toString())
+
+            const fullSnapshot = {
+                type: 2,
+                cv: '2024-10',
+                data: gzipLatin1(
+                    JSON.stringify({
+                        node: { type: 0, id: 1, childNodes: [{ type: 3, id: 5, textContent: 'keep secret' }] },
+                        initialOffset: { top: 0, left: 0 },
+                    })
+                ),
+            }
+            const mutation = {
+                type: 3,
+                cv: '2024-10',
+                data: { source: 0, texts: gzipLatin1(JSON.stringify([{ id: 5, value: 'keep secret' }])) },
+            }
+
+            // cvZstd:false keeps the output gzip so the assertion can decode it with zlib alone;
+            // the scrub semantics are format-independent (the codec only changes the re-emit leg).
+            it('scrubs a cv full snapshot and re-emits a decodable payload', async () => {
+                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]), undefined, false)
+                expect(result.failed).toBe(false)
+                const line = parseLines(result.lines!)[0] as [string, { data: string }]
+                const decoded = gunzipLatin1(line[1].data) as { node: { childNodes: { textContent: string }[] } }
+                expect(decoded.node.childNodes[0].textContent).toBe('keep ******')
+            })
+
+            it('scrubs a cv mutation sub-field and re-emits a decodable payload', async () => {
+                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [mutation]), undefined, false)
+                expect(result.failed).toBe(false)
+                const line = parseLines(result.lines!)[0] as [string, { data: { texts: string } }]
+                const decoded = gunzipLatin1(line[1].data.texts) as { value: string }[]
+                expect(decoded[0].value).toBe('keep ******')
+            })
+
+            // The production default re-emits zstd; downstream dispatches on the magic bytes, so
+            // pin that a changed payload actually carries the zstd frame magic (28 b5 2f fd).
+            it('emits zstd frames by default', async () => {
+                rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [fullSnapshot]))
+                expect(result.failed).toBe(false)
+                const line = parseLines(result.lines!)[0] as [string, { data: string }]
+                const magic = Buffer.from(line[1].data, 'latin1').subarray(0, 4)
+                expect([...magic]).toEqual([0x28, 0xb5, 0x2f, 0xfd])
+            })
         })
     })
 })

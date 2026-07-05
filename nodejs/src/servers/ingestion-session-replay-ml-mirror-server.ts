@@ -64,6 +64,27 @@ export function buildMlMirrorServerConfig(
     }
 }
 
+/**
+ * Startup self-test for the native anonymizer: scrub a minimal valid snapshot message through the
+ * production entry and throw if it fails, so a broken addon crashes the boot instead of silently
+ * dropping all mirror traffic as `anonymize_failed` once the consumer starts.
+ */
+async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
+    const inner = JSON.stringify({
+        event: '$snapshot_items',
+        properties: {
+            $session_id: 's',
+            $window_id: 'w',
+            $snapshot_items: [{ type: 3, timestamp: Date.now(), data: { source: 5, id: 1, text: 'health check' } }],
+        },
+    })
+    const payload = Buffer.from(JSON.stringify({ distinct_id: 'd', data: inner }))
+    const result = await anonymizer.anonymizeKafkaPayload(payload)
+    if (result.failed) {
+        throw new Error(`replay-anonymizer startup self-test failed: ${result.reason ?? 'unknown'}`)
+    }
+}
+
 export class IngestionSessionReplayMlMirrorServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
@@ -116,9 +137,14 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         if (useRustAnonymizer) {
             // Lazy require so the native addon is only loaded (and only needs to ship) when the flag is
             // on; the addon holds its own copy of the immutable allow lists, set once at startup.
-            const { initAnonymizer } =
-                require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
-            initAnonymizer(allow.entries())
+            const anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+            anonymizer.initAnonymizer(allow.entries())
+            // Startup self-test: scrub a known-good fixture through the production entry so a zombie
+            // addon (bad build, missing symbol, broken init) fails the deploy loudly instead of
+            // silently dropping every message as anonymize_failed once traffic arrives. The addon
+            // runs CPU work on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared with the
+            // recorder's snappy compression — size it for the deployment if scrub latency backs up.
+            await assertAnonymizerHealthy(anonymizer)
             logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
         }
         const scrubContext: ScrubContext = {
