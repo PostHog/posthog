@@ -34,7 +34,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { floatRecentAndPinnedToTop } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -367,10 +367,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         // un-searched list (keyword shortcuts only appear while searching, so they're
         // never displaced). Mirrors legacy infiniteListLogic's `soleGroupValueKeyer` path.
         if (!trimmedSearch && (promoteRecentItemsToTop?.length || promotePinnedItemsToTop?.length)) {
-            const keyOf = (item: TaxonomicDefinitionTypes): string | null => {
-                const value = group.getValue?.(item)
-                return value == null ? null : `${group.type}::${value}`
-            }
+            const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                groupItemKey(group.type, group.getValue?.(item) ?? null)
             return floatRecentAndPinnedToTop(
                 merged,
                 keyOf,

@@ -65,6 +65,19 @@ describe('floatRecentAndPinnedToTop', () => {
         expect(valuesOf(result)).toEqual([null, 'b', 'a'])
     })
 
+    it('leaves sparse-array holes in place and never keys them (a partially loaded legacy list must not crash or reorder holes)', () => {
+        const throwingKeyOf = (item: TaxonomicDefinitionTypes): string | null => {
+            // Mirrors a real group getValue that assumes a present item, e.g. `'id' in item`.
+            const value = (item as { value?: string }).value
+            return value == null ? null : `${G}::${value}`
+        }
+        const items: (TaxonomicDefinitionTypes | undefined)[] = [groupItem('a'), undefined, groupItem('c')]
+        const result = floatRecentAndPinnedToTop(items as TaxonomicDefinitionTypes[], throwingKeyOf, [recent('c')], [])
+        // 'c' floats to the top; 'a' and the hole stay in the rest tier by original index
+        // (the hole is never floated and never keyed — throwingKeyOf is never called on it).
+        expect(result.map((i) => (i == null ? 'HOLE' : (i as { value?: string }).value))).toEqual(['c', 'a', 'HOLE'])
+    })
+
     it('returns the input array unchanged when there is nothing to promote', () => {
         const items = ['a', 'b'].map(groupItem)
         expect(floatRecentAndPinnedToTop(items, keyOf, [], [])).toBe(items)

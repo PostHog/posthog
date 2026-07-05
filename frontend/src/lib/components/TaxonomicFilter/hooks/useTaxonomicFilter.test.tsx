@@ -81,6 +81,26 @@ describe('useTaxonomicFilter', () => {
         expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
     })
 
+    // Mirrors the legacy `taxonomicGroupTypes` selector cases in taxonomicFilterLogic.test.ts —
+    // both surfaces must lead with the sole group, then Recent/Pinned, and drop any prepended All.
+    it.each([
+        {
+            name: 'single substantive group leads, Recent/Pinned follow (no All)',
+            requested: [TaxonomicFilterGroupType.Events],
+        },
+        {
+            name: 'single substantive group drops an explicitly-prepended All and still leads',
+            requested: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+        },
+    ])('$name', ({ requested }) => {
+        const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
+        expect(result.current.groupTypes).toEqual([
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.RecentFilters,
+            TaxonomicFilterGroupType.PinnedFilters,
+        ])
+    })
+
     it('auto-injects SuggestedFilters as the default for a multi-content picker', () => {
         const { result } = renderHook(
             () =>

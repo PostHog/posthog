@@ -38,6 +38,7 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import {
     floatRecentAndPinnedToTop,
+    groupItemKey,
     pinnedSourceKey,
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
@@ -552,10 +553,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (!getValue) {
                     return null
                 }
-                return (item: TaxonomicDefinitionTypes): string | null => {
-                    const value = getValue(item)
-                    return value == null ? null : `${listGroupType}::${value}`
-                }
+                return (item: TaxonomicDefinitionTypes): string | null => groupItemKey(listGroupType, getValue(item))
             },
         ],
         allowNonCapturedEvents: [
@@ -1068,9 +1066,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
+                // Reordering a windowed list would break onRowsRendered's display-index ->
+                // remote-offset mapping (and sparse holes would crash the keyer), so only float
+                // the sole group's recents/pinned once its list is fully loaded and dense.
+                // Local-only groups (count 0, no remote) are always fully loaded.
+                const soleGroupFullyLoaded =
+                    remoteItems.results.length >= remoteItems.count && !combinedResults.includes(undefined as any)
                 const orderedBase = searchQuery
                     ? promoteMatchingProperties(combinedResults, searchQuery)
-                    : soleGroupValueKeyer
+                    : soleGroupValueKeyer && soleGroupFullyLoaded
                       ? floatRecentAndPinnedToTop(
                             combinedResults,
                             soleGroupValueKeyer,
