@@ -7,10 +7,16 @@ import { Breadcrumb } from '~/types'
 
 import type { replayScannerSceneLogicType } from './replayScannerSceneLogicType'
 
-export type ReplayScannerTab = 'observations' | 'quality' | 'on-demand' | 'configuration' | 'actions'
+export enum ReplayScannerTab {
+    Observations = 'observations',
+    Quality = 'quality',
+    OnDemand = 'on-demand',
+    Configuration = 'configuration',
+    Actions = 'actions',
+}
 
-const SCANNER_TABS: ReplayScannerTab[] = ['observations', 'quality', 'on-demand', 'configuration', 'actions']
-const DEFAULT_TAB: ReplayScannerTab = 'observations'
+const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
+const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Observations
 
 function parseTab(tab: unknown): ReplayScannerTab {
     return SCANNER_TABS.includes(tab as ReplayScannerTab) ? (tab as ReplayScannerTab) : DEFAULT_TAB
@@ -32,7 +38,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             },
         ],
         activeTab: [
-            DEFAULT_TAB as ReplayScannerTab,
+            DEFAULT_TAB,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
