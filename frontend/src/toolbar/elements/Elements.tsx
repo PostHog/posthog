@@ -19,6 +19,8 @@ import { getBoxColors, getHeatMapHue, getRectForElement, getToolbarRootElement }
 import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
 
+const noop = (): void => {}
+
 let nextElementId = 0
 const elementIdMap = new WeakMap<HTMLElement, number>()
 
@@ -132,7 +134,7 @@ export function Elements(): JSX.Element {
                             ...getBoxColors('blue', areaHoverElement === element, 0.1),
                         }}
                         onMouseOver={(e) => hoverAreaCandidate(e, element)}
-                        onMouseOut={() => {}}
+                        onMouseOut={noop}
                         onClick={() => selectHeatmapAreaFilter(areaHoverElement ?? element)}
                     />
                 ))}

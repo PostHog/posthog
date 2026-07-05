@@ -680,21 +680,20 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }),
         ],
     })),
-    subscriptions(({ actions, values }) => ({
-        viewportRange: () => {
-            actions.maybeLoadHeatmap()
-        },
-        windowWidth: () => {
+    subscriptions(({ actions, values }) => {
+        const updateAreaBoundsIfFiltered = (): void => {
             if (values.heatmapAreaFilter) {
                 actions.updateAreaBounds()
             }
-        },
-        windowHeight: () => {
-            if (values.heatmapAreaFilter) {
-                actions.updateAreaBounds()
-            }
-        },
-    })),
+        }
+        return {
+            viewportRange: () => {
+                actions.maybeLoadHeatmap()
+            },
+            windowWidth: updateAreaBoundsIfFiltered,
+            windowHeight: updateAreaBoundsIfFiltered,
+        }
+    }),
     listeners(({ actions, values, cache }) => ({
         processElements: async ({ trigger }, breakpoint) => {
             const SLICE_BUDGET_MS = 10
