@@ -65,7 +65,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
 
     // All panel-content keys are keep-mounted (hidden when inactive) so switching panels doesn't
     // tear down and rebuild whole trees on every toggle — that churn was the app's dominant
-    // detached-DOM source and also loses scroll/search/expansion state.
+    // detached-DOM source and also loses scroll/expansion state.
     const keepMountedPanels = Object.keys(panelContent) as PanelLayoutNavIdentifier[]
 
     return (

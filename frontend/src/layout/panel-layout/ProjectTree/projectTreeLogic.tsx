@@ -1118,7 +1118,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             // (data-and-people, products, shortcuts) don't contain project file-system items,
             // so subscribing on those instances would fire duplicate api.fileSystem.list calls
             // for every navigation when those panels are keep-mounted.
-            if (props.root !== undefined && !props.root.startsWith('project://')) {
+            // undefined root means the panel loads the project root (''), so it is project-equivalent.
+            const isProjectRoot = props.root === undefined || props.root.startsWith('project://')
+            if (!isProjectRoot) {
                 return
             }
             if (newRef) {
@@ -1141,7 +1143,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadFolder('')
         }
         // Same gate as the subscription: only project:// trees handle breadcrumb-driven visibility.
-        if (values.projectTreeRef && (props.root?.startsWith('project://') || props.root === undefined)) {
+        const isProjectRoot = props.root === undefined || props.root.startsWith('project://')
+        if (values.projectTreeRef && isProjectRoot) {
             actions.assureVisibility(values.projectTreeRef)
         }
         if (typeof props.defaultOnlyFolders !== 'undefined') {
