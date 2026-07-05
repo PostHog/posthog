@@ -28,11 +28,33 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         await context.cache.set(`cachedProjectFetchedAt:${projectIdStr}` as const, Date.now())
     }
 
-    // Read cached user and org for full metadata block
+    // Reconcile the active org to the project's parent org. Without this the cached `orgId`
+    // keeps pointing at the previously active org, so after switching to a project in a
+    // different organization the active-environment banner and every org-scoped tool
+    // silently disagree with the active project — the agent reads the wrong org's data with
+    // no error to flag it.
+    let org: CachedOrg | undefined
+    const projectOrgId = project?.organization
+    if (projectOrgId) {
+        await context.cache.set('orgId', projectOrgId)
+        org = (await context.cache.get(`cachedOrg:${projectOrgId}` as const)) as CachedOrg | undefined
+        if (!org) {
+            const orgResult = await context.api.organizations().get({ orgId: projectOrgId })
+            if (orgResult.success) {
+                org = orgResult.data
+                await context.cache.set(`cachedOrg:${projectOrgId}` as const, org)
+                await context.cache.set(`cachedOrgFetchedAt:${projectOrgId}` as const, Date.now())
+            }
+        }
+    } else {
+        // Project fetch failed — fall back to whatever org is cached so the banner still renders.
+        const cachedOrgId = (await context.cache.get('orgId')) ?? 'unknown'
+        org = (await context.cache.get(`cachedOrg:${cachedOrgId}` as const)) as CachedOrg | undefined
+    }
+
+    // Read cached user for full metadata block
     const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
-    const orgId = (await context.cache.get('orgId')) ?? 'unknown'
     const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
-    const org = (await context.cache.get(`cachedOrg:${orgId}` as const)) as CachedOrg | undefined
 
     const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl)
     const text = metadata

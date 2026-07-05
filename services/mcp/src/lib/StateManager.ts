@@ -156,7 +156,7 @@ export class StateManager {
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+                return { organizationId, projectId: projectsResult.data[0]!.id }
             }
             if (!projectsResult.success) {
                 // A 404 here means the API key/OAuth token points at an org the

@@ -166,13 +166,15 @@ describe('StateManager', () => {
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
-            // Mock the API client organization projects list call
+            // Mock the API client organization projects list call. The real
+            // `/api/organizations/{id}/projects/` returns full project objects, so the
+            // resolver must read `.id` off the first one (not coerce the object to a number).
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: true,
-                            data: [789],
+                            data: [{ id: 789, organization: 'org-3', name: 'Org 3 Project' }],
                         }),
                     }),
                 }),
@@ -249,7 +251,10 @@ describe('StateManager', () => {
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
-                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                        list: vi.fn().mockResolvedValue({
+                            success: true,
+                            data: [{ id: 789, organization: 'org-3', name: 'Org 3 Project' }],
+                        }),
                     }),
                 }),
             }
