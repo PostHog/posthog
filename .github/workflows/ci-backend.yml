@@ -19,6 +19,9 @@ on:
         # it when a PR leaves draft. To force the full matrices on a draft, add the
         # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
         # start without needing a new push. Cheap checks still run on drafts.
+        # The `test-new-events-schema` label opts a PR into the doubled matrices that
+        # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
+        # PRs run legacy-schema only (master/merge-queue runs always cover both).
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 
@@ -694,11 +697,21 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
+                  # The new-events-schema variants double the matrix, so PRs only run
+                  # them when opted in via the test-new-events-schema label. Non-PR runs
+                  # (master push, merge queue, dispatch) always cover both schema modes.
+                  RUN_NEW_EVENTS_SCHEMA: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
-                  include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" '
+                  if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
+                      schema_modes='[false, true]'
+                  else
+                      schema_modes='[false]'
+                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                  fi
+                  include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
-                      | [false, true][] as $new_events_schema
+                      | $schema_modes[] as $new_events_schema
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
@@ -2017,6 +2030,10 @@ jobs:
                   DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
+                  # The new-events-schema variants double the matrix, so PRs only run
+                  # them when opted in via the test-new-events-schema label. Non-PR runs
+                  # (master push, merge queue, dispatch) always cover both schema modes.
+                  RUN_NEW_EVENTS_SCHEMA: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
@@ -2244,6 +2261,16 @@ jobs:
                             }
                         ]
                       ')
+                  fi
+
+                  if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
+                      # Unlabeled PRs skip the doubled schema matrix; note their snapshot
+                      # bot commits then leave [new_events_schema] .ambr blocks untouched,
+                      # so those blocks only refresh on labeled PRs and stay stale between.
+                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      core_new_events_schema="[]"
+                      core_persons_on_events_new_schema="[]"
+                      temporal_new_events_schema="[]"
                   fi
 
                   if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
