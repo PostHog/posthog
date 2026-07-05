@@ -175,7 +175,7 @@ class StripeSource(
                                         SourceFieldOauthConfig(
                                             name="stripe_integration_id",
                                             label="Stripe account",
-                                            required=False,
+                                            required=True,
                                             kind="stripe",
                                         ),
                                     ],
