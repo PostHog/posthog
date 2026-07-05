@@ -137,12 +137,14 @@ describe('anonymize shared fixtures', () => {
                 .map((l) => parseJSON(l))
         }
 
-        test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
-            // --runInBand is required to ensure cases are sequential
-            rustAddon!.initAnonymizer(c.allow)
-            const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [c.event]))
-            expect(result.failed).toBe(false)
-            expect(parseLines(result.lines!)).toEqual(expectedLines('w', [c.expected]))
+        describe('events', () => {
+            test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
+                // --runInBand is required to ensure cases are sequential
+                rustAddon!.initAnonymizer(c.allow)
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [c.event]))
+                expect(result.failed).toBe(false)
+                expect(parseLines(result.lines!)).toEqual(expectedLines('w', [c.expected]))
+            })
         })
 
         test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', async (_name, c) => {
