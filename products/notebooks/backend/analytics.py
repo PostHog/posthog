@@ -20,11 +20,11 @@ class NotebookCreationSource:
     UI = "ui"
     MCP = "mcp"
     MAX_AI = "max_ai"
-    MAX_ACCOUNT_NOTEBOOK = "max_account_notebook"
     TEMPORAL_AGENT = "temporal_agent"
     GROUP_AUTO = "group_auto"
     # Neutral default for the generic facade create; real callers pass their own source.
     SERVER = "server"
+    # The account-notebook path (max_account_notebook) is deferred; its source lands with it.
 
 
 def notebook_node_count(content: Any) -> int | None:
