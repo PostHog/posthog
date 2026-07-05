@@ -129,8 +129,28 @@ export const INSIGHT_DATE_PRESETS: InsightDatePreset[] = [
     },
 ]
 
-export function insightDateRanges(weekStartDay: number): DateTimeRange[] {
-    return INSIGHT_DATE_PRESETS.map((preset, index) => ({
+const RETENTION_PRESET_COUNTS = [7, 14, 30, 90]
+
+/** Retention quick ranges scale with the retention period (the range selects cohort-start
+ * buckets), mirroring the legacy RetentionDatePicker options. */
+export function retentionDatePresets(period: string | null | undefined): InsightDatePreset[] {
+    const unit = (period ?? 'Day').toLowerCase() as 'hour' | 'day' | 'week' | 'month'
+    return [
+        ...RETENTION_PRESET_COUNTS.map((count) => ({
+            name: `Last ${count} ${unit}s`,
+            dateFrom: `-${count}${unit.charAt(0)}`,
+            dateTo: null,
+            rangeSetter: (now: Date) => dayjs(now).subtract(count, unit).toDate(),
+        })),
+        INSIGHT_DATE_PRESETS.find((preset) => preset.name === 'Year to date')!,
+    ]
+}
+
+export function insightDateRanges(
+    weekStartDay: number,
+    presets: InsightDatePreset[] = INSIGHT_DATE_PRESETS
+): DateTimeRange[] {
+    return presets.map((preset, index) => ({
         id: index + 1,
         name: preset.name,
         rangeSetter: (now: Date) => preset.rangeSetter(now, weekStartDay),
@@ -140,18 +160,22 @@ export function insightDateRanges(weekStartDay: number): DateTimeRange[] {
 
 export function presetForDateStrings(
     dateFrom: string | null | undefined,
-    dateTo: string | null | undefined
+    dateTo: string | null | undefined,
+    presets: InsightDatePreset[] = INSIGHT_DATE_PRESETS
 ): InsightDatePreset | undefined {
-    return INSIGHT_DATE_PRESETS.find((preset) => preset.dateFrom === dateFrom && preset.dateTo === (dateTo ?? null))
+    // Retention writes date_to: 'now' on period changes — same open end as null.
+    const normalizedTo = dateTo === 'now' ? null : (dateTo ?? null)
+    return presets.find((preset) => preset.dateFrom === dateFrom && preset.dateTo === normalizedTo)
 }
 
 export function pickerValueForDateRange(
     dateFrom: string | null | undefined,
     dateTo: string | null | undefined,
     ranges: DateTimeRange[],
-    now: Date = new Date()
+    now: Date = new Date(),
+    presets: InsightDatePreset[] = INSIGHT_DATE_PRESETS
 ): DateTimeValue {
-    const preset = presetForDateStrings(dateFrom ?? DEFAULT_DATE_FROM, dateTo)
+    const preset = presetForDateStrings(dateFrom ?? DEFAULT_DATE_FROM, dateTo, presets)
     if (preset) {
         const range = ranges.find((r) => r.name === preset.name)
         if (range) {
@@ -182,12 +206,16 @@ export function dateRangeUpdateForPickerValue(value: DateTimeValue): Pick<DateRa
     }
 }
 
-export function insightDateLabel(dateFrom: string | null | undefined, dateTo: string | null | undefined): string {
+export function insightDateLabel(
+    dateFrom: string | null | undefined,
+    dateTo: string | null | undefined,
+    presets: InsightDatePreset[] = INSIGHT_DATE_PRESETS
+): string {
     if (!dateFrom) {
         return DEFAULT_DATE_LABEL
     }
     return (
-        presetForDateStrings(dateFrom, dateTo)?.name ??
+        presetForDateStrings(dateFrom, dateTo, presets)?.name ??
         dateFilterToText(dateFrom, dateTo, DEFAULT_DATE_LABEL) ??
         DEFAULT_DATE_LABEL
     )

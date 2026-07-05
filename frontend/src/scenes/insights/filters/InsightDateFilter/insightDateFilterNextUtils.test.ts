@@ -8,6 +8,7 @@ import {
     insightDateLabel,
     insightDateRanges,
     pickerValueForDateRange,
+    retentionDatePresets,
 } from './insightDateFilterNextUtils'
 
 // Friday May 15 2026, mid-Q2
@@ -76,5 +77,19 @@ describe('insightDateFilterNextUtils', () => {
         { dateFrom: null, dateTo: null, expected: 'Last 7 days' },
     ])('labels $dateFrom..$dateTo as $expected', ({ dateFrom, dateTo, expected }) => {
         expect(insightDateLabel(dateFrom, dateTo)).toBe(expected)
+    })
+
+    test.each([
+        { period: 'Hour', name: 'Last 14 hours', dateFrom: '-14h' },
+        { period: 'Day', name: 'Last 90 days', dateFrom: '-90d' },
+        { period: 'Week', name: 'Last 7 weeks', dateFrom: '-7w' },
+        { period: 'Month', name: 'Last 30 months', dateFrom: '-30m' },
+    ])('retention presets scale to the $period period ($name → $dateFrom)', ({ period, name, dateFrom }) => {
+        const presets = retentionDatePresets(period)
+        const preset = presets.find((p) => p.name === name)
+        expect(preset?.dateFrom).toBe(dateFrom)
+        expect(preset?.dateTo).toBeNull()
+        // Retention writes date_to: 'now' on period changes — must still match the preset.
+        expect(insightDateLabel(dateFrom, 'now', presets)).toBe(name)
     })
 })

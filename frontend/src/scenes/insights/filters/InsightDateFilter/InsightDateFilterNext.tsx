@@ -46,6 +46,7 @@ import {
     insightDateRanges,
     pickerValueForDateRange,
     presetForDateStrings,
+    retentionDatePresets,
 } from './insightDateFilterNextUtils'
 
 const ROLLING_UNITS: Record<string, string> = {
@@ -66,7 +67,9 @@ type InsightDateFilterNextProps = {
 
 export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { querySource, dateRange, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, dateRange, trendsFilter, retentionFilter, isTrends, isRetention } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { weekStartDay } = useValues(teamLogic)
 
@@ -75,7 +78,16 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
     const [rollingCount, setRollingCount] = useState<string>(DEFAULT_ROLLING_COUNT)
     const [rollingUnit, setRollingUnit] = useState<string>(DEFAULT_ROLLING_UNIT)
 
-    const activePreset = presetForDateStrings(dateRange?.date_from ?? DEFAULT_DATE_FROM, dateRange?.date_to)
+    // Retention's range selects cohort-start buckets, so its presets scale with the period.
+    const retentionPeriod = isRetention ? (retentionFilter?.period ?? 'Day') : null
+    const presets = useMemo(
+        () => (retentionPeriod ? retentionDatePresets(retentionPeriod) : INSIGHT_DATE_PRESETS),
+        [retentionPeriod]
+    )
+    const listedPresetNames = retentionPeriod ? presets.map((preset) => preset.name) : LISTED_PRESET_NAMES
+    const defaultRollingUnit = retentionPeriod ? retentionPeriod.charAt(0).toLowerCase() : DEFAULT_ROLLING_UNIT
+
+    const activePreset = presetForDateStrings(dateRange?.date_from ?? DEFAULT_DATE_FROM, dateRange?.date_to, presets)
     const isAllTime = dateRange?.date_from === 'all'
     const isRolling = !activePreset && !isAllTime && ROLLING_DATE_FROM.test(dateRange?.date_from ?? '')
     const isCustom = !!dateRange?.date_from && !activePreset && !isAllTime && !isRolling
@@ -84,23 +96,23 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         if (nextOpen) {
             const rollingMatch = ROLLING_DATE_FROM.exec(dateRange?.date_from ?? '')
             setRollingCount(rollingMatch?.[1] ?? DEFAULT_ROLLING_COUNT)
-            setRollingUnit(rollingMatch?.[2] ?? DEFAULT_ROLLING_UNIT)
+            setRollingUnit(rollingMatch?.[2] ?? defaultRollingUnit)
             setCustomOpen(isCustom)
         }
         setOpen(nextOpen)
     }
 
-    const ranges = useMemo(() => insightDateRanges(weekStartDay), [weekStartDay])
+    const ranges = useMemo(() => insightDateRanges(weekStartDay, presets), [weekStartDay, presets])
     const pickerValue = useMemo(
-        () => pickerValueForDateRange(dateRange?.date_from, dateRange?.date_to, ranges),
-        [dateRange?.date_from, dateRange?.date_to, ranges]
+        () => pickerValueForDateRange(dateRange?.date_from, dateRange?.date_to, ranges, undefined, presets),
+        [dateRange?.date_from, dateRange?.date_to, ranges, presets]
     )
     // The calendar always stages a custom range — presets are applied from the list, not the calendar.
     const calendarValue: DateTimeValue = { start: pickerValue.start, end: pickerValue.end, range: CUSTOM_RANGE }
 
     const selectedDays = getEffectiveDaysOfWeek(dateRange, trendsFilter)
 
-    const labelParts = [insightDateLabel(dateRange?.date_from, dateRange?.date_to)]
+    const labelParts = [insightDateLabel(dateRange?.date_from, dateRange?.date_to, presets)]
     if (isTrends && selectedDays.length > 0) {
         labelParts.push(daysOfWeekLabel(selectedDays))
     }
@@ -109,7 +121,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
     }
 
     const applyPreset = (name: string): void => {
-        const preset = INSIGHT_DATE_PRESETS.find((p) => p.name === name)
+        const preset = presets.find((p) => p.name === name)
         if (preset) {
             updateDateRange({ date_from: preset.dateFrom, date_to: preset.dateTo }, true)
         }
@@ -154,7 +166,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     <div className="flex w-60 flex-col">
                         {/* Preset rail */}
                         <div className="flex flex-col gap-px p-2">
-                            {LISTED_PRESET_NAMES.map((name) => (
+                            {listedPresetNames.map((name) => (
                                 <Button
                                     key={name}
                                     variant="default"
@@ -267,18 +279,20 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                                     </div>
                                 </div>
                             )}
-                            <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
-                                <Switch
-                                    id="insight-exclude-incomplete-period"
-                                    size="sm"
-                                    checked={!!dateRange?.excludeIncompletePeriods}
-                                    onCheckedChange={(checked) =>
-                                        updateDateRange({ excludeIncompletePeriods: checked ? true : null }, true)
-                                    }
-                                    data-attr="insight-date-filter-next-exclude-incomplete"
-                                />
-                                <Label htmlFor="insight-exclude-incomplete-period">Exclude incomplete period</Label>
-                            </div>
+                            {!isRetention && (
+                                <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
+                                    <Switch
+                                        id="insight-exclude-incomplete-period"
+                                        size="sm"
+                                        checked={!!dateRange?.excludeIncompletePeriods}
+                                        onCheckedChange={(checked) =>
+                                            updateDateRange({ excludeIncompletePeriods: checked ? true : null }, true)
+                                        }
+                                        data-attr="insight-date-filter-next-exclude-incomplete"
+                                    />
+                                    <Label htmlFor="insight-exclude-incomplete-period">Exclude incomplete period</Label>
+                                </div>
+                            )}
                         </div>
                     </div>
                     {/* Calendar panel, only when asked for */}

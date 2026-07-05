@@ -82,7 +82,7 @@ export function InsightDisplayConfig(): JSX.Element {
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {!isRetention && (
+                {(quillDateFilterEnabled || !isRetention) && (
                     <ConfigFilter>
                         {quillDateFilterEnabled ? (
                             <InsightDateFilterNext disabled={isFunnels && !!isEmptyFunnel} />
@@ -98,10 +98,15 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {!!isRetention && (
+                {!!isRetention && !quillDateFilterEnabled && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
+                    </ConfigFilter>
+                )}
+
+                {!!isRetention && hasBreakdownFilter(breakdownFilter) && (
+                    <ConfigFilter>
+                        <RetentionBreakdownFilter />
                     </ConfigFilter>
                 )}
 
