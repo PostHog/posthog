@@ -327,3 +327,18 @@ export const pulseOpportunitiesReopenCreate = async (
         method: 'POST',
     })
 }
+
+export const getPulseOpportunitiesResearchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/research/`
+}
+
+export const pulseOpportunitiesResearchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesResearchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}

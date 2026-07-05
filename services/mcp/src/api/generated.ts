@@ -31083,6 +31083,21 @@ export namespace Schemas {
          */
       readonly first_seen_brief: string | null;
       /**
+         * UUID of the solutions-research notebook produced for this opportunity, if any.
+         * @nullable
+         */
+      readonly research_notebook_id: string | null;
+      /**
+         * Short ID of the solutions-research notebook produced for this opportunity, for building its notebook URL. Null until a research run has completed.
+         * @nullable
+         */
+      readonly research_notebook_short_id: string | null;
+      /**
+         * When solutions research was last requested for this opportunity. A run is in flight when this is set but no notebook has been produced yet.
+         * @nullable
+         */
+      readonly research_requested_at: string | null;
+      /**
          * The calling user's helpfulness vote: true, false, or null when they have not voted.
          * @nullable
          */
