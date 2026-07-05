@@ -159,6 +159,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/values/?{query}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_event_property_values_returns_empty_for_selector(self) -> None:
+        # the taxonomic filter eagerly fetches selector values; a 400 here surfaces as an error toast
+        response = self.client.get("/api/element/values/?key=selector")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
     # checking postgres, don't care about person on events
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries

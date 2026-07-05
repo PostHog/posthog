@@ -34,10 +34,12 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "How long does it take to get element stats?",
 )
 
-# element properties that appear as string values in elements_chain; the numeric
-# fields on ElementSerializer are stored in a format the values regexes cannot match
+# element properties that appear as string values in elements_chain; the other
+# ElementSerializer fields (numeric ones, the attributes map) are stored in a
+# format the values regexes cannot match
 SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_class", "attr_id"}
 _SUPPORTED_VALUES_KEYS_DISPLAY = ", ".join(sorted(SUPPORTED_VALUES_KEYS))
+KEYS_WITH_NO_LISTABLE_VALUES = {"selector"}
 
 ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
     "element_stats_result_count",
@@ -341,6 +343,11 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             key = request.GET.get("key")
             value = request.GET.get("value")
+
+            # the taxonomic filter offers selector and eagerly fetches its values,
+            # but selectors are computed, not stored in elements_chain
+            if key in KEYS_WITH_NO_LISTABLE_VALUES:
+                return response.Response([])
 
             if key not in SUPPORTED_VALUES_KEYS:
                 raise ValidationError(f"key must be one of {_SUPPORTED_VALUES_KEYS_DISPLAY}")
