@@ -42,9 +42,7 @@ pub fn merge_records(
     meta: &LeafStateMeta,
     tz: Tz,
 ) -> MergedRecord {
-    // Variant mismatch is a desync — keep P_new untouched. This also guards a person-property leaf
-    // (whose state no longer lives in `cf_behavioral`): a transfer never carries one, but if a stale
-    // catalog ever paired a person-property meta with a behavioral leaf, this keeps P_new's row.
+    // Variant mismatch is a desync — keep P_new untouched.
     if old.state.variant() != meta.variant
         || new.is_some_and(|record| record.state.variant() != meta.variant)
     {
@@ -566,8 +564,6 @@ mod tests {
 
     #[test]
     fn variant_mismatch_keeps_new_defensively() {
-        // P_old's state is a daily-bucket state but the leaf's meta says single: a desync keeps P_new's
-        // single untouched rather than migrating the mismatched state.
         let merged = merge_records(
             uuid(1),
             &daily(vec![0u32; 8], 100),

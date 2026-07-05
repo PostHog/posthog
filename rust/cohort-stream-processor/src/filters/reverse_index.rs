@@ -268,8 +268,6 @@ impl TeamFiltersBuilder {
         let mut person_conditions_ordered: Vec<[u8; 16]> =
             person_property_conditions.iter().copied().collect();
         person_conditions_ordered.sort_unstable();
-        // Compute the catalog fingerprint from the sorted conditions right where they are finalized,
-        // so it is a content fingerprint invariant to the insertion order of the underlying set.
         let catalog_fingerprint = CatalogFingerprint::of_sorted(&person_conditions_ordered);
 
         let behavioral_by_event_name = behavioral_by_event_name
@@ -857,12 +855,10 @@ mod tests {
             person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
             person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
         ]);
-        // The fingerprint is exactly the fingerprint of the frozen sorted conditions.
         assert_eq!(
             a.catalog_fingerprint,
             CatalogFingerprint::of_sorted(&a.person_conditions_ordered),
         );
-        // Two freezes of the same conditions agree.
         let b = freeze_person_conditions(vec![
             person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
             person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
@@ -872,8 +868,6 @@ mod tests {
 
     #[test]
     fn catalog_fingerprint_is_invariant_to_insertion_order() {
-        // The input set is sorted at freeze, so permuting the insertion order must NOT change the
-        // fingerprint.
         let ordered = freeze_person_conditions(vec![
             person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
             person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
@@ -911,7 +905,6 @@ mod tests {
             CatalogFingerprint::of_sorted(&[]),
             "no person conditions ⇒ the stable empty-input fingerprint",
         );
-        // And it matches `TeamFilters::default()`, which also holds no conditions.
         assert_eq!(
             behavioral_only.catalog_fingerprint,
             TeamFilters::default().catalog_fingerprint,

@@ -1,28 +1,17 @@
 //! Env-gated TTL compaction filter for `cf_person_records`.
 //!
 //! When `COHORT_PERSON_RECORD_TTL_DAYS` is set (default OFF), a compaction-filter factory is installed
-//! on `cf_person_records` **only** — never on `cf_behavioral`, whose live eviction deadlines are the
-//! sweep's contract. Each compaction run gets a fresh filter whose cutoff is captured once at filter
-//! creation (`now_ms - ttl`), so every value in that run is judged against one wall-clock instant.
+//! on `cf_person_records` only — never on `cf_behavioral`, whose live eviction deadlines are the
+//! sweep's contract. Each compaction run gets a fresh filter whose cutoff is frozen at filter creation
+//! (`now_ms - ttl`), so every value in that run is judged against one instant.
 //!
-//! Filter semantics, per value:
-//!
-//! - A well-formed v1 record (`value.len() >= LAST_SEEN_MS_OFFSET + 8` and `value[0] == FORMAT_VERSION`)
-//!   carries `last_seen_ms` as a big-endian `i64` at the fixed [`LAST_SEEN_MS_OFFSET`]. If that is
-//!   strictly older than the cutoff, the record is [`Decision::Remove`]d; otherwise [`Decision::Keep`].
-//! - ANY other shape — too short, wrong version byte, garbage — is [`Decision::Keep`]. The TTL never
-//!   drops a value it cannot positively read as expired; a malformed value instead surfaces as a
-//!   counted decode error on the read path.
-//!
-//! ## FFI never-panic rule
+//! A record whose `last_seen_ms` is strictly older than the cutoff is removed; any value that cannot
+//! be positively read as expired (too short, wrong version byte, garbage) is kept.
 //!
 //! [`PersonRecordTtlFilter::filter`] runs on RocksDB compaction threads across the C FFI boundary,
-//! exactly like the retired `cf_person_index` merge operator did. A panic across that boundary is
-//! undefined behavior, so the closure must never panic: it does no unchecked indexing (bytes are
-//! read through a length guard and `try_into` on an already-checked slice) and no unwrap/expect on
-//! fallible input. It is also kept free of metrics and logging — a compaction-thread hot loop where
-//! RocksDB offers no re-entrancy guarantees — so the only observability here is a factory-creation
-//! `debug!` at [`PersonRecordTtlFactory::create`].
+//! where a panic is undefined behavior, so it must never panic: no unchecked indexing, no unwrap/expect
+//! on fallible input. It is also kept free of metrics and logging (no re-entrancy guarantees on the
+//! compaction thread); the only observability is a factory-creation `debug!`.
 
 use std::ffi::{CStr, CString};
 
@@ -32,38 +21,30 @@ use tracing::debug;
 
 use crate::stage1::person_record::{FORMAT_VERSION, LAST_SEEN_MS_OFFSET};
 
-/// RocksDB prints the factory/filter name to its LOG on startup; bump the `_vN` suffix on any change
-/// to the filter's semantics so the change is visible in the log.
+/// Bump the `_vN` suffix on any change to the filter's semantics so it is visible in the RocksDB LOG.
 const FACTORY_NAME: &[u8] = b"cf_person_records_ttl_v1\0";
 const FILTER_NAME: &[u8] = b"cf_person_records_ttl_filter_v1\0";
 
 /// Milliseconds per day, the unit `COHORT_PERSON_RECORD_TTL_DAYS` is expressed in.
 const MS_PER_DAY: i64 = 86_400_000;
 
-/// The smallest record long enough to carry `last_seen_ms`: the header up to and including the 8-byte
-/// field. Shorter values cannot be positively classified and are always kept.
+/// The smallest value long enough to carry `last_seen_ms`. Shorter values are always kept.
 const MIN_TTL_READABLE_LEN: usize = LAST_SEEN_MS_OFFSET + 8;
 
 /// Factory installed on `cf_person_records` when the TTL is enabled. RocksDB calls [`Self::create`]
 /// once per compaction run; the returned filter carries a cutoff frozen at that instant.
 pub struct PersonRecordTtlFactory {
     ttl_ms: i64,
-    /// The clock read at each compaction run, boxed so tests can inject a fixed instant. Constructed
-    /// once when the factory is built and moved into the RocksDB options, so the single allocation is
-    /// off the hot path.
+    /// The clock, read once per compaction run. Boxed so tests can inject a fixed instant.
     now_ms: Box<dyn Fn() -> i64 + Send>,
 }
 
 impl PersonRecordTtlFactory {
-    /// A factory that reads the wall clock at each compaction run. `ttl_days` should be non-zero (the
-    /// caller only installs the factory when the TTL is enabled); a zero TTL degenerates to "drop
-    /// nothing older than now", which is harmless but pointless.
+    /// A factory that reads the wall clock at each compaction run.
     pub fn new(ttl_days: u32) -> Self {
         Self::with_clock(ttl_days, wall_clock_ms)
     }
 
-    /// Build a factory with an explicit clock. The clock is read once per compaction run inside
-    /// [`Self::create`], so the cutoff reflects that run's start instant.
     fn with_clock(ttl_days: u32, now_ms: impl Fn() -> i64 + Send + 'static) -> Self {
         Self {
             ttl_ms: ttl_ms_for(ttl_days),
@@ -71,8 +52,8 @@ impl PersonRecordTtlFactory {
         }
     }
 
-    /// The cutoff for a run starting now: records with `last_seen_ms < cutoff` are dropped. Saturating,
-    /// so an enormous TTL cannot underflow the cutoff below `i64::MIN`.
+    /// The cutoff for a run starting now: records with `last_seen_ms < cutoff` are dropped. Saturating
+    /// so an enormous TTL cannot underflow the cutoff.
     fn cutoff(&self) -> i64 {
         (self.now_ms)().saturating_sub(self.ttl_ms)
     }
@@ -83,8 +64,7 @@ impl CompactionFilterFactory for PersonRecordTtlFactory {
 
     fn create(&mut self, context: CompactionFilterContext) -> Self::Filter {
         let cutoff = self.cutoff();
-        // Factory-creation time is the only safe place to observe the TTL: it runs once per compaction
-        // run, not per key, and outside the per-key FFI hot loop.
+        // Log here, not in `filter`: this runs once per compaction run, outside the per-key FFI loop.
         debug!(
             cutoff_ms = cutoff,
             is_full_compaction = context.is_full_compaction,
@@ -103,7 +83,7 @@ impl CompactionFilterFactory for PersonRecordTtlFactory {
 }
 
 /// One compaction run's filter. Holds the frozen cutoff; classifies each value with no allocation,
-/// no clock read, and — per the FFI rule — no panic, metric, or log.
+/// no clock read, and no panic, metric, or log.
 pub struct PersonRecordTtlFilter {
     cutoff: i64,
     name: CString,
@@ -112,10 +92,8 @@ pub struct PersonRecordTtlFilter {
 impl CompactionFilter for PersonRecordTtlFilter {
     fn filter(&mut self, _level: u32, _key: &[u8], value: &[u8]) -> Decision {
         match last_seen_ms(value) {
-            // Positively-read expiry is the only thing the TTL drops.
             Some(last_seen_ms) if last_seen_ms < self.cutoff => Decision::Remove,
-            // Fresh enough, OR unreadable (short / wrong version / garbage): keep it. A malformed value
-            // is never dropped by the TTL — it surfaces as a counted decode error on the read path.
+            // Fresh enough, or unreadable (short / wrong version / garbage): keep it.
             _ => Decision::Keep,
         }
     }
@@ -125,9 +103,8 @@ impl CompactionFilter for PersonRecordTtlFilter {
     }
 }
 
-/// Read `last_seen_ms` from a value that is a well-formed v1 person record, else `None`. Total and
-/// panic-free: the length guard makes the fixed-offset slice in-bounds, and `try_into` on that
-/// exact-length slice cannot fail.
+/// Read `last_seen_ms` from a value that is a well-formed v1 person record, else `None`. Panic-free:
+/// the length guard makes the fixed-offset slice in-bounds.
 fn last_seen_ms(value: &[u8]) -> Option<i64> {
     if value.len() < MIN_TTL_READABLE_LEN || value[0] != FORMAT_VERSION {
         return None;
@@ -148,7 +125,6 @@ fn wall_clock_ms() -> i64 {
 }
 
 fn factory_name() -> &'static CStr {
-    // The literal is NUL-terminated and NUL-free before the terminator, so this cannot fail.
     CStr::from_bytes_with_nul(FACTORY_NAME).expect("factory name is a valid C string literal")
 }
 
@@ -197,8 +173,6 @@ mod tests {
     #[test]
     fn malformed_values_are_always_kept() {
         let mut filter = factory_at(40 * MS_PER_DAY, 30).create(context()); // cutoff = day 10
-                                                                            // Empty, too-short-to-carry-last_seen, and wrong-version values — all older-looking than the
-                                                                            // cutoff if misread — must be kept, not dropped.
         for value in [
             [].as_slice(),
             &[FORMAT_VERSION],                      // version only
@@ -225,9 +199,7 @@ mod tests {
 
     #[test]
     fn cutoff_does_not_underflow_for_a_small_now_and_a_large_ttl() {
-        // A tiny `now` minus a maxed-out `ttl_ms` must saturate rather than wrap (a wrap would flip the
-        // cutoff positive and classify nothing as expired). `now = 0`, `ttl_ms = i64::MAX` is the
-        // worst case; `saturating_sub` floors it at `i64::MIN + 1`.
+        // A wrap would flip the cutoff positive and classify nothing as expired.
         let mut factory = factory_at(0, 30);
         factory.ttl_ms = i64::MAX;
         assert_eq!(factory.cutoff(), 0i64.saturating_sub(i64::MAX));
@@ -237,8 +209,7 @@ mod tests {
     #[test]
     fn ttl_ms_for_maps_days_to_millis_without_overflow_for_any_u32() {
         assert_eq!(ttl_ms_for(30), 30 * MS_PER_DAY);
-        // Every `u32` day count fits in `i64` millis (`u32::MAX * 86_400_000 < i64::MAX`), so the
-        // saturating multiply is a defensive floor that never actually saturates here.
+        // Every `u32` day count fits in `i64` millis, so the saturating multiply never saturates here.
         assert_eq!(ttl_ms_for(u32::MAX), u32::MAX as i64 * MS_PER_DAY);
     }
 

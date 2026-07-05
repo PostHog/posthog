@@ -159,23 +159,18 @@ fn cf_options(cf: Cf, config: &StoreConfig, cache: &Cache) -> Options {
         opts.set_periodic_compaction_seconds(config.periodic_compaction_seconds);
     }
 
-    // Per-CF options that must attach to exactly one column family. The match is the structural
-    // guarantee: the TTL compaction filter can only be installed inside the `Cf::PersonRecords` arm, so
-    // it can never land on `cf_behavioral` (whose eviction deadlines are the sweep's contract) or any
-    // other CF.
+    // The exhaustive match is the structural guarantee that the TTL compaction filter can only land on
+    // `Cf::PersonRecords`, never on `cf_behavioral` (whose eviction deadlines are the sweep's contract).
     match cf {
-        // A fixed-length prefix extractor over the person prefix turns a person's contiguous leaf
-        // slice into a bloom-backed prefix seek, so reading one person's leaves touches one or a few
-        // data blocks instead of scattering across the CF. Only `cf_behavioral` needs it: it holds many
-        // leaves per person, so a person's rows are a range.
+        // A fixed-length prefix extractor over the person prefix turns a person's contiguous leaf slice
+        // into a bloom-backed prefix seek. Only `cf_behavioral` needs it: it holds many leaves per
+        // person, so a person's rows are a range.
         Cf::Behavioral => {
             opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PERSON_PREFIX_LEN));
             opts.set_memtable_prefix_bloom_ratio(BEHAVIORAL_MEMTABLE_PREFIX_BLOOM_RATIO);
         }
-        // `cf_person_records` is one row per person keyed by the 26-byte prefix itself — a prefix
-        // extractor over a 26-byte prefix of a 26-byte key is redundant, so it keeps plain point-lookup
-        // options with whole-key filtering only. When a TTL is configured, install the compaction
-        // filter that drops person records dormant past the TTL; `0` leaves the CF untouched.
+        // One row per person keyed by the 26-byte prefix itself, so it keeps plain point-lookup options.
+        // Install the TTL compaction filter when configured; `0` leaves the CF untouched.
         Cf::PersonRecords => {
             if config.person_record_ttl_days != 0 {
                 opts.set_compaction_filter_factory(PersonRecordTtlFactory::new(

@@ -65,14 +65,9 @@ impl PersonPrefix {
     }
 
     /// The half-open byte range `[prefix, prefix-successor)` covering exactly this person's slice of a
-    /// person-clustered CF — the unit of prefix iteration and of a single `delete_range_cf`.
-    ///
-    /// The upper bound is the 26-byte prefix incremented as a big-endian integer: a person's keys are
-    /// all `>= prefix` and strictly `< next-prefix`, so incrementing the last non-`0xFF` byte (dropping
-    /// the trailing `0xFF` run) yields the smallest key greater than every extension of `prefix`. A
-    /// prefix of all `0xFF` bytes (the maximum person on the maximum team of the last partition) has no
-    /// shorter successor, so the end is an all-`0xFF` sentinel one byte longer than the longest key that
-    /// can start with this prefix (`prefix + 16-byte lsk`), which exceeds every such key.
+    /// person-clustered CF — the unit of prefix iteration and of a single `delete_range_cf`. For an
+    /// all-`0xFF` prefix (which has no shorter successor) the end is an all-`0xFF` sentinel one byte
+    /// longer than the longest key under the prefix, which exceeds every such key.
     pub fn scan_range(&self) -> (Vec<u8>, Vec<u8>) {
         let start = self.encode().to_vec();
         let end = prefix_successor(&start).unwrap_or_else(|| vec![0xFFu8; BEHAVIORAL_KEY_LEN + 1]);
@@ -235,9 +230,8 @@ impl Keyspace for Meta {
     }
 
     fn decode(bytes: &[u8]) -> Result<MetaKey, StoreError> {
-        // `cf_meta` keys are a closed set of literals; the only one written today is the schema
-        // version. Match the known literals so a decode is total, and reject anything else rather than
-        // fabricate a `&'static` from runtime bytes.
+        // `cf_meta` keys are a closed set of literals; match them rather than fabricate a `&'static`
+        // from runtime bytes.
         if bytes == META_SCHEMA_VERSION.0 {
             Ok(META_SCHEMA_VERSION)
         } else {

@@ -1,26 +1,23 @@
 //! The durable per-person record: one row that collapses all of a person's person-property leaf
 //! state into a single value, plus the pure decision core that drives its update.
 //!
-//! Where per-leaf `PersonProperty` rows each carried their own last-write-wins bit, argMax stamp,
-//! and replay-dedup offsets, a [`PersonRecord`] carries them once for the whole person:
+//! A [`PersonRecord`] carries, once for the whole person:
 //!
-//! - A record-level argMax [`Stamp`] (`(ms, offset)`) decides staleness for the person as a unit,
-//!   with the same "an equal-or-older stamp is stale" rule the per-leaf path used.
+//! - A record-level argMax [`Stamp`] (`(ms, offset)`) that decides staleness for the person as a
+//!   unit (an equal-or-older stamp is stale).
 //! - A [`PropsFingerprint`] (SHA-256 of the raw `person_properties`) and a [`CatalogFingerprint`]
-//!   (SHA-256 over the sorted person condition hashes) together decide whether the person's
+//!   (SHA-256 over the sorted person condition hashes) that together decide whether the person's
 //!   evaluated membership can possibly have changed: if both match the stored record, no HogVM
 //!   evaluation is needed.
-//! - A [`MatchedSet`] of the condition hashes that currently evaluate TRUE replaces the per-leaf
-//!   bits; membership transitions are the set difference between the stored and freshly-evaluated
-//!   sets, so per-condition transition continuity across catalog edits is preserved.
-//! - The replay-dedup offsets (`applied_offsets` + `redirect_dedup`) are shared with the per-row
-//!   codec via the same free functions in [`crate::stage1::state`], so record- and row-level dedup
-//!   cannot drift.
+//! - A [`MatchedSet`] of the condition hashes that currently evaluate TRUE; membership transitions
+//!   are the set difference between the stored and freshly-evaluated sets.
+//! - The replay-dedup offsets (`applied_offsets` + `redirect_dedup`), shared with the per-row codec
+//!   via the same free functions in [`crate::stage1::state`] so record- and row-level dedup cannot
+//!   drift.
 //!
 //! The [`decide`] / `apply_*` split is a pure, table-testable core with no store, HogVM, or clock:
 //! [`decide`] classifies an event against the prior record into a [`Decision`], and the `apply_*`
-//! constructors build the next record for each arm. The freshness decision table lives entirely in
-//! these functions.
+//! constructors build the next record for each arm.
 
 use std::collections::BTreeMap;
 
@@ -32,8 +29,7 @@ use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets};
 use crate::stage1::transition::TransitionKind;
 
 /// The record-level argMax key: last-write-wins ordered by event time then source offset. "Fresh"
-/// is strictly greater — an equal-or-older stamp is stale, matching the per-leaf `PersonProperty`
-/// comparison `(event_ms, offset) <= (prev_at, prev_off)` that classified a stale write.
+/// is strictly greater — an equal-or-older stamp is stale.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Stamp {
     pub ms: i64,
@@ -61,7 +57,7 @@ impl PartialOrd for Stamp {
 
 impl Ord for Stamp {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Lexicographic: ms first, offset as the tiebreaker — the same key the per-leaf argMax used.
+        // Lexicographic: ms first, offset as the tiebreaker.
         (self.ms, self.offset).cmp(&(other.ms, other.offset))
     }
 }
@@ -97,9 +93,8 @@ impl PropsFingerprint {
 /// fingerprint; adding, removing, or changing a person condition changes it. Empty conditions hash
 /// the empty input, a stable constant.
 ///
-/// This replaces the per-worker catalog `Generation` as the person-record invalidation key: a
-/// content fingerprint, so a no-op catalog refresh (same conditions, new generation) does not
-/// invalidate stored records.
+/// A content fingerprint, so a no-op catalog refresh (same conditions) does not invalidate stored
+/// records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogFingerprint(pub u128);
 
@@ -161,14 +156,14 @@ impl MatchedSet {
 
     /// The person transitions from this set (`S`, the stored/prior TRUE set) to `next` (`T`, the
     /// freshly evaluated TRUE set), given the current `catalog` (`person_conditions_ordered`,
-    /// sorted). This is the ONLY producer of person membership transitions:
+    /// sorted). The ONLY producer of person membership transitions:
     ///
     /// - `Entered` = `T \ S`: a hash that is TRUE now and was not before.
     /// - `Left` = `(S ∩ catalog) \ T`: a hash that was TRUE, is still in the catalog, and is no
     ///   longer TRUE. Restricting to `S ∩ catalog` means a hash whose condition was removed from the
-    ///   catalog does NOT emit `Left` — it is retained silently, mirroring the orphan rows the
-    ///   per-leaf path left behind. That retention is what prevents a duplicate `Entered` if the
-    ///   condition is later re-added: the hash stays in `S`, so re-adding it is not a new entry.
+    ///   catalog does NOT emit `Left` — it is retained silently. That retention prevents a duplicate
+    ///   `Entered` if the condition is later re-added: the hash stays in `S`, so re-adding it is not
+    ///   a new entry.
     ///
     /// Hashes in `S \ catalog` are neither entered nor left — they are the retained orphans.
     pub fn diff<'a>(
@@ -203,9 +198,8 @@ impl FromIterator<[u8; 16]> for MatchedSet {
 }
 
 /// The replay-dedup carrier a merge moves from P_old to P_new: only the offsets, never the matched
-/// set, fingerprints, or stamp ("drop P_old's bit; re-eval lazily"). Serde-serialized onto the merge
-/// transfer in Slice B2; the field shape (`applied_offsets`, `redirect_dedup`) matches
-/// [`crate::stage1::state::StatefulRecord`]'s JSON conventions.
+/// set, fingerprints, or stamp, so P_new re-evaluates lazily. Serde-serialized onto the merge
+/// transfer.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersonDedup {
     pub applied_offsets: AppliedOffsets,
@@ -276,8 +270,7 @@ impl PersonRecord {
         }
     }
 
-    /// Fold a merged-away ancestor's replay-dedup into this record, mirroring
-    /// [`crate::merge::rules`]'s per-leaf `compose_ancestor_dedup`: `old_person` becomes an ancestor
+    /// Fold a merged-away ancestor's replay-dedup into this record: `old_person` becomes an ancestor
     /// under its own uuid (its direct offsets merged there), and each of its own ancestors carries
     /// forward under its original origin. Ancestors are keyed, never unioned into the main map, so a
     /// straggler routed by tombstone to a specific ancestor deduplicates against exactly that
@@ -304,9 +297,8 @@ impl PersonRecord {
     }
 }
 
-/// Whether a person's evaluated membership can have changed since the stored record — the axis the
-/// decision table's row 4 splits on. A total function of the two fingerprint comparisons, with a
-/// stable metric label.
+/// Whether a person's evaluated membership can have changed since the stored record: a total
+/// function of the two fingerprint comparisons, with a stable metric label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Freshness {
     /// Both fingerprints match: the stored matched set is still correct, no evaluation needed.
@@ -340,9 +332,9 @@ impl Freshness {
     }
 }
 
-/// One stored `cf_person_records` slot as read by the event's single batched pre-event read. Mirrors
-/// the per-leaf `PriorState` (`Absent | Present | Corrupt`) but without the decode metric — Slice B2
-/// counts at the call site so this stays a pure classifier. `Corrupt` never panics.
+/// One stored `cf_person_records` slot as read by the event's single batched pre-event read.
+/// `Corrupt` never panics; the decode metric is counted at the call site so this stays a pure
+/// classifier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PriorRecord {
     /// No row: the person has no stored record.
@@ -381,32 +373,29 @@ impl DedupCoords {
     }
 }
 
-/// The classification of one active event against the prior record — the freshness decision table's
-/// rows 1, 3, 4a, 4b (row 0, "person side inactive", is decided by the caller before touching the
-/// record and never reaches here).
+/// The classification of one active event against the prior record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
-    /// Row 1: this `(origin, sp, so)` was already applied. Skip the person side entirely — no write.
+    /// This `(origin, sp, so)` was already applied. Skip the person side entirely — no write.
     Replay,
-    /// Row 3: argMax-stale (`event <= stamp`). Advance dedup + `last_seen`, keep the matched set,
-    /// stamp, and fingerprints. One write, no transitions, no evaluation.
+    /// argMax-stale (`event <= stamp`). Advance dedup + `last_seen`, keep the matched set, stamp,
+    /// and fingerprints. One write, no transitions, no evaluation.
     Stale,
-    /// Row 4a: fresh and both fingerprints match. Adopt the event stamp, advance dedup + `last_seen`.
-    /// One write, no transitions, no evaluation.
+    /// Fresh and both fingerprints match. Adopt the event stamp, advance dedup + `last_seen`. One
+    /// write, no transitions, no evaluation.
     SkipEval,
-    /// Row 4b: fresh with a fingerprint mismatch (or an absent/corrupt prior). Needs a props parse
-    /// and a HogVM evaluation of every person condition; the caller then calls [`apply_eval`].
+    /// Fresh with a fingerprint mismatch (or an absent/corrupt prior). Needs a props parse and a
+    /// HogVM evaluation of every person condition; the caller then calls [`apply_eval`].
     Eval { freshness: Freshness },
 }
 
-/// Classify one active event against the prior record. Pure: no store, HogVM, or clock.
+/// Classify one active event against the prior record. Pure: no store, HogVM, or clock — dedup
+/// advance is applied by the `apply_*` constructors, not here.
 ///
-/// Check order (the decision table, top to bottom):
+/// Check order, top to bottom:
 /// 1. `Replay` — an already-applied offset skips everything (no write).
-/// 2. dedup advance happens *after* the replay check but is applied by the `apply_*` constructors,
-///    not here — a stale event still records its offset, so this fn only classifies.
-/// 3. `Stale` — an equal-or-older stamp.
-/// 4. fingerprints — matching ⇒ `SkipEval`, mismatched ⇒ `Eval`.
+/// 2. `Stale` — an equal-or-older stamp.
+/// 3. fingerprints — matching ⇒ `SkipEval`, mismatched ⇒ `Eval`.
 ///
 /// A corrupt or absent prior classifies as `Eval` against an absent-equivalent baseline
 /// (`matched = ∅`, `stamp = MIN`), never a skip: freezing membership on a corrupt row would be a
@@ -423,7 +412,6 @@ pub fn decide(
             if record.is_replay_for(dedup.origin.as_ref(), dedup.sp, dedup.so) {
                 return Decision::Replay;
             }
-            // An equal-or-older stamp is stale — the same `<=` rule the per-leaf argMax used.
             if event <= record.stamp {
                 return Decision::Stale;
             }
@@ -437,19 +425,18 @@ pub fn decide(
                 }
             }
         }
-        // Absent or corrupt: nothing to replay against, and a full re-eval from the baseline.
-        // `StaleBoth` is the label for a from-nothing evaluation (neither fingerprint matched a
-        // stored value), keeping the metric honest about the amount of work done.
+        // Absent or corrupt: full re-eval from the baseline. `StaleBoth` labels a from-nothing
+        // evaluation, keeping the metric honest about the work done.
         PriorRecord::Absent | PriorRecord::Corrupt => Decision::Eval {
             freshness: Freshness::StaleBoth,
         },
     }
 }
 
-/// Row 3: the next record for an argMax-stale event. Keeps the matched set, stamp, and both
-/// fingerprints; advances the dedup offset and `last_seen_ms`. Always a write — the `last_seen`
-/// advance is load-bearing for TTL, and recording the offset closes the replay window even though
-/// the event lost argMax.
+/// The next record for an argMax-stale event. Keeps the matched set, stamp, and both fingerprints;
+/// advances the dedup offset and `last_seen_ms`. Always a write — the `last_seen` advance is
+/// load-bearing for TTL, and recording the offset closes the replay window even though the event
+/// lost argMax.
 pub fn apply_stale(prior: &PersonRecord, event: Stamp, dedup: DedupCoords) -> PersonRecord {
     let mut next = prior.clone();
     next.record_for(dedup.origin.as_ref(), dedup.sp, dedup.so);
@@ -457,9 +444,9 @@ pub fn apply_stale(prior: &PersonRecord, event: Stamp, dedup: DedupCoords) -> Pe
     next
 }
 
-/// Row 4a: the next record when both fingerprints match. Adopts the event stamp (so a later
-/// out-of-order event between the old and new stamps cannot wrongly win argMax), advances the dedup
-/// offset and `last_seen_ms`, and keeps the matched set and fingerprints. No transitions.
+/// The next record when both fingerprints match. Adopts the event stamp (so a later out-of-order
+/// event between the old and new stamps cannot wrongly win argMax), advances the dedup offset and
+/// `last_seen_ms`, and keeps the matched set and fingerprints. No transitions.
 pub fn apply_skip_eval(prior: &PersonRecord, event: Stamp, dedup: DedupCoords) -> PersonRecord {
     let mut next = prior.clone();
     next.stamp = event;
@@ -468,8 +455,8 @@ pub fn apply_skip_eval(prior: &PersonRecord, event: Stamp, dedup: DedupCoords) -
     next
 }
 
-/// Row 4b: the next record and the person transitions after a HogVM evaluation produced `true_set`
-/// (`T`) against `catalog` (`person_conditions_ordered`, sorted).
+/// The next record and the person transitions after a HogVM evaluation produced `true_set` (`T`)
+/// against `catalog` (`person_conditions_ordered`, sorted).
 ///
 /// The prior matched set `S` is read from `prior` (`prior.matched`) so the transition source and the
 /// stored record cannot drift. The stored matched set becomes `T ∪ (S \ catalog)`: the freshly-TRUE
@@ -1078,7 +1065,7 @@ mod tests {
         );
         assert!(
             next.applied_offsets.is_replay(5, 20),
-            "the stale event still records its offset (row 2 precedes 3)",
+            "the stale event still records its offset",
         );
     }
 
@@ -1303,8 +1290,8 @@ mod tests {
 
     #[test]
     fn last_seen_ms_lives_at_the_fixed_ttl_offset() {
-        // The TTL compaction filter (Slice C) reads only `last_seen_ms`, at this fixed byte offset,
-        // without a full decode. Pin it: byte 0 is the version, byte 1 the flags, then the i64 at 2.
+        // The TTL compaction filter reads only `last_seen_ms`, at this fixed byte offset, without a
+        // full decode. Pin it: byte 0 is the version, byte 1 the flags, then the i64 at 2.
         let mut record = sample_record();
         record.last_seen_ms = 0x0102_0304_0506_0708;
         let bytes = record.encode();

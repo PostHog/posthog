@@ -216,10 +216,8 @@ fn apply_into(
         &leaves,
     )?;
 
-    // Fold P_old's person-record dedup into the target's record (the person leaf analog of
-    // `apply_leaves`): a present target record absorbs P_old as an ancestor; an absent or corrupt one
-    // writes nothing (byte-parity with the per-leaf `person_property_with_absent_new_writes_nothing`
-    // arm). `old_person` is the transfer's original P_old for the same reason as the behavioral leaves.
+    // Fold P_old's person-record dedup into the target's record: a present record absorbs P_old as an
+    // ancestor; an absent or corrupt one writes nothing.
     let target_prefix = PersonPrefix::new(partition_id, team_u64, target);
     let record_put = match &transfer.person_dedup {
         Some(dedup) => merge_person_records(store, &target_prefix, old_person, dedup)?,
@@ -266,14 +264,9 @@ fn apply_into(
 }
 
 /// Merge P_old's person-record dedup into the target's record, returning the encoded record to put or
-/// `None` to write nothing.
-///
-/// Mirrors the per-leaf `keep_new` rule at record level: a present target record absorbs P_old as an
-/// ancestor (`absorb_ancestor`, itself keyed-not-unioned so a straggler routed by tombstone dedups
-/// against exactly P_old's high-water marks), and `merge_max` inside makes a redelivery idempotent.
-/// A target with no record — or a corrupt one — writes nothing: merging into a person who never
-/// evaluated leaves no state behind, and the person re-evaluates lazily on their next event (the
-/// per-leaf pin for this arm is `person_property_with_absent_new_writes_nothing`).
+/// `None` to write nothing. A present target record absorbs P_old as an ancestor (idempotent under
+/// redelivery). A target with no record — or a corrupt one — writes nothing: the person re-evaluates
+/// lazily on their next event.
 pub(crate) fn merge_person_records(
     store: &CohortStore,
     target_prefix: &PersonPrefix,
@@ -282,7 +275,6 @@ pub(crate) fn merge_person_records(
 ) -> Result<Option<Vec<u8>>, StoreError> {
     let bytes = store.get_person_record(&target_prefix.record_key())?;
     let Some(bytes) = bytes else {
-        // Absent target record: write nothing (byte-parity with the per-leaf absent-new arm).
         return Ok(None);
     };
     match PersonRecord::decode(&bytes) {
@@ -291,9 +283,7 @@ pub(crate) fn merge_person_records(
             Ok(Some(record.encode()))
         }
         Err(_) => {
-            // Corrupt target record: count and write nothing rather than clobbering it. The reason is
-            // distinct from the drain's `record_decode` (a corrupt P_old record) so the two corruption
-            // sites stay attributable.
+            // Corrupt target record: count and write nothing rather than clobbering it.
             counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "target_record_decode").increment(1);
             Ok(None)
         }

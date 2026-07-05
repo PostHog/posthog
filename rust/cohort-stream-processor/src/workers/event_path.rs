@@ -135,12 +135,9 @@ struct BehavioralApply {
     condition_hash: [u8; 16],
 }
 
-/// How the person side of an event is handled, resolved once before the read. The whole person side
-/// is one arm — either the record is untouched (`Inactive`, decision-table row 0) or the record is
-/// read and run through the freshness decision table (`Active`).
+/// How the person side of an event is handled, resolved once before the read.
 enum PersonPlan {
-    /// No person conditions, or empty `person_properties`: the person record is neither read nor
-    /// written (decision-table row 0).
+    /// No person conditions, or empty `person_properties`: the record is neither read nor written.
     Inactive,
     /// A person condition exists and the payload is non-empty. The record is read and the freshness
     /// decision table runs; `props_fp`/`catalog_fp` are the fingerprints the table compares against
@@ -202,10 +199,10 @@ pub(crate) struct WriteStats {
     /// Encoded person-record size to record on [`STAGE1_PERSON_RECORD_SIZE_BYTES`], when a record was
     /// staged.
     record_size: Option<usize>,
-    /// The person side's decision outcome for [`STAGE1_PERSON_RECORD_TOTAL`], when the person side
-    /// was active. Deferred with the write metrics so a failed commit's redelivery cannot
-    /// double-count the outcome; a write-free outcome (replay) still counts — the compositions emit
-    /// whenever the commit step passes, including when there was nothing to commit.
+    /// The person side's decision outcome for [`STAGE1_PERSON_RECORD_TOTAL`], `None` when the person
+    /// side was inactive. Deferred with the write metrics so a failed commit's redelivery cannot
+    /// double-count; a write-free outcome (replay) still counts, since emission is gated on the commit
+    /// step passing, not on there being writes.
     person_record_result: Option<&'static str>,
 }
 
@@ -227,8 +224,8 @@ impl WriteStats {
 }
 
 /// The pure result of [`fold_event`]: either a whole-event skip (a person-props parse failure on the
-/// evaluation arm, byte-parity with the pre-read `GlobalsParseError` skip) or the staged writes plus
-/// what the caller surfaces after commit. Infallible w.r.t. the store — the fold touches no store.
+/// evaluation arm) or the staged writes plus what the caller surfaces after commit. Infallible
+/// w.r.t. the store — the fold touches no store.
 pub(crate) enum FoldResult {
     Skip(SkipReason),
     Folded(FoldOutput),
@@ -320,8 +317,7 @@ pub fn process_event_gated(
 
     // The batch spans exactly one event: the next event in the sub-batch must see this event's
     // committed writes (argMax tiebreaker, replay dedup, the person record's stamp/matched set).
-    // An event that stages nothing performs no write; the deferred metrics emit only once the commit
-    // step passed (trivially so when there was nothing to commit).
+    // Metrics emit only once the commit step passed.
     if !staged.is_empty() {
         store.apply(&staged)?;
     }
@@ -334,9 +330,7 @@ pub fn process_event_gated(
 /// async [`StoreHandle`] facade so the store I/O runs on the blocking pool.
 ///
 /// Sequential awaits only: the batched read must observe the prior event's committed writes, so the
-/// read and commit are never joined or reordered. Nothing may read the record after it is staged
-/// within one event — the next event's read-your-writes depends on the commit-before-next-event
-/// invariant, so no batching optimization may reorder these.
+/// read and commit are never joined or reordered.
 pub(crate) async fn process_event_offloaded(
     partition_id: u16,
     handle: &StoreHandle,
@@ -369,8 +363,7 @@ pub(crate) async fn process_event_offloaded(
             }) => (staged, transitions, schedules, write_stats),
         };
 
-    // Commit before the caller processes the next event; the deferred metrics emit only once the
-    // commit step passed (trivially so when there was nothing to commit).
+    // Commit before the caller processes the next event; metrics emit only once the commit step passed.
     if !staged.is_empty() {
         handle.commit(staged).await?;
     }
@@ -413,8 +406,7 @@ pub(crate) fn plan_event(
     }
 
     // Build behavioral globals before any evaluation, so a malformed payload skips the event before
-    // any condition runs. The person side parses its own globals only on the evaluation arm (in the
-    // fold), matching where the work is done.
+    // any condition runs. The person side parses its own globals only on the evaluation arm, in the fold.
     let behavioral_globals = if has_behavioral {
         match build_behavioral_globals(event) {
             Ok(globals) => Some(globals),
@@ -437,9 +429,7 @@ pub(crate) fn plan_event(
         );
     }
 
-    // The person side is one arm: active iff a person condition exists and the payload is non-empty
-    // (row 0 of the decision table). The fingerprints are cheap to compute and the record read/eval
-    // happen in the fold.
+    // Fingerprints are computed here; the record read and evaluation happen in the fold.
     let person = match active_person_props(filters, event) {
         Some(raw) => PersonPlan::Active {
             props_fp: PropsFingerprint::of(raw),
@@ -448,7 +438,6 @@ pub(crate) fn plan_event(
         None => PersonPlan::Inactive,
     };
 
-    // Nothing to do when no behavioral leaf matched and the person side is inactive.
     if behavioral.is_empty() && !person.is_active() {
         return EventPlan::NoApplies;
     }
@@ -469,7 +458,7 @@ pub(crate) fn plan_event(
 
 /// Fold the pre-event `snapshot` into the behavioral rows and the person record, staging the writes
 /// into a [`StagedBatch`] for the caller to commit. Pure w.r.t. the store. Returns
-/// [`FoldResult::Skip`] on a person-props parse failure (byte-parity with the pre-read skip).
+/// [`FoldResult::Skip`] on a person-props parse failure.
 pub(crate) fn fold_event(
     filters: &TeamFilters,
     read: ReadPlan,
@@ -490,9 +479,8 @@ pub(crate) fn fold_event(
         record: record_slot,
     } = snapshot;
 
-    // Person side first: an evaluation-arm parse failure skips the WHOLE event, so nothing (behavioral
-    // included) may be staged before the person decision succeeds — byte-parity with today's pre-read
-    // GlobalsParseError skip.
+    // Person side first: an evaluation-arm parse failure skips the whole event, so nothing (behavioral
+    // included) may be staged before the person decision succeeds.
     let (record_put, mut transitions, record_result) = match fold_person(
         filters,
         &prefix,
@@ -555,9 +543,8 @@ pub(crate) fn fold_event(
     })
 }
 
-/// The four `mutate_behavioral*` folds over each behavioral apply, byte-identical to the per-leaf
-/// behavioral path: a match stages an advanced `cf_behavioral` row, may schedule a sweep deadline, and
-/// may emit a transition.
+/// Fold each behavioral apply via the `mutate_behavioral*` variants: a match stages an advanced
+/// `cf_behavioral` row, may schedule a sweep deadline, and may emit a transition.
 #[allow(clippy::too_many_arguments)]
 fn fold_behavioral(
     filters: &TeamFilters,
@@ -643,22 +630,22 @@ enum PersonFoldResult {
         record_put: Option<Vec<u8>>,
         transitions: Vec<LeafTransition>,
         /// The decision outcome for [`STAGE1_PERSON_RECORD_TOTAL`]; `None` when the person side was
-        /// inactive (row 0). Deferred to post-commit via [`WriteStats`] so a failed commit's
-        /// redelivery cannot double-count.
+        /// inactive. Deferred to post-commit via [`WriteStats`] so a failed commit's redelivery
+        /// cannot double-count.
         record_result: Option<&'static str>,
     },
 }
 
 /// Run the freshness decision table for the person side against the stored record.
 ///
-/// `Inactive` touches nothing (row 0). Otherwise the prior record is decoded (its classification —
-/// present, absent, corrupt — feeds the metric), [`decide`] classifies the event, and:
+/// `Inactive` touches nothing. Otherwise the prior record is decoded (its classification — present,
+/// absent, corrupt — feeds the metric), [`decide`] classifies the event, and:
 ///
-/// - `Replay` (row 1): nothing staged, no transitions.
-/// - `Stale` (row 3): the record advances its dedup + `last_seen` only; no HogVM, no transitions.
-/// - `SkipEval` (row 4a): the record adopts the event stamp; no HogVM, no transitions.
-/// - `Eval` (row 4b): parse the person globals (a failure skips the WHOLE event), evaluate the
-///   effective person conditions, and diff the resulting TRUE set against the record's matched set.
+/// - `Replay`: nothing staged, no transitions.
+/// - `Stale`: the record advances its dedup + `last_seen` only; no HogVM, no transitions.
+/// - `SkipEval`: the record adopts the event stamp; no HogVM, no transitions.
+/// - `Eval`: parse the person globals (a failure skips the whole event), evaluate the effective
+///   person conditions, and diff the resulting TRUE set against the record's matched set.
 #[allow(clippy::too_many_arguments)]
 fn fold_person(
     filters: &TeamFilters,
@@ -681,15 +668,14 @@ fn fold_person(
         };
     };
 
-    // The record slot is always requested for an active person, so `Some(_)`; decode its bytes.
+    // The record slot is always requested for an active person, so the outer `Option` is `Some`.
     let record_bytes = record_slot.flatten();
     let prior = PriorRecord::decode(record_bytes.as_deref());
     let baseline = PersonRecord::absent();
     let event_stamp = Stamp::new(event_ms, event.source_offset);
     let dedup = DedupCoords::new(origin.copied(), event.source_partition, event.source_offset);
 
-    // The from-nothing arms (absent/corrupt prior) fold from an absent baseline; a present prior folds
-    // from itself.
+    // Absent/corrupt priors fold from an absent baseline; a present prior folds from itself.
     let from = match &prior {
         PriorRecord::Present(record) => record,
         PriorRecord::Absent | PriorRecord::Corrupt => &baseline,
@@ -718,10 +704,9 @@ fn fold_person(
             }
         }
         Decision::Eval { freshness } => {
-            // Parse the person globals once; a failure skips the WHOLE event (byte-parity with the
-            // pre-read GlobalsParseError skip). The effective condition subset and the catalog slice
-            // passed to `diff`/`apply_eval` are the same filtered set, so a defensively-skipped hash
-            // in the stored set never emits a spurious `Left`.
+            // A globals parse failure skips the whole event. The effective condition subset and the
+            // catalog slice passed to `diff`/`apply_eval` are the same filtered set, so a
+            // defensively-skipped hash in the stored set never emits a spurious `Left`.
             let globals = match build_person_property_globals(event) {
                 Ok(globals) => globals,
                 Err(_) => return PersonFoldResult::Skip(SkipReason::GlobalsParseError),
@@ -782,8 +767,7 @@ pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
     state.eviction_deadline().filter(|&d| d != i64::MAX)
 }
 
-/// The raw `person_properties` iff there is a person condition and the payload is non-empty (the
-/// `active_person_props` predicate — decision-table row 0's activeness test).
+/// The raw `person_properties` iff there is a person condition and the payload is non-empty.
 fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) -> Option<&'a str> {
     if filters.person_property_conditions.is_empty() {
         return None;
@@ -870,10 +854,9 @@ fn eval_behavioral_condition(
 
 /// Evaluate the person conditions in stable order, returning the TRUE set and the effective catalog
 /// slice — the subset of `person_conditions_ordered` that has bytecode and a `PersonProperty`-variant
-/// LSK meta. Both are the same filtered subset (in `person_conditions_ordered`'s sorted order), so
-/// passing the effective catalog to [`apply_eval`]/[`MatchedSet::diff`] means a defensively-skipped
-/// hash in the stored set is never diffed and never emits a spurious `Left` — mirroring the per-leaf
-/// path, where a skipped condition simply did not update its row.
+/// LSK meta. Both are the same filtered subset, so passing the effective catalog to
+/// [`apply_eval`]/[`MatchedSet::diff`] means a defensively-skipped hash in the stored set is never
+/// diffed and never emits a spurious `Left`.
 fn eval_person_conditions(
     filters: &TeamFilters,
     evaluator: &mut CohortEvaluator,
@@ -884,9 +867,8 @@ fn eval_person_conditions(
         let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
             continue;
         };
-        // Mirror the per-leaf catalog variant guard: a hash whose LSK meta is missing or not a
-        // `PersonProperty` variant is skipped (counted where the per-leaf path counted it), so it is
-        // not part of the effective catalog either.
+        // A hash whose LSK meta is missing or not a `PersonProperty` variant is skipped, so it is not
+        // part of the effective catalog.
         let lsk = LeafStateKey::for_person_property(&hash);
         match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
             Some(StateVariant::PersonProperty) => {}

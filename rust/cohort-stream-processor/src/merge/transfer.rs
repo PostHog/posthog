@@ -67,9 +67,9 @@ pub struct MergeStateTransfer {
     pub forward_hops: u8,
     /// P_old's person-record replay-dedup, carried so a straggler routed to P_new after the merge
     /// deduplicates against P_old's high-water marks. Only the offsets travel — never P_old's matched
-    /// set, fingerprints, or stamp (P_new re-evaluates the person lazily on its next event, mirroring
-    /// the per-leaf `keep_new` arm's "drop P_old's bit"). `#[serde(default, skip_serializing_if)]`:
-    /// wire-compatible both ways, and a person with no record contributes no field.
+    /// set, fingerprints, or stamp; P_new re-evaluates the person lazily. `#[serde(default,
+    /// skip_serializing_if)]`: wire-compatible both ways, and a person with no record contributes no
+    /// field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person_dedup: Option<PersonDedup>,
 }

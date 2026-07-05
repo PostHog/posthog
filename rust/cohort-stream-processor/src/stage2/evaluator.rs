@@ -180,9 +180,6 @@ mod tests {
 
     #[test]
     fn leaf_membership_person_property_meta_reads_non_member() {
-        // Person-property membership is resolved from the durable record, not through this function;
-        // a `PersonProperty` meta reaching it (no person state is stored in cf_behavioral) is a desync
-        // that must read as a non-member rather than silently a member.
         let matched = Stage1State::BehavioralSingle {
             has_match: true,
             last_event_at_ms: 1,

@@ -35,17 +35,9 @@ use crate::observability::metrics::{
 };
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
-/// A same-CF-set layout revision (key codec, value shape) MUST bump this so an older store fails fast
-/// instead of being misread; a CF-set change is caught independently by `open_cf_descriptors`.
-///
-/// - 2: `cf_person_records` was added alongside the person-clustered `cf_behavioral` — the CF set
-///   itself changed, but `create_missing_column_families(true)` would still let a version-1 store open
-///   with the new CF created empty and read as if it held person records, so the version guard closes
-///   that same-open hazard.
-/// - 3: the PersonRecord collapse. `cf_behavioral` now holds only behavioral rows; a person's
-///   person-property leaf state lives as one durable record in `cf_person_records`. The CF set is
-///   unchanged from 2, so this bump is what stops a version-2 store (which held per-leaf
-///   `PersonProperty` rows in `cf_behavioral` and no records) from being misread by this binary.
+/// A layout revision (key codec, value shape) that keeps the same CF set MUST bump this so an older
+/// store fails fast instead of being misread; a CF-set change is caught independently by
+/// `open_cf_descriptors`.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 const OP_OPEN: &str = "open";
@@ -349,8 +341,7 @@ impl CohortStore {
 
     /// Read one event's full state snapshot in a single mixed-CF `multi_get`: the `behavioral` keys
     /// (in order) plus, when `record` is given, the person's `cf_person_records` key as the final
-    /// lookup. One batched read replaces the per-leaf scatter the person-clustered layout was built to
-    /// avoid.
+    /// lookup.
     ///
     /// The result preserves order: `behavioral[i]` corresponds to the i-th requested behavioral key,
     /// and `record` is `Some(_)` iff a record key was requested (`Some(None)` = requested but absent).
@@ -371,8 +362,8 @@ impl CohortStore {
         let behavioral_handle = self.cf(Cf::Behavioral)?;
         let behavioral_encoded: Vec<_> = behavioral.iter().map(BehavioralKey::encode).collect();
 
-        // Build `(handle, key)` pairs: the behavioral handle for the first N, the person-records
-        // handle for the trailing record key. `multi_get_cf` preserves this order in its results.
+        // Behavioral handles first, the record handle last; `multi_get_cf` preserves this order, so the
+        // record's result is the trailing slot.
         let mut pairs: Vec<(&ColumnFamily, &[u8])> = behavioral_encoded
             .iter()
             .map(|key| (behavioral_handle, key.as_slice()))
@@ -399,7 +390,6 @@ impl CohortStore {
             })?);
         }
 
-        // Split the trailing record slot off, if it was requested.
         let record_slot = if record.is_some() {
             Some(
                 decoded
@@ -691,7 +681,7 @@ impl CohortStore {
     /// This is a partition-wide scan that crosses many 26-byte person prefixes. `cf_behavioral` has a
     /// fixed-prefix extractor, so the iterator defaults to prefix-seek mode and would silently stop at
     /// the first person boundary; `set_total_order_seek(true)` forces a full-order iteration across all
-    /// prefixes. Without it the boot rebuild would see only the first person's leaves.
+    /// prefixes.
     pub fn scan_behavioral(
         &self,
         partition_id: u16,
@@ -739,8 +729,7 @@ impl CohortStore {
     ///
     /// Bounded to the person's 26-byte prefix by both the iterate-upper-bound (the prefix successor)
     /// and `set_prefix_same_as_start(true)`, which pins the iterator to the seek key's prefix so it can
-    /// never leak into an adjacent person's rows. Used by the merge drain to enumerate P_old's leaves;
-    /// the lsk-byte order it returns matches the old secondary index's `BTreeSet`-sorted enumeration.
+    /// never leak into an adjacent person's rows. Used by the merge drain to enumerate P_old's leaves.
     pub fn scan_behavioral_prefix(
         &self,
         prefix: PersonPrefix,
@@ -897,9 +886,8 @@ pub struct BatchBuilder<'db> {
 }
 
 impl<'db> BatchBuilder<'db> {
-    /// The held handle for one CF. Every CF the builder can write is enumerated here. Returns the
-    /// handle at the store's `'db` lifetime, not `&self`, so it does not alias the `&mut self.batch`
-    /// the callers immediately take.
+    /// The held handle for one CF, returned at the store's `'db` lifetime rather than `&self` so it
+    /// does not alias the `&mut self.batch` callers immediately take.
     fn handle(&self, cf: Cf) -> &'db ColumnFamily {
         match cf {
             Cf::Behavioral => self.behavioral,
@@ -1698,8 +1686,7 @@ mod tests {
 
     /// Seeds several persons × several leaves in one partition plus neighbours in adjacent partitions,
     /// flushes to SST (so iteration hits on-disk prefix blocks, not the memtable where truncation is
-    /// masked), and returns the store. The prefix extractor makes a partition-wide scan default to
-    /// prefix-seek mode; without `set_total_order_seek(true)` it would stop at the first person.
+    /// masked), and returns the store.
     fn seed_multi_person_flushed() -> (TempDir, CohortStore) {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {

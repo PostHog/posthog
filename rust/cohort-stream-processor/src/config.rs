@@ -289,7 +289,7 @@ pub struct Config {
 
     /// On a store-schema version mismatch, destroy and recreate the store instead of failing fast.
     /// Off by default: a mismatch is an operator decision (wipe or roll back), not something to eat
-    /// silently. Set true for PoC deploys where the runbook is wipe-and-replay.
+    /// silently.
     #[envconfig(from = "COHORT_WIPE_ON_SCHEMA_MISMATCH", default = "false")]
     pub cohort_wipe_on_schema_mismatch: bool,
 
@@ -329,11 +329,11 @@ pub struct Config {
     /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
     /// stays the sweep's contract.
     ///
-    /// In production this MUST be `>= 30` days: comfortably beyond the 7-day replay horizon of the
-    /// merge / `clickhouse_events_json` topics, so a live-again person's replayed events cannot arrive
-    /// after their record was reclaimed. A TTL-dropped dormant person re-derives on their next event
-    /// and re-emits `Entered` for single-leaf person cohorts (at-least-once across dormancy);
-    /// composable cohorts are suppressed by the surviving `cf_stage2` bit.
+    /// In production this MUST be well beyond the replay horizon of the merge / `clickhouse_events_json`
+    /// topics, so a live-again person's replayed events cannot arrive after their record was reclaimed.
+    /// A TTL-dropped dormant person re-derives on their next event and re-emits `Entered` for
+    /// single-leaf person cohorts (at-least-once across dormancy); composable cohorts are suppressed by
+    /// the surviving `cf_stage2` bit.
     #[envconfig(from = "COHORT_PERSON_RECORD_TTL_DAYS", default = "0")]
     pub cohort_person_record_ttl_days: u32,
 

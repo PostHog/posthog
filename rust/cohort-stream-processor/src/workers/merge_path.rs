@@ -240,9 +240,8 @@ pub(crate) async fn handle_merge(
         }
         Ok(DrainOutcome::Drained { transfer, effects }) => {
             effects.apply_to(queue);
-            // A transfer with no leaves AND no person-record dedup carries nothing to apply: skip the
-            // produce. A record-only transfer (person_dedup set) still produces so P_new absorbs the
-            // ancestry — matching the drain's staging predicate.
+            // Nothing to apply without leaves or a person-record dedup — skip the produce. A record-only
+            // transfer still produces so P_new absorbs the ancestry (matches the drain's staging).
             if transfer.leaves.is_empty() && transfer.person_dedup.is_none() {
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);

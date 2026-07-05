@@ -140,14 +140,9 @@ impl CheckpointImporter {
                 }
             };
 
-            // Skip a checkpoint written under a different store schema before the bulk data-file
-            // download or any local dir mutation (only the small metadata.json above has been
-            // fetched — reading the version requires it): an incompatible on-disk layout must never
-            // be imported (the open-time CF-set/version guard is only the backstop). A
-            // pre-versioning metadata.json decodes `store_schema = 0` (serde default), which never
-            // matches, so it is skipped here. Skipping (not failing) falls through to the next,
-            // older candidate, and a fully-skipped list downgrades to a cold start in
-            // `restore_from_s3`.
+            // Skip a schema-mismatched checkpoint before the bulk data-file download or any local dir
+            // mutation. Skipping (not failing) falls through to the next candidate, and a fully-skipped
+            // list downgrades to a cold start in `restore_from_s3`.
             if attempt.store_schema != STORE_SCHEMA_VERSION {
                 warn!(
                     store = STORE_TOPIC,
@@ -563,9 +558,6 @@ mod tests {
 
     #[tokio::test]
     async fn import_skips_a_schema_mismatched_checkpoint_and_uses_the_next() {
-        // Newest candidate carries an incompatible store schema; the next (older) one is current.
-        // The mismatched candidate must be skipped without downloading its files, and the import must
-        // succeed on the current-era one — proving the skip falls through to the next source.
         let tmp_dir = TempDir::new().unwrap();
         let target_path = tmp_dir.path().join("store");
 
@@ -598,8 +590,6 @@ mod tests {
 
     #[tokio::test]
     async fn import_fails_when_every_candidate_has_a_mismatched_schema() {
-        // The only candidate is old-era (schema absent ⇒ 0 after a serde round-trip); with nothing
-        // usable the importer errors, which `restore_from_s3` maps to a cold-start downgrade.
         let tmp_dir = TempDir::new().unwrap();
         let target_path = tmp_dir.path().join("store");
 

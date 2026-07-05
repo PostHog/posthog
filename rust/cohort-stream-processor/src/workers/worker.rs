@@ -1277,7 +1277,6 @@ mod tombstone_redirect_tests {
         PersonRecordKey::new(partition_id, TEAM as u64, person)
     }
 
-    /// The person's decoded [`PersonRecord`], or `None` when absent.
     fn read_person_record(
         store: &CohortStore,
         partition_id: u16,
@@ -1320,7 +1319,7 @@ mod tombstone_redirect_tests {
 
         // Seed P_new's record: not yet a member, main-map offset {5:50}, and an ancestor entry for
         // p_old at {5:100}. The absent-baseline fingerprints (0,0) never match the event, so the
-        // straggler re-evaluates (row 4b) and the email leaf enters.
+        // straggler re-evaluates and the email leaf enters.
         let mut seed = PersonRecord::absent();
         seed.applied_offsets = applied(&[(5, 50)]);
         seed.redirect_dedup.insert(p_old, applied(&[(5, 100)]));

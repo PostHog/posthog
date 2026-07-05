@@ -71,12 +71,10 @@ pub struct CheckpointMetadata {
     /// deserializing metadata.json that lacks this field (backward compat).
     #[serde(default = "Utc::now")]
     pub updated_at: DateTime<Utc>,
-    /// The store schema version ([`STORE_SCHEMA_VERSION`]) the checkpointed DB was written under.
-    /// Stamped at construction. A restore skips a checkpoint whose `store_schema` does not match this
-    /// binary's `STORE_SCHEMA_VERSION` before downloading it, so an incompatible on-disk layout is
-    /// never imported. `#[serde(default)]` makes pre-versioning metadata.json decode to `0`, which
-    /// never matches a real version and is therefore skipped — the intended "old checkpoints are
-    /// unusable" behavior. The store's open-time CF-set/version guard remains the backstop.
+    /// The [`STORE_SCHEMA_VERSION`] the checkpointed DB was written under, stamped at construction. A
+    /// restore skips a checkpoint whose `store_schema` does not match this binary before downloading
+    /// it. `#[serde(default)]` makes pre-versioning metadata.json decode to `0`, which never matches a
+    /// real version and is therefore skipped.
     #[serde(default)]
     pub store_schema: u32,
     /// Registry of file metadata for all remotely-stored files required to reconstitute a local
@@ -102,9 +100,6 @@ impl CheckpointMetadata {
             consumer_offset,
             producer_offset,
             updated_at: attempt_timestamp,
-            // Every constructed metadata describes a NEW checkpoint of this binary's store, so it is
-            // stamped with the current schema version. Older on-disk metadata.json decodes `0` via the
-            // serde default and is skipped on restore.
             store_schema: STORE_SCHEMA_VERSION,
             files: Vec::new(),
         }
@@ -393,8 +388,6 @@ mod tests {
         assert_eq!(metadata.topic, "cohort_stream_state");
         assert_eq!(metadata.partition, 0);
         assert!(metadata.updated_at.timestamp() > 0);
-        // The pre-versioning metadata.json above has no `store_schema`, so it decodes to `0` — a value
-        // that never matches a real `STORE_SCHEMA_VERSION`, so restore skips such old-era checkpoints.
         assert_eq!(
             metadata.store_schema, 0,
             "metadata without store_schema defaults to 0 (old-era, skipped on restore)",
@@ -415,7 +408,6 @@ mod tests {
             metadata.store_schema, STORE_SCHEMA_VERSION,
             "a newly-constructed checkpoint is stamped with the current store schema",
         );
-        // The field must survive a JSON round-trip so it is present in the persisted metadata.json.
         let decoded = CheckpointMetadata::from_json_bytes(metadata.to_json().unwrap().as_bytes())
             .expect("round-trip");
         assert_eq!(decoded.store_schema, STORE_SCHEMA_VERSION);

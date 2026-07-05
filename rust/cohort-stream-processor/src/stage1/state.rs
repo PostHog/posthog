@@ -643,9 +643,6 @@ mod tests {
 
     #[test]
     fn eviction_deadline_is_some_for_every_behavioral_variant() {
-        // Every `cf_behavioral` variant is behavioral and carries a finite-or-permanent deadline;
-        // person-property membership no longer lives here (it is a sweep-invariant `cf_person_records`
-        // record), so `eviction_deadline` is always `Some`.
         assert_eq!(
             behavioral().state.eviction_deadline(),
             Some(1_700_000_000_000 + 7 * 86_400 * 1000),

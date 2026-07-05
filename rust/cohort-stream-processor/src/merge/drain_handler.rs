@@ -103,14 +103,11 @@ pub fn handle_merge_event(
         return Ok(DrainOutcome::AlreadyDrained);
     }
 
-    // Enumerate P_old's leaves by prefix-scanning its `cf_behavioral` slice. The scan returns keys in
-    // lsk-byte order, matching the sorted enumeration the drain relied on before, so transfer leaf
-    // ordering is preserved. `old_keys` is kept for the eviction queue's per-key cancels; the range
-    // delete below reclaims the rows in one tombstone.
+    // Enumerate P_old's leaves by prefix-scanning its `cf_behavioral` slice. Scan order is lsk-byte
+    // order, so transfer leaf ordering is stable. `old_keys` is kept for the eviction queue's per-key
+    // cancels; the range delete below reclaims the rows in one tombstone.
     let old_prefix = PersonPrefix::new(partition_id, team_u64, old_person);
     let old_rows = store.scan_behavioral_prefix(old_prefix)?;
-    // The size of the enumerated slice, recorded once per non-replay drain: the drain-scan cost after
-    // the `cf_person_index` deletion made this a prefix scan rather than an index read.
     histogram!(MERGE_DRAIN_LEAVES_SCANNED).record(old_rows.len() as f64);
     let old_keys: Vec<BehavioralKey> = old_rows.iter().map(|(key, _)| *key).collect();
 
@@ -124,10 +121,8 @@ pub fn handle_merge_event(
         }
     }
 
-    // Read P_old's person record (one point read) for its replay-dedup carrier. A present record hands
-    // over only its offsets (never its matched set / fingerprints / stamp — P_new re-evaluates lazily);
-    // an absent one carries nothing; a corrupt one is treated as absent and counted (mirroring the
-    // per-leaf decode-drop posture).
+    // P_old's person record carries only its replay-dedup offsets to P_new (never its matched set,
+    // fingerprints, or stamp — P_new re-evaluates lazily). Absent or corrupt carries nothing.
     let person_dedup: Option<PersonDedup> =
         match store.get_person_record(&old_prefix.record_key())? {
             None => None,
@@ -247,8 +242,8 @@ fn fast_path(
         present_leaves,
     )?;
 
-    // Fold P_old's record dedup into P_new's record inline (same batch), and reclaim P_old's own
-    // record key. An absent/corrupt P_new record writes nothing (byte-parity with the per-leaf arm).
+    // Fold P_old's record dedup into P_new's record in the same batch; an absent/corrupt P_new record
+    // writes nothing.
     let team_u64 = event.team_id as u64;
     let new_prefix = PersonPrefix::new(partition_id, team_u64, effective_new_person);
     let record_put = match person_dedup {
@@ -316,10 +311,9 @@ fn slow_path(
         forward_hops: 0,
         person_dedup,
     };
-    // Stage the pending transfer iff it carries leaves OR a person-record dedup: a record-only person
-    // would otherwise lose its straggler-dedup ancestry. A truly empty transfer is never staged — a
-    // duplicate merge event at fresh coordinates could overwrite a still-pending, never-produced
-    // transfer with an empty payload.
+    // Stage iff the transfer carries leaves or a person-record dedup; a record-only person would
+    // otherwise lose its straggler-dedup ancestry. A truly empty transfer is never staged — a duplicate
+    // merge event at fresh coordinates could overwrite a still-pending, never-produced transfer.
     let has_payload = !transfer.leaves.is_empty() || transfer.person_dedup.is_some();
     let pending = has_payload.then(|| PendingTransfer {
         transfer: transfer.clone(),

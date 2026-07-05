@@ -758,11 +758,9 @@ mod tests {
 
     #[test]
     fn person_property_key_is_skipped() {
-        // Person-property leaf state no longer lives in `cf_behavioral` (it is a sweep-invariant
-        // `cf_person_records` record), so a scheduled person-property key should never occur. If one
-        // ever does, the sweep drops it defensively on the `StateVariant::PersonProperty` arm — the
-        // stored value decodes (any behavioral shape) before the variant dispatch, so a plain single
-        // state under the person LSK reaches and exercises that arm.
+        // A scheduled person-property key should never occur, but if one does the sweep drops it on the
+        // `StateVariant::PersonProperty` arm. The stored value decodes before the variant dispatch, so a
+        // behavioral shape under the person LSK still reaches and exercises that arm.
         let filters = freeze(vec![person_leaf()]);
         let key = BehavioralKey::new(
             PARTITION,

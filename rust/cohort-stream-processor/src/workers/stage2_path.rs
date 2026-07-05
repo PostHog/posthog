@@ -168,14 +168,12 @@ async fn evaluate_cohort(
     Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
 }
 
-/// The one seam that turns a person's leaf-state keys into per-leaf membership bits.
-///
-/// It partitions the requested keys by their leaf's [`StateVariant`]: behavioral leaves resolve from
-/// `cf_behavioral` rows via [`leaf_membership`] (so each leaf's comparator applies), and person-property
-/// leaves resolve from the durable [`PersonRecord`](crate::stage1::PersonRecord) — a person LSK *is* its
-/// condition hash, so membership is `record.matched.contains(hash)`. The person arm is isolated so it is
-/// the only thing the person-record collapse changed. Keys whose leaf is absent from the frozen catalog
-/// are skipped (non-member).
+/// Turns a person's leaf-state keys into per-leaf membership bits, partitioned by the leaf's
+/// [`StateVariant`]: behavioral leaves resolve from `cf_behavioral` rows via [`leaf_membership`] (so
+/// each leaf's comparator applies), person-property leaves from the durable
+/// [`PersonRecord`](crate::stage1::PersonRecord) — a person LSK *is* its condition hash, so membership
+/// is `record.matched.contains(hash)`. Keys whose leaf is absent from the frozen catalog are
+/// non-member.
 struct LeafMembershipResolver<'a> {
     partition_id: u16,
     team_id: u64,
@@ -209,7 +207,6 @@ impl<'a> LeafMembershipResolver<'a> {
         let mut person_lsks = Vec::new();
         for &lsk in lsks {
             match self.filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                // Leaf not in the frozen catalog: skip it (reads as non-member downstream).
                 None => continue,
                 Some(StateVariant::PersonProperty) => person_lsks.push(lsk),
                 Some(_) => behavioral_lsks.push(lsk),
@@ -223,7 +220,6 @@ impl<'a> LeafMembershipResolver<'a> {
         Ok(membership)
     }
 
-    /// Read `lsks` from `cf_behavioral` and insert each leaf's membership bit into `out`.
     async fn read_behavioral_into(
         &self,
         lsks: &[LeafStateKey],
@@ -250,10 +246,10 @@ impl<'a> LeafMembershipResolver<'a> {
         Ok(())
     }
 
-    /// Resolve person-property `lsks` from the person's one durable record: a person LSK is its
-    /// condition hash, so its bit is `record.matched.contains(hash)`. One point read serves every
-    /// person leaf. An absent record reads every person leaf as a non-member; a corrupt record counts
-    /// (the same `STAGE2_STATE_DECODE_ERROR` a row decode failure counts) and reads non-member.
+    /// Resolve person-property `lsks` from the person's one durable record via a single point read: a
+    /// person LSK is its condition hash, so its bit is `record.matched.contains(hash)`. An absent or
+    /// corrupt record reads every person leaf as non-member (a corrupt record counts
+    /// `STAGE2_STATE_DECODE_ERROR`).
     async fn read_person_into(
         &self,
         lsks: &[LeafStateKey],
@@ -318,8 +314,8 @@ async fn resolve_ref_membership(
     }
 
     if !single_leaf_refs.is_empty() {
-        // A single-leaf referent's membership is its one leaf's bit, resolved through the same seam as
-        // the cohort's own leaves so both apply the leaf's comparator identically.
+        // Resolve single-leaf referents through the same seam as the cohort's own leaves, so both
+        // apply the leaf's comparator identically.
         let resolver =
             LeafMembershipResolver::new(partition_id, team_id, person_id, filters, handle);
         let lsks: Vec<LeafStateKey> = single_leaf_refs.iter().map(|(_, lsk)| *lsk).collect();
@@ -524,8 +520,6 @@ mod tests {
             .unwrap();
     }
 
-    /// Write a person's durable record with `matched` holding the given person-condition hashes (a
-    /// person LSK is its condition hash), the analog of writing per-leaf person-property rows.
     fn write_person_record(store: &CohortStore, who: Uuid, matched: &[[u8; 16]]) {
         let key = PersonRecordKey::new(PARTITION, TEAM, who);
         let mut record = PersonRecord::absent();

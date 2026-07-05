@@ -352,8 +352,6 @@ mod tests {
             .unwrap();
     }
 
-    /// Write a person's durable record with `matched` holding the given person-condition hashes (a
-    /// person LSK is its condition hash), the analog of writing per-leaf person-property rows.
     fn write_person_record(store: &CohortStore, who: Uuid, matched: &[[u8; 16]]) {
         let key = PersonRecordKey::new(PARTITION, TEAM as u64, who);
         let mut record = PersonRecord::absent();

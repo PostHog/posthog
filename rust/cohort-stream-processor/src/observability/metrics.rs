@@ -261,9 +261,9 @@ pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
 /// Person side of an event resolved against the durable [`crate::stage1::PersonRecord`], labelled by
 /// `result` (`fresh`|`stale_props`|`stale_catalog`|`stale_both`|`absent`|`corrupt`|`argmax_stale`|
-/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` are
-/// labelled from the prior-record classification (an evaluation from nothing), not from the freshness
-/// axis, so they are not folded into `stale_both`.
+/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` come
+/// from the prior-record classification (an evaluation from nothing), not the freshness axis, so they
+/// are not folded into `stale_both`.
 pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
 /// Encoded byte size of a [`crate::stage1::PersonRecord`] at each write (histogram). Watches record
 /// growth on hot persons; the TTL backstop bounds it.
@@ -419,9 +419,8 @@ pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
 /// Behavioral rows enumerated for P_old on one merge drain — the drain-scan cost distribution
-/// (histogram). Recorded once per non-replay drain. After the `cf_person_index` deletion the drain
-/// enumerates P_old's leaves with a prefix scan rather than an index read, so this is the visibility
-/// into how many rows that scan touches.
+/// (histogram). Recorded once per non-replay drain. The drain enumerates P_old's leaves with a prefix
+/// scan, so this is the visibility into how many rows that scan touches.
 pub const MERGE_DRAIN_LEAVES_SCANNED: &str = "merge_drain_leaves_scanned";
 
 /// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
@@ -653,8 +652,6 @@ mod tests {
 
     #[test]
     fn schema_guard_and_drain_scan_metric_names_are_stable() {
-        // Dashboard/runbook contract for the schema-wipe counter and the post-index-deletion drain-scan
-        // histogram; a rename must be deliberate, not accidental.
         assert_eq!(
             STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
             "store_schema_mismatch_wipes_total",
