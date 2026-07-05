@@ -7,6 +7,7 @@ import { ElementsEventType } from '~/toolbar/types'
 
 import {
     buildElementStatsProperties,
+    computeAreaCandidates,
     dedupeByChainIdentity,
     heatmapToolbarMenuLogic,
     isInFixedContainer,
@@ -159,6 +160,41 @@ describe('heatmapToolbarMenuLogic', () => {
         ] as const)('%s', (_name, rects, anchorIdx, candidateIdx, direction, expectedIdx) => {
             const els = chain([...rects])
             expect(stepAreaCandidate(els[anchorIdx], els[candidateIdx], direction)).toBe(els[expectedIdx])
+        })
+    })
+
+    describe('computeAreaCandidates', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        function addElement(
+            tag: string,
+            rect: { top: number; left: number; width: number; height: number },
+            parent: HTMLElement = document.body
+        ): HTMLElement {
+            const el = document.createElement(tag)
+            el.getBoundingClientRect = () =>
+                ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }) as DOMRect
+            parent.appendChild(el)
+            return el
+        }
+
+        it('offers visible containers sorted biggest first, dropping too-small elements and non-containers', () => {
+            const big = addElement('div', { top: 0, left: 0, width: 800, height: 600 })
+            const nav = addElement('nav', { top: 0, left: 0, width: 200, height: 600 })
+            addElement('div', { top: 0, left: 0, width: 50, height: 20 }) // below the size floor
+            addElement('span', { top: 0, left: 0, width: 400, height: 400 }) // not a container tag
+
+            expect(computeAreaCandidates()).toEqual([big, nav])
+        })
+
+        it('collapses a same-rect wrapper chain to its deepest element', () => {
+            const outer = addElement('div', { top: 0, left: 0, width: 800, height: 600 })
+            const inner = addElement('div', { top: 0, left: 0, width: 800, height: 600 }, outer)
+            const distinct = addElement('div', { top: 0, left: 0, width: 400, height: 300 }, inner)
+
+            expect(computeAreaCandidates()).toEqual([inner, distinct])
         })
     })
 

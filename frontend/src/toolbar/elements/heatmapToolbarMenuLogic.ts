@@ -62,6 +62,45 @@ export function resolveAreaTarget(target: HTMLElement): HTMLElement {
     return (target.closest(AREA_TARGET_SELECTOR) as HTMLElement | null) ?? target
 }
 
+// area candidates smaller than this are noise — tiny elements stay reachable via the
+// arrow keys, and boxing them would bury the containers this mode exists to offer
+const AREA_CANDIDATE_MIN_WIDTH_PX = 80
+const AREA_CANDIDATE_MIN_HEIGHT_PX = 40
+// rendering cost cap: the biggest candidates are the useful ones, so drop the tail
+const AREA_CANDIDATE_LIMIT = 300
+
+// every plausible container on the page, rendered as simultaneous hover targets while
+// picking (the actions-inspector pattern): semantic containers plus any div that is
+// visibly its own region. Same-rect wrapper chains collapse to their deepest element,
+// and the result is sorted biggest-first so nested boxes paint children-on-top.
+export function computeAreaCandidates(): HTMLElement[] {
+    const toolbarRoot = getToolbarRootElement()
+    const visibilityCache = new WeakMap<HTMLElement, boolean>()
+    const byRectKey = new Map<string, { element: HTMLElement; area: number }>()
+
+    for (const element of collectAllElementsDeep('*', document) as HTMLElement[]) {
+        if (toolbarRoot?.contains(element) || !element.matches(`${AREA_TARGET_SELECTOR}, div`)) {
+            continue
+        }
+        const rect = element.getBoundingClientRect()
+        if (rect.width < AREA_CANDIDATE_MIN_WIDTH_PX || rect.height < AREA_CANDIDATE_MIN_HEIGHT_PX) {
+            continue
+        }
+        if (!elementIsVisible(element, visibilityCache)) {
+            continue
+        }
+        const key = `${Math.round(rect.top)}:${Math.round(rect.left)}:${Math.round(rect.width)}:${Math.round(rect.height)}`
+        // document order visits parents before children, so the last write per rect key
+        // keeps the deepest element of a zero-layout wrapper chain
+        byRectKey.set(key, { element, area: rect.width * rect.height })
+    }
+
+    return Array.from(byRectKey.values())
+        .sort((a, b) => b.area - a.area)
+        .slice(0, AREA_CANDIDATE_LIMIT)
+        .map(({ element }) => element)
+}
+
 function rectsMatch(a: DOMRect, b: DOMRect): boolean {
     return (
         Math.abs(a.top - b.top) < 1 &&
@@ -344,6 +383,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setAreaHover: (anchor: HTMLElement, candidate: HTMLElement) => ({ anchor, candidate }),
         setAreaHoverCandidate: (candidate: HTMLElement) => ({ candidate }),
         stepAreaHover: (direction: 'up' | 'down') => ({ direction }),
+        setAreaCandidates: (candidates: HTMLElement[]) => ({ candidates }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
         // swap the tracked node for a re-resolved one without refetching: the selector is
@@ -398,6 +438,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 startAreaSelection: () => false,
                 cancelAreaSelection: () => false,
                 setHeatmapAreaFilter: () => false,
+            },
+        ],
+        areaCandidates: [
+            [] as HTMLElement[],
+            {
+                setAreaCandidates: (_, { candidates }) => candidates,
+                cancelAreaSelection: () => [],
+                setHeatmapAreaFilter: () => [],
             },
         ],
         // cleared on disableHeatmap and navigation via the listeners dispatching
@@ -801,6 +849,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             if (productTours?.values.isSelecting) {
                 productTours.actions.setEditorState({ mode: 'idle' })
             }
+            actions.setAreaCandidates(computeAreaCandidates())
             toolbarPosthogJS.capture('toolbar heatmap area selection started')
         },
 
