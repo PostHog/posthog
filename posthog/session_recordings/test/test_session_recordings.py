@@ -27,7 +27,10 @@ from rest_framework import status
 
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -1349,6 +1352,32 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+
+    @parameterized.expand(
+        [
+            (
+                "hogql_query_error",
+                QueryError("Field not found: $device_type"),
+                status.HTTP_400_BAD_REQUEST,
+                "Field not found: $device_type",
+            ),
+            (
+                "clickhouse_memory_limit",
+                ClickHouseQueryMemoryLimitExceeded(),
+                504,
+                "max memory limit",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_surfaces_real_error(
+        self, _name, exception, expected_status, expected_detail_substring, mock_run
+    ):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == expected_status
+        # the real reason must reach the client, not a generic "internal server error"
+        assert expected_detail_substring in response.json()["detail"]
 
     def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
         """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""

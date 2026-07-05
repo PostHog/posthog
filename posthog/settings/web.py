@@ -617,6 +617,7 @@ SPECTACULAR_SETTINGS = {
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "ExperimentsListWidgetTypeEnum": ["experiments_list"],
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+        "SurveyResultsWidgetTypeEnum": ["survey_results"],
         "LogsListWidgetTypeEnum": ["logs_list"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
@@ -971,6 +972,11 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 # Server-side shared secret; never expose the token to the browser.
 AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
+
+# AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
+# secret for routing LLM calls through the gateway. Unset = direct to the provider.
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
+AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

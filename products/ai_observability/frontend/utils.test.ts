@@ -12,7 +12,6 @@ import {
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
-    getTraceStepCount,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
@@ -2608,29 +2607,6 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ['returns undefined for an array', ['oops'], undefined],
         ])('%s', (_, input, expected) => {
             expect(asString(input)).toBe(expected)
-        })
-    })
-
-    describe('getTraceStepCount', () => {
-        const event = (eventName: string): LLMTraceEvent => ({
-            id: eventName,
-            event: eventName,
-            properties: {},
-            createdAt: '2026-01-01T00:00:00Z',
-        })
-
-        it('counts generations, spans, and embeddings while excluding metric and feedback events', () => {
-            expect(
-                getTraceStepCount({
-                    events: [
-                        event('$ai_generation'),
-                        event('$ai_span'),
-                        event('$ai_embedding'),
-                        event('$ai_metric'),
-                        event('$ai_feedback'),
-                    ],
-                })
-            ).toBe(3)
         })
     })
 

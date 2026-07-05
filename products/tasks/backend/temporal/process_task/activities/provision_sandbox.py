@@ -112,6 +112,12 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+@dataclass
+class InvalidateResumeSnapshotInput:
+    run_id: str
+    snapshot_external_id: str | None = None
+
+
 def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
     base = host[2:] if host.startswith("*.") else host
     for wildcard_base in wildcard_bases:
@@ -685,3 +691,20 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
+
+
+@activity.defn
+@asyncify
+def invalidate_resume_snapshot(input: InvalidateResumeSnapshotInput) -> None:
+    """Drop the resume snapshot from the run state after a failed restore, so retries and
+    future runs of the task (which carry the previous run's snapshot) stop resuming from it."""
+    with log_activity_execution(
+        "invalidate_resume_snapshot",
+        run_id=input.run_id,
+        snapshot_external_id=input.snapshot_external_id,
+    ):
+        TaskRun.update_state_atomic(
+            input.run_id,
+            remove_keys=["snapshot_external_id", "snapshot_kind", "snapshot_mount_path"],
+        )
+        emit_agent_log(input.run_id, "debug", "Previous session snapshot could not be restored; discarded it")

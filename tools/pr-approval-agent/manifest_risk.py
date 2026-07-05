@@ -17,7 +17,9 @@ import re
 import json
 import tomllib
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 # Any change at all to these is execution-bearing — setup.py and Gemfile are
 # code, and setup.cfg's declarative surface (entry_points, cmdclass) doesn't
@@ -34,11 +36,20 @@ _RISKY_LINE_PATTERNS: dict[str, re.Pattern[str]] = {
 _TSCONFIG_LINE_PATTERN = re.compile(r'"(?:plugins|extends)"\s*:')
 
 
-def _package_json_risky_subtree(text: str) -> object:
+def _json_object(text: str, label: str) -> dict[str, object]:
     data = json.loads(text) if text.strip() else {}
     if not isinstance(data, dict):
-        raise ValueError("package.json root is not an object")
+        raise ValueError(f"{label} root is not an object")
+    return data
+
+
+def _package_json_risky_subtree(text: str) -> object:
+    data = _json_object(text, "package.json")
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
+
+
+def _composer_json_risky_subtree(text: str) -> object:
+    return _json_object(text, "composer.json").get("scripts")
 
 
 _TOML_RISKY_KEYS = frozenset({"scripts", "entry-points", "entry_points"})
@@ -76,10 +87,26 @@ def _cargo_risky_subtree(text: str) -> object:
 
 
 def _tsconfig_risky_subtree(text: str) -> object:
-    data = json.loads(text) if text.strip() else {}
-    if not isinstance(data, dict):
-        raise ValueError("tsconfig root is not an object")
+    data = _json_object(text, "tsconfig")
     return (data.get("extends"), (data.get("compilerOptions") or {}).get("plugins"))
+
+
+# Manifests compared by parsing base/head into a "risky subtree" and diffing
+# that, rather than by diff-line matching (see module docstring). Each entry
+# pairs the extractor with the parse-failure exceptions that must fail closed
+# (return True) for that format.
+class StructuralCheck(NamedTuple):
+    extract: Callable[[str], object]
+    fails_closed_on: tuple[type[Exception], ...]
+
+
+_STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
+    "package.json": StructuralCheck(_package_json_risky_subtree, (ValueError,)),
+    "pyproject.toml": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "pipfile": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
+    "cargo.toml": StructuralCheck(_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
+    "composer.json": StructuralCheck(_composer_json_risky_subtree, (ValueError,)),
+}
 
 
 def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_text: str) -> bool:
@@ -87,20 +114,11 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_tex
     name = Path(path).name.lower()
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
-    if name == "package.json":
+    if name in _STRUCTURAL_RISK_CHECKS:
+        check = _STRUCTURAL_RISK_CHECKS[name]
         try:
-            return _package_json_risky_subtree(base_text) != _package_json_risky_subtree(head_text)
-        except ValueError:
-            return True
-    if name in ("pyproject.toml", "pipfile"):
-        try:
-            return _toml_risky_subtree(base_text) != _toml_risky_subtree(head_text)
-        except (tomllib.TOMLDecodeError, ValueError):
-            return True
-    if name == "cargo.toml":
-        try:
-            return _cargo_risky_subtree(base_text) != _cargo_risky_subtree(head_text)
-        except tomllib.TOMLDecodeError:
+            return check.extract(base_text) != check.extract(head_text)
+        except check.fails_closed_on:
             return True
     if name.startswith("tsconfig") and name.endswith(".json"):
         # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
