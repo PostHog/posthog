@@ -58,8 +58,14 @@ tools:
             idempotent: true
         title: Get available activity log filter options.
         description: >
-            Get the available filter options for activity logs — scopes, activity types, and users that have logged
-            activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+            Get the available filter options for activity logs — the scopes, activity types, users, and API clients
+            that have logged activity (the `static_filters` enum you need to build an advanced-activity-logs-list
+            filter). The large per-scope `detail_fields` enumeration is omitted by default; pass
+            include_detail_fields=true only if you specifically need discovered detail-field paths, and be aware it
+            can be very large on projects with a lot of activity.
+        param_overrides:
+            include_detail_fields:
+                default: false
         url_prefix: /activity
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list

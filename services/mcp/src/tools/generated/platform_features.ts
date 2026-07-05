@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     ActivityLogListQueryParams,
+    AdvancedActivityLogsAvailableFiltersRetrieveQueryParams,
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
@@ -78,7 +79,11 @@ const activityLogList = (): ToolBase<
     },
 })
 
-const AdvancedActivityLogsFiltersSchema = z.object({})
+const AdvancedActivityLogsFiltersSchema = AdvancedActivityLogsAvailableFiltersRetrieveQueryParams.extend({
+    include_detail_fields: AdvancedActivityLogsAvailableFiltersRetrieveQueryParams.shape['include_detail_fields']
+        .default(false)
+        .optional(),
+})
 
 const advancedActivityLogsFilters = (): ToolBase<
     typeof AdvancedActivityLogsFiltersSchema,
@@ -86,12 +91,14 @@ const advancedActivityLogsFilters = (): ToolBase<
 > => ({
     name: 'advanced-activity-logs-filters',
     schema: AdvancedActivityLogsFiltersSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsFiltersSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AvailableFiltersResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/advanced_activity_logs/available_filters/`,
+            query: {
+                include_detail_fields: params.include_detail_fields,
+            },
         })
         return result
     },

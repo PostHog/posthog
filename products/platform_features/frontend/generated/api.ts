@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogApi,
     ActivityLogListParams,
+    AdvancedActivityLogsAvailableFiltersRetrieveParams,
     AdvancedActivityLogsListParams,
     ApprovalPoliciesListParams,
     ApprovalPolicyApi,
@@ -566,18 +567,37 @@ export const advancedActivityLogsList = async (
     })
 }
 
-export const getAdvancedActivityLogsAvailableFiltersRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/advanced_activity_logs/available_filters/`
+export const getAdvancedActivityLogsAvailableFiltersRetrieveUrl = (
+    projectId: string,
+    params?: AdvancedActivityLogsAvailableFiltersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/advanced_activity_logs/available_filters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/advanced_activity_logs/available_filters/`
 }
 
 export const advancedActivityLogsAvailableFiltersRetrieve = async (
     projectId: string,
+    params?: AdvancedActivityLogsAvailableFiltersRetrieveParams,
     options?: RequestInit
 ): Promise<AvailableFiltersResponseApi> => {
-    return apiMutator<AvailableFiltersResponseApi>(getAdvancedActivityLogsAvailableFiltersRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<AvailableFiltersResponseApi>(
+        getAdvancedActivityLogsAvailableFiltersRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAdvancedActivityLogsExportCreateUrl = (projectId: string) => {

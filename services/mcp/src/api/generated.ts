@@ -60330,6 +60330,13 @@ export namespace Schemas {
     was_impersonated?: boolean | null;
     };
 
+    export type OrgOrganizationsAdvancedActivityLogsAvailableFiltersRetrieveParams = {
+    /**
+     * Whether to include the per-scope `detail_fields` enumeration. This section can be very large on projects with a lot of activity (it grows with the number of distinct detail keys seen), so set it to false to return only the compact `static_filters` (scopes, activities, users, clients).
+     */
+    include_detail_fields?: boolean;
+    };
+
     export type OrgOrganizationsBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -61143,6 +61150,13 @@ export namespace Schemas {
      * @nullable
      */
     was_impersonated?: boolean | null;
+    };
+
+    export type AdvancedActivityLogsAvailableFiltersRetrieveParams = {
+    /**
+     * Whether to include the per-scope `detail_fields` enumeration. This section can be very large on projects with a lot of activity (it grows with the number of distinct detail keys seen), so set it to false to return only the compact `static_filters` (scopes, activities, users, clients).
+     */
+    include_detail_fields?: boolean;
     };
 
     export type AgentApplicationsListParams = {

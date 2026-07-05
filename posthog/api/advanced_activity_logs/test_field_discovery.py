@@ -2,6 +2,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -110,3 +112,23 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    @parameterized.expand(
+        [
+            ("default_includes_detail_fields", True, True),
+            ("opt_out_excludes_detail_fields", False, False),
+        ]
+    )
+    def test_include_detail_fields_toggle(self, _name: str, include_detail_fields: bool, expect_detail_fields: bool):
+        self._create_activity_log("Dashboard", {"name": "My dashboard", "changes": [{"field": "name"}]})
+
+        base_queryset = ActivityLog.objects.filter(organization_id=self.organization.id)
+        results = self.discovery.get_available_filters(base_queryset, include_detail_fields=include_detail_fields)
+
+        # static_filters is always returned so callers can still build a filter without the heavy detail_fields section
+        self.assertEqual([s["value"] for s in results["static_filters"]["scopes"]], ["Dashboard"])
+
+        if expect_detail_fields:
+            self.assertTrue(results["detail_fields"])
+        else:
+            self.assertEqual(results["detail_fields"], {})

@@ -26,12 +26,14 @@ class AdvancedActivityLogFieldDiscovery:
     def __init__(self, organization_id: UUIDT):
         self.organization_id = organization_id
 
-    def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
+    def get_available_filters(self, base_queryset: QuerySet, include_detail_fields: bool = True) -> dict[str, Any]:
         record_count = self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
             cached = get_cached_fields(str(self.organization_id))
             if cached:
+                if not include_detail_fields:
+                    return {"static_filters": cached.get("static_filters", {}), "detail_fields": {}}
                 return cached
             return {
                 "static_filters": {"users": [], "scopes": [], "activities": [], "clients": []},
@@ -39,6 +41,11 @@ class AdvancedActivityLogFieldDiscovery:
             }
 
         static_filters = self._get_static_filters(base_queryset)
+
+        if not include_detail_fields:
+            # Skip the expensive per-scope detail field discovery when the caller only needs static filters.
+            return {"static_filters": static_filters, "detail_fields": {}}
+
         detail_fields = self._analyze_detail_fields_memory()
 
         result = {

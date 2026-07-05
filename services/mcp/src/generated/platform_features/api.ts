@@ -357,6 +357,17 @@ export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ *
         ),
 })
 
+export const advancedActivityLogsAvailableFiltersRetrieveQueryIncludeDetailFieldsDefault = true
+
+export const AdvancedActivityLogsAvailableFiltersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    include_detail_fields: zod
+        .boolean()
+        .default(advancedActivityLogsAvailableFiltersRetrieveQueryIncludeDetailFieldsDefault)
+        .describe(
+            'Whether to include the per-scope `detail_fields` enumeration. This section can be very large on projects with a lot of activity (it grows with the number of distinct detail keys seen), so set it to false to return only the compact `static_filters` (scopes, activities, users, clients).'
+        ),
+})
+
 export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()

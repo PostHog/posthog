@@ -372,6 +372,18 @@ class StaticFiltersSerializer(serializers.Serializer):
     )
 
 
+class AvailableFiltersRequestSerializer(serializers.Serializer):
+    include_detail_fields = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include the per-scope `detail_fields` enumeration. This section can be very large on "
+            "projects with a lot of activity (it grows with the number of distinct detail keys seen), so set it "
+            "to false to return only the compact `static_filters` (scopes, activities, users, clients)."
+        ),
+    )
+
+
 class AvailableFiltersResponseSerializer(serializers.Serializer):
     static_filters = StaticFiltersSerializer(help_text="Pre-computed filter options for scopes, activities, and users.")
     detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
@@ -481,11 +493,20 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @extend_schema(responses={200: AvailableFiltersResponseSerializer})
+    @extend_schema(
+        parameters=[AvailableFiltersRequestSerializer],
+        responses={200: AvailableFiltersResponseSerializer},
+    )
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
+        request_serializer = AvailableFiltersRequestSerializer(data=request.query_params)
+        request_serializer.is_valid(raise_exception=True)
+        include_detail_fields = request_serializer.validated_data["include_detail_fields"]
+
         queryset = self.get_queryset()
-        available_filters = self.field_discovery.get_available_filters(queryset)
+        available_filters = self.field_discovery.get_available_filters(
+            queryset, include_detail_fields=include_detail_fields
+        )
         return Response(available_filters)
 
     @action(detail=False, methods=["POST"])
