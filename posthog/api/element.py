@@ -34,10 +34,11 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "How long does it take to get element stats?",
 )
 
-# element properties that appear as string values in elements_chain; the other
-# ElementSerializer fields (numeric ones, the attributes map) are stored in a
-# format the values regexes cannot match
-SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_class", "attr_id"}
+# element properties that appear as string values in elements_chain and can be
+# matched by the values regexes below; attr_class is excluded because classes are
+# serialized as .classname tokens in the tag part of the chain, not as
+# attr_class="..." key-value pairs, so the generic regex cannot match them
+SUPPORTED_VALUES_KEYS = {"tag_name", "text", "href", "attr_id"}
 _SUPPORTED_VALUES_KEYS_DISPLAY = ", ".join(sorted(SUPPORTED_VALUES_KEYS))
 KEYS_WITH_NO_LISTABLE_VALUES = {"selector"}
 
@@ -298,6 +299,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         # accept repeated params (the toolbar), a JSON array string (the MCP client
         # serializes arrays with JSON.stringify), or a comma-separated list
+        # (agents hand-typing comma-separated lists, e.g. "$rageclick, $autocapture")
         events_to_include: set[str] = set()
         for raw in request.query_params.getlist("include", []):
             if raw.startswith("["):
@@ -309,7 +311,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     raise ValidationError("include must be a JSON array of event names")
                 events_to_include.update(parsed)
             else:
-                events_to_include.update(part for part in raw.split(",") if part)
+                events_to_include.update(part.strip() for part in raw.split(",") if part.strip())
 
         if not events_to_include:
             return tuple(supported_events)
@@ -325,7 +327,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "key",
                 type=str,
                 required=True,
-                description="Element property to list values for: tag_name, text, href, attr_class, or attr_id.",
+                description="Element property to list values for: tag_name, text, href, or attr_id.",
             ),
             OpenApiParameter(
                 "value",

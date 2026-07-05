@@ -61,7 +61,8 @@ tools:
             result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date
             range, event types, URL or other event/person properties, and the project's internal-test-account filters.
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
-            or dead clicks".
+            or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
+            paginate with `offset` if you need more results.
     elements-update:
         operation: elements_update
         enabled: false

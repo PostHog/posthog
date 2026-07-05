@@ -154,7 +154,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
 
-    @parameterized.expand(["", "key=order", "key=unknown"])
+    @parameterized.expand(["", "key=order", "key=unknown", "key=attr_class"])
     def test_event_property_values_rejects_unsupported_keys(self, query: str) -> None:
         response = self.client.get(f"/api/element/values/?{query}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -164,6 +164,32 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/element/values/?key=selector")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
+
+    @parameterized.expand(
+        [
+            ("tag_name", "a"),
+            ("text", "click here"),
+            ("href", "https://posthog.com/about"),
+            ("attr_id", "my-btn"),
+        ]
+    )
+    def test_event_property_values_returns_values_for_each_supported_key(self, key: str, expected_value: str) -> None:
+        _create_event(
+            team=self.team,
+            distinct_id="test",
+            event="$autocapture",
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="https://posthog.com/about",
+                    text="click here",
+                    attr_id="my-btn",
+                )
+            ],
+        )
+        response = self.client.get(f"/api/element/values/?key={key}").json()
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["name"], expected_value)
 
     # checking postgres, don't care about person on events
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -292,6 +318,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "",
             '&include=["$rageclick","$autocapture"]',
             "&include=$rageclick,$autocapture",
+            "&include=$rageclick,%20$autocapture",  # comma+space (agents hand-typing lists)
         ]
     )
     def test_element_stats_can_load_rageclick_and_autocapture_data(self, include_params) -> None:
