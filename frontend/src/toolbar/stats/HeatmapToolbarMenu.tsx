@@ -20,6 +20,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
@@ -83,6 +84,7 @@ const SectionButton = ({
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
+    const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
 
     const {
         matchLinksByHref,
@@ -172,22 +174,24 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconTarget />}
-                        active={areaSelectionActive}
-                        data-attr="heatmap-area-filter-toggle"
-                        onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
-                        tooltip={
-                            <>
-                                Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
-                                content. Click this, then click an area of the page. Press <kbd>Esc</kbd> to cancel.
-                            </>
-                        }
-                    >
-                        {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
-                    </LemonButton>
+                    {areaFilterFlagEnabled ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconTarget />}
+                            active={areaSelectionActive}
+                            data-attr="heatmap-area-filter-toggle"
+                            onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
+                            tooltip={
+                                <>
+                                    Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
+                                    content. Click this, then click an area of the page. Press <kbd>Esc</kbd> to cancel.
+                                </>
+                            }
+                        >
+                            {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
+                        </LemonButton>
+                    ) : null}
                 </div>
                 {heatmapAreaFilter && !areaSelectionActive ? (
                     <div className="flex flex-row items-center gap-2 py-2 border-b">
