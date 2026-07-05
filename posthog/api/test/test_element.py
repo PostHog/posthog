@@ -167,6 +167,22 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_element_stats_can_filter_by_person_properties(self, person_on_events: bool, poe_v2: bool) -> None:
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=person_on_events, PERSON_ON_EVENTS_V2_OVERRIDE=poe_v2):
+            self._setup_events()
+
+            properties_filter = json.dumps(
+                [{"key": "email", "value": "two@mail.com", "operator": "exact", "type": "person"}]
+            )
+            response = self.client.get(
+                f"/api/element/stats/?paginate_response=true&properties={properties_filter}"
+            ).json()
+
+            assert len(response["results"]) == 1
+            assert response["results"][0]["elements"][0]["href"] == "https://posthog.com/event-2"
+            assert response["results"][0]["count"] == 1
+
     def test_element_stats_can_filter_by_hogql(self) -> None:
         self._setup_events()
         properties_filter = json.dumps(
@@ -344,16 +360,22 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         rageclick_event_1 = next(row for row in first if row["type"] == "$rageclick")
         assert autocapture_event_1["hash"] == rageclick_event_1["hash"]
 
-    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
-        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
-        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
-        response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit=not-a-number"),
+            ("non_numeric_offset", "offset=not-a-number"),
+            ("unexpected_include", "include=$autocapture&include=$rageclick&include=$pageview"),
+            ("zero_limit", "limit=0"),
+            ("negative_limit", "limit=-1"),
+            ("limit_at_printer_cap", "limit=1000000"),
+            ("negative_offset", "offset=-1"),
+            ("zero_sampling_factor", "sampling_factor=0"),
+            ("sampling_factor_above_one", "sampling_factor=1.5"),
+            ("negative_sampling_factor", "sampling_factor=-0.5"),
+        ]
+    )
+    def test_element_stats_rejects_invalid_query_params(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/element/stats/?{query}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _setup_events(self):
