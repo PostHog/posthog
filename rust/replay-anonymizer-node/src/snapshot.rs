@@ -190,8 +190,14 @@ pub fn decompress_payload(raw: Vec<u8>, content_encoding: Option<&str>) -> SResu
         if size > MAX_DECOMPRESSED_LEN {
             return Err(bad("lz4 uncompressed size exceeds limit"));
         }
-        return lz4::block::decompress(&raw[4..], Some(size as i32))
-            .map_err(|e| bad(&format!("lz4 decompress failed: {e}")));
+        let out = lz4::block::decompress(&raw[4..], Some(size as i32))
+            .map_err(|e| bad(&format!("lz4 decompress failed: {e}")))?;
+        // Classify a lying size prefix as invalid_compressed_data (matching the TS path) rather
+        // than letting the short/long buffer surface later as invalid_json.
+        if out.len() != size {
+            return Err(bad("lz4 decoded length does not match the size prefix"));
+        }
+        return Ok(out);
     }
     if raw.starts_with(GZIP_MAGIC) {
         return crate::gzip::gunzip(&raw).map_err(|e| bad(&format!("gzip decompress failed: {e}")));

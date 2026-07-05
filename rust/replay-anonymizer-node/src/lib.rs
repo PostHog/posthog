@@ -77,6 +77,14 @@ use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use serde::Deserialize;
 
+// The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
+// `panic = "abort"` that becomes a no-op and one crafted message aborts the whole worker, so fail
+// the build if the workspace release profile ever switches to abort.
+#[cfg(all(panic = "abort", not(test)))]
+compile_error!(
+    "replay-anonymizer-node requires panic=unwind: catch_unwind is the fail-closed guard"
+);
+
 // The allow lists are immutable per process; set once at startup via `initAnonymizer`.
 static ALLOW: RwLock<Option<AllowLists>> = RwLock::new(None);
 

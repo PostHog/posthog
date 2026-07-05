@@ -232,7 +232,13 @@ fn blur_image_data<'v>(ctx: &Ctx<'_>, image_data: &mut Object<'v>) -> bool {
 /// Locate the RGBA ArrayBuffer behind an ImageData's pixel descriptor (direct or typed-array-wrapped),
 /// blank it and merge the pixelated region back. Returns whether it handled the pixels.
 fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object<'_>, w: u32, h: u32) -> bool {
-    let expected = (w as usize) * (h as usize) * 4;
+    // `checked_mul`: `w*h*4` on attacker-controlled dims can overflow usize; overflow -> no match.
+    let Some(expected) = (w as usize)
+        .checked_mul(h as usize)
+        .and_then(|wh| wh.checked_mul(4))
+    else {
+        return false;
+    };
 
     // Shape A: args[0] is the ArrayBuffer directly.
     let direct = image_data

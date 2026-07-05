@@ -87,7 +87,10 @@ pub fn pixelate_raw_rgba(base64_pixels: &str, width: u32, height: u32) -> Option
     let buf = base64::engine::general_purpose::STANDARD
         .decode(base64_pixels.as_bytes())
         .ok()?;
-    let expected = (width as usize) * (height as usize) * 4;
+    // `checked_mul`: `w*h*4` on attacker-controlled dims can overflow usize; overflow -> reject.
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|wh| wh.checked_mul(4))?;
     if buf.len() != expected {
         return None;
     }

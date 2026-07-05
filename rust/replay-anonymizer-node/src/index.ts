@@ -54,8 +54,8 @@ export interface AnonymizeKafkaPayloadResult {
     /** JSON-serialized {@link AnonymizeMeta}. */
     meta: string | null
     /**
-     * Which implementation produced the output (differential-tested identical; the label feeds the
-     * canary metrics that tune the adaptive routing threshold).
+     * Which implementation produced the output (differential-tested identical). `tree` means the
+     * whole-message parse fallback fired; the label is an A/B / fallback-rate signal.
      */
     route: 'stream' | 'tree' | null
 }
