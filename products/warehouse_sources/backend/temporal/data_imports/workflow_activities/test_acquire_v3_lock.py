@@ -192,23 +192,36 @@ class TestTakeOverStaleLock:
         mock_release.assert_not_called()
         mock_acquire.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "missing_workflow_id, expected_reason",
+        [
+            (False, "no_job_row"),
+            (True, "missing_workflow_id"),
+        ],
+        ids=["no_job_row", "missing_workflow_id"],
+    )
     @patch(f"{MODULE}.sync_connect")
     @patch(f"{MODULE}.ExternalDataJob")
-    def test_describe_holder_workflow_fails_closed_when_job_row_missing(
+    def test_describe_holder_workflow_fails_closed_when_job_metadata_missing(
         self,
         mock_job_model: MagicMock,
         mock_sync_connect: MagicMock,
+        missing_workflow_id: bool,
+        expected_reason: str,
     ) -> None:
-        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
+        existing_job = MagicMock()
+        existing_job.workflow_id = "" if missing_workflow_id else "workflow-id"
+        stored_job = existing_job if missing_workflow_id else None
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = stored_job
         inputs = AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID)
 
-        workflow_status, holder_job, ambiguity_reason = _describe_holder_workflow(
+        workflow_status, returned_job, ambiguity_reason = _describe_holder_workflow(
             inputs, self.HOLDER_TOKEN, MagicMock()
         )
 
         assert workflow_status is None
-        assert holder_job is None
-        assert ambiguity_reason == "no_job_row"
+        assert returned_job is stored_job
+        assert ambiguity_reason == expected_reason
         mock_sync_connect.assert_not_called()
 
     @pytest.mark.parametrize(

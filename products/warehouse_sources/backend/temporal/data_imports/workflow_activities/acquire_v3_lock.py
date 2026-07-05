@@ -1,6 +1,6 @@
 import dataclasses
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db import close_old_connections
 
@@ -141,16 +141,8 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
     if workflow_status == WorkflowExecutionStatus.RUNNING:
         return False
 
-    if holder_job is None:
-        logger.warning(
-            "v3_pipeline_lock_takeover_ambiguous",
-            schema_id=str(inputs.schema_id),
-            holder_token=holder,
-            reason="missing_holder_job_after_describe",
-        )
-        return False
-
     # Step 3: workflow is terminal, check the job row
+    holder_job = cast(ExternalDataJob, holder_job)
     if holder_job.status in TERMINAL_JOB_STATUSES:
         logger.warning(
             "v3_pipeline_lock_taking_over",
