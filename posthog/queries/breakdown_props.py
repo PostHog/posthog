@@ -10,6 +10,7 @@ from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, Pr
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
+from posthog.models.event.new_events_schema import events_read_table
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
@@ -174,12 +175,15 @@ def get_breakdown_prop_values(
         cast_as_float=filter.using_histogram,
     )
 
+    events_table = events_read_table(filter.hogql_context.uses_new_events_schema())
+
     sample_clause = "SAMPLE %(sampling_factor)s" if filter.sampling_factor else ""
     sampling_params = {"sampling_factor": filter.sampling_factor}
 
     if filter.using_histogram:
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
         elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            events_table=events_table,
             bucketing_expression=bucketing_expression,
             breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
@@ -195,6 +199,7 @@ def get_breakdown_prop_values(
         )
     else:
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            events_table=events_table,
             breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
@@ -250,6 +255,7 @@ def _to_value_expression(
     cast_as_float: bool = False,
 ) -> tuple[str, dict]:
     params: dict[str, Any] = {}
+    use_new_events_schema = hogql_context.uses_new_events_schema()
     if breakdown_type == "session":
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
@@ -265,6 +271,7 @@ def _to_value_expression(
             column="person_properties" if direct_on_events else "person_props",
             allow_denormalized_props=True,
             materialised_table_column="person_properties" if direct_on_events else "properties",
+            use_new_events_schema=use_new_events_schema and direct_on_events,
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
@@ -279,6 +286,7 @@ def _to_value_expression(
             materialised_table_column=(
                 f"group{breakdown_group_type_index}_properties" if direct_on_events else "group_properties"
             ),
+            use_new_events_schema=use_new_events_schema and direct_on_events,
         )
     elif breakdown_type == "hogql":
         from posthog.hogql.hogql import translate_hogql
@@ -295,6 +303,7 @@ def _to_value_expression(
             query_alias=None,
             column="properties",
             normalize_url=breakdown_normalize_url,
+            use_new_events_schema=use_new_events_schema,
         )
 
     if cast_as_float:
@@ -341,7 +350,7 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
-            FROM events all_events
+            FROM {events_read_table(filter.hogql_context.uses_new_events_schema())} all_events
             WHERE team_id = {team.pk}
             {parsed_date_from}
             {parsed_date_to}

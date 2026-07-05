@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from django.utils.timezone import now
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import SurveyEventProperties, get_survey_property_string_expr
@@ -25,7 +26,7 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
     if today_entry is None:
         return
 
-    total_response_count = _get_survey_responses_count(survey.id)
+    total_response_count = _get_survey_responses_count(survey.id, survey.team_id)
     if total_response_count < today_entry.get("daily_response_limit", 0) and survey.internal_response_sampling_flag:
         # Update the internal_response_sampling_flag's rollout percentage
         internal_response_sampling_flag = survey.internal_response_sampling_flag
@@ -41,14 +42,15 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         survey.save(update_fields=["response_sampling_start_date", "response_sampling_daily_limits"])
 
 
-def _get_survey_responses_count(survey_id: int) -> int:
-    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+def _get_survey_responses_count(survey_id: int, team_id: int) -> int:
+    use_new = use_new_events_schema(team_id)
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID, use_new_events_schema=use_new)
 
     # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
     data = sync_execute(
         f"""
                 SELECT {survey_id_expr} as survey_id, count()
-                FROM events
+                FROM {events_read_table(use_new)}
                 WHERE event = 'survey sent' AND {survey_id_expr} = %(survey_id)s
             """,
         {"survey_id": survey_id},
@@ -64,7 +66,7 @@ def _get_survey_responses_count(survey_id: int) -> int:
 def update_survey_adaptive_sampling() -> None:
     surveys_with_adaptive_sampling = Survey.objects.filter(
         start_date__isnull=False, end_date__isnull=True, response_sampling_daily_limits__isnull=False
-    ).only("id", "response_sampling_daily_limits")
+    ).only("id", "team_id", "response_sampling_daily_limits")
 
     for survey in list(surveys_with_adaptive_sampling):
         _update_survey_adaptive_sampling(survey)

@@ -111,7 +111,7 @@ class FunnelEventQuery(EventQuery):
         # things like this for now but should do a larger refactor to get rid of it
         query = f"""
             SELECT {all_fields}
-            FROM events {self.EVENT_TABLE_ALIAS}
+            FROM {self._events_table} {self.EVENT_TABLE_ALIAS}
             {sample_clause}
             {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query}")}
             {person_query}

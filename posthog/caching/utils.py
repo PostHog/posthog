@@ -5,6 +5,7 @@ from typing import Any, Optional, Union
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -30,9 +31,9 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
 
 def largest_teams(limit: int) -> set[int]:
     teams_by_event_count = sync_execute(
-        """
+        f"""
             SELECT team_id, COUNT(*) AS event_count
-            FROM events
+            FROM {events_read_table(use_new_events_schema(None))}
             WHERE timestamp > subtractDays(now(), 7)
             GROUP BY team_id
             ORDER BY event_count DESC
@@ -46,9 +47,9 @@ def largest_teams(limit: int) -> set[int]:
 def _populate_active_teams(redis) -> dict[int, float]:
     # NOTE: the ClickHouse `now()` function used here does not cooperate with freezegun.
     teams_by_recency = sync_execute(
-        """
+        f"""
         SELECT team_id, date_diff('second', max(timestamp), now()) AS age
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
         GROUP BY team_id
         ORDER BY age;

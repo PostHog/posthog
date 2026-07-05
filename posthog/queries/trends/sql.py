@@ -101,7 +101,7 @@ TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
     SELECT
         {breakdown_expression},
         {aggregate_operation} as count
-    FROM events e
+    FROM {events_table} e
     {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}
@@ -118,7 +118,7 @@ SELECT {bucketing_expression} FROM (
     SELECT
         {breakdown_expression},
         {aggregate_operation} as count
-    FROM events e
+    FROM {events_table} e
     {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}

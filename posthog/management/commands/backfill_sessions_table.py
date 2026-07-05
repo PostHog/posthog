@@ -11,6 +11,7 @@ import structlog
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 
 logger = structlog.get_logger(__name__)
@@ -34,9 +35,17 @@ class BackfillQuery:
         dry_run: bool = True,
         print_counts: bool = True,
     ) -> None:
+        # Resolved once so the property expressions and the table swap below can't mix schemas.
+        use_new = use_new_events_schema(None)
+        events_table = events_read_table(use_new)
+
         def source_column(column_name: str) -> str:
             return get_property_string_expr(
-                "events", property_name=column_name, var=f"'{column_name}'", column="properties"
+                "events",
+                property_name=column_name,
+                var=f"'{column_name}'",
+                column="properties",
+                use_new_events_schema=use_new,
             )[0]
 
         num_days = (self.end_date - self.start_date).days + 1
@@ -115,7 +124,7 @@ SELECT
     if(event='$pageview', 1, NULL) as pageview_count,
     if(event='$autocapture', 1, NULL) as autocapture_count
 
-FROM events
+FROM {events_table}
 WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where} AND {team_where}
         """
 

@@ -700,6 +700,9 @@ def compose_filters_clause(
         enable_select_queries=False,
         limit_top_select=False,
         within_non_hogql_query=False,
+        # Export SQL reads the legacy String-properties tables/views (events, events_recent,
+        # events_batch_export), so filter fragments must stay on the legacy schema. Remove this pin
+        # only together with porting those views and field lists to events_json.
         use_new_events_schema=False,
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),

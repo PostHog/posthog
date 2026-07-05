@@ -9,6 +9,7 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.utils import UUIDT
 
 from products.surveys.backend.models import Survey
@@ -18,8 +19,11 @@ from products.surveys.backend.util import SurveyEventProperties, get_survey_prop
 def _get_surveys_response_counts(
     surveys_ids: list[UUIDT], team_id: int, earliest_survey_creation_date: datetime
 ) -> dict[str, int]:
-    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
-    submission_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
+    use_new = use_new_events_schema(team_id)
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID, use_new_events_schema=use_new)
+    submission_id_expr = get_survey_property_string_expr(
+        SurveyEventProperties.SURVEY_SUBMISSION_ID, use_new_events_schema=use_new
+    )
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
     # nosemgrep: clickhouse-fstring-param-audit - survey property expressions come from internal helper output
@@ -32,7 +36,7 @@ def _get_surveys_response_counts(
                    {submission_id_expr},
                    toString(uuid))
             ) as unique_responses
-        FROM events
+        FROM {events_read_table(use_new)}
         WHERE event = 'survey sent'
               AND team_id = %(team_id)s
               AND timestamp >= %(earliest_survey_creation_date)s

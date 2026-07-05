@@ -17,6 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
@@ -152,18 +153,12 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
 
-                # unless someone is using this as an API client, this is only for the toolbar,
-                # which only ever queries date range, event type, and URL
-                previous_use_new_events_schema = filter.hogql_context.use_new_events_schema
-                filter.hogql_context.use_new_events_schema = False
-                try:
-                    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-                        team_id=self.team.pk,
-                        property_group=filter.property_groups,
-                        hogql_context=filter.hogql_context,
-                    )
-                finally:
-                    filter.hogql_context.use_new_events_schema = previous_use_new_events_schema
+                prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+                    team_id=self.team.pk,
+                    property_group=filter.property_groups,
+                    hogql_context=filter.hogql_context,
+                )
+                events_table = events_read_table(filter.hogql_context.uses_new_events_schema())
 
             span.set_attribute("team_id", self.team.pk)
             span.set_attribute("limit", limit)
@@ -174,6 +169,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with timer("execute_query"), tracer.start_as_current_span("elements_api_stats.execute_query"):
                 result = sync_execute(
                     GET_ELEMENTS.format(
+                        events_table=events_table,
                         date_from=date_from,
                         date_to=date_to,
                         query=prop_filters,
@@ -271,7 +267,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     filter_regex = select_regex
 
             result = sync_execute(
-                GET_VALUES.format(),
+                GET_VALUES.format(events_table=events_read_table(use_new_events_schema(self.team.pk))),
                 {
                     "team_id": self.team.id,
                     "regex": select_regex,

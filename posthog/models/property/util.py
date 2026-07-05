@@ -12,6 +12,7 @@ from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.escape_sql import escape_clickhouse_json_subcolumn_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -20,6 +21,7 @@ from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
 from posthog.models.event import Selector
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
@@ -163,6 +165,9 @@ def parse_prop_clauses(
     if table_formatted != "":
         table_formatted += "."
 
+    # Resolved once per query via the context so property fragments and the FROM table can't disagree.
+    use_new_events_schema = hogql_context.uses_new_events_schema() if hogql_context is not None else False
+
     _team = None
 
     def get_team():
@@ -216,6 +221,7 @@ def parse_prop_clauses(
                 allow_denormalized_props=True,
                 property_operator=property_operator,
                 use_event_column="person_properties",
+                use_new_events_schema=use_new_events_schema,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -271,6 +277,7 @@ def parse_prop_clauses(
                 prop_var="{}properties".format(table_formatted),
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
+                use_new_events_schema=use_new_events_schema,
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
@@ -393,19 +400,26 @@ def prop_filter_json_extract(
     property_operator: str = PropertyOperatorType.AND,
     table_name: Optional[str] = None,
     use_event_column: Optional[str] = None,
+    use_new_events_schema: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
+    target_table = "events" if use_event_column else property_table(prop)
+    is_events_json = use_new_events_schema and target_table == "events"
+    # JSONHas/visitParamExtractRaw below need a String document; on the JSON schema serialize the column.
+    blob_var = f"toJSONString({prop_var})" if is_events_json else prop_var
+
     property_expr, is_denormalized = get_property_string_expr(
-        "events" if use_event_column else property_table(prop),
+        target_table,
         prop.key,
         f"%(k{prepend}_{idx})s",
         prop_var,
         allow_denormalized_props,
         table_name,
         materialised_table_column=use_event_column if use_event_column else "properties",
+        use_new_events_schema=is_events_json,
     )
 
     if is_denormalized and transform_expression:
@@ -495,7 +509,7 @@ def prop_filter_json_extract(
             " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=prop_var,
+                prop_var=blob_var,
                 property_operator=property_operator,
             ),
             params,
@@ -514,7 +528,7 @@ def prop_filter_json_extract(
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=prop_var,
+                prop_var=blob_var,
                 left=property_expr,
                 property_operator=property_operator,
             ),
@@ -605,7 +619,7 @@ def prop_filter_json_extract(
                 left=property_expr,
                 idx=idx,
                 prepend=prepend,
-                prop_var=prop_var,
+                prop_var=blob_var,
                 property_operator=property_operator,
             ),
             params,
@@ -631,6 +645,7 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
+    use_new_events_schema: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """
     When querying for breakdown properties:
@@ -658,6 +673,7 @@ def get_single_or_multi_property_string_expr(
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
+            use_new_events_schema=use_new_events_schema,
         )
 
         expression = normalize_url_breakdown(expression, normalize_url)
@@ -673,6 +689,7 @@ def get_single_or_multi_property_string_expr(
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
+                use_new_events_schema=use_new_events_schema,
             )
             expressions.append(normalize_url_breakdown(expr, normalize_url))
 
@@ -701,6 +718,7 @@ def get_property_string_expr(
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
+    use_new_events_schema: bool = False,
 ) -> tuple[str, bool]:
     """
 
@@ -715,9 +733,18 @@ def get_property_string_expr(
     :param allow_denormalized_props:
     :param table_alias:
         (optional) alias of the table being queried
+    :param use_new_events_schema:
+        read events properties as native-JSON subcolumns (events_json) instead of mat_* columns /
+        the String blob. Must match the table the surrounding query actually selects from.
     :return:
     """
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
+
+    if use_new_events_schema and table == "events":
+        if materialised_table_column in ("properties", "person_properties"):
+            return _json_events_property_expr(property_name, var, f"{table_string}{column}", materialised_table_column)
+        # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
+        allow_denormalized_props = False
 
     if (
         allow_denormalized_props
@@ -737,6 +764,27 @@ def get_property_string_expr(
         )
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
+
+
+def _json_events_property_expr(
+    property_name: PropertyName, var: str, column_ref: str, materialised_table_column: str
+) -> tuple[str, bool]:
+    """Property value read against the native-JSON events schema.
+
+    Typed subcolumns read like non-nullable materialized columns (missing reads ''), so callers'
+    denormalized-column handling applies unchanged. Dynamic properties extract from the serialized
+    blob with the parameterized key, preserving legacy JSONExtractRaw semantics for any key
+    (dotted, %-containing) at the cost of serializing the document per row.
+    """
+    subcolumns = (
+        EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+        if materialised_table_column == "properties"
+        else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    if property_name in subcolumns:
+        escaped = escape_clickhouse_json_subcolumn_identifier(property_name)
+        return f"ifNull({column_ref}.{escaped}, '')", True
+    return trim_quotes_expr(f"JSONExtractRaw(toJSONString({column_ref}), {var})"), False
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:

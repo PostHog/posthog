@@ -1,7 +1,7 @@
 GET_ELEMENTS = """
 SELECT
     elements_chain, count() / %(sampling_factor)s as count, event as event_type, cityHash64(elements_chain) as chain_hash
-FROM events
+FROM {events_table}
 SAMPLE %(sampling_factor)s
 WHERE
     team_id = %(team_id)s AND
@@ -20,7 +20,7 @@ SELECT
     extract(elements_chain, %(regex)s) as value, count(1) as count
 FROM (
       SELECT elements_chain
-      FROM events
+      FROM {events_table}
       WHERE team_id = %(team_id)s
         AND event = '$autocapture'
         AND elements_chain != ''

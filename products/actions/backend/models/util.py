@@ -92,27 +92,28 @@ def format_action_filter(
                     params.update(element_params)
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, f"{action.pk}_{index}{prepend}", index, table_name)
+        event_conditions, event_params = filter_event(
+            step,
+            f"{action.pk}_{index}{prepend}",
+            index,
+            table_name,
+            use_new_events_schema=hogql_context.uses_new_events_schema(),
+        )
         params.update(event_params)
         conditions += event_conditions
 
         if step.properties:
             from posthog.models.property.util import parse_prop_grouped_clauses
 
-            previous_use_new_events_schema = hogql_context.use_new_events_schema
-            hogql_context.use_new_events_schema = False
-            try:
-                prop_query, prop_params = parse_prop_grouped_clauses(
-                    team_id=team_id,
-                    property_group=Filter(data={"properties": step.properties}).property_groups,
-                    prepend=f"action_props_{action.pk}_{index}",
-                    table_name=table_name,
-                    person_properties_mode=person_properties_mode,
-                    person_id_joined_alias=person_id_joined_alias,
-                    hogql_context=hogql_context,
-                )
-            finally:
-                hogql_context.use_new_events_schema = previous_use_new_events_schema
+            prop_query, prop_params = parse_prop_grouped_clauses(
+                team_id=team_id,
+                property_group=Filter(data={"properties": step.properties}).property_groups,
+                prepend=f"action_props_{action.pk}_{index}",
+                table_name=table_name,
+                person_properties_mode=person_properties_mode,
+                person_id_joined_alias=person_id_joined_alias,
+                hogql_context=hogql_context,
+            )
             conditions.append(prop_query.replace("AND", "", 1))
             params.update(prop_params)
 
@@ -123,7 +124,11 @@ def format_action_filter(
 
 
 def filter_event(
-    step: ActionStepJSON, prepend: str = "event", index: int = 0, table_name: str = ""
+    step: ActionStepJSON,
+    prepend: str = "event",
+    index: int = 0,
+    table_name: str = "",
+    use_new_events_schema: bool = False,
 ) -> tuple[list[str], dict]:
     from posthog.models.property.util import get_property_string_expr
 
@@ -134,7 +139,13 @@ def filter_event(
         table_name += "."
 
     if step.url:
-        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
+        value_expr, _ = get_property_string_expr(
+            "events",
+            "$current_url",
+            "'$current_url'",
+            f"{table_name}properties",
+            use_new_events_schema=use_new_events_schema,
+        )
         prop_name = f"{prepend}_prop_val_{index}"
         if step.url_matching == "exact":
             conditions.append(f"{value_expr} = %({prop_name})s")

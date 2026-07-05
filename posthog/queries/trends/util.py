@@ -86,7 +86,13 @@ def process_math(
             aggregate_operation = f"{PROPERTY_MATH_FUNCTIONS[entity.math]}(session_duration)"
         else:
             key = f"e_{entity.index}_math_prop"
-            value, _ = get_property_string_expr("events", entity.math_property, f"%({key})s", "properties")
+            value, _ = get_property_string_expr(
+                "events",
+                entity.math_property,
+                f"%({key})s",
+                "properties",
+                use_new_events_schema=filter.hogql_context.uses_new_events_schema(),
+            )
             aggregate_operation = f"{PROPERTY_MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
             params[key] = entity.math_property
     elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:

@@ -7,6 +7,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Filter, Property
+from posthog.models.event.new_events_schema import events_read_table
 from posthog.models.filters import AnyFilter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
@@ -128,6 +129,12 @@ class EventQuery(metaclass=ABCMeta):
 
         self._person_id_alias = self._get_person_id_alias(person_on_events_mode)
 
+    @property
+    def _events_table(self) -> str:
+        """The distributed events table to read. Resolved through the filter's HogQLContext so the
+        FROM clause and every property fragment built from the same filter agree on the schema."""
+        return events_read_table(self._filter.hogql_context.uses_new_events_schema())
+
     @abstractmethod
     def get_query(self) -> tuple[str, dict[str, Any]]:
         pass
@@ -156,7 +163,7 @@ class EventQuery(metaclass=ABCMeta):
 
         return f"""
             LEFT OUTER JOIN (
-                {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions)}
+                {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions, use_new_events_schema=self._filter.hogql_context.uses_new_events_schema())}
             ) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
         """
