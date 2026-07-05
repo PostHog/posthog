@@ -35,7 +35,7 @@ export interface ClickmapBox {
     rageclickCount: number
     deadclickCount: number
     label: string
-    selector: string
+    displaySelector: string
 }
 
 export type RecordingClickmapLogicProps = {
@@ -92,22 +92,16 @@ export function buildElementStatsParams(
     } as unknown as ElementsStatsRetrieveParams
 }
 
-// repeated query params can't be expressed through the generated client's params
-// object (it stringifies arrays into one comma-joined value the endpoint rejects)
-const INCLUDE_EVENT_TYPES_SUFFIX = ['$autocapture', '$rageclick', '$dead_click']
-    .map((eventType) => `&include=${encodeURIComponent(eventType)}`)
-    .join('')
-
 function emptyCounts(): Pick<ClickmapBox, 'count' | 'clickCount' | 'rageclickCount' | 'deadclickCount'> {
     return { count: 0, clickCount: 0, rageclickCount: 0, deadclickCount: 0 }
 }
 
-function describeElement(element: HTMLElement): { label: string; selector: string } {
+function describeElement(element: HTMLElement): { label: string; displaySelector: string } {
     const tag = element.tagName.toLowerCase()
     const id = element.id ? `#${element.id}` : ''
     const firstClass = element.classList.length ? `.${element.classList[0]}` : ''
     return {
-        selector: `${tag}${id}${firstClass}`,
+        displaySelector: `${tag}${id}${firstClass}`,
         label: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 60) ?? '',
     }
 }
@@ -189,6 +183,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         setClickmapEnabled: (enabled: boolean) => ({ enabled }),
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         selectClickmapBox: (key: string | null) => ({ key }),
+        setHoveredBoxKey: (key: string | null) => ({ key }),
         loadElementStats: true,
         maybeLoadElementStats: true,
         recomputeClickmap: true,
@@ -226,6 +221,16 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 setReplayIframeDataURL: () => null,
             },
         ],
+        hoveredBoxKey: [
+            null as string | null,
+            {
+                setHoveredBoxKey: (_, { key }) => key,
+                setClickmapBoxes: () => null,
+                setClickmapEnabled: () => null,
+                setReplayIframeData: () => null,
+                setReplayIframeDataURL: () => null,
+            },
+        ],
         // the loader keeps stale stats across recording changes otherwise, and
         // onIframeLoad would repaint the old recording's counts onto the new snapshot
         elementStats: {
@@ -252,8 +257,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                         values.wantedDataAttributes
                     )
                     const response = await api.get<ElementStatsResponseApi>(
-                        getElementsStatsRetrieveUrl(String(values.currentProjectId), params) +
-                            INCLUDE_EVENT_TYPES_SUFFIX
+                        getElementsStatsRetrieveUrl(String(values.currentProjectId), params)
                     )
                     breakpoint()
                     return response
@@ -282,8 +286,18 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             (s) => [s.clickmapBoxes],
             (clickmapBoxes) => clickmapBoxes.reduce((sum, box) => sum + box.count, 0),
         ],
+        tooltipSuppressed: [
+            (s) => [s.hoveredBoxKey, s.selectedBoxKey],
+            (hoveredBoxKey, selectedBoxKey): boolean => hoveredBoxKey !== null || selectedBoxKey !== null,
+        ],
     }),
     listeners(({ actions, values, props }) => ({
+        setHoveredBoxKey: () => {
+            actions.setHeatmapTooltipSuppressed(values.tooltipSuppressed)
+        },
+        selectClickmapBox: () => {
+            actions.setHeatmapTooltipSuppressed(values.tooltipSuppressed)
+        },
         setClickmapEnabled: ({ enabled }) => {
             posthog.capture('in-app heatmap clickmap toggled', { enabled })
             if (enabled) {

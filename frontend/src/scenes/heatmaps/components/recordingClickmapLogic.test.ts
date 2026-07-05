@@ -89,7 +89,7 @@ describe('recordingClickmapLogic', () => {
                 rageclickCount: 3,
                 deadclickCount: 2,
                 label: 'Sign up',
-                selector: 'button#cta',
+                displaySelector: 'button#cta',
             })
         })
 

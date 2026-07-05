@@ -67,9 +67,9 @@ function ClickmapBoxInfo({
     totalCount: number
 }): JSX.Element {
     return (
-        <div className="deprecated-space-y-1 max-w-100">
+        <div className="flex flex-col gap-1 max-w-100">
             {box.label ? <div className="font-semibold">{box.label}</div> : null}
-            <div className="font-mono text-xs text-muted-alt">{box.selector}</div>
+            <div className="font-mono text-xs text-muted-alt break-all">{box.displaySelector}</div>
             <ElementClickStats
                 count={box.count}
                 totalCount={totalCount}
@@ -88,8 +88,8 @@ export function RecordingClickmapOverlay({
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = recordingClickmapLogic({ iframeRef })
-    const { clickmapActive, clickmapBoxes, highestClickCount, selectedBoxKey } = useValues(logic)
-    const { selectClickmapBox, setHeatmapTooltipSuppressed } = useActions(logic)
+    const { clickmapActive, clickmapBoxes, highestClickCount, selectedBoxKey, totalClickCount } = useValues(logic)
+    const { selectClickmapBox, setHoveredBoxKey } = useActions(logic)
     const showClickmap = clickmapActive && clickmapBoxes.length > 0
     const innerRef = useSnapshotScrollTransform(showClickmap, iframeRef)
 
@@ -97,16 +97,20 @@ export function RecordingClickmapOverlay({
         return null
     }
 
-    const totalCount = clickmapBoxes.reduce((sum, box) => sum + box.count, 0)
+    // render smaller boxes on top so high-count nested elements stay reachable
+    const renderOrder = [...clickmapBoxes].sort((a, b) => b.width * b.height - a.width * a.height)
 
     return (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" data-attr="heatmap-clickmap-overlay">
             <div ref={innerRef} className="absolute inset-0">
-                {clickmapBoxes.map((box, index) => {
-                    const key = `${box.top}:${box.left}:${index}`
+                {renderOrder.map((box, index) => {
+                    const key = `${box.top}:${box.left}:${clickmapBoxes.indexOf(box)}`
                     const isSelected = key === selectedBoxKey
                     const boxElement = (
                         <div
+                            data-attr="clickmap-box"
+                            role="button"
+                            tabIndex={0}
                             className={`absolute rounded-sm border border-danger pointer-events-auto cursor-pointer ${
                                 isSelected ? 'border-2' : 'hover:border-2'
                             }`}
@@ -121,12 +125,25 @@ export function RecordingClickmapOverlay({
                                 })`,
                             }}
                             onClick={() => selectClickmapBox(isSelected ? null : key)}
-                            onMouseEnter={() => setHeatmapTooltipSuppressed(true)}
-                            onMouseLeave={() => setHeatmapTooltipSuppressed(false)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    selectClickmapBox(isSelected ? null : key)
+                                }
+                            }}
+                            onMouseEnter={() => setHoveredBoxKey(key)}
+                            onMouseLeave={() => setHoveredBoxKey(null)}
                             onWheel={(e) => {
                                 // the boxes intercept pointer events, so hand scrolling
                                 // back to the snapshot document underneath
-                                iframeRef?.current?.contentWindow?.scrollBy(e.deltaX, e.deltaY)
+                                e.stopPropagation()
+                                // scale line-mode (deltaMode=1) and page-mode (deltaMode=2) to pixels
+                                const scale = e.deltaMode === 2 ? 400 : e.deltaMode === 1 ? 20 : 1
+                                try {
+                                    iframeRef?.current?.contentWindow?.scrollBy(e.deltaX * scale, e.deltaY * scale)
+                                } catch {
+                                    // cross-origin frame; ignore
+                                }
                             }}
                         >
                             <div className="absolute -top-2 -left-2 rounded-full bg-danger text-white text-xs px-1 whitespace-nowrap">
@@ -143,7 +160,7 @@ export function RecordingClickmapOverlay({
                             placement="right"
                             overlay={
                                 <div className="p-2">
-                                    <ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalCount} />
+                                    <ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalClickCount} />
                                 </div>
                             }
                         >
@@ -152,7 +169,7 @@ export function RecordingClickmapOverlay({
                     ) : (
                         <Tooltip
                             key={key}
-                            title={<ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalCount} />}
+                            title={<ClickmapBoxInfo box={box} rank={index + 1} totalCount={totalClickCount} />}
                         >
                             {boxElement}
                         </Tooltip>

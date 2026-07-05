@@ -7,7 +7,7 @@ type ElementStatisticProps = {
     suffix?: string
 }
 
-export function ElementStatistic({ title, value, prefix, suffix }: ElementStatisticProps): JSX.Element {
+function ElementStatistic({ title, value, prefix, suffix }: ElementStatisticProps): JSX.Element {
     return (
         <div className="flex flex-col">
             <div>{title}</div>
@@ -20,7 +20,7 @@ export function ElementStatistic({ title, value, prefix, suffix }: ElementStatis
     )
 }
 
-export interface ElementClickStatsProps {
+interface ElementClickStatsProps {
     count: number
     totalCount: number
     rank?: number

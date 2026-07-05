@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconCursorClick } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -16,8 +16,30 @@ export function ClickmapSettings({
 }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const logic = recordingClickmapLogic({ iframeRef })
-    const { clickmapEnabled, matchLinksByHref, clickmapBoxes, totalClickCount } = useValues(logic)
+    const { clickmapEnabled, matchLinksByHref, clickmapBoxes, totalClickCount, elementStatsLoading } = useValues(logic)
     const { setClickmapEnabled, setMatchLinksByHref } = useActions(logic)
+
+    function foundLine(): JSX.Element | null {
+        if (!clickmapEnabled) {
+            return null
+        }
+        if (elementStatsLoading) {
+            return (
+                <div className="text-xs text-muted flex items-center gap-1">
+                    <Spinner /> Loading...
+                </div>
+            )
+        }
+        if (clickmapBoxes.length === 0) {
+            return <div className="text-xs text-muted">No elements matched.</div>
+        }
+        const elementWord = clickmapBoxes.length === 1 ? 'element' : 'elements'
+        return (
+            <div className="text-xs text-muted">
+                Found: {clickmapBoxes.length} {elementWord} / {humanFriendlyLargeNumber(totalClickCount)} clicks
+            </div>
+        )
+    }
 
     return (
         <Popover
@@ -34,7 +56,7 @@ export function ClickmapSettings({
                     <div className="text-xs text-muted">
                         Overlay click counts on the elements users actually clicked.
                     </div>
-                    <Tooltip title="Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.">
+                    <Tooltip title="Links whose target URL differs per user (e.g. contains IDs) may not match any element in the snapshot.">
                         <LemonSwitch
                             checked={matchLinksByHref}
                             onChange={setMatchLinksByHref}
@@ -44,11 +66,7 @@ export function ClickmapSettings({
                             bordered
                         />
                     </Tooltip>
-                    {clickmapEnabled && clickmapBoxes.length > 0 ? (
-                        <div className="text-xs text-muted">
-                            Found: {clickmapBoxes.length} elements / {humanFriendlyLargeNumber(totalClickCount)} clicks
-                        </div>
-                    ) : null}
+                    {foundLine()}
                 </div>
             }
             visible={isOpen}
@@ -60,7 +78,6 @@ export function ClickmapSettings({
                 size="small"
                 onClick={() => setIsOpen(!isOpen)}
                 icon={<IconCursorClick />}
-                tooltip="Clickmap settings"
                 data-attr="clickmap-settings"
             >
                 Clickmap settings
