@@ -33,6 +33,7 @@ WIZARD_SCOPES = [
     "insight:write",
     "query:read",
     "notebook:write",
+    "wizard_session:write"
 ]
 
 

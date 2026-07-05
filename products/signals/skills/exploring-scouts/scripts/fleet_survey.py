@@ -10,7 +10,7 @@ schedule, posture, last run, and last outcome.
 Inputs (`call --json` payloads saved to a file):
   --config  signals-scout-config-list --json        (REQUIRED) the roster
   --runs    signals-scout-runs-list --json           (optional) to enrich with the
-            most recent run per scout (status + quiet/emit heuristic). Fetch with a
+            most recent run per scout (status + report output). Fetch with a
             small limit (~30) — runs-list overflows easily; offload to a file.
   --now     ISO-8601 timestamp to compute "ago" columns against (optional; pass the
             current time. Without it, ages are shown as raw timestamps).
@@ -89,20 +89,23 @@ def latest_run_per_scout(runs_payload: Any) -> dict[str, dict]:
     return latest
 
 
-def quiet_or_emit(summary: str | None) -> str:
-    """Best-effort read of whether a run emitted, from its prose summary.
+def run_output(run: dict) -> str:
+    """What the run wrote, read off the run row's structured output fields.
 
-    There is no emit flag on the run row, so this is heuristic only — the summary
-    is authoritative, this is a hint. 'EMITTED NOTHING' / 'nothing to emit' = quiet.
+    `emitted_report_ids` / `edited_report_ids` are the report output; `emitted_count`
+    only tallies legacy signal-channel findings (always 0 on current scouts).
     """
-    if not summary:
-        return "?"
-    low = summary.lower()
-    if "emitted nothing" in low or "nothing to emit" in low or "did not emit" in low:
-        return "quiet"
-    if "emitted" in low:
-        return "emit?"  # ambiguous: may describe a prior run — verify the summary
-    return "quiet?"
+    wrote = run.get("emitted_report_ids") or []
+    edited = run.get("edited_report_ids") or []
+    legacy = run.get("emitted_count") or 0
+    parts = []
+    if wrote:
+        parts.append(f"wrote {len(wrote)}")
+    if edited:
+        parts.append(f"edited {len(edited)}")
+    if legacy:
+        parts.append(f"legacy-emit {legacy}")
+    return "+".join(parts) if parts else "quiet"
 
 
 def table(headers: list[str], body: list[list[str]]) -> list[str]:
@@ -149,7 +152,7 @@ def render(config: Any, runs_payload: Any, now: datetime | None, *, art: bool = 
         if run:
             st = run.get("status", "?")
             tag = {"completed": "done", "failed": "FAIL"}.get(st, st)
-            outcome = f"{tag} / {quiet_or_emit(run.get('summary'))}"
+            outcome = f"{tag} / {run_output(run)}"
         else:
             outcome = "-"
         body.append([name, enabled, posture, cadence, last, outcome])
@@ -169,14 +172,15 @@ def render(config: Any, runs_payload: Any, now: datetime | None, *, art: bool = 
 
     L += ["", "-" * 72, " column key", "-" * 72,
           " enabled       yes = scheduled to run; OFF = paused (nothing runs)",
-          " posture       live = emits findings to the inbox; dry-run = reasons every",
+          " posture       live = writes reports to the inbox; dry-run = reasons every",
           "               tick but posts nothing (emit=false) — the #1 'my scout is",
-          "               broken' confusion, since it IS running, just not emitting",
+          "               broken' confusion, since it IS running, just not posting",
           " cadence       configured minutes between scheduled runs (run_interval_minutes)",
           " last run      how long ago the most recent run started ('-' = never run)",
-          " last outcome  <status> / <emit guess> of that run: done|FAIL, and quiet|emit?.",
-          "               emit-vs-quiet is a HEURISTIC on the summary prose — confirm",
-          "               against the summary before trusting it."]
+          " last outcome  <status> / <output> of that run: done|FAIL, then what it wrote",
+          "               (from emitted_report_ids / edited_report_ids on the run row;",
+          "               'legacy-emit' = old signal-channel findings). quiet = wrote",
+          "               nothing, which is the healthy norm."]
     return "\n".join(L)
 
 

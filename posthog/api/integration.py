@@ -177,9 +177,25 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
 
 
 class GitHubRepoSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    full_name = serializers.CharField()
+    id = serializers.IntegerField(help_text="GitHub repository numeric identifier.")
+    name = serializers.CharField(help_text="Repository short name (without the owner prefix).")
+    full_name = serializers.CharField(help_text="Fully-qualified repository name as 'owner/repo'.")
+    # The fields below come free from GitHub's installation/repositories payload. They are optional so
+    # repositories cached before this change (which stored only id/name/full_name) still validate.
+    private = serializers.BooleanField(required=False, help_text="Whether the repository is private.")
+    default_branch = serializers.CharField(required=False, help_text="The repository's default branch (e.g. 'main').")
+    language = serializers.CharField(
+        required=False, help_text="Primary programming language GitHub detected for the repository."
+    )
+    pushed_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp of the most recent push, useful for sorting by recent activity.",
+    )
+    archived = serializers.BooleanField(required=False, help_text="Whether the repository is archived.")
+    can_push = serializers.BooleanField(
+        required=False,
+        help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
+    )
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
