@@ -2207,6 +2207,16 @@ class MyFlagsQuerySerializer(serializers.Serializer):
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
     groups = GroupsJSONField()
+    flag_keys = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Optional list of flag keys to scope the response to. When omitted, evaluation reasons are "
+            "returned for every flag in the project, which can be a very large payload on projects with "
+            "many flags. Pass the specific flag(s) you are debugging to keep the response small."
+        ),
+    )
 
 
 class ActivityQuerySerializer(serializers.Serializer):
@@ -3649,12 +3659,15 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        flag_keys = request.validated_query_data.get("flag_keys") or None
+
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
         # token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            flag_keys=flag_keys,
             evaluation_runtime="all",
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
@@ -3677,9 +3690,10 @@ class FeatureFlagViewSet(
                 },
             }
 
-        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
-            "key", flat=True
-        )
+        disabled_flags_qs = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False)
+        if flag_keys:
+            disabled_flags_qs = disabled_flags_qs.filter(key__in=flag_keys)
+        disabled_flags = disabled_flags_qs.values_list("key", flat=True)
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
