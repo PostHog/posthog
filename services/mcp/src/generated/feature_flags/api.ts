@@ -1055,6 +1055,12 @@ export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
 
 export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().min(1).describe('User distinct ID'),
+    flag_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small.'
+        ),
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)

@@ -3673,7 +3673,7 @@
         }
     },
     "feature-flags-evaluation-reasons-retrieve": {
-        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",

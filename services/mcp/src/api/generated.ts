@@ -63711,6 +63711,10 @@ export namespace Schemas {
      */
     distinct_id: string;
     /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small.
+     */
+    flag_keys?: string[];
+    /**
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
