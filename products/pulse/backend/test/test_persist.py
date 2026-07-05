@@ -266,12 +266,19 @@ class TestPersistBriefOutput(BaseTest):
         persist_brief_output(brief=brief, out=_out(), items=[_item()], findings=findings)
         reloaded = ProductBrief.objects.for_team(self.team.pk).get(id=brief.id)
         assert reloaded.investigation == [
-            {"question": "What is the CTR?", "hogql": "SELECT 1", "result_summary": "0.42", "succeeded": True},
+            {
+                "question": "What is the CTR?",
+                "hogql": "SELECT 1",
+                "result_summary": "0.42",
+                "succeeded": True,
+                "citations": [],
+            },
             {
                 "question": "Which pages?",
                 "hogql": "SELECT 2",
                 "result_summary": "Query failed to run (ExposedHogQLError).",
                 "succeeded": False,
+                "citations": [],
             },
         ]
 

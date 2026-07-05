@@ -1,5 +1,6 @@
 import asyncio
 import itertools
+from types import SimpleNamespace
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,20 +11,32 @@ from posthog.hogql.errors import ExposedHogQLError
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.investigate import (
     _CLICKS_TOP_ROWS,
+    _MIN_REPLAY_SESSIONS,
     _RESULT_MAX_CHARS,
     _TRUNCATION_SENTINEL,
     MAX_CLICKS_STEPS,
     MAX_INVESTIGATION_STEPS,
+    MAX_REPLAY_STEPS,
     QUERY_FAILED_PREFIX,
     HogQLRepair,
     InvestigationPlan,
     PlannedStep,
+    _apply_plan_gates,
+    _apply_replay_plan_gates,
+    _build_replay_recording_filters,
+    _render_replay_patterns,
+    _run_replay_patterns_step,
     build_clicks_query,
     execute_investigation,
     plan_investigation,
+    plan_replay_patterns,
     run_investigation,
+    run_replay_investigation,
 )
 from products.pulse.backend.sources.base import SourceItem
+
+_RESOLVE_PATH = "products.pulse.backend.generation.investigate._resolve_replay_session_ids"
+_SUMMARIZE_PATH = "products.pulse.backend.generation.investigate._summarize_session_group"
 
 _LLM_PATH = "products.pulse.backend.generation.investigate.MaxChatOpenAI"
 _EXECUTOR_PATH = "products.pulse.backend.generation.investigate.AssistantQueryExecutor"
@@ -332,3 +345,223 @@ class TestPlannerMetricLine:
     def test_unavailable_metric_renders_honest_line(self, mock_llm: MagicMock) -> None:
         rendered = self._rendered(mock_llm, _goal_status(metric_state="unavailable", insight_short_id="gone1234"))
         assert "could not be read this period" in rendered
+
+
+def _replay_step(
+    n: int = 0, url_pattern: str = "/billing", event_name: str = "", justification: str = "watch the signup drop"
+) -> PlannedStep:
+    return PlannedStep(
+        tool="replay_patterns",
+        question=f"q{n}",
+        justification=justification,
+        url_pattern=url_pattern,
+        event_name=event_name,
+    )
+
+
+def _pattern(
+    name: str, severity: str, sessions_affected: int, session_ids: list[str], description: str = "d"
+) -> SimpleNamespace:
+    events = [SimpleNamespace(target_event=SimpleNamespace(session_id=sid)) for sid in session_ids]
+    return SimpleNamespace(
+        pattern_name=name,
+        pattern_description=description,
+        severity=SimpleNamespace(value=severity),
+        stats=SimpleNamespace(sessions_affected=sessions_affected),
+        events=events,
+    )
+
+
+def _patterns_list(patterns: list[SimpleNamespace]) -> SimpleNamespace:
+    return SimpleNamespace(patterns=patterns)
+
+
+class TestApplyPlanGatesDropsReplay:
+    def test_replay_steps_never_run_inline(self) -> None:
+        # A replay step in the main plan must be dropped — it runs in its own activity, never in
+        # the inline HogQL executor (which would blow the stage deadline on a minutes-long summary).
+        kept = _apply_plan_gates(MagicMock(id=1), [_step(0), _replay_step(1), _clicks_step(2)])
+
+        assert [s.tool for s in kept] == ["hogql", "clicks"]
+
+
+class TestApplyReplayPlanGates:
+    @parameterized.expand(
+        [
+            ("url_only", "/billing", "", True),
+            ("event_only", "", "$rageclick", True),
+            ("both_anchors", "/billing", "$rageclick", True),
+            ("no_anchor", "", "", False),
+        ]
+    )
+    def test_anchor_is_required(self, _name: str, url_pattern: str, event_name: str, kept_expected: bool) -> None:
+        steps = _apply_replay_plan_gates(
+            MagicMock(id=1), [_replay_step(url_pattern=url_pattern, event_name=event_name)]
+        )
+
+        assert (len(steps) == 1) is kept_expected
+
+    def test_non_replay_steps_are_dropped(self) -> None:
+        assert _apply_replay_plan_gates(MagicMock(id=1), [_step(0), _clicks_step(1)]) == []
+
+    def test_capped_at_max_replay_steps(self) -> None:
+        steps = _apply_replay_plan_gates(MagicMock(id=1), [_replay_step(n) for n in range(MAX_REPLAY_STEPS + 3)])
+
+        assert len(steps) == MAX_REPLAY_STEPS
+
+    @parameterized.expand([("blank_question", "q", "  "), ("blank_justification", "  ", "j")])
+    def test_unjustified_or_unquestioned_steps_dropped(self, _name: str, question: str, justification: str) -> None:
+        step = PlannedStep(
+            tool="replay_patterns", question=question, justification=justification, url_pattern="/billing"
+        )
+
+        assert _apply_replay_plan_gates(MagicMock(id=1), [step]) == []
+
+
+class TestPlanReplayPatterns:
+    @patch(_LLM_PATH)
+    def test_no_movements_skips_the_llm(self, mock_llm: MagicMock) -> None:
+        assert (
+            plan_replay_patterns(team=MagicMock(), user=MagicMock(), goal_text="g", movements=[], period_days=7) == []
+        )
+        mock_llm.assert_not_called()
+
+    @patch(_LLM_PATH)
+    def test_happy_path_returns_gated_steps(self, mock_llm: MagicMock) -> None:
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = InvestigationPlan(
+            steps=[_replay_step(0), _replay_step(1)]
+        )
+
+        steps = plan_replay_patterns(
+            team=MagicMock(id=1), user=MagicMock(), goal_text="g", movements=[_item()], period_days=7
+        )
+
+        # Capped at MAX_REPLAY_STEPS even when the model proposes more.
+        assert len(steps) == MAX_REPLAY_STEPS
+        assert steps[0].tool == "replay_patterns"
+
+    @parameterized.expand([("llm_error", RuntimeError("down"), None), ("malformed", None, "not a plan")])
+    @patch(_LLM_PATH)
+    def test_failures_degrade_to_empty_plan(
+        self, _name: str, side_effect: object, return_value: object, mock_llm: MagicMock
+    ) -> None:
+        invoke = mock_llm.return_value.with_structured_output.return_value.invoke
+        if side_effect is not None:
+            invoke.side_effect = side_effect
+        else:
+            invoke.return_value = return_value
+
+        assert (
+            plan_replay_patterns(
+                team=MagicMock(id=1), user=MagicMock(), goal_text="g", movements=[_item()], period_days=7
+            )
+            == []
+        )
+
+
+class TestBuildReplayRecordingFilters:
+    def test_url_becomes_visited_page_recording_property(self) -> None:
+        values = _build_replay_recording_filters("/billing", "")["filter_group"]["values"][0]["values"]
+
+        assert values == [{"type": "recording", "key": "visited_page", "value": "/billing", "operator": "icontains"}]
+
+    def test_event_becomes_events_entry(self) -> None:
+        values = _build_replay_recording_filters("", "$rageclick")["filter_group"]["values"][0]["values"]
+
+        assert values == [{"type": "events", "id": "$rageclick", "name": "$rageclick", "order": 0}]
+
+    def test_both_anchors_are_combined(self) -> None:
+        values = _build_replay_recording_filters("/billing", "$rageclick")["filter_group"]["values"][0]["values"]
+
+        assert [v["type"] for v in values] == ["recording", "events"]
+
+
+class TestRenderReplayPatterns:
+    def test_orders_by_severity_then_reach_and_cites_sessions(self) -> None:
+        patterns = _patterns_list(
+            [
+                _pattern("Minor wobble", "low", 9, ["s-low"]),
+                _pattern("Plan-picker abandon", "critical", 4, ["s-crit"]),
+                _pattern("Disabled CTA rage", "high", 6, ["s-high"]),
+            ]
+        )
+
+        summary, citations = _render_replay_patterns(patterns, 14)
+
+        # critical before high before low, regardless of reach.
+        assert summary.index("Plan-picker abandon") < summary.index("Disabled CTA rage") < summary.index("Minor wobble")
+        assert "4/14 sessions (critical severity)" in summary
+        assert citations == ["session:s-crit", "session:s-high", "session:s-low"]
+
+    def test_dedupes_repeated_session_ids(self) -> None:
+        patterns = _patterns_list([_pattern("A", "high", 3, ["shared"]), _pattern("B", "medium", 2, ["shared"])])
+
+        _summary, citations = _render_replay_patterns(patterns, 8)
+
+        assert citations == ["session:shared"]
+
+    def test_empty_patterns_render_a_note_with_no_citations(self) -> None:
+        summary, citations = _render_replay_patterns(_patterns_list([]), 7)
+
+        assert citations == []
+        assert "no recurring behavioral pattern" in summary
+
+    def test_pattern_text_is_sanitized(self) -> None:
+        patterns = _patterns_list([_pattern("A", "high", 2, ["s"], description="drop<script>\nline")])
+
+        summary, _citations = _render_replay_patterns(patterns, 6)
+
+        assert "<script>" not in summary and "\nline" not in summary.split("severity) — ")[1]
+
+
+class TestRunReplayPatternsStep:
+    async def test_success_yields_finding_with_session_citations(self) -> None:
+        patterns = _patterns_list([_pattern("Plan-picker abandon", "critical", 9, ["s1"])])
+        with (
+            patch(_RESOLVE_PATH, return_value=[f"s{i}" for i in range(_MIN_REPLAY_SESSIONS)]),
+            patch(_SUMMARIZE_PATH, new=AsyncMock(return_value=patterns)),
+        ):
+            finding = await _run_replay_patterns_step(
+                team=MagicMock(id=1), user=MagicMock(), step=_replay_step(), period_days=7
+            )
+
+        assert finding.succeeded is True
+        assert finding.hogql == ""
+        assert finding.citations == ["session:s1"]
+
+    async def test_too_few_sessions_is_a_gap(self) -> None:
+        with patch(_RESOLVE_PATH, return_value=["only-one"]):
+            finding = await _run_replay_patterns_step(
+                team=MagicMock(id=1), user=MagicMock(), step=_replay_step(), period_days=7
+            )
+
+        assert finding.succeeded is False
+        assert finding.citations == []
+        assert "too few to generalize" in finding.result_summary
+
+    @parameterized.expand([("fetch_fails", _RESOLVE_PATH), ("summary_fails", _SUMMARIZE_PATH)])
+    async def test_stage_failures_degrade_to_a_gap(self, _name: str, failing_path: str) -> None:
+        resolve = MagicMock(return_value=[f"s{i}" for i in range(_MIN_REPLAY_SESSIONS)])
+        summarize = AsyncMock(return_value=_patterns_list([]))
+        if failing_path == _RESOLVE_PATH:
+            resolve.side_effect = RuntimeError("clickhouse down")
+        else:
+            summarize.side_effect = RuntimeError("summary down")
+
+        with patch(_RESOLVE_PATH, new=resolve), patch(_SUMMARIZE_PATH, new=summarize):
+            finding = await _run_replay_patterns_step(
+                team=MagicMock(id=1), user=MagicMock(), step=_replay_step(), period_days=7
+            )
+
+        assert finding.succeeded is False
+        assert finding.citations == []
+
+
+class TestRunReplayInvestigation:
+    async def test_no_planned_steps_yields_no_findings(self) -> None:
+        with patch("products.pulse.backend.generation.investigate.plan_replay_patterns", return_value=[]):
+            findings = await run_replay_investigation(
+                team=MagicMock(id=1), user=MagicMock(), goal_text="g", movements=[_item()], period_days=7
+            )
+
+        assert findings == []
