@@ -139,6 +139,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { ChartLoadingOverlay } from './overlays/ChartLoadingOverlay'
 export type { ChartLoadingOverlayProps } from './overlays/ChartLoadingOverlay'
+export { HogLoader } from './components/HogLoader/HogLoader'
+export type { HogLoaderProps } from './components/HogLoader/HogLoader'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

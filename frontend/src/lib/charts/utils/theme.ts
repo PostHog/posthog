@@ -12,6 +12,9 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         axisColor: graphColors.axisLabel ?? undefined,
         gridColor: graphColors.axisLine ?? undefined,
         crosshairColor: graphColors.crosshair ?? undefined,
+        // --color-skeleton-light (#bebebe33) at double the alpha — the token is a background
+        // tint, too faint for chart marks that a loading sweep needs to visibly dim.
+        skeletonColor: 'rgba(190, 190, 190, 0.4)',
         tooltipBackground: graphColors.tooltipBackground ?? undefined,
         tooltipColor: graphColors.tooltipTitle ?? undefined,
         tooltipZIndex: 'var(--z-chart-tooltip)',

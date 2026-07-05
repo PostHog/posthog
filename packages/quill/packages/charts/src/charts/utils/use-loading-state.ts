@@ -1,8 +1,13 @@
 import { useMemo } from 'react'
 
-import type { ChartTheme, Series } from '../../core/types'
+import type { ChartTheme, Series, ValueDomain } from '../../core/types'
 
 const SKELETON_FALLBACK = 'rgba(140, 140, 150, 0.35)'
+
+/** Pinned y-domain for the animated line skeleton — the drifting wave's extent varies with
+ *  phase, so a data-derived domain would rescale (and visibly pump) the axis every frame. */
+export const SKELETON_VALUE_DOMAIN: ValueDomain = [0, 100]
+
 
 /** Fixed y-gutter while loading — y tick labels are hidden (their values would be fake),
  *  so reserve a width close to a typical numeric gutter to minimize shift when data lands. */
@@ -30,10 +35,18 @@ export function skeletonColorFor(theme: ChartTheme): string {
     return theme.skeletonColor ?? theme.gridColor ?? SKELETON_FALLBACK
 }
 
-/** Deterministic gentle wave — reads as "a trend line goes here" without implying values. */
+/** Curvy line trending upward, from ~20% of the plot to ~90% — reads as "a trend line goes
+ *  here". Static; the loading shimmer overlay provides the movement. */
 export function placeholderWave(count: number): number[] {
-    return Array.from({ length: count }, (_, i) => Math.round(58 + 26 * Math.sin(i / 2.4) + 8 * Math.sin(i * 1.3)))
+    if (count <= 1) {
+        return count === 1 ? [20] : []
+    }
+    return Array.from({ length: count }, (_, i) => {
+        const t = i / (count - 1)
+        return 20 + t * 62 + 9 * Math.sin(i / 1.9) + 4 * Math.sin(i * 0.8)
+    })
 }
+
 
 /** Deterministic staggered columns for bar skeletons. */
 export function placeholderColumns(count: number): number[] {
@@ -59,7 +72,7 @@ export function useLoadingSeries<Meta = unknown>(
                     label: 'Loading',
                     data: placeholderWave(labels.length),
                     color,
-                    fill: { opacity: 0.4 },
+                    fill: { opacity: 0.35 },
                     points: { radius: 0 },
                 },
             ]

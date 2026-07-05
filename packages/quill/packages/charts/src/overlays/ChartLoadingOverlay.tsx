@@ -3,9 +3,13 @@ import React, { useEffect, useRef } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 
-const SWEEP_DURATION_MS = 1600
-const SWEEP_WIDTH_RATIO = 0.45
-const DEFAULT_HIGHLIGHT = 'rgba(255, 255, 255, 0.3)'
+const SWEEP_DURATION_MS = 1400
+const SWEEP_WIDTH_RATIO = 0.35
+const SWEEP_OPACITY = 0.95
+const DEFAULT_VEIL_COLOR = '#ffffff'
+/** Keeps the sweep off the L-axis baselines at the plot's left/bottom edges, so the axes
+ *  hold steady while the marks shimmer. */
+const AXIS_INSET_PX = 3
 
 // Literal class strings (no runtime concat) so Tailwind v4's `dist/*.js`
 // source scan can see every utility — see the package's tailwind contract.
@@ -14,20 +18,17 @@ const BAND_CLASS = 'absolute top-0 bottom-0'
 const SLOT_CLASS = 'absolute inset-0 flex items-center justify-center pointer-events-auto'
 
 export interface ChartLoadingOverlayProps {
-    /** Gradient highlight of the sweeping band. Defaults to a soft white sheen. */
-    highlightColor?: string
     /** Host content (progress message, cancel affordance) centered over the plot. */
     children?: React.ReactNode
 }
 
-/** Animated shimmer sweep across the plot area while a chart is loading or refreshing.
- *  Composes as a chart child; positions itself from the chart layout context. Honors
- *  `prefers-reduced-motion` (band stays hidden off-plot instead of sweeping). */
-export function ChartLoadingOverlay({
-    highlightColor = DEFAULT_HIGHLIGHT,
-    children,
-}: ChartLoadingOverlayProps): React.ReactElement {
-    const { dimensions } = useChartLayout()
+/** Classic skeleton shimmer over the plot area while a chart is loading or refreshing:
+ *  a background-colored gradient band sweeps left-to-right, dimming the marks as it
+ *  passes. Works on any surface (a highlight band would vanish on same-colored
+ *  backgrounds). Composes as a chart child; positions from the chart layout context.
+ *  Static under `prefers-reduced-motion` and automated browsers. */
+export function ChartLoadingOverlay({ children }: ChartLoadingOverlayProps): React.ReactElement {
+    const { dimensions, theme } = useChartLayout()
     const bandRef = useRef<HTMLDivElement>(null)
     const { plotLeft, plotTop, plotWidth, plotHeight } = dimensions
 
@@ -48,16 +49,23 @@ export function ChartLoadingOverlay({
         const bandWidth = plotWidth * SWEEP_WIDTH_RATIO
         const animation = band.animate(
             [{ transform: `translateX(${-bandWidth}px)` }, { transform: `translateX(${plotWidth}px)` }],
-            { duration: SWEEP_DURATION_MS, iterations: Infinity, easing: 'ease-in-out' }
+            { duration: SWEEP_DURATION_MS, iterations: Infinity, easing: 'linear' }
         )
         return () => animation.cancel()
     }, [plotWidth])
+
+    const veilColor = theme.backgroundColor ?? DEFAULT_VEIL_COLOR
 
     return (
         <div
             data-attr="hog-chart-loading-overlay"
             className={PLOT_CLIP_CLASS}
-            style={{ left: plotLeft, top: plotTop, width: plotWidth, height: plotHeight }}
+            style={{
+                left: plotLeft + AXIS_INSET_PX,
+                top: plotTop,
+                width: plotWidth - AXIS_INSET_PX,
+                height: plotHeight - AXIS_INSET_PX,
+            }}
         >
             <div
                 ref={bandRef}
@@ -65,7 +73,8 @@ export function ChartLoadingOverlay({
                 style={{
                     width: `${SWEEP_WIDTH_RATIO * 100}%`,
                     transform: 'translateX(-101%)',
-                    background: `linear-gradient(90deg, transparent, ${highlightColor}, transparent)`,
+                    background: `linear-gradient(90deg, transparent, ${veilColor}, transparent)`,
+                    opacity: SWEEP_OPACITY,
                 }}
             />
             {children != null && <div className={SLOT_CLASS}>{children}</div>}

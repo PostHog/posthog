@@ -27,6 +27,7 @@ import {
     FALLBACK_SKELETON_LABELS,
     HIDDEN_TICK_FORMATTER,
     SKELETON_MARGINS,
+    SKELETON_VALUE_DOMAIN,
     useLoadingSeries,
     type ChartLoadingProps,
 } from '../utils/use-loading-state'
@@ -175,7 +176,8 @@ export function TimeSeriesLineChart<Meta = unknown>({
         percentStackView: loading ? undefined : percentStackView,
         showCrosshair: busy ? false : showCrosshair,
         tooltip: busy ? { enabled: false } : tooltipConfig,
-        valueDomain,
+        // The drifting skeleton wave needs a pinned domain — data-derived scaling would pump.
+        valueDomain: loading ? SKELETON_VALUE_DOMAIN : valueDomain,
         floatBaseline,
         yAxes: loading ? undefined : yAxes,
     }

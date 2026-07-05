@@ -88,10 +88,11 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 
 ## Loading states (`TimeSeriesLineChart` / `TimeSeriesBarChart`)
 
-- `loading` renders a skeleton preview instead of data: the real x-axis from `labels` (pass the known date range × interval so ticks match the loaded chart), deterministic placeholder marks in `theme.skeletonColor` (falls back to `gridColor`), hidden y tick text with a fixed gutter to minimize shift, a shimmer sweep over the plot, and all interactions off (tooltip, click, zoom, legend, overlays). With empty `labels` the skeleton still renders but hides its x labels.
+- `loading` renders a skeleton preview instead of data: the real x-axis from `labels` (pass the known date range × interval so ticks match the loaded chart), a flat mid-height placeholder line (staggered columns on bars) in `theme.skeletonColor` (falls back to `gridColor`), hidden y tick text with a fixed gutter to minimize shift, a left-to-right shimmer over the plot, and all interactions off (tooltip, click, zoom, legend, overlays). With empty `labels` the skeleton still renders but hides its x labels.
 - `refreshing` is stale-while-revalidate: the current data stays rendered, dimmed (`opacity-60`), interactions off, shimmer on top. Keep passing the previous `series`/`labels` while the refetch runs. Ignored while `loading`.
-- `loadingOverlay` centers host progress UI (message, cancel) over the plot in either mode.
-- `ChartLoadingOverlay` is the exported shimmer primitive for building the same treatment into other chart types — composes as a chart child, positions from layout context, honors `prefers-reduced-motion`, and stays static under automated browsers (`navigator.webdriver`) so visual snapshots are deterministic.
+- `loadingOverlay` centers host progress UI (message, cancel, a `HogLoader`) over the plot in either mode.
+- `HogLoader` (exported) is the animated PostHog logo — spikes bounce in staggered sequence; `muted` renders it desaturated/translucent (also drops the glow — both effects animate `filter`). Its keyframes honor `prefers-reduced-motion`. Not rendered by default — pass it via `loadingOverlay`.
+- `ChartLoadingOverlay` (exported) is the shimmer primitive for other chart types adopting the same treatment — a `theme.backgroundColor`-colored gradient band sweeps left-to-right, dimming the marks as it passes (on a skeleton line this reads as the line shimmering; a highlight band would vanish on same-colored backgrounds). Composes as a chart child, positions from layout context, honors `prefers-reduced-motion`, and stays static under automated browsers (`navigator.webdriver`) so visual snapshots are deterministic.
 
 ## Testing
 
