@@ -7,6 +7,7 @@ import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { CODE_EXECUTION_FEATURE_FLAG } from '@/tools/code-exec/constants'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -62,6 +63,7 @@ export class InstructionsBuilder {
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
+            codeExecutionEnabled: state.toolFeatureFlags?.[CODE_EXECUTION_FEATURE_FLAG] === true,
         }
     }
 

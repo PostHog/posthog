@@ -11,6 +11,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CLI_CODE_EXECUTION from '@/templates/sections/cli-code-execution.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
@@ -40,6 +41,9 @@ export interface InstructionsContext {
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
+    /** Whether the code-execution exec verbs (`run`/`apply`/`types`) are available
+     *  (the `mcp-code-execution` flag is on). Gates their command-reference section. */
+    codeExecutionEnabled?: boolean | undefined
 }
 
 /**
@@ -103,6 +107,7 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...(ctx.codeExecutionEnabled ? [CLI_CODE_EXECUTION] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,

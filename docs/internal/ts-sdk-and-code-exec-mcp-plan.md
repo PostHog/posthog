@@ -1,7 +1,14 @@
 # Plan: `@posthog/sdk` (TypeScript) on the MCP codegen pipeline + code-execution MCP
 
-Status: proposal.
+Status: proposal; first implementation landed behind the `mcp-code-execution` feature flag.
 Owner: Max AI / MCP.
+
+Implemented so far (all dark behind the flag):
+`packages/sdk` (§2, generated surface + typed query wrappers);
+the codegen artifacts (§2.3/§3.5/§3.6.2 — discovery index, mutation classifier table, rolled-up SDK `.d.ts`, emitted by the SDK generator into `services/mcp/src/generated/code-exec/`);
+the plan/apply engine (§3.6 — recorder/enforcer transports, sentinel binding, signed plan tokens, plan store) in `services/mcp/src/lib/code-exec/`;
+and the exec verbs `types`, `types show`, `run`, `apply` (§3.2) with the compile gate and a dev/test-only local VM executor in `services/mcp/src/tools/code-exec/`.
+Not yet implemented: the production sandbox substrate (Modal pool, §3.3), the standalone API proxy endpoint + ephemeral tokens (§3.4 — the current transports run in-process), field-diff plan rendering and the plan-review UI app (§3.6.6), and npm publishing (§2.7).
 
 Two deliverables:
 

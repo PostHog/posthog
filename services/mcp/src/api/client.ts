@@ -204,6 +204,29 @@ export class ApiClient {
     }
 
     /**
+     * Authenticated raw fetch for the code-execution transports. The sandboxed
+     * SDK builds URLs against a placeholder origin and stamps a placeholder
+     * bearer token, so this rewrites the request to `baseUrl` keeping only the
+     * path + query, and strips the inbound `Authorization` header so the
+     * client's real token (applied by `fetch`) cannot be shadowed.
+     */
+    async fetchRaw(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+        const url =
+            typeof Request !== 'undefined' && input instanceof Request
+                ? input.url
+                : input instanceof URL
+                  ? input.toString()
+                  : String(input)
+        const parsed = new URL(url, this.baseUrl)
+        const headers = new Headers(init?.headers)
+        headers.delete('Authorization')
+        return this.fetch(`${this.baseUrl}${parsed.pathname}${parsed.search}`, {
+            ...init,
+            headers: Object.fromEntries(headers.entries()),
+        })
+    }
+
+    /**
      * Generic HTTP request with auth.
      * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
      */

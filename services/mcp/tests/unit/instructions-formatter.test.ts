@@ -234,6 +234,22 @@ describe('InstructionsFormatter', () => {
                 expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
         })
+
+        it('includes the code-execution section only when the mcp-code-execution flag is on', () => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const withCodeExecution = formatter.buildExecCommandReference(
+                    { ...fullCtx, codeExecutionEnabled: true },
+                    { stripEnvContext }
+                )
+                expect(withCodeExecution).toContain('### Code execution')
+                expect(withCodeExecution).toContain('apply <plan token>')
+
+                // `fullCtx` leaves the field unset — the section must be opt-in.
+                const withoutCodeExecution = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(withoutCodeExecution).not.toContain('### Code execution')
+            }
+        })
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP

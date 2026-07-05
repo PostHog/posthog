@@ -1,11 +1,19 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
+import classifierTableJson from '@/generated/code-exec/classifier-table.json'
 import {
     buildToolResultPayload,
     estimateResponseTokens,
     isToolCallPayload,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import {
+    type ClassifierTable,
+    MemoryPlanStore,
+    type PlanStore,
+    RedisPlanStore,
+    createPlanTokenCodec,
+} from '@/lib/code-exec'
 import {
     handleToolError,
     MissingOrganizationContextError,
@@ -18,12 +26,17 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
+import { loadSigningKeyFromEnv, NonceLedger, type SignedStateCodec } from '@/lib/signed-state'
+import { CODE_EXECUTION_FEATURE_FLAG } from '@/tools/code-exec/constants'
+import { LocalVmExecutor, type SandboxExecutor } from '@/tools/code-exec/executor'
+import { type CodeExecutionRuntime, createCodeExecutionRuntime } from '@/tools/code-exec/runtime'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackExecuteSqlGeneration, trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
+import type { RedisLike } from './cache/RedisCache'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -41,13 +54,28 @@ interface ExecMetricState {
     innerToolName: string | undefined
 }
 
+/**
+ * Process-level dependencies of the code-execution verbs — the codec, plan
+ * store, nonce ledger, and executor are all request-independent, so they are
+ * built once and reused across `exec` calls.
+ */
+interface CodeExecutionSharedParts {
+    codec: SignedStateCodec
+    planStore: PlanStore
+    nonceLedger: NonceLedger | null
+    executor: SandboxExecutor
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly redis: RedisLike | undefined
+    private codeExecutionParts: CodeExecutionSharedParts | null | undefined
 
-    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
+    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder, redis?: RedisLike) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
+        this.redis = redis
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -411,7 +439,10 @@ export class ToolExecutor {
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
-            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
+            {
+                isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                codeExecution: this.resolveCodeExecutionRuntime(state),
+            }
         )
 
         return {
@@ -420,6 +451,57 @@ export class ToolExecutor {
             handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
             _meta: execTool._meta,
         }
+    }
+
+    /**
+     * Build the code-execution runtime for this request, or `undefined` when
+     * the `mcp-code-execution` flag is off or the process can't support it
+     * (missing signing key, or a non-dev/test environment where the local VM
+     * executor refuses to run — the production substrate is the Modal sandbox
+     * pool, a follow-up). Absence simply hides the verbs.
+     */
+    private resolveCodeExecutionRuntime(state: ResolvedState): CodeExecutionRuntime | undefined {
+        if (state.toolFeatureFlags?.[CODE_EXECUTION_FEATURE_FLAG] !== true) {
+            return undefined
+        }
+        const parts = this.getCodeExecutionParts()
+        if (!parts) {
+            return undefined
+        }
+        return createCodeExecutionRuntime({
+            realFetch: (input, init) => state.context.api.fetchRaw(input, init),
+            // Same identity `confirmed_action` binds its tokens to.
+            getSub: () => state.context.getDistinctId(),
+            codec: parts.codec,
+            planStore: parts.planStore,
+            nonceLedger: parts.nonceLedger,
+            sessionScopes: state.apiKeyScopes,
+            executor: parts.executor,
+            // The generated artifact matches `ClassifierTable` field-for-field, but
+            // JSON import inference widens the `idFields[].type` literals to string.
+            classifierTable: classifierTableJson as unknown as ClassifierTable,
+        })
+    }
+
+    private getCodeExecutionParts(): CodeExecutionSharedParts | null {
+        if (this.codeExecutionParts !== undefined) {
+            return this.codeExecutionParts
+        }
+        try {
+            this.codeExecutionParts = {
+                codec: createPlanTokenCodec(loadSigningKeyFromEnv()),
+                // Without Redis this falls back to process memory: plans and nonce
+                // burns don't survive a restart and don't replicate — single-replica
+                // (local dev / tests) only.
+                planStore: this.redis ? new RedisPlanStore(this.redis) : new MemoryPlanStore(),
+                nonceLedger: this.redis ? new NonceLedger(this.redis) : null,
+                executor: new LocalVmExecutor(),
+            }
+        } catch (err) {
+            console.error(`[mcp] code execution disabled — ${(err as Error).message}`)
+            this.codeExecutionParts = null
+        }
+        return this.codeExecutionParts
     }
 
     private async callRenderUiTool(
