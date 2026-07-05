@@ -38,8 +38,21 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
             return
         }
         inFlight += 1
+        let released = false
+        const release = (): void => {
+            if (!released) {
+                released = true
+                inFlight -= 1
+            }
+        }
+        res.locals.release = release
+        // Release when the scrub work settles (in the handler below), not merely when the connection closes:
+        // an aborted request whose sharp op is still running must keep its slot so it counts against the
+        // ceiling. Exits that never start scrub (413 too-large, bodyless 422) release here on close.
         res.once('close', () => {
-            inFlight -= 1
+            if (!res.locals.scrubStarted) {
+                release()
+            }
         })
         next()
     }
@@ -50,6 +63,7 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
             next(new UndecodableImageError('request body is not image bytes'))
             return
         }
+        res.locals.scrubStarted = true
         const stopTimer = ScrubMetrics.startTimer()
         const controller = new AbortController()
         res.on('close', () => {
@@ -69,7 +83,10 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
                 res.set('Content-Type', 'application/octet-stream').send(out)
             })
             .catch(next)
-            .finally(() => stopTimer())
+            .finally(() => {
+                stopTimer()
+                ;(res.locals.release as () => void)()
+            })
     })
 
     app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
