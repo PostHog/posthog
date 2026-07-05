@@ -232,6 +232,28 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+def _projected_attribute_columns(exclude_attributes: bool) -> tuple[ast.Expr, ast.Expr]:
+    """SELECT projections for the span and resource attribute maps, as (attributes, resource_attributes).
+
+    Crucially, they are aliased to names that deliberately DIFFER from the `attributes` /
+    `resource_attributes` table fields. A span/resource-attribute filter compiles to an
+    `attributes['key']` map access on the table field, and that filter is embedded in the same SELECT
+    (the trace_start / trace_duration window functions and matched_filter). A projection aliased
+    `attributes` would shadow the table field, so the filter would resolve against the projection and
+    crash with "Cannot access property '<key>' on 'attributes'" — a 500 on the spans query. Renaming the
+    projection keeps the filter bound to the real property-group Map field. See test_span_attribute_filter.
+
+    The attribute maps dominate payload size (db.statement holds multi-KB SQL; process.command_args etc.
+    bulk up the resource map). When `excludeAttributes` is set we still SELECT a column so the positional
+    result mapping stays stable — an empty map() instead of the real one.
+    """
+    attributes = parse_expr("map() AS span_attributes" if exclude_attributes else "attributes AS span_attributes")
+    resource_attributes = parse_expr(
+        "map() AS span_resource_attributes" if exclude_attributes else "resource_attributes AS span_resource_attributes"
+    )
+    return attributes, resource_attributes
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -578,6 +600,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         if root_only:
             key_predicate = ast.And(exprs=[self.where(), parse_expr("is_root_span = 1")])
 
+        attributes_col, resource_attributes_col = _projected_attribute_columns(self.query.excludeAttributes)
+
         query = parse_select(
             """
             SELECT
@@ -607,14 +631,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
-                # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
-                # process.command_args etc. bulk up the resource map). When excluded we still
-                # SELECT a column so the positional result mapping stays stable — an empty map
-                # instead of the real one.
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                "attributes": attributes_col,
+                "resource_attributes": resource_attributes_col,
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -691,6 +709,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
         where: ast.Expr = where_exprs[0] if len(where_exprs) == 1 else ast.And(exprs=where_exprs)
 
+        attributes_col, resource_attributes_col = _projected_attribute_columns(self.query.excludeAttributes)
+
         query = parse_select(
             """
             SELECT
@@ -716,10 +736,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": where,
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
-                "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
-                ),
+                "attributes": attributes_col,
+                "resource_attributes": resource_attributes_col,
             },
         )
         assert isinstance(query, ast.SelectQuery)

@@ -187,6 +187,46 @@ class TestSpanAttributeFilter(ClickhouseTestMixin, APIBaseTest):
     def test_query_span_attribute_filters(self, _name, prop, expected_services):
         self.assertEqual(self._query_services(prop), expected_services)
 
+    @parameterized.expand(
+        [
+            # Regression: filtering by an attribute while excludeAttributes=True used to 500. The
+            # excluded projection is `map() AS attributes`, whose alias shadowed the `attributes` Map
+            # table field the filter resolves against, so the filter's map access bound to the empty
+            # map() and get_child blew up ("Cannot access property ... on 'attributes'"). Covers the
+            # grouped (window-function) and flat span paths, and both the span and resource maps.
+            (
+                "span_attr_grouped",
+                {"key": "code.filepath", "type": "span_attribute", "operator": "is_set"},
+                False,
+                [WITH_CODE],
+            ),
+            (
+                "span_attr_flat",
+                {"key": "code.filepath", "type": "span_attribute", "operator": "is_set"},
+                True,
+                [WITH_CODE],
+            ),
+            (
+                "resource_attr_grouped",
+                {"key": "service.version", "type": "span_resource_attribute", "operator": "exact", "value": "1.2.3"},
+                False,
+                sorted([WITH_CODE, WITHOUT_CODE]),
+            ),
+        ]
+    )
+    def test_attribute_filter_with_exclude_attributes(self, _name, prop, flat_spans, expected_services):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "excludeAttributes": True,
+                "flatSpans": flat_spans,
+                "filterGroup": [prop],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/query/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(sorted(row["service_name"] for row in res.json()["results"]), expected_services)
+
     def test_span_attribute_filter_composes_with_root_spans_flag(self):
         # rootSpans=True (the query endpoint's default) ANDs `is_root_span = 1` onto the attribute
         # filter (commit #61397). Both test spans are roots, so an attribute filter still narrows
