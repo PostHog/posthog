@@ -19,10 +19,8 @@ import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
 function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: true, ...yAxis },
-        showAxisLines: true,
+        yAxis,
         xAxis: { interval: 'day', timezone },
-        showCrosshair: true,
         tooltip: { placement: 'cursor' },
     }
 }

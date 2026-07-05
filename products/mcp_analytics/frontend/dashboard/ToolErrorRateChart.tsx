@@ -55,11 +55,10 @@ export function ToolErrorRateChart({
         return {
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
-            showGrid: false,
-            showAxisLines: false,
+            yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
-            bars: { cornerRadius: 3, minBandSize: 30, track: { hover: false }, valueDomain: [0, axisMax] },
+            bars: { cornerRadius: 4, minBandSize: 30, valueDomain: [0, axisMax] },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])

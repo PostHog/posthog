@@ -45,10 +45,7 @@ export function ActivityChart({
     // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            yAxis: { showGrid: true },
-            showAxisLines: true,
             xAxis: { interval, timezone },
-            showCrosshair: true,
             tooltip: { placement: 'cursor' },
         }),
         [timezone, interval]
