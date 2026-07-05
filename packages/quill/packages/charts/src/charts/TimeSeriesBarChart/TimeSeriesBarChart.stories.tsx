@@ -244,3 +244,41 @@ export const DateAxis: Story = {
         )
     },
 }
+
+/** Skeleton preview while a query runs: real date ticks from the known x-domain, deterministic
+ *  placeholder columns, interactions off. */
+export const Loading: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesBarChart
+                    series={[]}
+                    labels={DAILY_LABELS}
+                    theme={theme}
+                    loading
+                    config={{ xAxis: { interval: 'day', timezone: 'UTC' }, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
+/** Stale-while-revalidate: current bars stay rendered, dimmed, interactions off, shimmer on top. */
+export const Refreshing: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesBarChart
+                    series={DAILY_SERIES}
+                    labels={DAILY_LABELS}
+                    theme={theme}
+                    refreshing
+                    loadingOverlay={<span>Updating…</span>}
+                    config={{ xAxis: { interval: 'day', timezone: 'UTC' }, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}

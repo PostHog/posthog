@@ -11,6 +11,7 @@ import type {
     TooltipConfig,
     TooltipContext,
 } from '../../core/types'
+import { ChartLoadingOverlay } from '../../overlays/ChartLoadingOverlay'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import type { GoalLineConfig } from '../../utils/goal-lines'
@@ -22,10 +23,20 @@ import {
     type MovingAverageConfig,
     type TrendLineConfig,
 } from '../utils/use-derived-series'
+import {
+    FALLBACK_SKELETON_LABELS,
+    HIDDEN_TICK_FORMATTER,
+    SKELETON_MARGINS,
+    useLoadingSeries,
+    type ChartLoadingProps,
+} from '../utils/use-loading-state'
 import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
-export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
+export type { ChartLoadingProps, ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
+
+// Literal class string so Tailwind v4's `dist/*.js` source scan sees the utilities.
+const REFRESHING_CLASS = 'opacity-60 transition-opacity'
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
@@ -57,7 +68,7 @@ export interface TimeSeriesLineChartConfig {
     legend?: ChartLegendConfig
 }
 
-export interface TimeSeriesLineChartProps<Meta = unknown> {
+export interface TimeSeriesLineChartProps<Meta = unknown> extends ChartLoadingProps {
     series: Series<Meta>[]
     labels: string[]
     theme: ChartTheme
@@ -83,6 +94,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
     onError,
+    loading = false,
+    refreshing = false,
+    loadingOverlay,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
     const {
         xAxis,
@@ -101,6 +115,14 @@ export function TimeSeriesLineChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
+    const isRefreshing = !loading && refreshing
+    const busy = loading || isRefreshing
+    // Without a known x-domain the skeleton still needs band positions; the fake labels are hidden.
+    const hasKnownLabels = labels.length > 0
+    const effectiveLabels = loading && !hasKnownLabels ? FALLBACK_SKELETON_LABELS : labels
+    const skeletonSeries = useLoadingSeries<Meta>('line', effectiveLabels, theme, loading)
+    const inputSeries = skeletonSeries ?? series
+
     const {
         xTickFormatter,
         yTickFormatter,
@@ -110,17 +132,27 @@ export function TimeSeriesLineChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
-
-    const finalSeries = useDerivedSeries(chartSeries, {
-        confidenceIntervals,
-        movingAverage,
-        trendLines,
-        comparisonOf,
+    } = useTimeSeries(inputSeries, effectiveLabels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels: loading ? undefined : valueLabels,
+        legend: loading ? undefined : legend,
     })
 
+    const finalSeries = useDerivedSeries(
+        chartSeries,
+        loading
+            ? {}
+            : {
+                  confidenceIntervals,
+                  movingAverage,
+                  trendLines,
+                  comparisonOf,
+              }
+    )
+
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, finalSeries)
+    const { referenceLines, valueDomain } = useGoalLines(loading ? undefined : goalLines, finalSeries)
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
@@ -129,8 +161,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const lineChartConfig: LineChartConfig = {
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
-        yTickFormatter,
-        hideXAxis: xAxis?.hide,
+        // Skeleton y values are fake — hide the tick text but keep a stable gutter via margins.
+        yTickFormatter: loading ? HIDDEN_TICK_FORMATTER : yTickFormatter,
+        margins: loading ? SKELETON_MARGINS : undefined,
+        hideXAxis: xAxis?.hide || (loading && !hasKnownLabels),
         hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
@@ -138,31 +172,32 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
-        percentStackView,
-        showCrosshair,
-        tooltip: tooltipConfig,
+        percentStackView: loading ? undefined : percentStackView,
+        showCrosshair: busy ? false : showCrosshair,
+        tooltip: busy ? { enabled: false } : tooltipConfig,
         valueDomain,
         floatBaseline,
-        yAxes,
+        yAxes: loading ? undefined : yAxes,
     }
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-line-legend">
             <LineChart
                 series={finalSeries}
-                labels={labels}
+                labels={effectiveLabels}
                 config={lineChartConfig}
                 theme={theme}
-                tooltip={tooltip}
-                onPointClick={onPointClick}
-                onDateRangeZoom={onDateRangeZoom}
-                className={className}
+                tooltip={busy ? undefined : tooltip}
+                onPointClick={busy ? undefined : onPointClick}
+                onDateRangeZoom={busy ? undefined : onDateRangeZoom}
+                className={[className, isRefreshing ? REFRESHING_CLASS : undefined].filter(Boolean).join(' ') || undefined}
                 dataAttr={dataAttr}
                 onError={onError}
             >
-                {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-                {children}
+                {!loading && referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {!loading && valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {!loading && children}
+                {busy && <ChartLoadingOverlay>{loadingOverlay}</ChartLoadingOverlay>}
             </LineChart>
         </ChartLegend>
     )

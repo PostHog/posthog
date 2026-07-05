@@ -16,6 +16,8 @@ export interface ChartTheme {
     crosshairColor?: string
     /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
     crosshairDashPattern?: number[]
+    /** Fill for loading-skeleton marks. Falls back to `gridColor`, then a neutral grey. */
+    skeletonColor?: string
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string

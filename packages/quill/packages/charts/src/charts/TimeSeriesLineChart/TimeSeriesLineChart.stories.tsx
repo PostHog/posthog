@@ -360,3 +360,43 @@ export const DateAxis: Story = {
         )
     },
 }
+
+/** Skeleton preview while a query runs: the known x-domain renders real date ticks, the marks
+ *  are deterministic placeholders, and interactions are off. Pass the labels computed from the
+ *  date range + interval so the axis matches what the loaded chart will show. */
+export const Loading: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={[]}
+                    labels={DAILY_LABELS}
+                    theme={theme}
+                    loading
+                    config={{ xAxis: { interval: 'day', timezone: 'UTC' }, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
+/** Stale-while-revalidate: the current data stays rendered, dimmed, interactions off, with the
+ *  shimmer marking the refetch. `loadingOverlay` centers host progress UI over the plot. */
+export const Refreshing: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DAILY_SERIES}
+                    labels={DAILY_LABELS}
+                    theme={theme}
+                    refreshing
+                    loadingOverlay={<span>Updating…</span>}
+                    config={{ xAxis: { interval: 'day', timezone: 'UTC' }, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}

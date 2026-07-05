@@ -7,6 +7,7 @@ export { ComboChart } from './charts/ComboChart/ComboChart'
 export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
+    ChartLoadingProps,
     ConfidenceIntervalConfig,
     MovingAverageConfig,
     TimeSeriesLineChartConfig,
@@ -136,6 +137,8 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { ChartLoadingOverlay } from './overlays/ChartLoadingOverlay'
+export type { ChartLoadingOverlayProps } from './overlays/ChartLoadingOverlay'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

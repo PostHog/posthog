@@ -11,6 +11,7 @@ import type {
     TooltipConfig,
     TooltipContext,
 } from '../../core/types'
+import { ChartLoadingOverlay } from '../../overlays/ChartLoadingOverlay'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
@@ -18,8 +19,18 @@ import type { GoalLineConfig } from '../../utils/goal-lines'
 import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
+import {
+    FALLBACK_SKELETON_LABELS,
+    HIDDEN_TICK_FORMATTER,
+    SKELETON_MARGINS,
+    useLoadingSeries,
+    type ChartLoadingProps,
+} from '../utils/use-loading-state'
 import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
+
+// Literal class string so Tailwind v4's `dist/*.js` source scan sees the utilities.
+const REFRESHING_CLASS = 'opacity-60 transition-opacity'
 
 export interface TimeSeriesBarChartConfig {
     xAxis?: XAxisConfig
@@ -53,7 +64,7 @@ export interface TimeSeriesBarChartConfig {
     trendLines?: TrendLineConfig[]
 }
 
-export interface TimeSeriesBarChartProps<Meta = unknown> {
+export interface TimeSeriesBarChartProps<Meta = unknown> extends ChartLoadingProps {
     series: Series<Meta>[]
     labels: string[]
     theme: ChartTheme
@@ -77,6 +88,9 @@ export function TimeSeriesBarChart<Meta = unknown>({
     className,
     children,
     onError,
+    loading = false,
+    refreshing = false,
+    loadingOverlay,
 }: TimeSeriesBarChartProps<Meta>): React.ReactElement {
     const {
         xAxis,
@@ -96,6 +110,14 @@ export function TimeSeriesBarChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
+    const isRefreshing = !loading && refreshing
+    const busy = loading || isRefreshing
+    // Without a known x-domain the skeleton still needs band positions; the fake labels are hidden.
+    const hasKnownLabels = labels.length > 0
+    const effectiveLabels = loading && !hasKnownLabels ? FALLBACK_SKELETON_LABELS : labels
+    const skeletonSeries = useLoadingSeries<Meta>('bar', effectiveLabels, theme, loading)
+    const inputSeries = skeletonSeries ?? series
+
     const {
         xTickFormatter,
         yTickFormatter,
@@ -106,19 +128,26 @@ export function TimeSeriesBarChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(inputSeries, effectiveLabels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels: loading ? undefined : valueLabels,
+        legend: loading ? undefined : legend,
+    })
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
+    const { referenceLines, valueDomain } = useGoalLines(loading ? undefined : goalLines, chartSeries)
 
-    const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
+    const trendSeries = useTrendLineSeries(visibleSeries, loading ? undefined : trendLines)
 
     const barChartConfig: BarChartConfig = {
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
-        yTickFormatter,
-        hideXAxis: xAxis?.hide,
+        // Skeleton y values are fake — hide the tick text but keep a stable gutter via margins.
+        yTickFormatter: loading ? HIDDEN_TICK_FORMATTER : yTickFormatter,
+        margins: loading ? SKELETON_MARGINS : undefined,
+        hideXAxis: xAxis?.hide || (loading && !hasKnownLabels),
         hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
@@ -127,10 +156,10 @@ export function TimeSeriesBarChart<Meta = unknown>({
         showTickMarks,
         barLayout,
         axisOrientation,
-        showCrosshair,
-        tooltip: tooltipConfig,
+        showCrosshair: busy ? false : showCrosshair,
+        tooltip: busy ? { enabled: false } : tooltipConfig,
         animateHover,
-        yAxes,
+        yAxes: loading ? undefined : yAxes,
         bars: {
             cornerRadius: barCornerRadius,
             divergingStack,
@@ -143,19 +172,20 @@ export function TimeSeriesBarChart<Meta = unknown>({
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-bar-legend">
             <BarChart
                 series={chartSeries}
-                labels={labels}
+                labels={effectiveLabels}
                 config={barChartConfig}
                 theme={theme}
-                tooltip={tooltip}
-                onPointClick={onPointClick}
-                className={className}
+                tooltip={busy ? undefined : tooltip}
+                onPointClick={busy ? undefined : onPointClick}
+                className={[className, isRefreshing ? REFRESHING_CLASS : undefined].filter(Boolean).join(' ') || undefined}
                 dataAttr={dataAttr}
                 onError={onError}
             >
-                {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-                {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-                {children}
+                {!loading && referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {!loading && trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
+                {!loading && valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {!loading && children}
+                {busy && <ChartLoadingOverlay>{loadingOverlay}</ChartLoadingOverlay>}
             </BarChart>
         </ChartLegend>
     )
