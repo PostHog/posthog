@@ -56524,7 +56524,7 @@ export namespace Schemas {
 
     export type EnvironmentsElementsValuesListParams = {
     /**
-     * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
+     * Element property to list values for: tag_name, text, href, or attr_id.
      */
     key: string;
     /**
@@ -62626,7 +62626,7 @@ export namespace Schemas {
 
     export type ElementsValuesListParams = {
     /**
-     * Element property to list values for: tag_name, text, href, attr_class, or attr_id.
+     * Element property to list values for: tag_name, text, href, or attr_id.
      */
     key: string;
     /**
