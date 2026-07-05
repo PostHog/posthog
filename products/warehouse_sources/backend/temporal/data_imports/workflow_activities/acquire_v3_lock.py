@@ -112,7 +112,7 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     Decision matrix (fail closed on any ambiguity):
     1. Holder workflow still RUNNING per Temporal describe -> fail closed.
-    2. Holder workflow terminal + no job row -> take over.
+    2. No job row or workflow id for the holder -> fail closed.
     3. Holder workflow terminal + job terminal -> take over.
     4. Holder workflow terminal + job RUNNING -> consult queue DB:
        - no batches or all-terminal/stale -> mark job FAILED, take over.
@@ -142,14 +142,13 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
 
     # Step 2/3: workflow is terminal, check the job row
     if holder_job is None:
-        # Worker crashed before creating the job row - safe to take over
         logger.warning(
-            "v3_pipeline_lock_taking_over",
+            "v3_pipeline_lock_takeover_ambiguous",
             schema_id=str(inputs.schema_id),
             holder_token=holder,
             reason="no_job_row",
         )
-        return _release_and_acquire(inputs, holder, token)
+        return False
 
     if holder_job.status in TERMINAL_JOB_STATUSES:
         logger.warning(
@@ -183,7 +182,7 @@ def _describe_holder_workflow(
             .first()
         )
         if holder_job is None or not holder_job.workflow_id:
-            return WorkflowExecutionStatus.TERMINATED, holder_job
+            return None, holder_job
 
         temporal: Client = sync_connect()
         handle = temporal.get_workflow_handle(holder_job.workflow_id, run_id=holder_run_id)

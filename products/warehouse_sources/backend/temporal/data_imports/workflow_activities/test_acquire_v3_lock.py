@@ -174,12 +174,12 @@ class TestTakeOverStaleLock:
     ) -> None:
         assert self._run() is False
 
-    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock")
     @patch(f"{MODULE}.release_v3_pipeline_lock")
     @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.COMPLETED, None))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
-    def test_takes_over_when_no_job_row(
+    def test_fails_closed_when_no_job_row(
         self,
         _holder: MagicMock,
         _close: MagicMock,
@@ -187,8 +187,9 @@ class TestTakeOverStaleLock:
         mock_release: MagicMock,
         mock_acquire: MagicMock,
     ) -> None:
-        assert self._run() is True
-        mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
+        assert self._run() is False
+        mock_release.assert_not_called()
+        mock_acquire.assert_not_called()
 
     @pytest.mark.parametrize(
         "holder_status",
