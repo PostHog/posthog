@@ -1,4 +1,3 @@
-/** ML-mirror-specific config knobs, layered on top of the shared session-recording config. */
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string

@@ -26,6 +26,8 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 
 COPY products/replay_vision/services/ml-mirror-image-scrub-sidecar/tsconfig.json ./
 COPY products/replay_vision/services/ml-mirror-image-scrub-sidecar/src ./src
+# Tests co-locate in src/ but must not ship in the runtime image.
+RUN rm -f src/*.test.ts
 
 RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \

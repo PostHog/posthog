@@ -1,11 +1,11 @@
 /* eslint-disable no-console -- sidecar logs to stdout */
-import { type IncomingMessage, createServer } from 'node:http'
+import express, { type NextFunction, type Request, type Response } from 'express'
+import { type Server } from 'node:http'
 
 import { UndecodableImageError, blurOnly } from './blur.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 
 class ConsumerHungUpError extends Error {}
-class BodyTooLargeError extends Error {}
 
 async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
     if (signal.aborted) {
@@ -14,51 +14,37 @@ async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
     return blurOnly(input)
 }
 
-async function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
-    if (Number(req.headers['content-length']) > maxBytes) {
-        throw new BodyTooLargeError()
-    }
-    const chunks: Buffer[] = []
-    let total = 0
-    for await (const chunk of req) {
-        total += (chunk as Buffer).length
-        if (total > maxBytes) {
-            throw new BodyTooLargeError()
-        }
-        chunks.push(chunk as Buffer)
-    }
-    return Buffer.concat(chunks)
-}
-
-export function startServer(
-    port: number,
-    maxConcurrency: number,
-    maxBodyBytes: number
-): ReturnType<typeof createServer> {
+export function startServer(port: number, maxConcurrency: number, maxBodyBytes: number): Server {
     let inFlight = 0
-    const server = createServer((req, res) => {
-        const url = req.url ?? '/'
-        if (req.method === 'GET' && (url === '/_health' || url === '/_ready')) {
-            res.writeHead(200).end('ok')
-            return
-        }
-        if (req.method === 'GET' && url === '/metrics') {
-            register
-                .metrics()
-                .then((body) => res.writeHead(200, { 'content-type': register.contentType }).end(body))
-                .catch(() => res.writeHead(500).end())
-            return
-        }
-        if (req.method !== 'POST' || url !== '/scrub') {
-            res.writeHead(404).end()
-            return
-        }
+    const app = express()
+    app.disable('x-powered-by')
+    app.disable('etag')
+
+    app.get(['/_health', '/_ready'], (_req, res) => {
+        res.status(200).send('ok')
+    })
+
+    app.get('/metrics', (_req, res, next) => {
+        register
+            .metrics()
+            .then((body) => res.set('Content-Type', register.contentType).send(body))
+            .catch(next)
+    })
+
+    const shedIfBusy = (_req: Request, res: Response, next: NextFunction): void => {
         if (inFlight >= maxConcurrency) {
             ScrubMetrics.incRejected()
-            res.writeHead(503).end('busy')
+            res.status(503).send('busy')
             return
         }
         inFlight += 1
+        res.once('close', () => {
+            inFlight -= 1
+        })
+        next()
+    }
+
+    app.post('/scrub', shedIfBusy, express.raw({ type: () => true, limit: maxBodyBytes }), (req, res, next) => {
         const stopTimer = ScrubMetrics.startTimer()
         const controller = new AbortController()
         res.on('close', () => {
@@ -67,47 +53,50 @@ export function startServer(
             }
         })
         res.on('error', () => {})
-        readBody(req, maxBodyBytes)
-            .then((body) => scrub(body, controller.signal))
+        scrub(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), controller.signal)
             .then((out) => {
                 if (controller.signal.aborted) {
                     ScrubMetrics.incAborted()
                     return
                 }
                 ScrubMetrics.incScrubbed()
-                res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(out)
+                res.set('Content-Type', 'application/octet-stream').send(out)
             })
-            .catch((e) => {
-                if (controller.signal.aborted || e instanceof ConsumerHungUpError) {
-                    ScrubMetrics.incAborted()
-                    return
-                }
-                if (e instanceof BodyTooLargeError) {
-                    ScrubMetrics.incTooLarge()
-                    res.writeHead(413).end('body too large')
-                    return
-                }
-                if (e instanceof UndecodableImageError) {
-                    ScrubMetrics.incUndecodable()
-                    res.writeHead(422).end('undecodable image')
-                    return
-                }
-                ScrubMetrics.incFailed()
-                console.error(`scrub failed: ${String(e)}`)
-                res.writeHead(500).end('scrub failed')
-            })
-            .finally(() => {
-                inFlight -= 1
-                stopTimer()
-            })
+            .catch(next)
+            .finally(() => stopTimer())
     })
+
+    app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
+        if (err instanceof ConsumerHungUpError) {
+            ScrubMetrics.incAborted()
+            return
+        }
+        if (res.writableEnded) {
+            return
+        }
+        // express.raw over-limit lands here as 413: permanent, the consumer skips it.
+        if (err.status === 413 || err.type === 'entity.too.large') {
+            ScrubMetrics.incTooLarge()
+            res.status(413).send('body too large')
+            return
+        }
+        if (err instanceof UndecodableImageError) {
+            ScrubMetrics.incUndecodable()
+            res.status(422).send('undecodable image')
+            return
+        }
+        ScrubMetrics.incFailed()
+        console.error(`scrub failed: ${String(err)}`)
+        res.status(500).send('scrub failed')
+    })
+
+    // Loopback only: the consumer shares the pod netns; the pod IP must not expose /scrub.
+    const server = app.listen(port, '127.0.0.1', () =>
+        console.log(`image-scrub sidecar listening on 127.0.0.1:${port} (maxConcurrency ${maxConcurrency})`)
+    )
     server.on('error', (err) => {
         console.error(`image-scrub sidecar server error: ${String(err)}`)
         process.exit(1)
     })
-    // Loopback only: the consumer shares the pod netns; the pod IP must not expose /scrub.
-    server.listen(port, '127.0.0.1', () =>
-        console.log(`image-scrub sidecar listening on 127.0.0.1:${port} (maxConcurrency ${maxConcurrency})`)
-    )
     return server
 }

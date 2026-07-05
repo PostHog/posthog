@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import type { AddressInfo } from 'node:net'
 
-import { startServer } from '../src/server.ts'
+import { startServer } from './server.ts'
 
 const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAR0lEQVR4nO3YsQkAIAxEUeu//1A3ljvY2DywD0iSR+6svryjcL56mivjlAUyKzNIhMWwGBaHxbAYFodF12IO80QRE770HDddvGtfTNaUfqIAAAAASUVORK5CYII=',
