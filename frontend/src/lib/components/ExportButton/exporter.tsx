@@ -10,6 +10,7 @@ export function downloadBlob(content: Blob, filename: string): void {
     anchor.download = filename
     document.body.appendChild(anchor)
     anchor.click()
+    document.body.removeChild(anchor)
     window.URL.revokeObjectURL(objectURL)
 }
 
