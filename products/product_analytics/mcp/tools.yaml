@@ -64,8 +64,8 @@ tools:
             or dead clicks". Each result row echoes the clicked element's full DOM ancestor chain up to <body>, with a
             full attribute map on every ancestor, so responses get very large fast on busy projects. To keep responses
             small, pass `max_element_chain_depth` (e.g. 3) to return only the clicked element and its nearest ancestors,
-            pass `data_attributes` (e.g. data-attr) to drop attributes you do not need, and pass a small `limit`
-            (e.g. 20), paginating with `offset` for more results.
+            pass `data_attributes` (e.g. data-attr) to drop attributes you do not need, and pass a small `limit` (e.g.
+            20), paginating with `offset` for more results.
     elements-update:
         operation: elements_update
         enabled: false
