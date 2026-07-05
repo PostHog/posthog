@@ -1,14 +1,27 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team import Team
 
+from products.notebooks.backend.models import Notebook
+from products.pulse.backend.api.opportunity import RESEARCH_DAILY_CAP
 from products.pulse.backend.models import Opportunity
+
+
+def _temporal_client() -> MagicMock:
+    client = MagicMock()
+    client.start_workflow = AsyncMock()
+    return client
+
 
 _TRANSITION_EVENTS = {
     "dismiss": "opportunity_dismissed",
@@ -26,6 +39,8 @@ class TestOpportunityAPI(APIBaseTest):
         report_patcher = patch("products.pulse.backend.api.opportunity.report_user_action")
         self.mock_report = report_patcher.start()
         self.addCleanup(report_patcher.stop)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
 
     def _opportunity(
         self,
@@ -148,3 +163,85 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         other.refresh_from_db()
         assert other.status == Opportunity.Status.OPEN
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_starts_workflow_and_marks_requested(self, mock_connect: MagicMock) -> None:
+        client = _temporal_client()
+        mock_connect.return_value = client
+        opportunity = self._opportunity()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/research/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        opportunity.refresh_from_db()
+        assert opportunity.research_requested_at is not None
+        client.start_workflow.assert_called_once()
+        assert self.mock_report.call_args.args[1] == "opportunity_research_requested"
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_requires_ai_consent(self, mock_connect: MagicMock) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        opportunity = self._opportunity()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/research/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "ai_consent_required"
+        mock_connect.assert_not_called()
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_conflict_when_already_running(self, mock_connect: MagicMock) -> None:
+        client = _temporal_client()
+        client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+            "pulse-research-x", "pulse-research-opportunity"
+        )
+        mock_connect.return_value = client
+        opportunity = self._opportunity()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/research/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        opportunity.refresh_from_db()
+        # A collision must not stamp requested_at — the in-flight run already owns it.
+        assert opportunity.research_requested_at is None
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_daily_cap_returns_429(self, mock_connect: MagicMock) -> None:
+        now = timezone.now()
+        for _ in range(RESEARCH_DAILY_CAP):
+            Opportunity.objects.for_team(self.team.pk).filter(pk=self._opportunity().pk).update(
+                research_requested_at=now
+            )
+        target = self._opportunity()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{target.id}/research/")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_connect.assert_not_called()
+
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_daily_cap_ignores_old_runs(self, mock_connect: MagicMock) -> None:
+        mock_connect.return_value = _temporal_client()
+        old = timezone.now() - timedelta(hours=25)
+        for _ in range(RESEARCH_DAILY_CAP):
+            Opportunity.objects.for_team(self.team.pk).filter(pk=self._opportunity().pk).update(
+                research_requested_at=old
+            )
+        target = self._opportunity()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{target.id}/research/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+
+    def test_serializes_research_notebook_short_id(self) -> None:
+        notebook = Notebook.objects.create(team=self.team, short_id="nbshort1", title="Research", created_by=self.user)
+        opportunity = self._opportunity()
+        Opportunity.objects.for_team(self.team.pk).filter(pk=opportunity.pk).update(research_notebook_id=notebook.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/pulse/opportunities/")
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(opportunity.id))
+        assert row["research_notebook_id"] == str(notebook.id)
+        assert row["research_notebook_short_id"] == "nbshort1"

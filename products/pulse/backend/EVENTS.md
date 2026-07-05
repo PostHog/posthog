@@ -64,6 +64,37 @@ Emitted from `api/opportunity.py` on each successful lifecycle transition.
 Dashboard panels: Opportunity action rate (7d) — `opportunity_acted` + `opportunity_dismissed` event counts against generated opportunities; no properties consumed.
 Future tuning loop — not yet charted: by-kind act/dismiss rates (`kind`), goal-relevant split (`goal_relevant`), reopen churn (`opportunity_reopened`).
 
+## Solutions research
+
+User-triggered market research on an opportunity: a bounded agent (web search + the team's own data) writes a Notebook of ranked, sourced proposals. Both events attribute to the requesting user.
+
+### `opportunity_research_requested`
+
+Emitted from `api/opportunity.py` when a research run is successfully started (after the consent gate, daily-cap check, and single-flight workflow start). Not emitted on a 400/409/429.
+
+| Property         | Type       | Meaning                                                            |
+| ---------------- | ---------- | ------------------------------------------------------------------ |
+| `opportunity_id` | str (UUID) | The opportunity being researched.                                  |
+| `kind`           | str        | `build`, `fix`, or `instrument`.                                   |
+| `status`         | str        | Opportunity status when research was requested.                    |
+| `goal_relevant`  | bool       | Whether the opportunity was marked as advancing the config's goal. |
+
+### `opportunity_research_completed`
+
+Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` (Temporal worker context) when a research run finishes and its notebook is persisted.
+
+| Property               | Type       | Meaning                                                                    |
+| ---------------------- | ---------- | -------------------------------------------------------------------------- |
+| `opportunity_id`       | str (UUID) | The researched opportunity.                                                |
+| `kind`                 | str        | `build`, `fix`, or `instrument`.                                           |
+| `goal_relevant`        | bool       | Whether the opportunity was marked as advancing the config's goal.         |
+| `duration_s`           | float      | Wall-clock seconds the researcher agent ran.                               |
+| `web_call_count`       | int        | Web searches the agent made (capped at 8).                                 |
+| `internal_query_count` | int        | HogQL queries over the team's own data the agent ran (capped at 6).        |
+| `proposal_count`       | int        | Ranked solution proposals in the produced notebook.                        |
+
+Dashboard panels: future — research adoption (requested vs completed), proposal volume, cost bounds (`web_call_count`, `internal_query_count`, `duration_s`). Not yet charted.
+
 ## Helpfulness feedback
 
 The context properties on these two events ARE the tuning signal — they let the feedback stream answer "which brief/opportunity shapes are helpful" (e.g. "fix opportunities are helpful, context sections are not") without joining back to the rows.

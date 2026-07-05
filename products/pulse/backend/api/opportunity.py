@@ -1,21 +1,27 @@
+import asyncio
+from datetime import timedelta
 from typing import cast
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.temporal.common.client import sync_connect
 
+from products.notebooks.backend.facade import api as notebooks
 from products.pulse.backend.api.brief import PULSE_FEATURE_FLAG
 from products.pulse.backend.api.feedback import (
     FeedbackFieldsSerializerMixin,
@@ -23,6 +29,15 @@ from products.pulse.backend.api.feedback import (
     record_vote,
 )
 from products.pulse.backend.models import Opportunity
+from products.pulse.backend.temporal.inputs import (
+    RESEARCH_OPPORTUNITY_WORKFLOW_NAME,
+    ResearchOpportunityWorkflowInputs,
+    pulse_research_workflow_id,
+)
+
+# Per-team rolling-24h cap on user-triggered research runs. The click is the cost bound; this caps
+# total spend if a team clicks aggressively. Counted off research_requested_at.
+RESEARCH_DAILY_CAP = 10
 
 
 class ProposedExperimentTargetMetricSerializer(serializers.Serializer):
@@ -57,6 +72,12 @@ class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSeri
             "metric, and variant sketch. Only ever set on goal-relevant opportunities; null otherwise."
         ),
     )
+    research_notebook_short_id = serializers.SerializerMethodField(
+        help_text=(
+            "Short ID of the solutions-research notebook produced for this opportunity, for building its "
+            "notebook URL. Null until a research run has completed."
+        )
+    )
 
     class Meta:
         model = Opportunity
@@ -71,6 +92,9 @@ class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSeri
             "goal_relevant",
             "proposed_experiment",
             "first_seen_brief",
+            "research_notebook_id",
+            "research_notebook_short_id",
+            "research_requested_at",
             "my_vote",
             "helpful_count",
             "not_helpful_count",
@@ -91,7 +115,25 @@ class OpportunitySerializer(FeedbackFieldsSerializerMixin, serializers.ModelSeri
                 "help_text": "Whether this opportunity plausibly advances the focus goal of the brief it surfaced in."
             },
             "first_seen_brief": {"help_text": "The brief this opportunity first surfaced in, if any."},
+            "research_notebook_id": {
+                "help_text": "UUID of the solutions-research notebook produced for this opportunity, if any."
+            },
+            "research_requested_at": {
+                "help_text": "When solutions research was last requested for this opportunity. A run is in flight when this is set but no notebook has been produced yet."
+            },
         }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_research_notebook_short_id(self, obj: Opportunity) -> str | None:
+        if not obj.research_notebook_id:
+            return None
+        # Memoized per request so a list page resolves each distinct notebook id at most once; the
+        # notebook lives in a different product, so we go through its facade.
+        cache = self.context.setdefault("_notebook_short_ids", {})
+        if obj.research_notebook_id not in cache:
+            team = self.context["get_team"]()
+            cache.update(notebooks.get_notebook_short_ids_by_ids(team.id, [obj.research_notebook_id]))
+        return cache.get(obj.research_notebook_id)
 
 
 class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -194,6 +236,71 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             request=request,
         )
         return Response(self.get_serializer(updated).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpportunitySerializer,
+            400: OpenApiResponse(description="AI data processing is not approved for this organization"),
+            409: OpenApiResponse(description="A research run is already in progress for this opportunity"),
+            429: OpenApiResponse(description="The team's daily research limit has been reached"),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def research(self, request: Request, **kwargs) -> Response:
+        # Consent gate mirrors brief generation: the same org AI-data-processing approval, and the
+        # same error code the frontend matches to show the consent banner.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "AI data processing must be approved for this organization to research opportunities.",
+                code="ai_consent_required",
+            )
+        opportunity = self.get_object()
+        since = timezone.now() - timedelta(hours=24)
+        recent_runs = Opportunity.objects.for_team(self.team_id).filter(research_requested_at__gte=since).count()
+        if recent_runs >= RESEARCH_DAILY_CAP:
+            return Response(
+                {"detail": "Daily research limit reached for this team. Try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        user = cast(User, request.user)
+        temporal = sync_connect()
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    RESEARCH_OPPORTUNITY_WORKFLOW_NAME,
+                    ResearchOpportunityWorkflowInputs(
+                        team_id=self.team_id, opportunity_id=str(opportunity.id), user_id=user.id
+                    ),
+                    # Single-flight per team+opportunity: a second run while one is in flight collides.
+                    id=pulse_research_workflow_id(self.team_id, str(opportunity.id)),
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
+            )
+        except WorkflowAlreadyStartedError:
+            return Response(
+                {"detail": "Research is already in progress for this opportunity."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Set after the successful start so a 409 collision doesn't reset the in-flight run's marker
+        # or count against the daily cap twice.
+        Opportunity.objects.for_team(self.team_id).filter(pk=opportunity.pk).update(
+            research_requested_at=timezone.now()
+        )
+        opportunity.refresh_from_db()
+        report_user_action(
+            user,
+            "opportunity_research_requested",
+            {
+                "opportunity_id": str(opportunity.id),
+                "kind": opportunity.kind,
+                "status": opportunity.status,
+                "goal_relevant": opportunity.goal_relevant,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(opportunity).data, status=status.HTTP_202_ACCEPTED)
 
     def _transition(self, expected: Opportunity.Status, target: Opportunity.Status, event: str) -> Response:
         # Known v1 limitation: transitions don't sync the emitted SignalReport (and inbox triage
