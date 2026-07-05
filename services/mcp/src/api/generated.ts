@@ -48358,7 +48358,7 @@ export namespace Schemas {
     }
 
     export interface SessionRecordingBulkDeleteResponse {
-      /** True when every requested recording was deleted or not found. */
+      /** True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips. */
       success: boolean;
       /** Number of recordings that were deleted. */
       deleted_count: number;

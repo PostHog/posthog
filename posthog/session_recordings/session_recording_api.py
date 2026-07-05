@@ -559,7 +559,10 @@ class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
 
 
 class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
-    success = serializers.BooleanField(help_text="True when every requested recording was deleted or not found.")
+    success = serializers.BooleanField(
+        help_text="True when no deletion attempt failed. IDs that were not found, or that the caller lacks edit "
+        "access to, are skipped rather than failed — compare deleted_count to total_requested to detect skips."
+    )
     deleted_count = serializers.IntegerField(help_text="Number of recordings that were deleted.")
     total_requested = serializers.IntegerField(help_text="Number of session recording IDs in the request.")
     failed_ids = serializers.ListField(
