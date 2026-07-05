@@ -2904,15 +2904,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
+                // Was a filter/variable preview applied while editing? Any preview that changes tile
+                // data also writes the new filters/variables to the URL, so comparing the current URL
+                // state against the snapshot taken at edit-mode entry tells us whether the data changed.
+                // If it matches, only the tile layout was touched — the dashboard reducer restores the
+                // saved layout, and refetching every insight would just blank the whole grid for no
+                // reason. Only refetch when a preview genuinely needs reverting.
+                const snapshot = values.urlSearchParamsAtEditModeEntry
+                const currentFilters = encodeURLFilters(values.urlFilters)[SEARCH_PARAM_FILTERS_KEY]
+                const currentVariables = router.values.searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+                const previewChangedData =
+                    snapshot === null ||
+                    !equal(snapshot.filters ?? null, currentFilters ?? null) ||
+                    !equal(snapshot.variables ?? null, currentVariables ?? null)
+
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
+                actions.restoreUrlStateAtEditModeEntry(snapshot)
 
-                // reset tile data by reloading dashboard
-                actions.refreshDashboardItems({
-                    action: RefreshDashboardItemsAction.Preview,
-                    forceRefresh: false,
-                })
+                if (previewChangedData) {
+                    // reset tile data by reloading dashboard
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
 
                 // also reset layout to that we stored in dashboardLayouts
                 // this is done in the reducer for dashboard

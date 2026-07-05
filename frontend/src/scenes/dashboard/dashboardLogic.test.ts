@@ -521,6 +521,67 @@ describe('dashboardLogic', () => {
             expect(restoredTileLayouts).toEqual(originalLayouts)
         })
 
+        it('discarding a layout-only edit does not refetch tile data', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Enter layout edit mode so the pre-edit URL snapshot is captured
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            }).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const refreshSpy = jest.spyOn(logic.actions, 'refreshDashboardItems')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(refreshSpy).not.toHaveBeenCalled()
+
+            // the saved layout is still restored without the refetch
+            const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(restoredTileLayouts).toEqual(logic.values.dashboardLayouts[firstTile.id])
+
+            refreshSpy.mockRestore()
+        })
+
+        it('discarding after a filter preview still refetches tile data', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Enter layout edit mode so the pre-edit URL snapshot is captured
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            }).toFinishAllListeners()
+
+            // Previewing a global date change writes the new filter to the URL, so on discard the
+            // tile data genuinely needs reverting and a refetch is expected.
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-30d', null)
+            }).toFinishAllListeners()
+
+            const refreshSpy = jest.spyOn(logic.actions, 'refreshDashboardItems')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(refreshSpy).toHaveBeenCalled()
+
+            refreshSpy.mockRestore()
+        })
+
         describe('layoutEditMode', () => {
             it('enters edit mode without layout editing when filters change', async () => {
                 await expectLogic(logic).toFinishAllListeners()
