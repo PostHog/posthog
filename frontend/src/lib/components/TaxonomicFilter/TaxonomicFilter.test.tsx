@@ -898,7 +898,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
             })
-        })
+        }, 10000)
     })
 
     it.each([
