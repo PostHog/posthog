@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
 import {
@@ -155,6 +156,8 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             isUrgent,
         }),
         setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
+        setNow: (now: number) => ({ now }),
+        startCooldownCountdown: true,
     }),
 
     reducers({
@@ -163,6 +166,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             { persist: true },
             {
                 setNextRefreshAvailableAt: (_, { timestamp }) => timestamp,
+            },
+        ],
+        now: [
+            Date.now(),
+            {
+                setNow: (_, { now }) => now,
             },
         ],
     }),
@@ -305,9 +314,40 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 return urgentFailedChecks.length > 0
             },
         ],
+
+        refreshDisabledReason: [
+            (s) => [s.nextRefreshAvailableAt, s.now],
+            (nextRefreshAvailableAt: number | null, now: number): string | null => {
+                if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= now) {
+                    return null
+                }
+                const secondsLeft = Math.ceil((nextRefreshAvailableAt - now) / 1000)
+                return `A refresh just ran. Available again in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setNextRefreshAvailableAt: ({ timestamp }) => {
+            if (timestamp !== null && timestamp > Date.now()) {
+                actions.startCooldownCountdown()
+            }
+        },
+        startCooldownCountdown: () => {
+            // Tick `now` once a second so the button's countdown stays live, and tear the
+            // ticker down as soon as the cooldown clears. Re-adding with the same key replaces
+            // any in-flight ticker, and the plugin pauses it while the tab is hidden.
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.setNow(Date.now())
+                    const { nextRefreshAvailableAt } = values
+                    if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+                        cache.disposables.dispose('cooldownTicker')
+                    }
+                }, 1000)
+                return () => clearInterval(intervalId)
+            }, 'cooldownTicker')
+        },
         refreshHealthChecks: async ({ isManual }, breakpoint) => {
             const { overallHealthStatus } = values
             actions.reportWebAnalyticsHealthRefreshed({
@@ -408,6 +448,10 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         const { nextRefreshAvailableAt } = values
         if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
             actions.refreshHealthChecks(false)
+        } else {
+            // A cooldown from a previous visit is still ticking down; keep the button's countdown live.
+            actions.setNow(Date.now())
+            actions.startCooldownCountdown()
         }
     }),
 ])
