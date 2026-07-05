@@ -423,6 +423,9 @@ export interface BarChartConfig extends ChartConfig {
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
     bars?: BarsConfig
+    /** Fallback for {@link BarsConfig.cornerRadius} (which wins when set). Same top-level key as
+     *  the time-series/combo configs, so shared config defaults can target every bar chart. */
+    barCornerRadius?: number
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
 }

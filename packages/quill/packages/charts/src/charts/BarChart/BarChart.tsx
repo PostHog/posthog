@@ -81,7 +81,7 @@ function BarChartInner<Meta = unknown>({
         xTickFormatter,
     } = config ?? {}
     const {
-        cornerRadius: barCornerRadius = 0,
+        cornerRadius: barCornerRadius = config?.barCornerRadius ?? 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,

@@ -11,7 +11,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { buildTheme } from './utils/theme'
 
 /** Rendering options the refreshed style turns on. Applied as config *defaults* — a chart's own
- *  config always wins. All four are stable quill-charts config keys, so removing the flag later
+ *  config always wins. All five are stable quill-charts config keys, so removing the flag later
  *  means inlining these at the call sites (or flipping the library defaults), not deleting an API. */
 const REFRESHED_CONFIG_DEFAULTS = {
     curve: 'monotone',
