@@ -92,10 +92,11 @@ function ScannerFilterGroup(): JSX.Element {
 
 const EMPTY_MOMENTS_CONFIG: MomentsConfig = { events: [], before_seconds: 60, after_seconds: 60 }
 
-// At most 5 moments per session; overlapping windows are merged (mirrors backend moments.py constants).
+// Mirrors the backend's focus-event cap (moments.py MAX_MOMENT_EVENTS).
 const MAX_MOMENT_EVENTS = 10
 
 function ScannerScanScope({ isNew }: { isNew: boolean }): JSX.Element {
+    const fixedReason = isNew ? undefined : 'Scan scope is fixed after creation'
     return (
         <LemonField name="scan_scope">
             {({ value, onChange }) => (
@@ -109,19 +110,11 @@ function ScannerScanScope({ isNew }: { isNew: boolean }): JSX.Element {
                     </div>
                     <LemonSegmentedButton
                         value={value}
-                        onChange={isNew ? onChange : () => {}}
+                        onChange={onChange}
                         size="small"
                         options={[
-                            {
-                                value: 'recording',
-                                label: 'Entire recording',
-                                disabledReason: isNew ? undefined : 'Scan scope is fixed after creation',
-                            },
-                            {
-                                value: 'moments',
-                                label: 'Moments around events',
-                                disabledReason: isNew ? undefined : 'Scan scope is fixed after creation',
-                            },
+                            { value: 'recording', label: 'Entire recording', disabledReason: fixedReason },
+                            { value: 'moments', label: 'Moments around events', disabledReason: fixedReason },
                         ]}
                     />
                 </LemonCard>

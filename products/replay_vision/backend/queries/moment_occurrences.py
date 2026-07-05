@@ -23,6 +23,7 @@ MAX_OCCURRENCES_PER_SESSION = 50
 
 # On-demand observe can target any listed recording; bound the event scan to the replay retention ceiling.
 _ON_DEMAND_LOOKBACK = dt.timedelta(days=90)
+_ON_DEMAND_MAX_EXECUTION_SECONDS = 30
 
 
 def occurrence_match_expr(config: MomentsConfig, team: Team) -> ast.Expr:
@@ -77,9 +78,7 @@ def moment_occurrences_subquery(
     return cast(ast.SelectQuery, query)
 
 
-def fetch_session_moment_occurrences(
-    *, team: Team, config: MomentsConfig, session_id: str, max_execution_seconds: int = 30
-) -> list[MomentOccurrence]:
+def fetch_session_moment_occurrences(*, team: Team, config: MomentsConfig, session_id: str) -> list[MomentOccurrence]:
     """Focus-event occurrences within one session, for on-demand observe; sorted, capped like the sweep's."""
     query = parse_select(
         f"""
@@ -100,7 +99,7 @@ def fetch_session_moment_occurrences(
             query=query,
             team=team,
             query_type="ReplayVisionSessionMomentOccurrencesQuery",
-            settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
+            settings=HogQLGlobalSettings(max_execution_time=_ON_DEMAND_MAX_EXECUTION_SECONDS),
         )
     occurrences = []
     for timestamp, uuid, event in response.results or []:

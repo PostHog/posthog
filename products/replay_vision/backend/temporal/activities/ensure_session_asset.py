@@ -48,9 +48,8 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
         await ExportedAsset.objects.filter(
             team_id=inputs.team_id,
             export_format=_EXPORT_FORMAT,
-            export_context__session_recording_id=inputs.session_id,
             is_system=True,
-            **{f"export_context__{key}": value for key, value in context.items() if key != "session_recording_id"},
+            **{f"export_context__{key}": value for key, value in context.items()},
         )
         .order_by("id")
         .afirst()

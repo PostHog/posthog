@@ -132,25 +132,26 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     return None
 
 
-def _moments_config_error_message(value: Any) -> str | None:
+def _parse_moments_config(value: Any) -> MomentsConfig:
+    """Validate and parse a raw moments config, raising a field-ready ValidationError on any problem."""
     if not isinstance(value, dict):
-        return "Moments configuration must be a JSON object."
+        raise serializers.ValidationError("Moments configuration must be a JSON object.")
     # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
     unknown = set(value) - set(MomentsConfig.model_fields)
     if unknown:
-        return f"Unknown moments configuration keys: {', '.join(sorted(unknown))}."
+        raise serializers.ValidationError(f"Unknown moments configuration keys: {', '.join(sorted(unknown))}.")
     for index, item in enumerate(value.get("events") or []):
         if isinstance(item, dict):
             unknown = set(item) - set(MomentEvent.model_fields)
             if unknown:
-                return f"Unknown keys in events[{index}]: {', '.join(sorted(unknown))}."
+                raise serializers.ValidationError(f"Unknown keys in events[{index}]: {', '.join(sorted(unknown))}.")
     try:
-        MomentsConfig.model_validate(value)
+        return MomentsConfig.model_validate(value)
     except PydanticValidationError as exc:
         first = exc.errors()[0]
         location = ".".join(str(part) for part in first["loc"])
-        return f"Invalid `{location}`: {first['msg']}." if location else f"{first['msg']}."
-    return None
+        message = f"Invalid `{location}`: {first['msg']}." if location else f"{first['msg']}."
+        raise serializers.ValidationError(message)
 
 
 @extend_schema_field(MomentsConfigSerializer(allow_null=True))
@@ -350,12 +351,13 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"moments_config": "Moments configuration is required for moments-scoped scanners."}
             )
-        message = _moments_config_error_message(moments_config)
-        if message is not None:
-            raise serializers.ValidationError({"moments_config": message})
+        try:
+            parsed = _parse_moments_config(moments_config)
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"moments_config": exc.detail})
         if "moments_config" in attrs:
             # Persist the parsed dump so defaults (before/after seconds) are concrete for the snapshot and estimator.
-            attrs["moments_config"] = MomentsConfig.model_validate(moments_config).model_dump(mode="json")
+            attrs["moments_config"] = parsed.model_dump(mode="json")
 
     def _validate_scanner_config(self, attrs: dict[str, Any]) -> None:
         # Skip when neither field is touched on PATCH — the existing combination has already been validated.
@@ -591,12 +593,8 @@ class EstimateRequestSerializer(serializers.Serializer):
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
     def validate_moments_config(self, value: Any) -> Any:
-        if value is None:
-            return None
-        message = _moments_config_error_message(value)
-        if message is not None:
-            raise serializers.ValidationError(message)
-        return value
+        # Normalized dump so the view's re-parse sees concrete defaults; field validators raise with the right attr.
+        return _parse_moments_config(value).model_dump(mode="json") if value is not None else None
 
 
 class ScannerTypeStatsSerializer(serializers.Serializer):

@@ -79,8 +79,6 @@ def coalesce_moments(
     *,
     before_seconds: int,
     after_seconds: int,
-    merge_gap_seconds: int = MOMENT_MERGE_GAP_SECONDS,
-    max_clip_seconds: int = MAX_MOMENT_CLIP_SECONDS,
 ) -> list[CoalescedMoment]:
     """Merge per-occurrence windows into distinct moments; overlapping or near-adjacent windows become one clip.
 
@@ -92,17 +90,17 @@ def coalesce_moments(
         return []
     before = dt.timedelta(seconds=before_seconds)
     after = dt.timedelta(seconds=after_seconds)
-    gap = dt.timedelta(seconds=merge_gap_seconds)
-    max_clip = dt.timedelta(seconds=max_clip_seconds)
+    gap = dt.timedelta(seconds=MOMENT_MERGE_GAP_SECONDS)
+    max_clip = dt.timedelta(seconds=MAX_MOMENT_CLIP_SECONDS)
 
     ordered = sorted(occurrences, key=lambda o: (o.timestamp, o.uuid))
     moments: list[CoalescedMoment] = []
-    group: list[MomentOccurrence] = [ordered[0]]
-    group_start = ordered[0].timestamp - before
-    group_end = ordered[0].timestamp + after
+    anchor = ordered[0]
+    count = 1
+    group_start = anchor.timestamp - before
+    group_end = anchor.timestamp + after
 
     def flush() -> None:
-        anchor = group[0]
         moments.append(
             CoalescedMoment(
                 anchor_uuid=anchor.uuid,
@@ -110,7 +108,7 @@ def coalesce_moments(
                 anchor_timestamp=anchor.timestamp,
                 window_start=group_start,
                 window_end=group_end,
-                occurrence_count=len(group),
+                occurrence_count=count,
             )
         )
 
@@ -119,11 +117,12 @@ def coalesce_moments(
         window_end = occurrence.timestamp + after
         merged_end = max(group_end, window_end)
         if window_start <= group_end + gap and merged_end - group_start <= max_clip:
-            group.append(occurrence)
+            count += 1
             group_end = merged_end
         else:
             flush()
-            group = [occurrence]
+            anchor = occurrence
+            count = 1
             group_start = window_start
             group_end = window_end
     flush()
