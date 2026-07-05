@@ -846,6 +846,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         workflow_ids: list[str] = []
+        # A mid-loop failure leaves earlier moments started; deterministic ids make the client's retry dedup them.
         for moment in moments:
             workflow_id, outcome = start_apply_scanner_workflow(
                 scanner, session_id, triggered_by_user_id=user.id, moment=moment

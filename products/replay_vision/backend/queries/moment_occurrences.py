@@ -63,6 +63,7 @@ def moment_occurrences_subquery(
         )
     else:
         select = "count() AS occurrence_count"
+    # nosemgrep: hogql-fstring-audit (interpolates only module-level int constants and a literal fragment; runtime values go through placeholders)
     query = parse_select(
         f"""
         SELECT $session_id AS session_id, {select}
@@ -80,6 +81,7 @@ def moment_occurrences_subquery(
 
 def fetch_session_moment_occurrences(*, team: Team, config: MomentsConfig, session_id: str) -> list[MomentOccurrence]:
     """Focus-event occurrences within one session, for on-demand observe; sorted, capped like the sweep's."""
+    # nosemgrep: hogql-fstring-audit (interpolates only a module-level int constant; runtime values go through placeholders)
     query = parse_select(
         f"""
         SELECT timestamp, toString(uuid) AS uuid, event

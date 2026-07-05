@@ -305,6 +305,7 @@ class TestCreateObservationActivity:
 
         first = create(moment, "wf-moment-1")
         assert first.was_created is True
+        assert first.observation_id is not None
         observation = ReplayObservation.objects.get(id=first.observation_id)
         assert observation.moment_key == moment.anchor_uuid
         assert observation.moment_event_name == "checkout_error"

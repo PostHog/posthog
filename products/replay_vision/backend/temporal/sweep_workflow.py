@@ -19,6 +19,7 @@ with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.moments import CoalescedMoment
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
     count_in_flight_applies_activity,
@@ -151,7 +152,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     async def _start_child(self, inputs: SweepScannerInputs, candidate: CandidateSessionPayload) -> None:
         # A moments-scoped candidate fans out one child per moment; recording scope is one child per session.
-        for moment in candidate.moments or [None]:
+        moments: list[CoalescedMoment | None] = [*candidate.moments] if candidate.moments else [None]
+        for moment in moments:
             try:
                 await wf.start_child_workflow(
                     APPLY_SCANNER_WORKFLOW_NAME,

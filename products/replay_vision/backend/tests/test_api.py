@@ -428,6 +428,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(body["scan_scope"], "moments")
         # Persisted normalized so the snapshot and estimator read concrete bounds, not implied defaults.
         scanner = ReplayScanner.objects.get(pk=body["id"])
+        assert scanner.moments_config is not None
         self.assertEqual(scanner.moments_config["before_seconds"], 60)
         self.assertEqual(scanner.moments_config["after_seconds"], 60)
         self.assertEqual(scanner.moments_config["events"], [{"event": "checkout_error", "properties": []}])
