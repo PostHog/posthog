@@ -78,6 +78,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -1156,7 +1157,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
             ),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if result.external_id:
             workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1177,7 +1178,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
+                message_id=str(workflow.uuid4()),
             ),
             start_to_close_timeout=timedelta(minutes=35),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # See process_task: heartbeat detects worker restarts, message_id
+            # makes redelivery idempotent, sentinel failures are non-retryable.
+            heartbeat_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
         )

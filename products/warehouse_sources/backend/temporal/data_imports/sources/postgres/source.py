@@ -612,7 +612,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -870,7 +870,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -930,7 +930,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             PostHogDatabaseConnectionError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
         # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises

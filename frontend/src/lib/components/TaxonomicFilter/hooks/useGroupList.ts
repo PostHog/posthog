@@ -34,6 +34,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -73,6 +74,12 @@ export interface UseGroupListInput {
     autoSelectItem?: boolean
     /** When true, the list initialises with index=0; otherwise index=NO_ITEM_SELECTED. */
     selectFirstItem?: boolean
+    /** Set only when this is the filter's sole substantive group (no separate Recent/Pinned
+     *  tabs lead the filter). Floats these recent (most-recent first) then pinned items to
+     *  the top of the un-searched list. Mirrors legacy infiniteListLogic's `soleGroupValueKeyer`
+     *  path. */
+    promoteRecentItemsToTop?: TaxonomicDefinitionTypes[]
+    promotePinnedItemsToTop?: TaxonomicDefinitionTypes[]
 }
 
 export interface UseGroupListResult {
@@ -122,6 +129,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
@@ -354,8 +363,29 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (remoteItems.results.length > 0) {
             merged.push(...remoteItems.results)
         }
+        // Sole substantive group: float its own recent/pinned items to the top of the
+        // un-searched list (keyword shortcuts only appear while searching, so they're
+        // never displaced). Mirrors legacy infiniteListLogic's `soleGroupValueKeyer` path.
+        if (!trimmedSearch && (promoteRecentItemsToTop?.length || promotePinnedItemsToTop?.length)) {
+            const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                groupItemKey(group.type, group.getValue?.(item) ?? null)
+            return floatRecentAndPinnedToTop(
+                merged,
+                keyOf,
+                promoteRecentItemsToTop || [],
+                promotePinnedItemsToTop || []
+            ) as TaxonomicDefinitionTypes[]
+        }
         return merged
-    }, [keywordShortcuts, localItems, remoteItems])
+    }, [
+        keywordShortcuts,
+        localItems,
+        remoteItems,
+        trimmedSearch,
+        promoteRecentItemsToTop,
+        promotePinnedItemsToTop,
+        group,
+    ])
 
     const isExpandable = !!(
         group.endpoint &&

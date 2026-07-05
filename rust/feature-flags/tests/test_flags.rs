@@ -6199,6 +6199,7 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
             false,
             Some(CohortType::Realtime),
             None, // no backfill timestamp
+            None, // no events backfill timestamp
         )
         .await
         .unwrap();

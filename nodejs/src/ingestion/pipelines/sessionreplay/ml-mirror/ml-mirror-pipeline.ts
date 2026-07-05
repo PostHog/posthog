@@ -17,7 +17,9 @@ import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymi
 import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
+import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
 export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
     /** Shared, immutable scrub context (allow lists + tunables). */
@@ -39,6 +41,7 @@ export function createMlMirrorReplayPipeline(
         overflowEnabled,
         promiseScheduler,
         teamService,
+        retentionService,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -60,10 +63,18 @@ export function createMlMirrorReplayPipeline(
                                 preservePartitionLocality: true,
                             })
                         )
+                        .pipe(createValidateSessionReplayHeadersStep())
                         .pipe(createTeamFilterStep(teamService))
                         // Mirror only data from orgs that opted into AI training.
                         .pipe(createAiTrainingOptInFilterStep())
                 )
+                // Resolve retention up front (before parse), keyed on the (validated) session_id
+                // header; drop unresolvable sessions.
+                .gather()
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
                 .filterMap(
                     (element) => ({
                         result: element.result,
